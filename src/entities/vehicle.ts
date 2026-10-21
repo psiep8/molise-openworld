@@ -236,6 +236,15 @@ export class Vehicle {
     return Math.round(speedKmh(this.state.speed));
   }
 
+  /** Marcia inserita: -1 retromarcia. */
+  get gear(): number {
+    return this.state.gear;
+  }
+
+  get rpm(): number {
+    return this.state.rpm;
+  }
+
   get position(): THREE.Vector3 {
     return this.group.position;
   }

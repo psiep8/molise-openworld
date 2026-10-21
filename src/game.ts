@@ -28,7 +28,7 @@ import {
   sunAtLocalTime,
   type WeatherPreset,
 } from './environment/sun-clock';
-import { VEHICLES, getVehicle, loadVehicleId, saveVehicleId } from './sim/vehicle-catalog';
+import { VEHICLES, getVehicle, loadVehicleId, saveVehicleId, vehicleLabel } from './sim/vehicle-catalog';
 import { Player, type MoveInput } from './entities/player';
 import { Vehicle } from './entities/vehicle';
 import { Hud, type Mode } from './ui/hud';
@@ -231,6 +231,7 @@ export class Game {
 
       this.car.setSpec(getVehicle(loadVehicleId()));
       this.hud.setVehicleName(this.car.spec.name);
+      this.hud.setVehicleSpec(vehicleLabel(this.car.spec));
 
       this.hud.setLoading(0.72, 'Alzo il cielo…');
       await nextFrame();
@@ -433,6 +434,7 @@ export class Game {
       this.car.reset(x, z, yaw, this.heights);
     }
     this.hud.setVehicleName(spec.name);
+    this.hud.setVehicleSpec(vehicleLabel(spec));
     this.syncSettingsControls();
     this.hud.toast(`Veicolo: ${spec.name} · ${spec.blurb}`, 2800);
   }
@@ -1242,6 +1244,7 @@ export class Game {
     this.hud.setPosition(ll.lat, ll.lon, elev, this.fps);
     this.hud.setMode(this.mode);
     this.hud.setSpeed(this.mode === 'drive' ? this.car.kmh : 0);
+    this.hud.setGear(this.car.gear, this.car.rpm);
 
     let nearest: { name: string; d: number } | null = null;
     for (const v of VILLAGES) {

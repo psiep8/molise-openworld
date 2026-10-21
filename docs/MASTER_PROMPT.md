@@ -399,7 +399,8 @@ Legenda: ✅ implementato · 🟡 parziale · ⬜ non iniziato
 | Meteo reale | ✅ | Open-Meteo, refresh 10 min, sole NOAA locale, fallback offline |
 | Pioggia / neve | ✅ | Particelle riutilizzate, foschia e strada bagnata |
 | Fari notturni | ✅ | Due spot sul veicolo, lampade emissive |
-| Veicoli | ✅ | 9 tipologie procedurali con parametri propri (`src/sim/vehicle-catalog.ts`) |
+| Veicoli | ✅ | 9 veicoli procedurali con dati di fabbrica reali per motore, coppia, 0-100 e velocità massima (`src/sim/vehicle-catalog.ts`, fonti in `docs/VEHICLE_DATA.md`) |
+| Cambio e freni | ✅ | Cambio automatico 5/6 marce con strappo e kickdown, curva coppia/potenza, pattinamento in partenza, frenata 8,8–10,2 m/s², retromarcia; HUD con marcia e giri |
 | Garage / personalizzazione | 🟡 | Selezione veicolo e colore di fabbrica; niente editor completo |
 | Personaggio | 🟡 | Rig procedurale con ossa, 3 clip base + 2 additive; niente volto configurabile |
 | Entrata/uscita auto | ✅ | Tasto `F`, punto di discesa validato sui muri |

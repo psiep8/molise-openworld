@@ -327,6 +327,40 @@ kbd {
   color: rgba(240, 163, 94, 0.85);
 }
 
+#gearbox {
+  position: absolute;
+  top: 24px;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-variant-numeric: tabular-nums;
+}
+
+#gear-value {
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--accent);
+}
+
+#rpm-value {
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.vehicle-spec {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  line-height: 1.45;
+  color: rgba(244, 239, 230, 0.7);
+  background: rgba(255, 255, 255, 0.035);
+}
+
 #crosshair {
   position: absolute;
   top: 50%;

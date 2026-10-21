@@ -18,7 +18,7 @@
 - **Terreno 3D** a chunk (912 m) con DEM a 10 m, texture satellite fino a zoom 18 (~0,45 m/px) vicino al giocatore e normal map ricavata dal rilievo.
 - **Meteo reale opzionale** (`P` → interruttore): condizioni attuali, nuvole, pioggia/neve e **sole alla posizione e ora vere**, con alba/tramonto del giorno. Aggiornamento ogni 10 minuti, fallback al pomeriggio fisso se lo spegni.
 - **Ora del giorno manuale** (`P` → slider 0–24): alba, mezzogiorno, tramonto e notte, con preset meteo sereno/nuvoloso/pioggia/neve/nebbia. Strada bagnata e fari si accendono da soli quando il sole scende.
-- **Nove veicoli procedurali** (`P` → Veicolo, oppure `B` per cambiarli al volo): Panda vecchia e nuova, Punto, Renegade, tre ruote, 500X, Captur, C3, Junior. Ognuno ha ingombri, passo, raggio ruota e parametri di guida propri.
+- **Nove veicoli procedurali** (`P` → Veicolo, oppure `B` per cambiarli al volo): Panda vecchia e nuova, Punto, Renegade, tre ruote, 500X, Captur, C3, Junior. Ognuno ha ingombri, passo, raggio ruota e **prestazioni reali** della versione rappresentata: cilindrata, potenza, coppia, 0-100 e velocità massima vengono dalle schede tecniche (vedi `docs/VEHICLE_DATA.md`), non da stime a occhio.
 - **Stereo affiancato** (`Y`): due viewport con camere separate di 6,5 cm, per visori o visione incrociata.
 - **Erba a istanze** intorno al giocatore, con densità legata al preset grafico e rispetto di strade ed edifici.
 - **Personaggio con scheletro**: rig umanoide a 21 ossa, clip idle/camminata/corsa e due clip additive (salto e caduta) sommate alla camminata.
@@ -28,7 +28,7 @@
 - **Boschi e uliveti** con alberi instanziati in modo deterministico (stesso seed → stesso paesaggio).
 - **Acqua**: torrenti e specchi d'acqua.
 - **Camminata** in prima/terza persona con collisioni contro gli edifici, corsa, salto.
-- **Auto arcade** con fisica su pendenza, off-road più lento, freno a mano, assetto a 4 punti di contatto. Nove modelli, dalla Panda al tre ruote.
+- **Guida simulata**: cambio automatico a 5 o 6 marce con strappo e kickdown, curva di coppia/potenza del motore vero, aderenza che limita la partenza (pattinamento), freni da 9–10 m/s², retromarcia inserita col freno, pendenza, off-road più lento e freno a mano. HUD con marcia e giri motore.
 - **Itinerario scegliendo dalla mappa** (`M`, poi click): percorso più breve sulla rete stradale OSM, distanza e tempi stimati a piedi e in auto, linea in mappa e colonna luminosa sulla destinazione. `X` annulla.
 - **Minimappa** e **mappa grande** dei cinque comuni, con strade, boschi e toponimi.
 - **HUD** in italiano: velocità, coordinate, quota, fps, suggerimenti contestuali.
@@ -161,8 +161,8 @@ src/
     player.ts          controller a piedi + rig animato (mixer, clip additive)
     vehicle.ts         veicoli procedurali dal catalogo + assetto sul terreno
   sim/
-    car.ts             fisica arcade pura (testabile, tuning per veicolo)
-    vehicle-catalog.ts nove veicoli: dimensioni, colori, parametri
+    car.ts             fisica pura e testabile: motore, cambio, freni, aderenza
+    vehicle-catalog.ts nove veicoli con dati reali (docs/VEHICLE_DATA.md)
     routing.ts         grafo stradale + A* per l'itinerario scelto sulla mappa
   ui/
     hud.ts             HUD, impostazioni e schermate

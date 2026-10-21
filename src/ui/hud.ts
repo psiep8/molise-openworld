@@ -11,6 +11,9 @@ export class Hud {
   private readonly modePill = $('mode-pill');
   private readonly speedo = $('speedo');
   private readonly speedValue = $('speed-value');
+  private readonly gearValue = $('gear-value');
+  private readonly rpmValue = $('rpm-value');
+  private readonly vehicleSpec = $('vehicle-spec');
   private readonly objective = $('objective');
   private readonly routePanel = $('route-panel');
   private readonly routeText = $('route-text');
@@ -54,6 +57,17 @@ export class Hud {
 
   setSpeed(kmh: number): void {
     if (this.speedValue) this.speedValue.textContent = String(kmh);
+  }
+
+  /** Marcia inserita (-1 = retromarcia) e regime motore, per il contagiri. */
+  setGear(gear: number, rpm: number): void {
+    if (this.gearValue) this.gearValue.textContent = gear < 0 ? 'R' : String(gear);
+    if (this.rpmValue) this.rpmValue.textContent = `${Math.round(rpm / 10) * 10} rpm`;
+  }
+
+  /** Dati meccanici del veicolo selezionato (motore, potenza, velocità reale). */
+  setVehicleSpec(text: string): void {
+    if (this.vehicleSpec) this.vehicleSpec.textContent = text;
   }
 
   setObjective(text: string | null): void {
