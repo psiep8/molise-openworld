@@ -17,6 +17,10 @@ export class Hud {
   private readonly minimapLabel = $('minimap-label');
   private readonly positionReadout = $('position-readout');
   private readonly mapOverlay = $('map-overlay');
+  private readonly settings = $('settings');
+  private readonly weatherToggle = $('toggle-real-weather') as HTMLInputElement | null;
+  private readonly weatherStatus = $('weather-status');
+  private readonly weatherRefresh = $('btn-weather-refresh') as HTMLButtonElement | null;
   private readonly fatal = $('fatal');
   private readonly fatalText = $('fatal-text');
   private toastTimer: number | undefined;
@@ -94,6 +98,28 @@ export class Hud {
 
   get mapVisible(): boolean {
     return !this.mapOverlay?.classList.contains('hidden');
+  }
+
+  showSettings(show: boolean): void {
+    this.settings?.classList.toggle('hidden', !show);
+  }
+
+  get settingsVisible(): boolean {
+    return !this.settings?.classList.contains('hidden');
+  }
+
+  setRealWeather(enabled: boolean): void {
+    if (this.weatherToggle) this.weatherToggle.checked = enabled;
+  }
+
+  setWeatherStatus(text: string): void {
+    if (this.weatherStatus) this.weatherStatus.textContent = text;
+  }
+
+  setWeatherBusy(busy: boolean): void {
+    if (!this.weatherRefresh) return;
+    this.weatherRefresh.disabled = busy;
+    this.weatherRefresh.textContent = busy ? 'Aggiorno…' : 'Aggiorna ora';
   }
 
   showFatal(message: string): void {

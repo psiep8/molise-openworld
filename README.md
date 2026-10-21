@@ -15,6 +15,7 @@
 
 - **Casa base: Palata.** Il gioco parte dal centro del paese e la mappa segna Palata come "casa".
 - **Terreno 3D** a chunk (912 m) con DEM a 10 m, texture satellite fino a zoom 18 (~0,45 m/px) vicino al giocatore e normal map ricavata dal rilievo.
+- **Meteo reale opzionale** (`P` → interruttore): condizioni attuali, nuvole, pioggia/neve e **sole alla posizione e ora vere**, con alba/tramonto del giorno. Aggiornamento ogni 10 minuti, fallback al pomeriggio fisso se lo spegni.
 - **Radar satellite reale** in minimappa e mappa grande, con strade OSM evidenziate sopra la foto aerea (`V` per passare alla mappa vettoriale).
 - **Strade** ricostruite da OpenStreetMap e drappeggiate sul rilievo (asfalto e sterrati, larghezze per tipo).
 - **Paesi** con edifici estrusi dalle impronte OSM, tetti in laterizio, altezze stimate o da tag.
@@ -43,6 +44,13 @@ DEM Terrarium, tag OSM) e su come renderli credibili in un motore proprio.
   per tone mapping/color space corretti; si spegne da solo sui preset più leggeri.
 - **Texture procedurali.** Asfalto, sterrato, intonaco e coppi sono generati a runtime
   (niente asset esterni) e aggiungono grana e giunti alle superfici viste da vicino.
+- **Meteo e sole veri.** Con `Meteo reale` attivo il gioco legge le condizioni attuali da
+  Open-Meteo (open source, senza chiave) e calcola il sole in locale con la formula NOAA:
+  elevazione e azimut cambiano con l'ora e con il punto in cui ti trovi, quindi alba e
+  tramonto sono quelli del giorno. La copertura nuvolosa diventa una cupola procedurale,
+  la pioggia/neve particelle intorno alla camera, la foschia cambia con visibilità e
+  precipitazioni. Il dato si aggiorna ogni 10 minuti; se la rete manca resta attivo il
+  sole reale e l'ultimo meteo disponibile.
 - **Audio procedurale.** Motore, rotolamento, vento, passi e uccelli sintetizzati con
   WebAudio, senza file audio; parte al primo click e si spegne con `N`.
 - **Qualità scalabile.** Preset bassa/media/alta/ultra scelti in automatico, con
@@ -95,6 +103,7 @@ npm run geo -- --skip-osm
 | `V` | radar satellite / mappa | radar satellite / mappa |
 | `G` | qualità grafica (bassa/media/alta/ultra) | qualità grafica |
 | `N` | audio on/off | audio on/off |
+| `P` | impostazioni (meteo reale) | impostazioni |
 | `H` | mostra/nascondi aiuto | — |
 | `R` | riporta in strada | riporta in strada |
 | mouse | guarda intorno (click per bloccare il puntatore) | orbita la telecamera |
@@ -105,7 +114,7 @@ URL utili: `?autostart=walk` e `?autostart=drive` saltano il menu (usati dallo s
 ## Verifica
 
 ```bash
-npm test          # 33 test: proiezione, DEM, OSM, fisica auto
+npm test          # 42 test: proiezione, DEM, OSM, fisica auto, sole e meteo
 npm run build     # typecheck + build di produzione
 npm run preview   # serve dist/ su :4173
 npm run smoke     # Chrome headless: carica, guida, cammina, controlla il PNG
@@ -130,6 +139,9 @@ src/
     buildings.ts       estrusione edifici + tetti
     vegetation.ts      alberi instanziati nei boschi
     surface-textures.ts texture procedurali (asfalto, sterrato, intonaco, coppi)
+    weather.ts         meteo Open-Meteo, posizione reale del sole, auto-refresh
+    clouds.ts          cupola di nuvole procedurali guidata dalla copertura
+    precipitation.ts   pioggia e neve sintetiche intorno alla camera
     sky.ts             cielo, sole, ombre
   entities/
     player.ts          controller a piedi + avatar animato
@@ -137,7 +149,7 @@ src/
   sim/
     car.ts             fisica arcade pura (testabile)
   ui/
-    hud.ts             HUD e schermate
+    hud.ts             HUD, impostazioni e schermate
     minimap.ts         minimappa + mappa grande (radar satellite o vettoriale)
     satellite.ts       cache tile Esri e mosaico z14 per la mappa grande
   gfx/
@@ -156,6 +168,8 @@ scripts/
 - **OpenStreetMap** — strade, edifici, aree, toponimi: © OpenStreetMap contributors, licenza **ODbL 1.0**. `public/geo/osm.json` è un'opera derivata: se lo ridistribuisci, resta ODbL.
 - **AWS Terrain Tiles (Terrarium)** — DEM SRTM/Copernicus/NASADEM: dati aperti, vedi [registry.opendata.aws/terrain-tiles](https://registry.opendata.aws/terrain-tiles/).
 - **Esri World Imagery** — immagini satellite: © Esri, Maxar, Earthstar Geographics. Usate qui per una demo non commerciale con attribuzione. **Per una pubblicazione** usa un provider con licenza esplicita (MapTiler, Mapbox, Bing, o tile self-hosted) cambiando `ESRI_WORLD_IMAGERY` in `src/world/imagery.ts`.
+- **Meteo** — Open-Meteo, dati CC BY 4.0, senza chiave API. Usato solo se attivi
+  "Meteo reale"; il sole è calcolato in locale e non dipende dal servizio.
 - **Codice** — MIT (vedi `LICENSE`).
 
 GTA è un marchio dei rispettivi proprietari. Questo progetto non è affiliato né approvato da Rockstar Games e non contiene materiale del gioco.

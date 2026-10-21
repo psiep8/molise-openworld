@@ -23,7 +23,10 @@
             <small>Palata (CB) · dati aperti</small>
           </div>
         </div>
-        <div id="mode-pill" class="pill">A piedi</div>
+        <div class="top-right">
+          <button id="btn-settings" class="icon-btn" type="button" aria-label="Impostazioni" title="Impostazioni (P)">⚙</button>
+          <div id="mode-pill" class="pill">A piedi</div>
+        </div>
       </div>
 
       <div id="minimap-wrap">
@@ -52,6 +55,7 @@
         <div class="help-row"><kbd>V</kbd><span>radar satellite / mappa</span></div>
         <div class="help-row"><kbd>G</kbd><span>qualità grafica</span></div>
         <div class="help-row"><kbd>N</kbd><span>audio on/off</span></div>
+        <div class="help-row"><kbd>P</kbd><span>impostazioni e meteo</span></div>
         <div class="help-row"><kbd>H</kbd><span>nascondi aiuto</span></div>
       </div>
 
@@ -71,6 +75,47 @@
       </div>
     </div>
 
+    <div id="settings" class="hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="settings-card">
+        <header class="settings-head">
+          <div>
+            <h2 id="settings-title">Impostazioni</h2>
+            <p>Mondo, atmosfera e audio</p>
+          </div>
+          <button id="btn-settings-close" class="icon-btn" type="button" aria-label="Chiudi impostazioni">×</button>
+        </header>
+
+        <div class="setting-row">
+          <div class="setting-copy">
+            <strong>Meteo reale</strong>
+            <small>
+              Usa meteo, alba/tramonto e posizione del sole di adesso a Palata. Aggiornamento automatico
+              ogni 10 minuti.
+            </small>
+          </div>
+          <label class="switch" aria-label="Attiva meteo reale">
+            <input type="checkbox" id="toggle-real-weather" />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div id="weather-status" class="weather-status">
+          Meteo reale disattivato: il mondo usa il pomeriggio fisso del gioco.
+        </div>
+
+        <div class="settings-actions">
+          <button id="btn-weather-refresh" class="text-btn" type="button">Aggiorna ora</button>
+          <span class="settings-hint">Sole calcolato in locale · meteo da Open-Meteo</span>
+        </div>
+
+        <p class="settings-note">
+          Con il meteo reale attivo il sole sorge e tramonta all'ora vera della posizione in cui ti trovi;
+          se la rete manca, il sole reale resta attivo e il meteo usa l'ultimo dato disponibile.
+          Dati meteo: <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a> (CC BY 4.0).
+        </p>
+      </div>
+    </div>
+
     <div id="start">
       <div class="start-card">
         <p class="eyebrow">Progetto open source · Molise</p>
@@ -78,8 +123,8 @@
         <p class="lede">
           Casa base: <strong>Palata</strong>. Da lì cammina e guida tra <strong>Montecilfone</strong>,
           <strong>Acquaviva Collecroce</strong>, <strong>Tavenna</strong> e <strong>Castelmauro</strong>,
-          con foto aeree reali ad alta definizione, rilievo DEM, radar che segue la strada
-          e audio procedurale (motore, passi, vento, uccelli).
+          con foto aeree reali ad alta definizione, rilievo DEM, radar che segue la strada,
+          audio procedurale (motore, passi, vento, uccelli) e meteo reale opzionale.
           Un esperimento in stile open-world costruito <em>da zero</em> su mappe e dati aperti:
           nessun asset di videogiochi commerciali.
         </p>

@@ -112,6 +112,31 @@ rumore filtrato, motore con due oscillatori saw e lowpass, passi con burst di ru
 filtrati, uccelli con chirp sinusoidali. Il contesto parte solo al primo gesto utente
 (click sul pulsante di avvio), segue velocità e modalità, e si silenzia con `N`.
 
-## 12. Perché niente GTA V
+## 12. Meteo reale e sole
+
+`src/world/weather.ts` tiene insieme due cose che funzionano anche separatamente:
+
+- **Sole reale.** `sunPosition(date, lat, lon)` implementa la formula NOAA semplificata
+  (longitudine media, anomalia, obliquità, ascensione retta, angolo orario) e restituisce
+  elevazione e azimut da nord. Il gioco converte l'azimut nel sistema di Three.js
+  (`theta = 180 - azimut`) e aggiorna la direzione del sole in `SkyRig`, quindi la luce
+  e le ombre seguono l'ora vera del punto in cui si trova il giocatore. Funziona offline.
+- **Meteo.** `fetchWeather` chiama Open-Meteo (`/v1/forecast`, `current` + `daily`),
+  servizio open source senza chiave e con CORS. `RealWeather` gestisce auto-refresh ogni
+  10 minuti, timeout di 9 s, abort delle richieste precedenti e retry dopo 2 minuti in
+  caso di errore. Se la rete manca, `snapshot` resta l'ultimo dato (o `defaultWeather()`)
+  e il sole reale continua a funzionare.
+
+`Game.applyWeatherVisuals` traduce il dato in atmosfera: copertura nuvolosa → cupola
+procedurale (`clouds.ts`) e turbidity/rayleigh del cielo; precipitazione e temperatura →
+pioggia o neve (`precipitation.ts`); visibilità/nebbia → `Fog.near/far`; elevazione del
+sole → colore e intensità della luce, luce lunare di riempimento, esposizione. Il pannello
+`P` salva la scelta in `localStorage` (`molise.realWeather`) e mostra condizioni, alba e
+tramonto. Spegnendo lo switch si ripristinano cielo, luci e nebbia di default.
+
+I test in `tests/weather.test.ts` verificano la posizione del sole a equinozio, giugno e
+dicembre a Palata e la traduzione dei codici WMO.
+
+## 13. Perché niente GTA V
 
 Il progetto prende ispirazione dal *tipo* di esperienza (open world, guida, esplorazione), non dai contenuti. Non c'è reverse engineering di binari o asset Rockstar: il "reverse engineering" qui è quello dei **formati geografici aperti** (tile mercator, DEM Terrarium, tag OSM), reimplementati in un motore proprio. È la strada legale e, per una mappa del proprio paese, anche la più interessante: i dati della tua zona sono già lì.

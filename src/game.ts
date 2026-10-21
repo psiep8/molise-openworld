@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GAME, HOME, START, VIEW_RADIUS, VILLAGES, WORLD, latLonToWorld, worldToLatLon } from './config';
-import { clamp, distance2 } from './geo/geo';
+import { clamp, distance2, smoothstep } from './geo/geo';
 import { loadHeightfield, type Heightfield } from './geo/elevation';
 import { BuildingIndex, loadOsm, RoadIndex, type OsmData } from './geo/osm';
 import { ESRI_WORLD_IMAGERY, ImageryStreamer } from './world/imagery';
@@ -8,7 +8,10 @@ import { Terrain } from './world/terrain';
 import { buildBuildings } from './world/buildings';
 import { buildRoads, buildWater } from './world/roads';
 import { buildVegetation } from './world/vegetation';
-import { createSky, type SkyRig } from './world/sky';
+import { DEFAULT_LIGHTING, DEFAULT_SKY, DEFAULT_SUN, createSky, type SkyRig } from './world/sky';
+import { CloudLayer } from './world/clouds';
+import { Precipitation } from './world/precipitation';
+import { RealWeather, defaultWeather, isFogCode, sunPosition, weatherLabel } from './world/weather';
 import { Player, type MoveInput } from './entities/player';
 import { Vehicle } from './entities/vehicle';
 import { Hud, type Mode } from './ui/hud';
@@ -47,6 +50,13 @@ export interface Diagnostics {
   tileErrors: number;
   quality: QualityLevel;
   renderScale: number;
+  weather: {
+    enabled: boolean;
+    loading: boolean;
+    code: number | null;
+    cloudCover: number | null;
+    error: string | null;
+  } | null;
   errors: string[];
 }
 
@@ -62,6 +72,7 @@ export class Game {
   private readonly player = new Player();
   private readonly car = new Vehicle();
   private readonly audio = new GameAudio();
+  private readonly realWeather = new RealWeather();
 
   private heights!: Heightfield;
   private osm!: OsmData;
@@ -93,6 +104,14 @@ export class Game {
   private post?: PostPipeline;
   private renderScale = 1;
   private lastQualityCheck = 0;
+  private clouds!: CloudLayer;
+  private precipitation!: Precipitation;
+  private realWeatherEnabled = false;
+  private settingsVisible = false;
+  private readonly fogColor = new THREE.Color();
+  private readonly tintA = new THREE.Color();
+  private readonly tintB = new THREE.Color();
+  private readonly sunTint = new THREE.Color();
   readonly errors: string[] = [];
 
   private readonly tmp1 = new THREE.Vector3();
@@ -123,6 +142,8 @@ export class Game {
     this.scene.add(this.player.avatar);
     this.scene.add(this.car.group);
     this.player.avatar.visible = false;
+
+    this.realWeather.onChange = () => this.updateWeatherStatus();
 
     this.qualityLevel = loadQuality();
     this.quality = QUALITY_PRESETS[this.qualityLevel];
@@ -165,6 +186,10 @@ export class Game {
       this.hud.setLoading(0.72, 'Alzo il cielo…');
       await nextFrame();
       this.sky = createSky(this.scene);
+      this.clouds = new CloudLayer();
+      this.scene.add(this.clouds.mesh);
+      this.precipitation = new Precipitation();
+      this.scene.add(this.precipitation.group);
 
       const imagery = new ImageryStreamer(ESRI_WORLD_IMAGERY, this.renderer.capabilities.getMaxAnisotropy(), () => {
         this.tileErrors++;
@@ -180,6 +205,12 @@ export class Game {
       this.map.onUpdate = () => {
         if (this.running && this.hud.mapVisible) this.drawBigMap();
       };
+
+      const realWeather = this.readRealWeatherPref();
+      this.hud.setRealWeather(realWeather);
+      this.updateWeatherStatus();
+      if (realWeather) this.setRealWeather(true, false);
+
       this.hud.setLoading(0.97, 'Quasi pronto…');
       await nextFrame();
       this.hud.hideLoading();
@@ -243,6 +274,187 @@ export class Game {
   private bindUi(): void {
     document.getElementById('btn-walk')?.addEventListener('click', () => this.start('walk'));
     document.getElementById('btn-drive')?.addEventListener('click', () => this.start('drive'));
+    document.getElementById('btn-settings')?.addEventListener('click', () => this.showSettings(!this.settingsVisible));
+    document.getElementById('btn-settings-close')?.addEventListener('click', () => this.showSettings(false));
+    document.getElementById('btn-weather-refresh')?.addEventListener('click', () => this.refreshWeather());
+    const weatherToggle = document.getElementById('toggle-real-weather') as HTMLInputElement | null;
+    weatherToggle?.addEventListener('change', () => this.setRealWeather(weatherToggle.checked));
+  }
+
+  // -------------------------------------------------------------------------
+  // impostazioni / meteo reale
+  // -------------------------------------------------------------------------
+  private readRealWeatherPref(): boolean {
+    try {
+      return window.localStorage.getItem('molise.realWeather') === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  private showSettings(show: boolean): void {
+    if (!this.loaded) return;
+    this.settingsVisible = show;
+    this.hud.showSettings(show);
+    if (show) {
+      this.keys.clear();
+      if (document.pointerLockElement) document.exitPointerLock();
+      this.updateWeatherStatus();
+    }
+  }
+
+  private setRealWeather(enabled: boolean, announce = true): void {
+    this.realWeatherEnabled = enabled;
+    this.hud.setRealWeather(enabled);
+    try {
+      window.localStorage.setItem('molise.realWeather', enabled ? '1' : '0');
+    } catch {
+      // localStorage può essere disabilitato
+    }
+
+    if (enabled) {
+      const ll = worldToLatLon(this.player.position.x, this.player.position.z);
+      this.realWeather.enable(ll.lat, ll.lon);
+      if (announce) this.hud.toast('Meteo reale attivo · sole e condizioni aggiornati', 3200);
+    } else {
+      this.realWeather.disable();
+      this.restoreDefaultAtmosphere();
+      if (announce) this.hud.toast('Meteo reale disattivato · torna il pomeriggio del gioco');
+    }
+    this.updateWeatherStatus();
+  }
+
+  private refreshWeather(): void {
+    if (!this.realWeatherEnabled) {
+      this.setRealWeather(true);
+      return;
+    }
+    const ll = worldToLatLon(this.player.position.x, this.player.position.z);
+    this.realWeather.setLocation(ll.lat, ll.lon);
+    void this.realWeather.refresh(true);
+    this.updateWeatherStatus();
+  }
+
+  private updateWeatherStatus(): void {
+    if (!this.realWeatherEnabled) {
+      this.hud.setWeatherStatus('Meteo reale disattivato: il mondo usa il pomeriggio fisso del gioco.');
+      this.hud.setWeatherBusy(false);
+      return;
+    }
+
+    const w = this.realWeather.snapshot;
+    let text: string;
+    if (!w) {
+      text = this.realWeather.loading
+        ? 'Recupero il meteo reale di Palata…'
+        : `Meteo non disponibile (${this.realWeather.error ?? 'rete assente'}). Il sole reale resta attivo.`;
+    } else {
+      const parts = [
+        weatherLabel(w.code),
+        `${Math.round(w.temperature)} °C`,
+        `vento ${Math.round(w.windSpeed)} km/h`,
+        `nuvole ${Math.round(w.cloudCover)}%`,
+      ];
+      if (w.sunrise && w.sunset) parts.push(`alba ${w.sunrise} · tramonto ${w.sunset}`);
+      text = parts.join(' · ');
+      if (this.realWeather.loading) text += ' · aggiornamento…';
+      else if (this.realWeather.error) text += ` · offline (${this.realWeather.error}), ultimo dato`;
+    }
+    this.hud.setWeatherStatus(text);
+    this.hud.setWeatherBusy(this.realWeather.loading);
+  }
+
+  /** Riporta cielo, luci e nebbia al pomeriggio fisso del gioco. */
+  private restoreDefaultAtmosphere(): void {
+    if (!this.sky) return;
+    this.sky.setSun(DEFAULT_SUN.elevation, DEFAULT_SUN.theta);
+    this.sky.setSkyParams(DEFAULT_SKY);
+    this.sky.setLighting(DEFAULT_LIGHTING);
+    this.renderer.toneMappingExposure = 0.92;
+    this.scene.fog = new THREE.Fog(0xccd8dd, 1100, 4200);
+    this.scene.background = new THREE.Color(0xccd8dd);
+    this.clouds?.setVisible(false);
+    this.precipitation?.clear();
+  }
+
+  /** Applica sole reale e condizioni meteo al cielo, alle luci e alle particelle. */
+  private applyWeatherVisuals(dt: number, focus: THREE.Vector3): void {
+    const ll = worldToLatLon(focus.x, focus.z);
+    // la posizione aggiornata serve al prossimo refresh automatico
+    this.realWeather.setLocation(ll.lat, ll.lon);
+    const sun = sunPosition(new Date(), ll.lat, ll.lon);
+    const w = this.realWeather.snapshot ?? defaultWeather();
+    const day = smoothstep(-6, 8, sun.elevation);
+    const cloud = clamp(w.cloudCover / 100, 0, 1);
+    const foggy = isFogCode(w.code);
+    const wet = w.precipitation > 0.02 || w.snowfall > 0.02;
+    const snowing = wet && w.temperature <= 1.5;
+    const snow = snowing ? clamp(0.3 + w.snowfall * 0.5, 0.3, 1) : 0;
+    const rain = wet && !snowing ? clamp(0.2 + w.precipitation * 0.35, 0.2, 1) : 0;
+    const cover = Math.max(cloud, wet ? 0.55 : 0);
+    const horizon = 1 - smoothstep(2, 22, sun.elevation);
+
+    this.sky.setSun(sun.elevation, 180 - sun.azimuth);
+    this.sky.setSkyParams({
+      turbidity: 2 + cloud * 9 + (rain + snow) * 5,
+      rayleigh: Math.max(0.6, 1.6 - cloud * 0.6 + horizon * 1.1),
+      mieCoefficient: 0.003 + cloud * 0.015 + (rain + snow) * 0.008,
+      mieDirectionalG: 0.82,
+    });
+
+    this.sunTint.setHex(0xfff2db).lerp(this.tintA.setHex(0xffa968), horizon * 0.85);
+    this.sunTint.lerp(this.tintB.setHex(0xcdd8e2), cloud * 0.7);
+    const sunIntensity =
+      Math.max(0, Math.sin(THREE.MathUtils.degToRad(Math.max(0, sun.elevation)))) *
+      3.4 *
+      (1 - 0.7 * cloud) *
+      (1 - 0.55 * (rain + snow));
+
+    this.sky.setLighting({
+      sunColor: this.sunTint.getHex(),
+      sunIntensity,
+      hemiSky: day < 0.2 ? 0x263a58 : cloud > 0.5 ? 0xb2bcc4 : 0xa8c8ee,
+      hemiGround: day < 0.2 ? 0x0d1218 : 0x63583f,
+      hemiIntensity: 0.2 + 0.55 * day + 0.2 * cloud,
+      ambientIntensity: 0.08 + 0.14 * day + 0.06 * cloud,
+      moonIntensity: sun.elevation < 0 ? 0.4 : 0,
+    });
+
+    let fogNear = 1000 + (1 - cloud) * 500;
+    let fogFar = 3000 + (1 - cloud) * 1600;
+    if (foggy) {
+      fogNear = 18;
+      fogFar = 480;
+    } else if (snow > 0) {
+      fogNear = 120;
+      fogFar = 1200;
+    } else if (rain > 0) {
+      fogNear = 260;
+      fogFar = 2000;
+    }
+    if (day < 0.5) {
+      fogNear *= 0.7;
+      fogFar *= 0.7;
+    }
+
+    this.fogColor.setHex(0x0a131e).lerp(this.tintA.setHex(0xc9d6dd), day);
+    this.fogColor.lerp(this.tintB.setHex(0xe6bd92), horizon * day * 0.35);
+    this.fogColor.lerp(this.tintA.setHex(0x9aa7ae), cloud * 0.35 * day);
+    if (foggy) this.fogColor.lerp(this.tintA.setHex(0xb9c2c6), 0.5 * day);
+
+    if (this.scene.fog instanceof THREE.Fog) {
+      this.scene.fog.color.copy(this.fogColor);
+      this.scene.fog.near = fogNear;
+      this.scene.fog.far = fogFar;
+    }
+    this.scene.background = this.fogColor;
+    this.renderer.toneMappingExposure = 0.92 - (1 - day) * 0.12 + cloud * 0.02;
+
+    const windRad = THREE.MathUtils.degToRad(w.windDirection);
+    const windX = -Math.sin(windRad) * w.windSpeed * 0.08;
+    const windZ = -Math.cos(windRad) * w.windSpeed * 0.08;
+    this.clouds.update(dt, this.camera, { coverage: cover, windX, windZ, sunElevation: sun.elevation });
+    this.precipitation.update(dt, this.camera, { rain, snow, windX, windZ });
   }
 
   // -------------------------------------------------------------------------
@@ -301,6 +513,14 @@ export class Game {
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
+    if (this.settingsVisible) {
+      if (!e.repeat && (e.code === 'KeyP' || e.code === 'Escape')) {
+        e.preventDefault();
+        this.showSettings(false);
+      }
+      return;
+    }
+
     if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
       if (this.running) e.preventDefault();
     }
@@ -336,6 +556,9 @@ export class Game {
         this.hud.toast(muted ? 'Audio disattivato' : 'Audio attivo');
         break;
       }
+      case 'KeyP':
+        this.showSettings(true);
+        break;
       case 'KeyH':
         this.hud.toggleHelp();
         break;
@@ -343,6 +566,10 @@ export class Game {
         this.respawnOnRoad();
         break;
       case 'Escape':
+        if (this.hud.mapVisible) {
+          this.hud.showMap(false);
+          break;
+        }
         this.hud.toast('Mouse libero — clicca sul mondo per continuare');
         break;
       default:
@@ -525,6 +752,7 @@ export class Game {
   }
 
   private update(dt: number): void {
+    this.realWeather.update();
     const move = this.readMoveInput();
 
     if (this.mode === 'walk') {
@@ -540,6 +768,7 @@ export class Game {
     const focus = this.mode === 'walk' ? this.player.position : this.car.position;
     this.terrain.update(focus.x, focus.z, VIEW_RADIUS);
     this.terrain.tick();
+    if (this.realWeatherEnabled) this.applyWeatherVisuals(dt, focus);
     this.updateSky(focus);
 
     const moveSpeed =
@@ -715,6 +944,15 @@ export class Game {
       tileErrors: this.tileErrors,
       quality: this.qualityLevel,
       renderScale: this.renderScale,
+      weather: this.realWeatherEnabled
+        ? {
+            enabled: true,
+            loading: this.realWeather.loading,
+            code: this.realWeather.snapshot?.code ?? null,
+            cloudCover: this.realWeather.snapshot?.cloudCover ?? null,
+            error: this.realWeather.error,
+          }
+        : null,
       errors: this.errors,
     };
   }

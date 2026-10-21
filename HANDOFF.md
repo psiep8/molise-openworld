@@ -40,6 +40,7 @@ Stack: TypeScript + Vite + Three.js (WebGL2), Vitest, nessun framework UI.
 | Edifici | ✅ base | estrusione + tetto piatto con sporto + intonaco/coppi procedurali |
 | Vegetazione | ✅ base | alberi instanziati deterministici, max 7000 |
 | Acqua | ✅ base | nastri torrenti + poligoni laghi |
+| Meteo reale | ✅ nuovo | Open-Meteo + sole NOAA, cupola nuvole, pioggia/neve, switch in impostazioni |
 | Radar / mappa | ✅ | satellite Esri z17 + overlay OSM, mosaico z14 per mappa grande |
 | Post-processing | ✅ nuovo | bloom + SMAA + OutputPass, disattivabile |
 | Qualità | ✅ nuovo | preset low/medium/high/ultra + resolution scaling adattivo |
@@ -49,8 +50,10 @@ Stack: TypeScript + Vite + Three.js (WebGL2), Vitest, nessun framework UI.
 | Cache tile offline | ❌ | solo cache HTTP del browser |
 | Smoke test | ⚠️ | script aggiornato ma **non ancora eseguito** sulle ultime modifiche |
 
-Ultime verifiche fatte su questa macchina: `npm test` 33/33 ✅,
-`npm run build` ✅, controllo statico dello spawn auto/giocatore sui dati reali ✅.
+Ultime verifiche fatte su questa macchina: `npm test` 42/42 ✅ (inclusi i test
+astronomici sul sole), `npm run build` ✅, controllo statico dello spawn
+auto/giocatore sui dati reali ✅. Endpoint Open-Meteo verificato con una chiamata
+diretta (campi `current` e `daily` coerenti con il parser).
 Lo smoke e2e è stato rimandato su richiesta: dipende dal download delle tile e la
 rete di questa macchina è instabile/bloccata (DNS).
 
@@ -65,7 +68,7 @@ npm ci                 # installa le dipendenze (package-lock committato)
 npm run dev            # http://127.0.0.1:5173
 npm run build          # tsc --noEmit + vite build
 npm run preview        # serve dist/ su http://127.0.0.1:4173
-npm test               # 33 test puri (geo, DEM, OSM, fisica auto)
+npm test               # 42 test puri (geo, DEM, OSM, fisica auto, sole)
 npm run smoke          # e2e Chrome headless; richiede `npm run preview` attivo
 npm run geo            # riscarica OSM + DEM (rete! attenzione ai DNS)
 npm run geo -- --skip-dem
@@ -93,6 +96,7 @@ URL utili:
 | `V` | radar satellite / vettoriale | idem |
 | `G` | cicla qualità grafica | idem |
 | `N` | audio on/off | idem |
+| `P` | impostazioni / meteo reale | idem |
 | `H` | mostra/nascondi aiuto | — |
 | `R` | riporta in strada | riporta in strada |
 
@@ -118,6 +122,9 @@ src/
     vegetation.ts        alberi instanziati deterministici
     sky.ts               Sky + sole/ombre/nebbia
     surface-textures.ts  asfalto, sterrato, intonaco, coppi (canvas)
+    weather.ts           meteo Open-Meteo, sole NOAA, auto-refresh 10 min
+    clouds.ts            cupola nuvole procedurale (alpha map + deriva vento)
+    precipitation.ts     pioggia a linee e neve a punti intorno alla camera
   entities/
     player.ts            controller a piedi + avatar
     vehicle.ts           auto procedurale + assetto 4 punti
@@ -185,7 +192,8 @@ In console, ogni frame:
 ```js
 window.__molise
 // { ready, running, mode, chunks, textured, detailed, fps, x, z, speed, keys,
-//   tileErrors, quality, renderScale, errors }
+//   tileErrors, quality, renderScale, weather, errors }
+// weather = null oppure { enabled, loading, code, cloudCover, error }
 ```
 
 - `chunks` = chunk terreno attivi; `textured` = con texture; `detailed` = z17+.
@@ -214,6 +222,9 @@ Screenshot smoke: `smoke/shot.png` (ignorato da git). Il profilo Chrome è in
 - **Nessun asset Rockstar/GTA**: vietato importare modelli, texture, audio o codice
   del gioco. Il progetto è indipendente e non affiliato.
 - **Audio**: parte solo dopo un gesto utente; non creare `AudioContext` all'avvio.
+- **Meteo**: il sole deve restare reale anche senza rete (calcolo locale). Non rendere
+  il boot dipendente da Open-Meteo e non introdurre chiavi API: il servizio è no-key.
+  Rispetta la licenza CC BY 4.0 e l'attribuzione nel pannello/README.
 - **Post-processing**: non assumere che sia attivo; testa anche il percorso diretto.
 - **Mobile**: non è ancora ottimizzato; i preset `low` sono il punto di partenza.
 
@@ -247,11 +258,13 @@ Screenshot smoke: `smoke/shot.png` (ignorato da git). Il profilo Chrome è in
 - **Atmosfera**: ombre più lunghe all'alba/tramonto, god rays semplici (screen-space),
   esposizione adattiva.
 
-### P2 — Mondi vivi
+### P2 — Mondi vivi e meteo
 
 - Traffico e pedoni su percorsi OSM (solo strade paved, spawn fuori vista).
-- Audio: clacson, ghiaia, uccelli per bioma, riverbero in piazza.
-- Meteo leggero (foschia/pioggia) con shader e suoni.
+- Meteo: fulmini/tuoni per i codici 95–99, accumulo neve a terra, pozzanghere,
+  previsione oraria (Open-Meteo `hourly`) per far cambiare il tempo durante la sessione.
+- Cache dell'ultimo meteo in `localStorage` per partire offline con l'ultimo dato.
+- Audio: clacson, ghiaia, uccelli per bioma, riverbero in piazza, pioggia/vento legati al meteo.
 
 ### P3 — Robustezza / distribuzione
 
@@ -293,7 +306,10 @@ Poi:
 2. verifica `window.__molise.ready === true` e `errors` vuoto;
 3. controlla `textured`/`detailed` e `tileErrors` dopo ~10 s;
 4. fai un giro a piedi a Palata e uno in auto verso Montecilfone;
-5. esegui `npm run smoke` con `npm run preview` attivo;
-6. aggiorna questo handoff con data, commit, esito test e nuove priorità.
+5. premi `P`, attiva **Meteo reale**: verifica che il sole corrisponda all'ora e che
+   nuvole/pioggia cambino; controlla `window.__molise.weather` e l'attribuzione
+   Open-Meteo nel pannello;
+6. esegui `npm run smoke` con `npm run preview` attivo;
+7. aggiorna questo handoff con data, commit, esito test e nuove priorità.
 
 Buon lavoro. La cosa più importante: **il posto deve sembrare vero**.

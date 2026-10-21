@@ -539,6 +539,221 @@ kbd {
   color: rgba(244, 239, 230, 0.6) !important;
 }
 
+/* ---------------------------------------------------------- impostazioni */
+.top-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: rgba(244, 239, 230, 0.86);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+  backdrop-filter: blur(10px);
+  transition: background 0.18s ease, transform 0.18s ease;
+}
+
+.icon-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  transform: translateY(-1px);
+}
+
+#settings {
+  position: fixed;
+  inset: 0;
+  z-index: 28;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(60% 50% at 50% 40%, rgba(24, 38, 44, 0.5), transparent 70%),
+    rgba(4, 8, 10, 0.72);
+  backdrop-filter: blur(9px);
+}
+
+.settings-card {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 24px 26px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(12, 18, 22, 0.95);
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.5);
+  animation: rise 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.settings-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-head h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.settings-head p {
+  margin: 6px 0 0;
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 22px;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.setting-copy strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.setting-copy small {
+  display: block;
+  max-width: 42ch;
+  margin-top: 5px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 48px;
+  height: 28px;
+  cursor: pointer;
+}
+
+.switch input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.switch .slider {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  pointer-events: none;
+  transition: background 0.18s ease;
+}
+
+.switch .slider::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #f4efe6;
+  transition: transform 0.18s ease, background 0.18s ease;
+}
+
+.switch input:checked + .slider {
+  border-color: transparent;
+  background: linear-gradient(135deg, #f2ab6c, #dc6a43);
+}
+
+.switch input:checked + .slider::after {
+  transform: translateX(20px);
+  background: #24140b;
+}
+
+.switch input:focus-visible + .slider {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.weather-status {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.045);
+  font-size: 12px;
+  line-height: 1.55;
+  color: rgba(244, 239, 230, 0.82);
+}
+
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.text-btn {
+  pointer-events: auto;
+  padding: 9px 14px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.18s ease, opacity 0.18s ease;
+}
+
+.text-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.text-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.settings-hint {
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.settings-note {
+  margin: 18px 0 0;
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: rgba(244, 239, 230, 0.48);
+}
+
+.settings-note a {
+  color: var(--accent);
+}
+
 /* ----------------------------------------------------------------- fatal */
 #fatal {
   position: fixed;
@@ -620,5 +835,13 @@ kbd {
     left: 12px;
     right: 12px;
     bottom: 12px;
+  }
+
+  #settings {
+    padding: 12px;
+  }
+
+  .settings-card {
+    padding: 20px;
   }
 }

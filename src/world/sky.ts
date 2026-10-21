@@ -1,6 +1,24 @@
 import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
 
+export interface SkyParams {
+  turbidity: number;
+  rayleigh: number;
+  mieCoefficient: number;
+  mieDirectionalG: number;
+}
+
+export interface LightingParams {
+  sunColor: number;
+  sunIntensity: number;
+  hemiSky: number;
+  hemiGround: number;
+  hemiIntensity: number;
+  ambientIntensity: number;
+  /** luce lunare di riempimento, per non avere notti completamente nere */
+  moonIntensity: number;
+}
+
 export interface SkyRig {
   sunLight: THREE.DirectionalLight;
   sunDirection: THREE.Vector3;
@@ -8,28 +26,54 @@ export interface SkyRig {
   dome: THREE.Mesh;
   update(target: THREE.Vector3): void;
   setShadowMapSize(size: number): void;
+  /** elevation in gradi sopra l'orizzonte, theta nel sistema Three.js (0 = sud, 90 = est). */
+  setSun(elevationDeg: number, thetaDeg: number): void;
+  setSkyParams(params: Partial<SkyParams>): void;
+  setLighting(params: Partial<LightingParams>): void;
 }
 
-/** Pomeriggio molisano: sole non troppo basso, luce calda, ombre leggibili. */
-export function createSky(scene: THREE.Scene, elevation = 27, azimuth = 238): SkyRig {
+/** Pomeriggio molisano di default: sole non troppo basso, luce calda, ombre leggibili. */
+export const DEFAULT_SUN = { elevation: 27, theta: 238 } as const;
+export const DEFAULT_SKY: SkyParams = {
+  turbidity: 5,
+  rayleigh: 1.6,
+  mieCoefficient: 0.004,
+  mieDirectionalG: 0.82,
+};
+export const DEFAULT_LIGHTING: LightingParams = {
+  sunColor: 0xffeed2,
+  sunIntensity: 2.9,
+  hemiSky: 0xa8c8ee,
+  hemiGround: 0x63583f,
+  hemiIntensity: 0.75,
+  ambientIntensity: 0.22,
+  moonIntensity: 0,
+};
+
+export function createSky(scene: THREE.Scene): SkyRig {
   const sky = new Sky();
   sky.scale.setScalar(7000);
   sky.frustumCulled = false;
-  const uniforms = sky.material.uniforms;
-  uniforms.turbidity.value = 5;
-  uniforms.rayleigh.value = 1.6;
-  uniforms.mieCoefficient.value = 0.004;
-  uniforms.mieDirectionalG.value = 0.82;
+  const material = sky.material as THREE.ShaderMaterial;
+  const uniforms = material.uniforms;
+  uniforms.turbidity.value = DEFAULT_SKY.turbidity;
+  uniforms.rayleigh.value = DEFAULT_SKY.rayleigh;
+  uniforms.mieCoefficient.value = DEFAULT_SKY.mieCoefficient;
+  uniforms.mieDirectionalG.value = DEFAULT_SKY.mieDirectionalG;
 
-  const sunDirection = new THREE.Vector3().setFromSphericalCoords(
-    1,
-    THREE.MathUtils.degToRad(90 - elevation),
-    THREE.MathUtils.degToRad(azimuth),
-  );
-  uniforms.sunPosition.value.copy(sunDirection);
+  const sunDirection = new THREE.Vector3();
+  const setSun = (elevationDeg: number, thetaDeg: number): void => {
+    sunDirection.setFromSphericalCoords(
+      1,
+      THREE.MathUtils.degToRad(90 - elevationDeg),
+      THREE.MathUtils.degToRad(thetaDeg),
+    );
+    uniforms.sunPosition.value.copy(sunDirection);
+  };
+  setSun(DEFAULT_SUN.elevation, DEFAULT_SUN.theta);
   scene.add(sky);
 
-  const sunLight = new THREE.DirectionalLight(0xffeed2, 2.9);
+  const sunLight = new THREE.DirectionalLight(DEFAULT_LIGHTING.sunColor, DEFAULT_LIGHTING.sunIntensity);
   sunLight.castShadow = true;
   sunLight.shadow.mapSize.set(2048, 2048);
   sunLight.shadow.camera.left = -300;
@@ -43,16 +87,27 @@ export function createSky(scene: THREE.Scene, elevation = 27, azimuth = 238): Sk
   scene.add(sunLight);
   scene.add(sunLight.target);
 
-  const hemi = new THREE.HemisphereLight(0xa8c8ee, 0x63583f, 0.75);
+  const hemi = new THREE.HemisphereLight(DEFAULT_LIGHTING.hemiSky, DEFAULT_LIGHTING.hemiGround, DEFAULT_LIGHTING.hemiIntensity);
   scene.add(hemi);
-  const ambient = new THREE.AmbientLight(0xffffff, 0.22);
+  const ambient = new THREE.AmbientLight(0xffffff, DEFAULT_LIGHTING.ambientIntensity);
   scene.add(ambient);
+
+  const moonLight = new THREE.DirectionalLight(0x93add2, 0);
+  moonLight.castShadow = false;
+  scene.add(moonLight);
+  scene.add(moonLight.target);
 
   const update = (target: THREE.Vector3): void => {
     sunLight.target.position.copy(target);
     sunLight.position.copy(target).addScaledVector(sunDirection, 800);
     sunLight.target.updateMatrixWorld();
     sunLight.updateMatrixWorld();
+
+    // la luna sta dalla parte opposta al sole
+    moonLight.target.position.copy(target);
+    moonLight.position.copy(target).addScaledVector(sunDirection, -800);
+    moonLight.target.updateMatrixWorld();
+    moonLight.updateMatrixWorld();
   };
 
   const setShadowMapSize = (size: number): void => {
@@ -61,5 +116,22 @@ export function createSky(scene: THREE.Scene, elevation = 27, azimuth = 238): Sk
     sunLight.shadow.map = null;
   };
 
-  return { sunLight, sunDirection, dome: sky, update, setShadowMapSize };
+  const setSkyParams = (params: Partial<SkyParams>): void => {
+    if (params.turbidity !== undefined) uniforms.turbidity.value = params.turbidity;
+    if (params.rayleigh !== undefined) uniforms.rayleigh.value = params.rayleigh;
+    if (params.mieCoefficient !== undefined) uniforms.mieCoefficient.value = params.mieCoefficient;
+    if (params.mieDirectionalG !== undefined) uniforms.mieDirectionalG.value = params.mieDirectionalG;
+  };
+
+  const setLighting = (params: Partial<LightingParams>): void => {
+    if (params.sunColor !== undefined) sunLight.color.setHex(params.sunColor);
+    if (params.sunIntensity !== undefined) sunLight.intensity = params.sunIntensity;
+    if (params.hemiSky !== undefined) hemi.color.setHex(params.hemiSky);
+    if (params.hemiGround !== undefined) hemi.groundColor.setHex(params.hemiGround);
+    if (params.hemiIntensity !== undefined) hemi.intensity = params.hemiIntensity;
+    if (params.ambientIntensity !== undefined) ambient.intensity = params.ambientIntensity;
+    if (params.moonIntensity !== undefined) moonLight.intensity = params.moonIntensity;
+  };
+
+  return { sunLight, sunDirection, dome: sky, update, setShadowMapSize, setSun, setSkyParams, setLighting };
 }
