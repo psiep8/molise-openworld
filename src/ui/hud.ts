@@ -1,5 +1,8 @@
 export type Mode = 'walk' | 'drive';
 
+// @ts-ignore
+import { Wallet, getTransactionHistory } from './sim/economy';
+
 const $ = <T extends HTMLElement>(id: string): T | null => document.getElementById(id) as T | null;
 
 export class Hud {
@@ -24,6 +27,9 @@ export class Hud {
   private readonly minimapLabel = $('minimap-label');
   private readonly positionReadout = $('position-readout');
   private readonly mapOverlay = $('map-overlay');
+  private readonly balanceCash = $('balance-cash');
+  private readonly balanceTotal = $('balance-total');
+  private readonly transactionList = $('transaction-list');
   private readonly settings = $('settings');
   private readonly weatherToggle = $('toggle-real-weather') as HTMLInputElement | null;
   private readonly weatherStatus = $('weather-status');
@@ -170,6 +176,20 @@ export class Hud {
   setVehicleName(name: string): void {
     const el = document.getElementById('car-name');
     if (el) el.textContent = name;
+  }
+
+  setBalance(wallet: Wallet): void {
+    if (this.balanceCash) this.balanceCash.textContent = `${(wallet.cash / 100).toFixed(2).replace('.', ',')} €`;
+    if (this.balanceTotal) this.balanceTotal.textContent = `${( (wallet.cash + wallet.balance) / 100).toFixed(2).replace('.', ',')} €`;
+    if (this.transactionList) {
+      this.transactionList.innerHTML = '';
+      const history = getTransactionHistory(wallet);
+      for (const t of history.slice(0, 10)) {
+        const li = document.createElement('li');
+        li.textContent = `${t.timestamp > 0 ? new Date(t.timestamp).toLocaleTimeString() : ''} · ${t.amount < 0 ? '-' : '+'} ${Math.abs(t.amount) / 100} € - ${t.description}`;
+        this.transactionList.append(li);
+      }
+    }
   }
 
   setWeatherStatus(text: string): void {

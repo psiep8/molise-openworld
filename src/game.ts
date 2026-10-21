@@ -59,6 +59,7 @@ import {
 import { findNearestProperty, loadProperty, saveProperty, type Property } from './world/property';
 import { Vehicle } from './entities/vehicle';
 import { Hud, type Mode } from './ui/hud';
+import { purchase as _purchase, deposit as _deposit, withdraw as _withdraw, getBalanceSummary as _getBalanceSummary, getTransactionHistory as _getTransactionHistory, type Transaction as _Transaction } from './sim/economy';
 import { MapRenderer } from './ui/minimap';
 import type { CarInput } from './sim/car';
 import { buildRoadGraph, planRoute, type RoadGraph, type RouteResult } from './sim/routing';
@@ -145,6 +146,8 @@ export class Game {
   private loaded = false;
   private running = false;
   private keys = new Set<string>();
+  // economia virtuale SOLO DENARO DI GIOCO - see sim/economy.ts for the full wallet system
+// private initialWallet = createInitialWallet(); // commented out until fully integrated
   private pointerLocked = false;
   private thirdPerson = false;
   private camYawOffset = 0;
