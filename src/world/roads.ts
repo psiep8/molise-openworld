@@ -3,7 +3,7 @@ import { COLORS } from '../config';
 import { pbr, waterNormals } from '../gfx/textures';
 import { registerScroll } from '../gfx/wind';
 import type { Heightfield } from '../geo/elevation';
-import { hashInt, type Pt } from '../geo/geo';
+import { clamp, hashInt, type Pt } from '../geo/geo';
 import type { OsmData, RoadIndex } from '../geo/osm';
 
 interface RibbonArrays {
@@ -31,6 +31,43 @@ export function resample(points: Pt[], step: number): Pt[] {
       out.push({ x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t });
     }
   }
+  return out;
+}
+
+/**
+ * Smussa gli angoli secchi di una polilinea (versione mirata di Chaikin):
+ * solo dove la curva gira più di `thresholdDeg`, il vertice diventa due punti
+ * a 35% della lunghezza dei lati. Le strade OSM hanno spesso svolte a 90°
+ * disegnate con un vertice solo, che nei nastri diventa una cuspide.
+ */
+export function roundCorners(points: Pt[], thresholdDeg = 22): Pt[] {
+  if (points.length < 3) return points.slice();
+  const out: Pt[] = [points[0]];
+  for (let i = 1; i < points.length - 1; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    const c = points[i + 1];
+    const ux = b.x - a.x;
+    const uz = b.z - a.z;
+    const vx = c.x - b.x;
+    const vz = c.z - b.z;
+    const lu = Math.hypot(ux, uz);
+    const lv = Math.hypot(vx, vz);
+    if (lu < 1e-3 || lv < 1e-3) {
+      out.push(b);
+      continue;
+    }
+    const cosine = clamp((ux * vx + uz * vz) / (lu * lv), -1, 1);
+    const turn = (Math.acos(cosine) * 180) / Math.PI;
+    if (turn < thresholdDeg) {
+      out.push(b);
+      continue;
+    }
+    const cut = Math.min(lu, lv) * 0.35;
+    out.push({ x: b.x - (ux / lu) * cut, z: b.z - (uz / lu) * cut });
+    out.push({ x: b.x + (vx / lv) * cut, z: b.z + (vz / lv) * cut });
+  }
+  out.push(points[points.length - 1]);
   return out;
 }
 
@@ -154,7 +191,8 @@ export function buildRoads(
   const pavementColor = new THREE.Color(0xc8c3ba);
 
   osm.roads.forEach((road, idx) => {
-    const pts = resample(road.points, road.paved ? 7 : 6);
+    // angoli smussati prima di drappeggiare: le cuspidi nei nastri si vedono
+    const pts = roundCorners(resample(road.points, road.paved ? 7 : 6), road.paved ? 24 : 30);
     const isDirt = !road.paved;
     const target = isDirt ? dirt : asphalt;
     const base = isDirt ? dirtColor : asphaltColor;
@@ -260,7 +298,7 @@ export function buildWater(osm: OsmData, heights: Heightfield, renderer: THREE.W
 
   for (const w of osm.waterways) {
     const width = w.type === 'river' ? 5 : w.type === 'canal' ? 3.2 : 2.2;
-    pushRibbon(ribbons, resample(w.points, 8), width, 0.08, waterColor, heights, 1);
+    pushRibbon(ribbons, roundCorners(resample(w.points, 8), 30), width, 0.08, waterColor, heights, 1);
   }
 
   const streamNormals = waterNormals(renderer, 2, 2);

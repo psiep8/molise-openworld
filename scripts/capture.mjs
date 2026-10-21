@@ -3,6 +3,7 @@
  * Cattura screenshot dal gioco con Chrome headless + CDP, senza dipendenze extra.
  *
  *   node scripts/capture.mjs --out captures/after --quality high
+ *   node scripts/capture.mjs --out captures/after --quality high --hour 15
  *   node scripts/capture.mjs --out captures/before --quality medium --url http://127.0.0.1:4180
  *
  * Fa due scatti riproducibili:
@@ -37,6 +38,8 @@ const QUALITY = arg('quality', 'high');
 const WIDTH = Number(arg('width', 1280));
 const HEIGHT = Number(arg('height', 800));
 const DISTANCE = Number(arg('distance', 60));
+/** Se indicata (0…24), blocca l'ora del gioco: le catture sono confrontabili a ogni run. */
+const HOUR = arg('hour', '');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log('[capture]', ...a);
@@ -169,6 +172,16 @@ async function main() {
     }
     if (!diag?.ready) throw new Error('il mondo non è diventato ready');
     log(`ready: preset=${diag.quality} scala=${diag.renderScale} chunk=${diag.chunks} texture=${diag.textured}`);
+
+    // ora fissa: il sole predefinito segue l'orologio reale, quindi senza questo
+    // due catture a distanza di ore non sono confrontabili
+    if (HOUR !== '') {
+      const hour = Number(HOUR);
+      if (!Number.isFinite(hour) || hour < 0 || hour > 24) throw new Error(`--hour non valido: ${HOUR}`);
+      await evalJs(`window.moliseGame.setManualTime(true); window.moliseGame.setManualHour(${hour}); true`);
+      await sleep(2500);
+      log(`ora fissa ${hour.toFixed(1)}`);
+    }
 
     // la CPU software impiega secondi a caricare le tile: aspetta che il vicino sia dettagliato
     for (let i = 0; i < 40 && diag.detailed < 2; i++) {
