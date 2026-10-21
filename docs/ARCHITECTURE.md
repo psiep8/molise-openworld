@@ -25,10 +25,12 @@ Perché pre-processare? Il browser non deve decodificare 110 PNG Terrarium all'a
 Il mondo è diviso in chunk da 912 m (`CHUNK_SIZE`), circa 2 tile z16.
 
 - Geometria: `PlaneGeometry` 72×72 segmenti, ogni vertice campionato sul DEM. I bordi combaciano perché tutti i chunk usano lo stesso sampler.
-- Texture: `ImageryStreamer` compone le tile del provider in una canvas che copre esattamente l'area del chunk. Zoom 16 (≈1.8 m/px) lontano, zoom 17 (≈0.9 m/px) entro `DETAIL_RADIUS`. Se una tile manca, resta il verde di fallback.
+- Texture: `ImageryStreamer` compone le tile del provider in una canvas che copre esattamente l'area del chunk. Lo zoom dipende dalla distanza: z18 (≈0.45 m/px) entro 520 m, z17 entro 1.5 km, z16 entro 2.6 km, z15 (≈3.5 m/px) per l'orizzonte. Se una tile manca, resta il verde di fallback.
+- Dettaglio progressivo: quando il giocatore si avvicina, il chunk non viene ricostruito; `Terrain.tick` richiede la texture a zoom più alto e la sostituisce, liberando la precedente. Al massimo 5 caricamenti texture sono in volo insieme.
+- Normal map: `buildNormalMap` campiona il DEM 128×128 per chunk e scrive una normal map in spazio tangente. Il rilievo fine (crinali, fossi, muretti) resta visibile anche se la mesh ha un passo di ~9.5 m.
 - Streaming: `Terrain.update` calcola i chunk nel raggio di 3.1 km ordinati per distanza, ne costruisce 2 per frame e libera quelli fuori raggio.
 
-Le texture sono possedute dal chunk: quando il chunk esce, viene fatto `dispose()`. Il browser HTTP cache evita riscarichi se si torna indietro.
+Le texture e le normal map sono possedute dal chunk: quando il chunk esce, viene fatto `dispose()`. Il browser HTTP cache evita riscarichi se si torna indietro.
 
 ## 4. Strade
 
@@ -78,7 +80,12 @@ Camera in guida: chase camera con lerp, orbita col mouse e zoom con la rotella.
 
 ## 9. Mappa
 
-`MapRenderer` pre-calcola una mappa statica 1600 px (aree, edifici, strade) una sola volta. La mappa grande disegna quell'immagine + marker live; la minimappa ridisegna solo le strade visibili nei 780 m intorno al giocatore, con nord in alto.
+`MapRenderer` ha due livelli:
+
+- **radar satellite** (predefinito): `SatelliteTiles` scarica e mette in cache le tile Esri z17 intorno al giocatore e le disegna nella minimappa; `SatelliteBasemap` compone un mosaico z14 dell'intera area per la mappa grande. Sopra la foto restano le strade OSM (in crema) e i toponimi, con Palata marcata come "casa".
+- **mappa vettoriale**: la mappa statica 1600 px (aree, edifici, strade) pre-calcolata una sola volta, usata come fallback offline e con il tasto `V`.
+
+La minimappa ridisegna solo ciò che cade nei 780 m intorno al giocatore, con nord in alto; la mappa grande mostra l'intera valle con i marker live.
 
 ## 10. Perché niente GTA V
 
