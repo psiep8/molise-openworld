@@ -48,8 +48,8 @@ export class PostPipeline {
   }
 
   setSize(width: number, height: number): void {
+    // EffectComposer applica già il pixel ratio a tutte le pass, bloom compreso.
     this.composer.setSize(width, height);
-    this.bloom.setSize(width, height);
   }
 
   render(delta = 0): void {
