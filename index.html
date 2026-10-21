@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#0b1218" />
+    <title>Molise Open World — Palata &amp; dintorni</title>
+    <meta
+      name="description"
+      content="Demo open-world libera: cammina e guida tra Palata, Montecilfone, Acquaviva Collecroce, Tavenna e Castelmauro, costruita su dati geografici aperti."
+    />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+  </head>
+  <body>
+    <canvas id="scene" aria-label="Mondo 3D del Molise"></canvas>
+
+    <div id="hud" class="hidden">
+      <div id="topbar">
+        <div class="brand">
+          <span class="brand-mark">M</span>
+          <div>
+            <strong>MOLISE OPEN WORLD</strong>
+            <small>Palata (CB) · dati aperti</small>
+          </div>
+        </div>
+        <div id="mode-pill" class="pill">A piedi</div>
+      </div>
+
+      <div id="minimap-wrap">
+        <canvas id="minimap" width="440" height="440"></canvas>
+        <div id="minimap-label">Palata · casa</div>
+        <div id="compass"><span>N</span></div>
+      </div>
+
+      <div id="speedo" class="hidden">
+        <div class="speedo-ring">
+          <span id="speed-value">0</span>
+          <small>km/h</small>
+        </div>
+        <div id="car-name">Fiat Panda 4x4</div>
+      </div>
+
+      <div id="objective" class="pill">Premi <kbd>F</kbd> per entrare in auto</div>
+
+      <div id="help">
+        <div class="help-row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>muoviti / guida</span></div>
+        <div class="help-row"><kbd>Shift</kbd><span>corsa / spinta</span></div>
+        <div class="help-row"><kbd>Spazio</kbd><span>salta / freno a mano</span></div>
+        <div class="help-row"><kbd>F</kbd><span>entra o esci dall'auto</span></div>
+        <div class="help-row"><kbd>C</kbd><span>cambia visuale</span></div>
+        <div class="help-row"><kbd>M</kbd><span>mappa grande</span></div>
+        <div class="help-row"><kbd>V</kbd><span>radar satellite / mappa</span></div>
+        <div class="help-row"><kbd>H</kbd><span>nascondi aiuto</span></div>
+      </div>
+
+      <div id="crosshair" class="hidden"></div>
+      <div id="toast" class="hidden"></div>
+      <div id="position-readout">41.8905 N · 14.7854 E</div>
+      <div id="attribution">© OpenStreetMap contributors · Radar e immagini © Esri / Maxar</div>
+    </div>
+
+    <div id="map-overlay" class="hidden">
+      <canvas id="bigmap"></canvas>
+      <div class="map-legend">
+        <strong>Mappa dei 5 comuni · Palata è casa</strong>
+        <span>Palata · Montecilfone · Acquaviva Collecroce · Tavenna · Castelmauro</span>
+        <small>Radar satellite: Esri World Imagery · Strade e edifici: OpenStreetMap (ODbL) · Rilievo: AWS Terrain Tiles (SRTM/Copernicus) · <kbd>V</kbd> cambia stile</small>
+        <span class="map-close">Premi <kbd>M</kbd> per chiudere</span>
+      </div>
+    </div>
+
+    <div id="start">
+      <div class="start-card">
+        <p class="eyebrow">Progetto open source · Molise</p>
+        <h1>MOLISE<br /><span>OPEN WORLD</span></h1>
+        <p class="lede">
+          Casa base: <strong>Palata</strong>. Da lì cammina e guida tra <strong>Montecilfone</strong>,
+          <strong>Acquaviva Collecroce</strong>, <strong>Tavenna</strong> e <strong>Castelmauro</strong>,
+          con foto aeree reali ad alta definizione, rilievo DEM e un radar che segue la strada.
+          Un esperimento in stile open-world costruito <em>da zero</em> su mappe e dati aperti:
+          nessun asset di videogiochi commerciali.
+        </p>
+        <div class="start-actions">
+          <button id="btn-walk" class="btn primary" type="button">
+            <span>Esplora a piedi</span><small>Partenza dal centro di Palata</small>
+          </button>
+          <button id="btn-drive" class="btn" type="button">
+            <span>Guida subito</span><small>In sella alla Panda 4x4</small>
+          </button>
+        </div>
+        <div class="attribution">
+          <span>Immagini satellite: © Esri, Maxar, Earthstar Geographics</span>
+          <span>Dati mappa: © OpenStreetMap contributors (ODbL)</span>
+          <span>Elevazione: SRTM / Copernicus DEM (AWS Open Data)</span>
+        </div>
+        <p class="note">
+          Un progetto indipendente, non affiliato a Rockstar Games. GTA è un marchio dei rispettivi proprietari:
+          qui non viene usato nessun file, asset o codice originale del gioco.
+        </p>
+      </div>
+    </div>
+
+    <div id="loading" class="hidden">
+      <div class="loader"></div>
+      <p id="loading-text">Carico il territorio…</p>
+      <div class="loader-bar"><i id="loading-bar"></i></div>
+    </div>
+
+    <div id="fatal" class="hidden">
+      <h2>Qualcosa è andato storto</h2>
+      <pre id="fatal-text"></pre>
+    </div>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

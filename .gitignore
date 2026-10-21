@@ -1,0 +1,15 @@
+node_modules
+dist
+dist-ssr
+*.local
+.vite
+.DS_Store
+Thumbs.db
+smoke/*.png
+.geo-cache
+smoke/*.html
+smoke/profile
+smoke/dbg
+*.log
+.probe
+debug-drive.mjs
