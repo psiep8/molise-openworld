@@ -346,7 +346,7 @@ export class Game {
     let text: string;
     if (!w) {
       text = this.realWeather.loading
-        ? 'Recupero il meteo reale di Palata…'
+        ? 'Recupero il meteo reale qui…'
         : `Meteo non disponibile (${this.realWeather.error ?? 'rete assente'}). Il sole reale resta attivo.`;
     } else {
       const parts = [
