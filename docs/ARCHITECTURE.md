@@ -87,6 +87,31 @@ Camera in guida: chase camera con lerp, orbita col mouse e zoom con la rotella.
 
 La minimappa ridisegna solo ciò che cade nei 780 m intorno al giocatore, con nord in alto; la mappa grande mostra l'intera valle con i marker live.
 
-## 10. Perché niente GTA V
+## 10. Post-processing e qualità
+
+`PostPipeline` (`src/gfx/post.ts`) incatena `RenderPass → UnrealBloom → SMAA → OutputPass`.
+Il bloom è volutamente debole (soglia 0.82) e serve a far respirare cielo e tetti; `OutputPass`
+applica tone mapping e color space corretti sul render target lineare. Se il preset è
+`low`/`medium` la pipeline viene saltata e si renderizza diretto.
+
+`src/gfx/quality.ts` definisce quattro preset (`low`, `medium`, `high`, `ultra`) con
+`pixelRatio`, dimensione shadow map, post-processing e zoom massimo delle tile satellite.
+Il preset iniziale è scelto da `hardwareConcurrency`/`deviceMemory`/user agent, può essere
+forzato con `?quality=` e viene salvato in `localStorage`. In più `Game` applica un
+**resolution scaling adattivo**: se gli fps scendono sotto 34 il pixel ratio scende fino a
+0.65×, se risalgono sopra 56 torna a 1×.
+
+Le superfici vicine (asfalto, sterrato, intonaco, coppi) usano texture canvas generate da
+`surface-textures.ts`, moltiplicate dai vertex color: zero asset esterni, grana e giunti
+visibili da vicino. Le UV delle strade sono in metri (una tile ogni ~6 m).
+
+## 11. Audio procedurale
+
+`GameAudio` (`src/audio/audio.ts`) sintetizza tutto con WebAudio: vento e rotolamento da
+rumore filtrato, motore con due oscillatori saw e lowpass, passi con burst di rumore
+filtrati, uccelli con chirp sinusoidali. Il contesto parte solo al primo gesto utente
+(click sul pulsante di avvio), segue velocità e modalità, e si silenzia con `N`.
+
+## 12. Perché niente GTA V
 
 Il progetto prende ispirazione dal *tipo* di esperienza (open world, guida, esplorazione), non dai contenuti. Non c'è reverse engineering di binari o asset Rockstar: il "reverse engineering" qui è quello dei **formati geografici aperti** (tile mercator, DEM Terrarium, tag OSM), reimplementati in un motore proprio. È la strada legale e, per una mappa del proprio paese, anche la più interessante: i dati della tua zona sono già lì.

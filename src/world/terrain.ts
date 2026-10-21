@@ -88,16 +88,24 @@ export class Terrain {
   private readonly maxBuildPerFrame = 2;
   private readonly maxTextureLoads = 5;
   private readonly inflight = new Set<string>();
+  /** tetto dello zoom satellite, abbassato dai preset grafici più leggeri */
+  private maxZoom = 18;
   private focusX = 0;
   private focusZ = 0;
   private lastCx = Number.NaN;
   private lastCz = Number.NaN;
   private lastRadius = 0;
 
-  constructor(heightfield: Heightfield, imagery: ImageryStreamer) {
+  constructor(heightfield: Heightfield, imagery: ImageryStreamer, maxZoom = 18) {
     this.heightfield = heightfield;
     this.imagery = imagery;
+    this.maxZoom = Math.max(15, Math.min(18, maxZoom));
     this.group.name = 'terrain';
+  }
+
+  /** Cambia il tetto di dettaglio a runtime (tasto G / preset qualità). */
+  setMaxZoom(zoom: number): void {
+    this.maxZoom = Math.max(15, Math.min(18, zoom));
   }
 
   get loadedChunks(): number {
@@ -176,7 +184,7 @@ export class Terrain {
       if (chunk.disposed || chunk.loadingZoom !== undefined) continue;
       if (this.inflight.has(chunkKey(chunk.cx, chunk.cz))) continue;
       const d = Math.hypot(chunkCenter(chunk.cx) - this.focusX, chunkCenter(chunk.cz) - this.focusZ);
-      const zoom = zoomForDistance(d);
+      const zoom = Math.min(this.maxZoom, zoomForDistance(d));
       if (zoom > chunk.textureZoom) upgrades.push({ chunk, d, zoom });
     }
     upgrades.sort((a, b) => a.d - b.d);
@@ -271,7 +279,7 @@ export class Terrain {
       disposed: false,
     };
 
-    this.requestTexture(chunk, zoomForDistance(distance));
+    this.requestTexture(chunk, Math.min(this.maxZoom, zoomForDistance(distance)));
     return chunk;
   }
 

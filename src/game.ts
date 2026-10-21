@@ -14,6 +14,16 @@ import { Vehicle } from './entities/vehicle';
 import { Hud, type Mode } from './ui/hud';
 import { MapRenderer } from './ui/minimap';
 import type { CarInput } from './sim/car';
+import { PostPipeline } from './gfx/post';
+import {
+  QUALITY_PRESETS,
+  loadQuality,
+  nextQuality,
+  saveQuality,
+  type QualityLevel,
+  type QualityPreset,
+} from './gfx/quality';
+import { GameAudio } from './audio/audio';
 
 interface RoadPose {
   x: number;
@@ -35,6 +45,8 @@ export interface Diagnostics {
   speed: number;
   keys: string[];
   tileErrors: number;
+  quality: QualityLevel;
+  renderScale: number;
   errors: string[];
 }
 
@@ -49,6 +61,7 @@ export class Game {
   private readonly hud = new Hud();
   private readonly player = new Player();
   private readonly car = new Vehicle();
+  private readonly audio = new GameAudio();
 
   private heights!: Heightfield;
   private osm!: OsmData;
@@ -75,7 +88,11 @@ export class Game {
   private fpsFrames = 0;
   private fpsElapsed = 0;
   private tileErrors = 0;
-  private reducedQuality = false;
+  private qualityLevel: QualityLevel = 'high';
+  private quality: QualityPreset = QUALITY_PRESETS.high;
+  private post?: PostPipeline;
+  private renderScale = 1;
+  private lastQualityCheck = 0;
   readonly errors: string[] = [];
 
   private readonly tmp1 = new THREE.Vector3();
@@ -89,7 +106,6 @@ export class Game {
       antialias: true,
       powerPreference: 'high-performance',
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -107,6 +123,11 @@ export class Game {
     this.scene.add(this.player.avatar);
     this.scene.add(this.car.group);
     this.player.avatar.visible = false;
+
+    this.qualityLevel = loadQuality();
+    this.quality = QUALITY_PRESETS[this.qualityLevel];
+    this.post = new PostPipeline(this.renderer, this.scene, this.camera, this.quality.bloom);
+    this.applyQuality(this.qualityLevel, false);
 
     this.bindUi();
     this.bindInput();
@@ -224,6 +245,39 @@ export class Game {
     document.getElementById('btn-drive')?.addEventListener('click', () => this.start('drive'));
   }
 
+  // -------------------------------------------------------------------------
+  // grafica / preset
+  // -------------------------------------------------------------------------
+  private basePixelRatio(): number {
+    return Math.min(window.devicePixelRatio || 1, this.quality.pixelRatio);
+  }
+
+  /** Applica il preset e il resolution scaling adattivo. */
+  private applyRenderScale(): void {
+    const ratio = Math.max(0.6, this.basePixelRatio() * this.renderScale);
+    this.renderer.setPixelRatio(ratio);
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.post?.setPixelRatio(ratio);
+    this.post?.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  private applyQuality(level: QualityLevel, announce = true): void {
+    this.qualityLevel = level;
+    this.quality = QUALITY_PRESETS[level];
+    saveQuality(level);
+    this.renderScale = 1;
+    this.renderer.shadowMap.enabled = true;
+    this.applyRenderScale();
+    this.sky?.setShadowMapSize(this.quality.shadowMapSize);
+    this.terrain?.setMaxZoom(this.quality.maxSatelliteZoom);
+    this.post?.setEnabled(this.quality.post);
+    this.post?.setBloom(this.quality.bloom);
+    if (announce) {
+      const fx = this.quality.post ? ' · bloom' : '';
+      this.hud.toast(`Grafica: ${this.quality.label}${fx} · satellite z${this.quality.maxSatelliteZoom}`, 3200);
+    }
+  }
+
   private bindInput(): void {
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
@@ -233,6 +287,7 @@ export class Game {
       this.pointerLocked = document.pointerLockElement === this.canvas;
     });
     this.canvas.addEventListener('click', () => {
+      this.audio.start();
       if (this.running && !this.pointerLocked) this.requestPointerLock();
     });
     this.canvas.addEventListener(
@@ -273,6 +328,14 @@ export class Game {
         this.map.radar = !this.map.radar;
         this.hud.toast(this.map.radar ? 'Radar: satellite reale' : 'Radar: mappa vettoriale');
         break;
+      case 'KeyG':
+        this.applyQuality(nextQuality(this.qualityLevel));
+        break;
+      case 'KeyN': {
+        const muted = this.audio.toggleMute();
+        this.hud.toast(muted ? 'Audio disattivato' : 'Audio attivo');
+        break;
+      }
       case 'KeyH':
         this.hud.toggleHelp();
         break;
@@ -304,6 +367,8 @@ export class Game {
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.post?.setPixelRatio(Math.max(0.6, this.basePixelRatio() * this.renderScale));
+    this.post?.setSize(w, h);
   };
 
   private requestPointerLock(): void {
@@ -327,6 +392,7 @@ export class Game {
       return;
     }
     this.mode = mode;
+    this.audio.start();
     this.hud.hideStart();
     this.hud.showHud();
     this.hud.setMode(mode);
@@ -423,9 +489,17 @@ export class Game {
       this.fps = this.fpsFrames / this.fpsElapsed;
       this.fpsFrames = 0;
       this.fpsElapsed = 0;
-      if (!this.reducedQuality && this.fps < 34) {
-        this.reducedQuality = true;
-        this.renderer.setPixelRatio(1);
+      // resolution scaling adattivo: tiene il frame rate sopra i ~35 fps
+      this.lastQualityCheck += 0.5;
+      if (this.lastQualityCheck >= 2 && this.running) {
+        this.lastQualityCheck = 0;
+        if (this.fps < 34 && this.renderScale > 0.65) {
+          this.renderScale = Math.max(0.65, this.renderScale - 0.15);
+          this.applyRenderScale();
+        } else if (this.fps > 56 && this.renderScale < 1) {
+          this.renderScale = Math.min(1, this.renderScale + 0.1);
+          this.applyRenderScale();
+        }
       }
     }
 
@@ -433,7 +507,8 @@ export class Game {
     else this.idle(dt);
 
     if (this.sky) this.sky.dome.position.copy(this.camera.position);
-    this.renderer.render(this.scene, this.camera);
+    if (this.post) this.post.render(dt);
+    else this.renderer.render(this.scene, this.camera);
     this.publishDiagnostics();
   };
 
@@ -466,6 +541,15 @@ export class Game {
     this.terrain.update(focus.x, focus.z, VIEW_RADIUS);
     this.terrain.tick();
     this.updateSky(focus);
+
+    const moveSpeed =
+      this.mode === 'drive' ? this.car.state.speed : Math.hypot(this.player.velocity.x, this.player.velocity.z);
+    this.audio.update(dt, {
+      mode: this.mode,
+      speed: moveSpeed,
+      moving: Math.abs(moveSpeed) > 0.35,
+      grounded: this.mode === 'walk' ? this.player.grounded : true,
+    });
 
     const now = performance.now();
     if (now - this.lastTick > 110) {
@@ -629,6 +713,8 @@ export class Game {
       speed: this.car.state.speed,
       keys: [...this.keys],
       tileErrors: this.tileErrors,
+      quality: this.qualityLevel,
+      renderScale: this.renderScale,
       errors: this.errors,
     };
   }

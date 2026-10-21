@@ -7,6 +7,7 @@ export interface SkyRig {
   /** La cupola va tenuta centrata sulla camera, altrimenti si esce dal box. */
   dome: THREE.Mesh;
   update(target: THREE.Vector3): void;
+  setShadowMapSize(size: number): void;
 }
 
 /** Pomeriggio molisano: sole non troppo basso, luce calda, ombre leggibili. */
@@ -54,5 +55,11 @@ export function createSky(scene: THREE.Scene, elevation = 27, azimuth = 238): Sk
     sunLight.updateMatrixWorld();
   };
 
-  return { sunLight, sunDirection, dome: sky, update };
+  const setShadowMapSize = (size: number): void => {
+    sunLight.shadow.mapSize.set(size, size);
+    sunLight.shadow.map?.dispose();
+    sunLight.shadow.map = null;
+  };
+
+  return { sunLight, sunDirection, dome: sky, update, setShadowMapSize };
 }

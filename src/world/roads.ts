@@ -3,15 +3,17 @@ import { COLORS } from '../config';
 import type { Heightfield } from '../geo/elevation';
 import { hashInt, type Pt } from '../geo/geo';
 import type { OsmData } from '../geo/osm';
+import { asphaltTexture, dirtTexture } from './surface-textures';
 
 interface RibbonArrays {
   positions: number[];
   normals: number[];
   colors: number[];
+  uvs: number[];
   indices: number[];
 }
 
-const emptyRibbon = (): RibbonArrays => ({ positions: [], normals: [], colors: [], indices: [] });
+const emptyRibbon = (): RibbonArrays => ({ positions: [], normals: [], colors: [], uvs: [], indices: [] });
 
 /** Ricampiona una polilinea a passi regolari (metri). */
 export function resample(points: Pt[], step: number): Pt[] {
@@ -42,7 +44,9 @@ function pushRibbon(
 ): void {
   if (pts.length < 2) return;
   const base = target.positions.length / 3;
+  let travelled = 0;
   for (let i = 0; i < pts.length; i++) {
+    if (i > 0) travelled += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z);
     const prev = pts[Math.max(0, i - 1)];
     const next = pts[Math.min(pts.length - 1, i + 1)];
     let tx = next.x - prev.x;
@@ -62,6 +66,8 @@ function pushRibbon(
       target.positions.push(pts[i].x + px * half * side, h, pts[i].z + pz * half * side);
       target.normals.push(n.x / nl, n.y / nl, n.z / nl);
       target.colors.push(color.r * shade, color.g * shade, color.b * shade);
+      // u attraversa la carreggiata, v scorre lungo la strada (~6 m per tile)
+      target.uvs.push(side < 0 ? 0 : 1, travelled / 6);
     }
     if (i > 0) {
       const a = base + (i - 1) * 2;
@@ -75,6 +81,7 @@ function toGeometry(a: RibbonArrays): THREE.BufferGeometry {
   g.setAttribute('position', new THREE.Float32BufferAttribute(a.positions, 3));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(a.normals, 3));
   g.setAttribute('color', new THREE.Float32BufferAttribute(a.colors, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(a.uvs, 2));
   g.setIndex(a.positions.length / 3 > 65000 ? new THREE.Uint32BufferAttribute(a.indices, 1) : new THREE.Uint16BufferAttribute(a.indices, 1));
   g.computeBoundingSphere();
   return g;
@@ -103,9 +110,14 @@ export function buildRoads(osm: OsmData, heights: Heightfield): THREE.Group {
     pushRibbon(target, pts, road.width, lift, color, heights, 1);
   });
 
+  const asphaltMap = asphaltTexture();
+  const dirtMap = dirtTexture();
   const asphaltMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    roughness: 0.94,
+    map: asphaltMap,
+    bumpMap: asphaltMap,
+    bumpScale: 0.12,
+    roughness: 0.9,
     metalness: 0,
     side: THREE.DoubleSide,
     polygonOffset: true,
@@ -114,6 +126,9 @@ export function buildRoads(osm: OsmData, heights: Heightfield): THREE.Group {
   });
   const dirtMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
+    map: dirtMap,
+    bumpMap: dirtMap,
+    bumpScale: 0.18,
     roughness: 1,
     metalness: 0,
     side: THREE.DoubleSide,

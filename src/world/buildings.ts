@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Heightfield } from '../geo/elevation';
 import { hashInt, type Pt } from '../geo/geo';
 import type { Building, OsmData } from '../geo/osm';
+import { plasterTexture, roofTileTexture } from './surface-textures';
 
 const WALL_COLORS = [0xd9cbb1, 0xe7ddc6, 0xcdbb9a, 0xd8c3a4, 0xe3d6bb, 0xc2b197, 0xd2c2a8, 0xe9dfcc];
 const ROOF_COLORS = [0x9c5b3f, 0xaa6a4a, 0x8c4f38, 0xb3765a, 0x8f5a42];
@@ -77,8 +78,26 @@ export function buildBuildings(osm: OsmData, heights: Heightfield): { group: THR
     }
   });
 
-  const wallMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.96, metalness: 0 });
-  const roofMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0 });
+  const plaster = plasterTexture();
+  plaster.repeat.set(0.3, 0.3);
+  const tiles = roofTileTexture();
+  tiles.repeat.set(0.36, 0.36);
+  const wallMat = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    map: plaster,
+    bumpMap: plaster,
+    bumpScale: 0.08,
+    roughness: 0.96,
+    metalness: 0,
+  });
+  const roofMat = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    map: tiles,
+    bumpMap: tiles,
+    bumpScale: 0.22,
+    roughness: 0.86,
+    metalness: 0,
+  });
 
   if (walls.length) {
     const merged = mergeGeometries(walls, false);

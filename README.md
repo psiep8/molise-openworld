@@ -4,6 +4,8 @@
 
 > Progetto indipendente e sperimentale, ispirato ai "fondamentali" dei giochi open-world (camminare, esplorare, guidare).
 > **Non contiene e non usa nessun asset, codice o dato estratto da GTA V / Rockstar Games**: tutto il mondo è generato da fonti aperte.
+>
+> **Stato, comandi, limiti e prossimi passi:** [HANDOFF.md](HANDOFF.md) — il documento da leggere prima di riprendere il progetto su un'altra macchina.
 
 **Area giocabile:** Palata · Montecilfone · Acquaviva Collecroce · Tavenna · Castelmauro (~14 × 12 km di campagna molisana)
 
@@ -37,6 +39,14 @@ DEM Terrarium, tag OSM) e su come renderli credibili in un motore proprio.
   dove la mesh è più grossolana del dato, il sole radente fa emergere crinali e fossi.
 - **Luce e foschia.** Sole a 27°, ombre morbide, esposizione ACES più alta e nebbia
   spostata più lontano: il paesaggio resta leggibile invece di sparire nel grigio.
+- **Post-processing.** Bloom morbido su cielo e tetti, antialiasing SMAA e OutputPass
+  per tone mapping/color space corretti; si spegne da solo sui preset più leggeri.
+- **Texture procedurali.** Asfalto, sterrato, intonaco e coppi sono generati a runtime
+  (niente asset esterni) e aggiungono grana e giunti alle superfici viste da vicino.
+- **Audio procedurale.** Motore, rotolamento, vento, passi e uccelli sintetizzati con
+  WebAudio, senza file audio; parte al primo click e si spegne con `N`.
+- **Qualità scalabile.** Preset bassa/media/alta/ultra scelti in automatico, con
+  resolution scaling adattivo per tenere il frame rate: il mondo gira anche su PC modesti.
 - **Radar vero.** La minimappa disegna le tile Esri z17 intorno al giocatore, con le strade
   OSM in crema sopra; la mappa grande usa un mosaico z14 dell'intera area. `V` alterna
   satellite e mappa vettoriale, `M` apre la mappa grande.
@@ -83,6 +93,8 @@ npm run geo -- --skip-osm
 | `C` | prima/terza persona | — |
 | `M` | mappa grande | mappa grande |
 | `V` | radar satellite / mappa | radar satellite / mappa |
+| `G` | qualità grafica (bassa/media/alta/ultra) | qualità grafica |
+| `N` | audio on/off | audio on/off |
 | `H` | mostra/nascondi aiuto | — |
 | `R` | riporta in strada | riporta in strada |
 | mouse | guarda intorno (click per bloccare il puntatore) | orbita la telecamera |
@@ -117,6 +129,7 @@ src/
     roads.ts           nastri stradali drappeggiati + acqua
     buildings.ts       estrusione edifici + tetti
     vegetation.ts      alberi instanziati nei boschi
+    surface-textures.ts texture procedurali (asfalto, sterrato, intonaco, coppi)
     sky.ts             cielo, sole, ombre
   entities/
     player.ts          controller a piedi + avatar animato
@@ -127,6 +140,11 @@ src/
     hud.ts             HUD e schermate
     minimap.ts         minimappa + mappa grande (radar satellite o vettoriale)
     satellite.ts       cache tile Esri e mosaico z14 per la mappa grande
+  gfx/
+    post.ts            bloom + SMAA + OutputPass (post-processing opzionale)
+    quality.ts         preset low/medium/high/ultra + auto-detect
+  audio/
+    audio.ts           WebAudio procedurale: motore, vento, passi, uccelli
   game.ts              orchestrazione, input, camera, loop
 scripts/
   fetch-geodata.mjs    download e preprocessing OSM/DEM
