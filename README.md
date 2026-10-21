@@ -18,11 +18,12 @@
 - **Meteo reale opzionale** (`P` → interruttore): condizioni attuali, nuvole, pioggia/neve e **sole alla posizione e ora vere**, con alba/tramonto del giorno. Aggiornamento ogni 10 minuti, fallback al pomeriggio fisso se lo spegni.
 - **Radar satellite reale** in minimappa e mappa grande, con strade OSM evidenziate sopra la foto aerea (`V` per passare alla mappa vettoriale).
 - **Strade** ricostruite da OpenStreetMap e drappeggiate sul rilievo (asfalto e sterrati, larghezze per tipo).
-- **Paesi** con edifici estrusi dalle impronte OSM, tetti in laterizio, altezze stimate o da tag.
+- **Paesi** con edifici estrusi dalle impronte OSM, **tetti a falde** (padiglione) in laterizio, **facciate con finestre, persiane e davanzali**, altezze stimate o da tag.
 - **Boschi e uliveti** con alberi instanziati in modo deterministico (stesso seed → stesso paesaggio).
 - **Acqua**: torrenti e specchi d'acqua.
 - **Camminata** in prima/terza persona con collisioni contro gli edifici, corsa, salto.
 - **Auto arcade** (Fiat Panda 4x4 stilizzata) con fisica su pendenza, off-road più lento, freno a mano, assetto a 4 punti di contatto.
+- **Itinerario scegliendo dalla mappa** (`M`, poi click): percorso più breve sulla rete stradale OSM, distanza e tempi stimati a piedi e in auto, linea in mappa e colonna luminosa sulla destinazione. `X` annulla.
 - **Minimappa** e **mappa grande** dei cinque comuni, con strade, boschi e toponimi.
 - **HUD** in italiano: velocità, coordinate, quota, fps, suggerimenti contestuali.
 - **Offline-friendly**: i dati vettoriali e il DEM sono nel repo; solo le immagini satellite arrivano dalla rete (con fallback verde se mancano).
@@ -99,7 +100,8 @@ npm run geo -- --skip-osm
 | `Spazio` | salta | freno a mano |
 | `F` | entra in auto (se vicino) | scendi |
 | `C` | prima/terza persona | — |
-| `M` | mappa grande | mappa grande |
+| `M` | mappa grande (click = itinerario) | mappa grande (click = itinerario) |
+| `X` | annulla l'itinerario | annulla l'itinerario |
 | `V` | radar satellite / mappa | radar satellite / mappa |
 | `G` | qualità grafica (bassa/media/alta/ultra) | qualità grafica |
 | `N` | audio on/off | audio on/off |
@@ -114,10 +116,10 @@ URL utili: `?autostart=walk` e `?autostart=drive` saltano il menu (usati dallo s
 ## Verifica
 
 ```bash
-npm test          # 42 test: proiezione, DEM, OSM, fisica auto, sole e meteo
+npm test          # 58 test: proiezione, DEM, OSM, fisica auto, itinerari, tetti, sole e meteo
 npm run build     # typecheck + build di produzione
 npm run preview   # serve dist/ su :4173
-npm run smoke     # Chrome headless: carica, guida, cammina, controlla il PNG
+npm run smoke     # Chrome headless: carica, guida, cammina, itinerario, controlla il PNG
 ```
 
 Lo smoke test apre Chrome headless via CDP, verifica l'assenza di errori in console, che l'auto si muova premendo `W`, che il giocatore cammini, e analizza lo screenshot (varianza e varietà di colore) per assicurarsi che il mondo sia davvero renderizzato. Salva `smoke/shot.png`.
@@ -136,7 +138,8 @@ src/
     imagery.ts         streaming tile satellite -> texture per chunk (zoom progressivo)
     terrain.ts         mesh del terreno + LOD texture (z16/z17)
     roads.ts           nastri stradali drappeggiati + acqua
-    buildings.ts       estrusione edifici + tetti
+    buildings.ts       estrusione edifici + falde del tetto + UV delle facciate
+    roof.ts            geometria pura del tetto a padiglione (testata)
     vegetation.ts      alberi instanziati nei boschi
     surface-textures.ts texture procedurali (asfalto, sterrato, intonaco, coppi)
     weather.ts         meteo Open-Meteo, posizione reale del sole, auto-refresh
@@ -148,6 +151,7 @@ src/
     vehicle.ts         auto procedurale + assetto sul terreno
   sim/
     car.ts             fisica arcade pura (testabile)
+    routing.ts         grafo stradale + A* per l'itinerario scelto sulla mappa
   ui/
     hud.ts             HUD, impostazioni e schermate
     minimap.ts         minimappa + mappa grande (radar satellite o vettoriale)
@@ -161,6 +165,7 @@ src/
 scripts/
   fetch-geodata.mjs    download e preprocessing OSM/DEM
   smoke.mjs            test end-to-end con Chrome headless
+  check-street-imagery.mjs  censimento copertura Mapillary sul bbox (richiede token)
 ```
 
 ## Dati e licenze
@@ -168,6 +173,7 @@ scripts/
 - **OpenStreetMap** — strade, edifici, aree, toponimi: © OpenStreetMap contributors, licenza **ODbL 1.0**. `public/geo/osm.json` è un'opera derivata: se lo ridistribuisci, resta ODbL.
 - **AWS Terrain Tiles (Terrarium)** — DEM SRTM/Copernicus/NASADEM: dati aperti, vedi [registry.opendata.aws/terrain-tiles](https://registry.opendata.aws/terrain-tiles/).
 - **Esri World Imagery** — immagini satellite: © Esri, Maxar, Earthstar Geographics. Usate qui per una demo non commerciale con attribuzione. **Per una pubblicazione** usa un provider con licenza esplicita (MapTiler, Mapbox, Bing, o tile self-hosted) cambiando `ESRI_WORLD_IMAGERY` in `src/world/imagery.ts`.
+- **Immagini stradali (opzionale)** — non ancora usate. `npm run streets` conta quante strade dei cinque comuni hanno una foto entro 50 m: interroga **Panoramax** (API pubblica, nessun account) e, se impostato `MAPILLARY_TOKEN` (gratuito, CC BY-SA 4.0), anche Mapillary. Al 21/10/2026 Panoramax non ha foto nel bbox: la copertura Mapillary è l'unica da verificare.
 - **Meteo** — Open-Meteo, dati CC BY 4.0, senza chiave API. Usato solo se attivi
   "Meteo reale"; il sole è calcolato in locale e non dipende dal servizio.
 - **Codice** — MIT (vedi `LICENSE`).

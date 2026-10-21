@@ -189,25 +189,61 @@ async function main() {
     }
     log(`texture: ${diag.textured}/${diag.chunks} chunk (dettagliate z17+: ${diag.detailed})`);
 
-    // guida: W per 1.6s
+    // guida: tieni premuto W finché l'auto non ha davvero avanzato.
+    // Con il rendering software (SwiftShader) il frame time supera i 50 ms e il
+    // passo di fisica viene limitato: il tempo reale non è proporzionale alla
+    // distanza percorsa, quindi si misura lo spostamento, non la durata.
     await cdp.send('Page.bringToFront');
     await evalJs("window.__keylog=[]; window.addEventListener('keydown', (e) => window.__keylog.push(e.code));");
     const before = { x: diag.x, z: diag.z };
     const key = { code: 'KeyW', key: 'w', windowsVirtualKeyCode: 87, nativeVirtualKeyCode: 87 };
     await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...key });
     await cdp.send('Input.dispatchKeyEvent', { type: 'char', text: 'w', ...key });
-    await sleep(1600);
+    let moved = 0;
+    for (let i = 0; i < 30; i++) {
+      await sleep(300);
+      diag = await evalJs('JSON.parse(JSON.stringify(window.__molise))');
+      moved = Math.hypot(diag.x - before.x, diag.z - before.z);
+      if (moved >= 3) break;
+    }
     await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...key });
     await sleep(400);
     log('keydown ricevuti:', JSON.stringify(await evalJs('window.__keylog')));
     diag = await evalJs('JSON.parse(JSON.stringify(window.__molise))');
-    const moved = Math.hypot(diag.x - before.x, diag.z - before.z);
     log(`spostamento con W: ${moved.toFixed(2)} m — mode=${diag.mode}, fps=${diag.fps.toFixed(1)}`);
     if (diag.mode !== 'drive') throw new Error(`modalità attesa drive, trovata ${diag.mode}`);
     if (moved < 1) throw new Error('l’auto non si è mossa con W');
     if (diag.textured < 1) throw new Error('nessun chunk con texture satellite caricata');
     if (diag.detailed < 1) throw new Error('nessun chunk in dettaglio z17+ vicino al giocatore');
     if (consoleErrors.length) throw new Error(`errori console: ${consoleErrors.slice(0, 4).join(' | ')}`);
+
+    // itinerario: apri la mappa grande e clicca al centro (≈ centro del mondo)
+    const mapKey = { code: 'KeyM', key: 'm', windowsVirtualKeyCode: 77, nativeVirtualKeyCode: 77 };
+    await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...mapKey });
+    await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...mapKey });
+    await sleep(1200);
+    const cx = await evalJs('Math.round(window.innerWidth / 2)');
+    const cy = await evalJs('Math.round(window.innerHeight / 2)');
+    for (const type of ['mousePressed', 'mouseReleased']) {
+      await cdp.send('Input.dispatchMouseEvent', { type, x: cx, y: cy, button: 'left', clickCount: 1 });
+    }
+    await sleep(1200);
+    const route = await evalJs('window.__molise.route');
+    if (!route) throw new Error('nessun itinerario dopo il click sulla mappa');
+    if (route.distance < 100) throw new Error(`itinerario troppo corto: ${route.distance} m`);
+    const panel = await evalJs("document.getElementById('route-text').textContent");
+    if (!panel.includes('km') && !panel.includes(' m ')) throw new Error(`pannello itinerario vuoto: ${panel}`);
+    log(`itinerario: ${route.label} · ${route.distance} m · "${panel}"`);
+
+    // chiudi la mappa e annulla con X
+    await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...mapKey });
+    await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...mapKey });
+    const xKey = { code: 'KeyX', key: 'x', windowsVirtualKeyCode: 88, nativeVirtualKeyCode: 88 };
+    await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...xKey });
+    await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...xKey });
+    await sleep(600);
+    if (await evalJs('window.__molise.route') !== null) throw new Error('X non ha annullato l’itinerario');
+    log('itinerario annullato con X');
 
     // screenshot pulito (senza HUD)
     await evalJs("document.getElementById('hud').style.display='none'; document.getElementById('attribution').style.display='none';");
@@ -240,7 +276,16 @@ async function main() {
     await cdp2.send('Page.bringToFront');
     await cdp2.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...key });
     await cdp2.send('Input.dispatchKeyEvent', { type: 'char', text: 'w', ...key });
-    await sleep(1200);
+    let walked = 0;
+    for (let i = 0; i < 30; i++) {
+      await sleep(300);
+      const step = await cdp2.send('Runtime.evaluate', {
+        expression: 'JSON.parse(JSON.stringify(window.__molise))',
+        returnByValue: true,
+      });
+      walked = Math.hypot(step.result.value.x - walkBefore.x, step.result.value.z - walkBefore.z);
+      if (walked >= 2) break;
+    }
     await cdp2.send('Input.dispatchKeyEvent', { type: 'keyUp', ...key });
     await sleep(200);
     const res = await cdp2.send('Runtime.evaluate', {
@@ -248,7 +293,6 @@ async function main() {
       returnByValue: true,
     });
     walkDiag = res.result.value;
-    const walked = Math.hypot(walkDiag.x - walkBefore.x, walkDiag.z - walkBefore.z);
     log(`camminata con W: ${walked.toFixed(2)} m (mode=${walkDiag.mode})`);
     if (walkDiag.mode !== 'walk') throw new Error('modalità a piedi persa');
     if (walked < 1) throw new Error('il giocatore non si è mosso a piedi');

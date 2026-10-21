@@ -45,7 +45,24 @@ Tutte le strade finite in un'unica `BufferGeometry` per superficie (asfalto/ster
 
 ## 5. Edifici
 
-Le impronte OSM vengono estrose con `ExtrudeGeometry`, con base affondata di 70 cm per non galleggiare sui pendii, e tetto piatto in laterizio con 4.5% di sporto. Colori di muri/tetti scelti da palette e hash deterministico dell'edificio, quindi stabili tra un avvio e l'altro.
+Le impronte OSM vengono estrose con `ExtrudeGeometry`, con base affondata di 70 cm per non galleggiare sui pendii.
+
+- **Tetto a padiglione.** `src/world/roof.ts` è puro: dato il poligono con lo sporto del
+  4,5%, calcola un anello di colmo rimpicciolito del 42% verso il baricentro e una falda
+  per lato, più il colmo da triangolare. Il rialzo dipende dall'area
+  (`clamp(sqrt(area) · 0.16, 1, 3.2)` m). Se il baricentro cade fuori dal poligono
+  (impronte a U o molto concave) la funzione restituisce `null` e l'edificio mantiene il
+  tetto piatto: meglio un tetto semplice che falde che si incrociano. Il verso delle
+  facce viene deciso dalla componente `y` della normale, così il risultato è corretto
+  con impronte OSM in senso orario o antiorario.
+- **Facciate.** `facadeTexture()` disegna un modulo di 3,3 m con intonaco, cornice,
+  telaio in pietra, vetro scuro con riflesso, traversa, davanzale e persiane di legno.
+  `ExtrudeGeometry` genera `v = 1 - altezza`, quindi le UV del muro vengono negate per
+  raddrizzare la finestra; con `repeat 0.3` e `offset.y = -0.28` la prima fila di
+  finestre parte a ~0,9 m dal suolo. La texture è moltiplicata dal vertex color, così
+  ogni casa mantiene il suo colore.
+
+Colori di muri/tetti scelti da palette e hash deterministico dell'edificio, quindi stabili tra un avvio e l'altro.
 
 Muri e tetti sono fusi in due sole mesh (`mergeGeometries`), con ombre attive. Le impronte restano anche in `BuildingIndex` per le collisioni: cerchio contro poligono, con push-out lungo il bordo più vicino.
 
@@ -140,3 +157,29 @@ dicembre a Palata e la traduzione dei codici WMO.
 ## 13. Perché niente GTA V
 
 Il progetto prende ispirazione dal *tipo* di esperienza (open world, guida, esplorazione), non dai contenuti. Non c'è reverse engineering di binari o asset Rockstar: il "reverse engineering" qui è quello dei **formati geografici aperti** (tile mercator, DEM Terrarium, tag OSM), reimplementati in un motore proprio. È la strada legale e, per una mappa del proprio paese, anche la più interessante: i dati della tua zona sono già lì.
+
+## 14. Itinerario sulla mappa
+
+L'itinerario vive in `src/sim/routing.ts`, **puro** (niente Three.js, niente DOM),
+quindi testato in `tests/routing.test.ts`.
+
+- **Grafo.** Le polilinee OSM diventano un grafo una sola volta all'avvio: i vertici
+  sono indicizzati per cella da 4 m, così due way che si toccano in un incrocio
+  condividono il nodo anche se arrivano da relazioni diverse. Gli archi sono le
+  distanze reali in metri, in entrambe le direzioni, salvate in formato CSR
+  (`offsets`/`targets`/`costs`) per non allocare oggetti durante la ricerca.
+- **Costo.** Ogni arco è moltiplicato per una penalità per tipo di strada: 1.0-1.1
+  per asfalto e strade urbane, 1.45 per le sterrate, 2.4 per sentieri e marciapiedi.
+  Così l'asfalto vince anche quando il sentiero è più corto.
+- **Ricerca.** A* con euristica euclidea scalata a 0.9 (il fattore minimo fra le
+  strade), heap binario indicizzato per nodo, `closed` in `Uint8Array`.
+- **Snapping.** Partenza e arrivo sono agganciati al nodo più vicino; la polilinea
+  restituita include i due tratti di avvicinamento, quindi la distanza mostrata è
+  quella che si percorre davvero.
+
+**Lato gioco.** Il click sulla mappa grande passa da `worldFromBigMap` (l'inverso di
+`toStaticScreen`); `Game.setDestination` calcola il piano e la stessa polilinea viene
+disegnata in ciano sulla minimappa e sulla mappa grande, con una colonna di luce
+sulla destinazione. L'itinerario si ricalcola quando ci si allontana di oltre 60 m
+dal punto di partenza e si annulla con `X`; `window.__molise.route` espone distanza
+ed etichetta per smoke test e diagnostica.

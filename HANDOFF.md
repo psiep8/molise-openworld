@@ -37,25 +37,31 @@ Stack: TypeScript + Vite + Three.js (WebGL2), Vitest, nessun framework UI.
 | Satellite | ✅ | z18 ≤520 m, z17 ≤1,5 km, z16 ≤2,6 km, z15 oltre |
 | Normal map | ✅ | 128×128 per chunk, generata dal DEM |
 | Strade | ✅ | nastri drappeggiati + texture procedurale asfalto/sterrato |
-| Edifici | ✅ base | estrusione + tetto piatto con sporto + intonaco/coppi procedurali |
+| Edifici | ✅ aggiornato | estrusione + **tetti a falde** (padiglione) + facciate con finestre, persiane e davanzali |
 | Vegetazione | ✅ base | alberi instanziati deterministici, max 7000 |
 | Acqua | ✅ base | nastri torrenti + poligoni laghi |
 | Meteo reale | ✅ nuovo | Open-Meteo + sole NOAA, cupola nuvole, pioggia/neve, switch in impostazioni |
 | Radar / mappa | ✅ | satellite Esri z17 + overlay OSM, mosaico z14 per mappa grande |
+| Itinerario | ✅ nuovo | click sulla mappa grande → A* sulla rete OSM, km e tempi, beacon 3D |
 | Post-processing | ✅ nuovo | bloom + SMAA + OutputPass, disattivabile |
 | Qualità | ✅ nuovo | preset low/medium/high/ultra + resolution scaling adattivo |
 | Audio | ✅ nuovo | WebAudio procedurale: motore, rotolamento, vento, passi, uccelli |
 | Fisica auto | ✅ | modello bicycle puro, testato |
 | Traffico/pedoni | ❌ | non implementati |
 | Cache tile offline | ❌ | solo cache HTTP del browser |
-| Smoke test | ⚠️ | script aggiornato ma **non ancora eseguito** sulle ultime modifiche |
+| Smoke test | ✅ eseguito | 21/10/2026, verde: auto, camminata, texture, PNG |
 
-Ultime verifiche fatte su questa macchina: `npm test` 42/42 ✅ (inclusi i test
-astronomici sul sole), `npm run build` ✅, controllo statico dello spawn
-auto/giocatore sui dati reali ✅. Endpoint Open-Meteo verificato con una chiamata
-diretta (campi `current` e `daily` coerenti con il parser).
-Lo smoke e2e è stato rimandato su richiesta: dipende dal download delle tile e la
-rete di questa macchina è instabile/bloccata (DNS).
+Ultime verifiche fatte (macchina Windows, 21/10/2026, rete disponibile):
+`npm ci` ✅, `npm test` 58/58 ✅ (inclusi i test astronomici sul sole, quelli del
+routing e quelli dei tetti sugli edifici reali),
+`npm run build` ✅, `npm run smoke` ✅ con `npm run preview` attivo — nessun errore
+console, auto che avanza con `W`, giocatore che cammina, `textured`/`detailed` ≥ 1,
+screenshot non piatto. Lo smoke che prima falliva (auto ferma a 0,43 m) ha rivelato
+un bug vero: gli fps erano calcolati sul `dt` **limitato** a 50 ms, quindi con frame
+time reale > 50 ms il gioco dichiarava sempre 20 fps e il resolution scaling adattivo
+non poteva mai scattare. Ora `fps` usa il tempo reale e solo la fisica usa il `dt`
+limitato; lo smoke misura lo spostamento invece di un tempo fisso, così resta valido
+anche a 2 fps di rendering software (SwiftShader in headless).
 
 ---
 
@@ -68,7 +74,8 @@ npm ci                 # installa le dipendenze (package-lock committato)
 npm run dev            # http://127.0.0.1:5173
 npm run build          # tsc --noEmit + vite build
 npm run preview        # serve dist/ su http://127.0.0.1:4173
-npm test               # 42 test puri (geo, DEM, OSM, fisica auto, sole)
+npm test               # 58 test puri (geo, DEM, OSM, fisica auto, routing, tetti, sole)
+npm run streets        # censimento foto stradali Mapillary (serve MAPILLARY_TOKEN)
 npm run smoke          # e2e Chrome headless; richiede `npm run preview` attivo
 npm run geo            # riscarica OSM + DEM (rete! attenzione ai DNS)
 npm run geo -- --skip-dem
@@ -92,7 +99,8 @@ URL utili:
 | `Spazio` | salta | freno a mano |
 | `F` | entra in auto (se vicino) | scendi |
 | `C` | prima/terza persona | — |
-| `M` | mappa grande | mappa grande |
+| `M` | mappa grande (click = itinerario) | mappa grande (click = itinerario) |
+| `X` | annulla l'itinerario | annulla l'itinerario |
 | `V` | radar satellite / vettoriale | idem |
 | `G` | cicla qualità grafica | idem |
 | `N` | audio on/off | idem |
@@ -118,7 +126,8 @@ src/
     imagery.ts           tile provider Esri, zoom per distanza, composizione texture
     terrain.ts           mesh + streaming + upgrade zoom + normal map
     roads.ts             nastri stradali/acqua, UV e texture procedurali
-    buildings.ts         estrusione edifici, tetto, materiali
+    buildings.ts         estrusione edifici, falde del tetto, materiali, UV facciata
+    roof.ts              geometria pura del tetto a padiglione (con test sui dati OSM)
     vegetation.ts        alberi instanziati deterministici
     sky.ts               Sky + sole/ombre/nebbia
     surface-textures.ts  asfalto, sterrato, intonaco, coppi (canvas)
@@ -129,6 +138,7 @@ src/
     player.ts            controller a piedi + avatar
     vehicle.ts           auto procedurale + assetto 4 punti
   sim/car.ts             fisica arcade pura (testata)
+  sim/routing.ts         grafo stradale da OSM + A* per l'itinerario (testato)
   ui/
     hud.ts               HUD, toast, schermate
     minimap.ts           radar satellite/vettoriale + mappa grande
@@ -176,7 +186,13 @@ docs/ARCHITECTURE.md       spiegazione tecnica del motore
 5. **Terreno**: geometria 96×96 per chunk, normal map 128² dal DEM, texture
    progressive z15→z18 con sostituzione a runtime.
 6. **Superfici**: texture canvas deterministiche (asfalto, sterrato, intonaco,
-   coppi) moltiplicate dai vertex color; UV delle strade in metri (1 unità = 6 m).
+   coppi, **facciata con finestra e persiane**) moltiplicate dai vertex color; UV
+   delle strade in metri (1 unità = 6 m).
+6-bis. **Edifici**: tetto a padiglione con colmo rientrato del 42% e sporto 4,5%
+   (`world/roof.ts`, puro e testato). Le facciate usano un modulo di finestra ogni
+   ~3,3 m in orizzontale e in verticale, con la prima fila di finestre a ~0,9 m dal
+   suolo; le impronte irregolari (baricentro fuori dal poligono) ricadono sul tetto
+   piatto invece di generare falde impossibili.
 7. **Atmosfera**: Sky di Three.js, sole a 27°/azimut 238°, nebbia lineare 1100–4200 m.
 
 **Prestazioni attese** (da verificare): 60 fps a 1080p su GPU tipo GTX 1060/RX 580
@@ -192,11 +208,14 @@ In console, ogni frame:
 ```js
 window.__molise
 // { ready, running, mode, chunks, textured, detailed, fps, x, z, speed, keys,
-//   tileErrors, quality, renderScale, weather, errors }
+//   tileErrors, quality, renderScale, route, weather, errors }
 // weather = null oppure { enabled, loading, code, cloudCover, error }
+// route = null oppure { distance, label } (itinerario attivo)
 ```
 
 - `chunks` = chunk terreno attivi; `textured` = con texture; `detailed` = z17+.
+- `fps` è misurato sul tempo reale del frame (non sul `dt` di fisica limitato a 50 ms):
+  resta veritiero anche sotto i 20 fps e il resolution scaling adattivo entra in azione.
 - `tileErrors` cresce se Esri non risponde (rete/DNS/licenza): il gioco resta in
   piedi con fallback verde e mappa vettoriale.
 - `errors` raccoglie errori runtime e promise rejection.
@@ -220,7 +239,9 @@ Screenshot smoke: `smoke/shot.png` (ignorato da git). Il profilo Chrome è in
 - **Determinismo**: vegetazione e colori usano `mulberry32`/`hashInt` con seed fisso.
   Non introdurre `Math.random()` nella generazione del mondo (l'audio può usarlo).
 - **Nessun asset Rockstar/GTA**: vietato importare modelli, texture, audio o codice
-  del gioco. Il progetto è indipendente e non affiliato.
+  del gioco. Il progetto è indipendente e non affiliato. Lo stesso vale per asset
+  "estratti" da altri giochi con tool di reverse engineering: la grafica resta
+  procedurale o basata su dati aperti con licenza compatibile.
 - **Audio**: parte solo dopo un gesto utente; non creare `AudioContext` all'avvio.
 - **Meteo**: il sole deve restare reale anche senza rete (calcolo locale). Non rendere
   il boot dipendente da Open-Meteo e non introdurre chiavi API: il servizio è no-key.
@@ -234,16 +255,26 @@ Screenshot smoke: `smoke/shot.png` (ignorato da git). Il profilo Chrome è in
 
 ### P0 — Verifica reale (prima di aggiungere features)
 
-1. Avviare `npm run preview` e poi `npm run smoke` su una macchina con rete.
-   - deve passare: nessun errore console, auto che si muove, giocatore che cammina,
-     `textured ≥ 1`, `detailed ≥ 1`, screenshot non piatto;
-   - se fallisce per tile: distinguere errori di rete (`tileErrors`) da regressioni.
+1. ~~Avviare `npm run preview` e poi `npm run smoke` su una macchina con rete.~~
+   **Fatto il 21/10/2026 ✅** — nessun errore console, auto che si muove, giocatore
+   che cammina, `textured ≥ 1`, `detailed ≥ 1`, screenshot non piatto (variance 3152,
+   58 colori distinti). Resta da rifare dopo ogni modifica grossa a terrain/input.
 2. Controllare a occhio in Chrome: bloom non troppo forte, normal map non invertita,
    texture strade non stirate, radar leggibile, audio non clipping.
 3. Misurare fps a 1080p con preset high e con low (DevTools performance + `fps` in
    `window.__molise`). Se < 50 fps su GPU media, ridurre prima `renderScale`/bloom.
 
 ### P1 — Qualità grafica “quasi AAA”
+
+- **Facciate da foto stradali (da valutare prima di implementare)**: Mapillary e
+  KartaView pubblicano immagini street-level con licenza CC BY-SA; servirebbe un
+  token gratuito e, soprattutto, copertura. `npm run streets` (script
+  `check-street-imagery.mjs`) fa il censimento: quante strade hanno una foto entro
+  50 m. Serve `MAPILLARY_TOKEN` (gratuito, dal dashboard sviluppatori). Attenzione:
+  dal 16/1/2026 l'API accetta bbox **sotto 0,01° per lato**, quindi lo script divide
+  l'area in 13×19 riquadri. Se la copertura è rada (probabile in campagna molisana),
+  conviene investire sulle facciate procedurali (già fatte: finestre, persiane,
+  davanzali) che rendono bene anche senza foto.
 
 - **Tetti veri**: falde inclinate con colmo (hip/gable) invece del tetto piatto;
   ombre corrette e coppi con UV allineate. Criterio: in terza persona i tetti di
@@ -306,10 +337,12 @@ Poi:
 2. verifica `window.__molise.ready === true` e `errors` vuoto;
 3. controlla `textured`/`detailed` e `tileErrors` dopo ~10 s;
 4. fai un giro a piedi a Palata e uno in auto verso Montecilfone;
-5. premi `P`, attiva **Meteo reale**: verifica che il sole corrisponda all'ora e che
+5. premi `M`, clicca su un paese e verifica che l'itinerario compaia con km e tempi,
+   che la linea resti sulla minimappa e che `X` lo annulli;
+6. premi `P`, attiva **Meteo reale**: verifica che il sole corrisponda all'ora e che
    nuvole/pioggia cambino; controlla `window.__molise.weather` e l'attribuzione
    Open-Meteo nel pannello;
-6. esegui `npm run smoke` con `npm run preview` attivo;
-7. aggiorna questo handoff con data, commit, esito test e nuove priorità.
+7. esegui `npm run smoke` con `npm run preview` attivo (copre anche l'itinerario);
+8. aggiorna questo handoff con data, commit, esito test e nuove priorità.
 
 Buon lavoro. La cosa più importante: **il posto deve sembrare vero**.

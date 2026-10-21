@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GAME, HOME, START, VIEW_RADIUS, VILLAGES, WORLD, latLonToWorld, worldToLatLon } from './config';
-import { clamp, distance2, smoothstep } from './geo/geo';
+import { clamp, distance2, smoothstep, type Pt } from './geo/geo';
 import { loadHeightfield, type Heightfield } from './geo/elevation';
 import { BuildingIndex, loadOsm, RoadIndex, type OsmData } from './geo/osm';
 import { ESRI_WORLD_IMAGERY, ImageryStreamer } from './world/imagery';
@@ -17,6 +17,7 @@ import { Vehicle } from './entities/vehicle';
 import { Hud, type Mode } from './ui/hud';
 import { MapRenderer } from './ui/minimap';
 import type { CarInput } from './sim/car';
+import { buildRoadGraph, planRoute, type RoadGraph, type RouteResult } from './sim/routing';
 import { PostPipeline } from './gfx/post';
 import {
   QUALITY_PRESETS,
@@ -50,6 +51,7 @@ export interface Diagnostics {
   tileErrors: number;
   quality: QualityLevel;
   renderScale: number;
+  route: { distance: number; label: string } | null;
   weather: {
     enabled: boolean;
     loading: boolean;
@@ -61,6 +63,9 @@ export interface Diagnostics {
 }
 
 const nextFrame = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => r()));
+
+/** Velocità media per stimare i tempi in auto: ~40 km/h sulle strade dei paesi. */
+const ROUTE_DRIVE_SPEED = 11.1;
 
 export class Game {
   private readonly canvas: HTMLCanvasElement;
@@ -81,6 +86,13 @@ export class Game {
   private terrain!: Terrain;
   private sky!: SkyRig;
   private map!: MapRenderer;
+  private roadGraph?: RoadGraph;
+  private route: RouteResult | null = null;
+  private routeDestination: Pt | null = null;
+  private routeLabel = '';
+  private routeBeacon?: THREE.Group;
+  private lastRouteOrigin: Pt | null = null;
+  private lastRouteTime = 0;
 
   private mode: Mode = 'walk';
   private loaded = false;
@@ -172,6 +184,7 @@ export class Game {
 
       this.roadIndex = new RoadIndex(osm.roads);
       this.buildingIndex = new BuildingIndex(osm.buildings);
+      this.roadGraph = buildRoadGraph(osm.roads);
       this.scene.add(buildRoads(osm, heights));
       this.scene.add(buildWater(osm, heights));
 
@@ -190,6 +203,8 @@ export class Game {
       this.scene.add(this.clouds.mesh);
       this.precipitation = new Precipitation();
       this.scene.add(this.precipitation.group);
+      this.routeBeacon = this.createRouteBeacon();
+      this.scene.add(this.routeBeacon);
 
       const imagery = new ImageryStreamer(ESRI_WORLD_IMAGERY, this.renderer.capabilities.getMaxAnisotropy(), () => {
         this.tileErrors++;
@@ -271,6 +286,33 @@ export class Game {
     return best;
   }
 
+  /** Colonna luminosa sulla destinazione dell'itinerario. */
+  private createRouteBeacon(): THREE.Group {
+    const group = new THREE.Group();
+    group.name = 'route-beacon';
+    group.visible = false;
+    const beam = new THREE.Mesh(
+      new THREE.CylinderGeometry(2.6, 4.6, 90, 18, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: 0x4ad7ff,
+        transparent: true,
+        opacity: 0.15,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        fog: false,
+      }),
+    );
+    beam.position.y = 45;
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(5.2, 6.6, 36),
+      new THREE.MeshBasicMaterial({ color: 0x4ad7ff, transparent: true, opacity: 0.6, depthWrite: false }),
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.4;
+    group.add(beam, ring);
+    return group;
+  }
+
   private bindUi(): void {
     document.getElementById('btn-walk')?.addEventListener('click', () => this.start('walk'));
     document.getElementById('btn-drive')?.addEventListener('click', () => this.start('drive'));
@@ -279,6 +321,77 @@ export class Game {
     document.getElementById('btn-weather-refresh')?.addEventListener('click', () => this.refreshWeather());
     const weatherToggle = document.getElementById('toggle-real-weather') as HTMLInputElement | null;
     weatherToggle?.addEventListener('change', () => this.setRealWeather(weatherToggle.checked));
+    document.getElementById('bigmap')?.addEventListener('click', (e) => this.pickDestination(e));
+  }
+
+  // -------------------------------------------------------------------------
+  // itinerario
+  // -------------------------------------------------------------------------
+  private pickDestination(event: MouseEvent): void {
+    if (!this.map || !this.hud.mapVisible) return;
+    const world = this.map.worldFromBigMap(event.currentTarget as HTMLCanvasElement, event.clientX, event.clientY);
+    if (!world) return;
+    this.setDestination(world.x, world.z);
+  }
+
+  private setDestination(x: number, z: number): void {
+    if (!this.roadGraph) return;
+    this.routeDestination = { x, z };
+    this.routeLabel = this.labelForDestination(x, z);
+    this.recomputeRoute();
+    if (!this.route) {
+      this.hud.toast('Nessuna strada collega questo punto: scegline un altro', 3200);
+      return;
+    }
+    this.hud.toast(`Itinerario per ${this.routeLabel}`, 2600);
+  }
+
+  private labelForDestination(x: number, z: number): string {
+    let best: { name: string; d: number } | null = null;
+    for (const v of VILLAGES) {
+      const w = latLonToWorld(v.lat, v.lon);
+      const d = distance2(x, z, w.x, w.z);
+      if (!best || d < best.d) best = { name: v.name, d };
+    }
+    if (best && best.d < 1200) return best.name === HOME.name ? `${HOME.name} · casa` : best.name;
+    return 'Punto scelto';
+  }
+
+  private recomputeRoute(): void {
+    if (!this.roadGraph || !this.routeDestination) return;
+    const focus = this.mode === 'walk' ? this.player.position : this.car.position;
+    this.route = planRoute(this.roadGraph, { x: focus.x, z: focus.z }, this.routeDestination);
+    this.lastRouteOrigin = { x: focus.x, z: focus.z };
+    this.lastRouteTime = performance.now();
+    this.updateRouteHud();
+    if (this.routeBeacon && this.routeDestination) {
+      const { x, z } = this.routeDestination;
+      this.routeBeacon.position.set(x, this.heights.heightAt(x, z), z);
+      this.routeBeacon.visible = true;
+    }
+  }
+
+  /** Distanza e tempi stimati, in stile navigatore. */
+  private updateRouteHud(): void {
+    if (!this.route) {
+      this.hud.setRoute(null);
+      return;
+    }
+    const meters = this.route.distance;
+    const distance = meters >= 950 ? `${(meters / 1000).toFixed(1).replace('.', ',')} km` : `${Math.round(meters / 10) * 10} m`;
+    const walk = Math.max(1, Math.round(meters / GAME.walkSpeed / 60));
+    const drive = Math.max(1, Math.round(meters / ROUTE_DRIVE_SPEED / 60));
+    this.hud.setRoute(`${this.routeLabel} · ${distance} · a piedi ${walk} min · in auto ${drive} min`);
+  }
+
+  private clearRoute(): void {
+    if (!this.routeDestination) return;
+    this.routeDestination = null;
+    this.route = null;
+    this.routeLabel = '';
+    this.hud.setRoute(null);
+    if (this.routeBeacon) this.routeBeacon.visible = false;
+    this.hud.toast('Itinerario annullato', 2000);
   }
 
   // -------------------------------------------------------------------------
@@ -559,6 +672,9 @@ export class Game {
       case 'KeyP':
         this.showSettings(true);
         break;
+      case 'KeyX':
+        this.clearRoute();
+        break;
       case 'KeyH':
         this.hud.toggleHelp();
         break;
@@ -662,6 +778,7 @@ export class Game {
     this.camera.updateProjectionMatrix();
     this.snapDriveCamera();
     this.hud.setMode('drive');
+    if (this.routeDestination) this.recomputeRoute();
   }
 
   private exitCar(): void {
@@ -680,6 +797,7 @@ export class Game {
     this.camera.updateProjectionMatrix();
     this.snapWalkCamera();
     this.hud.setMode('walk');
+    if (this.routeDestination) this.recomputeRoute();
   }
 
   private respawnOnRoad(): void {
@@ -694,6 +812,7 @@ export class Game {
       this.snapDriveCamera();
     }
     this.hud.toast('Riportato in strada');
+    if (this.routeDestination) this.recomputeRoute();
   }
 
   private toggleMap(): void {
@@ -708,10 +827,13 @@ export class Game {
   // -------------------------------------------------------------------------
   private frame = (): void => {
     requestAnimationFrame(this.frame);
-    const dt = Math.min(0.05, this.clock.getDelta());
+    // il tempo reale serve a misurare gli fps, quello limitato alla simulazione:
+    // sotto i 20 fps il passo di fisica non deve superare i 50 ms (tunneling)
+    const rawDt = Math.min(0.5, this.clock.getDelta());
+    const dt = Math.min(0.05, rawDt);
 
     this.fpsFrames++;
-    this.fpsElapsed += dt;
+    this.fpsElapsed += rawDt;
     if (this.fpsElapsed >= 0.5) {
       this.fps = this.fpsFrames / this.fpsElapsed;
       this.fpsFrames = 0;
@@ -791,9 +913,16 @@ export class Game {
           document.getElementById('minimap') as HTMLCanvasElement,
           { x: focus.x, z: focus.z, yaw },
           this.mode === 'walk' ? { x: this.car.state.x, z: this.car.state.z } : undefined,
+          this.route?.points,
         );
         if (this.hud.mapVisible) this.drawBigMap();
       }
+
+    // se ci si allontana dalla partenza, l'itinerario si ricalcola
+    if (this.routeDestination && this.lastRouteOrigin) {
+      const moved = distance2(focus.x, focus.z, this.lastRouteOrigin.x, this.lastRouteOrigin.z);
+      if (moved > 60 && now - this.lastRouteTime > 2500) this.recomputeRoute();
+    }
   }
 
   private updateSky(focus: THREE.Vector3): void {
@@ -923,6 +1052,7 @@ export class Game {
       canvas,
       { x: focus.x, z: focus.z, yaw },
       this.mode === 'walk' ? { x: this.car.state.x, z: this.car.state.z } : undefined,
+      this.route?.points,
     );
   }
 
@@ -944,6 +1074,7 @@ export class Game {
       tileErrors: this.tileErrors,
       quality: this.qualityLevel,
       renderScale: this.renderScale,
+      route: this.route ? { distance: Math.round(this.route.distance), label: this.routeLabel } : null,
       weather: this.realWeatherEnabled
         ? {
             enabled: true,

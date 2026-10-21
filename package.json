@@ -10,7 +10,8 @@
     "preview": "vite preview --host 127.0.0.1 --port 4173",
     "test": "vitest run",
     "geo": "node scripts/fetch-geodata.mjs",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "streets": "node scripts/check-street-imagery.mjs"
   },
   "dependencies": {
     "three": "^0.186.1"

@@ -1,4 +1,5 @@
 import { HOME, latLonToWorld, VILLAGES, WORLD } from '../config';
+import type { Pt } from '../geo/geo';
 import type { OsmData } from '../geo/osm';
 import { ESRI_WORLD_IMAGERY, type TileProvider } from '../world/imagery';
 import { SatelliteBasemap, SatelliteTiles } from './satellite';
@@ -157,6 +158,66 @@ export class MapRenderer {
     return { x: placement.dx + px * placement.s, y: placement.dy + py * placement.s };
   }
 
+  /** Geometria della mappa grande nel canvas (usata anche per i click). */
+  private placementFor(canvas: HTMLCanvasElement, map: HTMLCanvasElement): { dx: number; dy: number; s: number } {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const s = Math.min((canvas.width - 80 * dpr) / map.width, (canvas.height - 80 * dpr) / map.height);
+    return { dx: (canvas.width - map.width * s) / 2, dy: (canvas.height - map.height * s) / 2, s };
+  }
+
+  /** Da un click sulla mappa grande alle coordinate del mondo (metri). */
+  worldFromBigMap(canvas: HTMLCanvasElement, clientX: number, clientY: number): Pt | null {
+    const map = this.staticMap;
+    if (!map) return null;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return null;
+    const px = (clientX - rect.left) * (canvas.width / rect.width);
+    const py = (clientY - rect.top) * (canvas.height / rect.height);
+    const { dx, dy, s } = this.placementFor(canvas, map);
+    const staticX = (px - dx) / s;
+    const staticY = (py - dy) / s;
+    return {
+      x: (staticX - this.mapPad) / this.mapScale - WORLD.halfWidth,
+      z: (staticY - this.mapPad) / this.mapScale - WORLD.halfHeight,
+    };
+  }
+
+  /** Traccia una polilinea proiettata sul canvas (percorso). */
+  private traceRoute(
+    ctx: CanvasRenderingContext2D,
+    route: Pt[],
+    project: (x: number, z: number) => { x: number; y: number },
+  ): void {
+    ctx.beginPath();
+    const first = project(route[0].x, route[0].z);
+    ctx.moveTo(first.x, first.y);
+    for (let i = 1; i < route.length; i++) {
+      const p = project(route[i].x, route[i].z);
+      ctx.lineTo(p.x, p.y);
+    }
+  }
+
+  /** Spillo della destinazione. */
+  private drawPin(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.beginPath();
+    ctx.arc(0, -s * 1.1, s * 0.72, 0, Math.PI * 2);
+    ctx.fillStyle = '#4ad7ff';
+    ctx.fill();
+    ctx.strokeStyle = '#0a1418';
+    ctx.lineWidth = Math.max(1.2, s * 0.22);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-s * 0.42, -s * 0.72);
+    ctx.lineTo(0, 0);
+    ctx.lineTo(s * 0.42, -s * 0.72);
+    ctx.closePath();
+    ctx.fillStyle = '#4ad7ff';
+    ctx.fill();
+    ctx.restore();
+  }
+
   /** Icona "casa" per Palata. */
   private drawHome(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
     ctx.save();
@@ -179,7 +240,7 @@ export class MapRenderer {
   }
 
   /** Minimappa locale (nord in alto), 780 m di lato. */
-  drawMinimap(canvas: HTMLCanvasElement, view: MapView, car?: { x: number; z: number }): void {
+  drawMinimap(canvas: HTMLCanvasElement, view: MapView, car?: { x: number; z: number }, route?: Pt[]): void {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     const size = canvas.width;
@@ -243,6 +304,20 @@ export class MapRenderer {
     }
     ctx.globalAlpha = 1;
 
+    if (route && route.length > 1) {
+      const project = (x: number, z: number): { x: number; y: number } => ({ x: cx + (x - view.x) * k, y: cy + (z - view.z) * k });
+      this.traceRoute(ctx, route, project);
+      ctx.strokeStyle = 'rgba(6, 14, 18, 0.85)';
+      ctx.lineWidth = 7 * (size / 440);
+      ctx.stroke();
+      this.traceRoute(ctx, route, project);
+      ctx.strokeStyle = '#4ad7ff';
+      ctx.lineWidth = 3.4 * (size / 440);
+      ctx.stroke();
+      const end = project(route[route.length - 1].x, route[route.length - 1].z);
+      if (Math.hypot(end.x - cx, end.y - cy) < size / 2 - 8) this.drawPin(ctx, end.x, end.y, 6 * (size / 440));
+    }
+
     if (car) {
       const dx = cx + (car.x - view.x) * k;
       const dy = cy + (car.z - view.z) * k;
@@ -297,7 +372,7 @@ export class MapRenderer {
   }
 
   /** Mappa grande: satellite + overlay vettoriale, o mappa vettoriale notturna. */
-  drawBigMap(canvas: HTMLCanvasElement, view: MapView, car?: { x: number; z: number }): void {
+  drawBigMap(canvas: HTMLCanvasElement, view: MapView, car?: { x: number; z: number }, route?: Pt[]): void {
     const ctx = canvas.getContext('2d');
     const map = this.staticMap;
     if (!ctx || !map) return;
@@ -313,9 +388,7 @@ export class MapRenderer {
     ctx.fillStyle = '#0c1210';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const s = Math.min((canvas.width - 80 * dpr) / map.width, (canvas.height - 80 * dpr) / map.height);
-    const dx = (canvas.width - map.width * s) / 2;
-    const dy = (canvas.height - map.height * s) / 2;
+    const { dx, dy, s } = this.placementFor(canvas, map);
     const placement = { dx, dy, s };
 
     const useSat = this.radar && this.satMap.ready;
@@ -349,6 +422,22 @@ export class MapRenderer {
         ctx.strokeStyle = r.paved ? 'rgba(255, 246, 220, 0.75)' : 'rgba(224, 199, 152, 0.45)';
         ctx.stroke();
       }
+    }
+
+    if (route && route.length > 1) {
+      const project = (x: number, z: number): { x: number; y: number } => this.toStaticScreen(x, z, placement);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      this.traceRoute(ctx, route, project);
+      ctx.strokeStyle = 'rgba(6, 14, 18, 0.9)';
+      ctx.lineWidth = 10 * dpr;
+      ctx.stroke();
+      this.traceRoute(ctx, route, project);
+      ctx.strokeStyle = '#4ad7ff';
+      ctx.lineWidth = 5 * dpr;
+      ctx.stroke();
+      const end = project(route[route.length - 1].x, route[route.length - 1].z);
+      this.drawPin(ctx, end.x, end.y, 10 * dpr);
     }
 
     ctx.font = `600 ${15 * dpr}px system-ui, sans-serif`;

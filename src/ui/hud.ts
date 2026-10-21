@@ -12,6 +12,8 @@ export class Hud {
   private readonly speedo = $('speedo');
   private readonly speedValue = $('speed-value');
   private readonly objective = $('objective');
+  private readonly routePanel = $('route-panel');
+  private readonly routeText = $('route-text');
   private readonly toastEl = $('toast');
   private readonly help = $('help');
   private readonly minimapLabel = $('minimap-label');
@@ -65,6 +67,17 @@ export class Hud {
       this.objective.innerHTML = text;
       this.objective.dataset.text = text;
     }
+  }
+
+  /** Itinerario attivo: testo già pronto (null = nessun itinerario). */
+  setRoute(text: string | null): void {
+    if (!this.routePanel || !this.routeText) return;
+    if (!text) {
+      this.routePanel.classList.add('hidden');
+      return;
+    }
+    this.routePanel.classList.remove('hidden');
+    this.routeText.textContent = text;
   }
 
   setPosition(lat: number, lon: number, elev: number, fps: number): void {
