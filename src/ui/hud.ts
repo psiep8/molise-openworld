@@ -1,7 +1,6 @@
 export type Mode = 'walk' | 'drive';
 
-// @ts-ignore
-import { Wallet, getTransactionHistory } from './sim/economy';
+import { formatEuro, getTransactionHistory, type Wallet } from '../sim/economy';
 
 const $ = <T extends HTMLElement>(id: string): T | null => document.getElementById(id) as T | null;
 
@@ -29,7 +28,6 @@ export class Hud {
   private readonly mapOverlay = $('map-overlay');
   private readonly balanceCash = $('balance-cash');
   private readonly balanceTotal = $('balance-total');
-  private readonly transactionList = $('transaction-list');
   private readonly settings = $('settings');
   private readonly weatherToggle = $('toggle-real-weather') as HTMLInputElement | null;
   private readonly weatherStatus = $('weather-status');
@@ -179,17 +177,70 @@ export class Hud {
   }
 
   setBalance(wallet: Wallet): void {
-    if (this.balanceCash) this.balanceCash.textContent = `${(wallet.cash / 100).toFixed(2).replace('.', ',')} €`;
-    if (this.balanceTotal) this.balanceTotal.textContent = `${( (wallet.cash + wallet.balance) / 100).toFixed(2).replace('.', ',')} €`;
-    if (this.transactionList) {
-      this.transactionList.innerHTML = '';
-      const history = getTransactionHistory(wallet);
-      for (const t of history.slice(0, 10)) {
+    if (this.balanceCash) this.balanceCash.textContent = formatEuro(wallet.cash);
+    if (this.balanceTotal) this.balanceTotal.textContent = formatEuro(wallet.cash + wallet.account);
+    const count = document.getElementById('balance-transactions');
+    if (count) count.textContent = `${wallet.transactions.length} mov.`;
+
+    const cash = document.getElementById('wallet-cash');
+    const account = document.getElementById('wallet-account');
+    const total = document.getElementById('wallet-total');
+    if (cash) cash.textContent = formatEuro(wallet.cash);
+    if (account) account.textContent = formatEuro(wallet.account);
+    if (total) total.textContent = formatEuro(wallet.cash + wallet.account);
+
+    const history = document.getElementById('wallet-history');
+    if (history) {
+      history.textContent = '';
+      const entries = getTransactionHistory(wallet);
+      if (entries.length === 0) {
         const li = document.createElement('li');
-        li.textContent = `${t.timestamp > 0 ? new Date(t.timestamp).toLocaleTimeString() : ''} · ${t.amount < 0 ? '-' : '+'} ${Math.abs(t.amount) / 100} € - ${t.description}`;
-        this.transactionList.append(li);
+        li.className = 'wallet-empty';
+        li.textContent = 'Nessun movimento: acquisti, depositi e prelievi virtuali compariranno qui.';
+        history.append(li);
+      }
+      for (const t of entries.slice(0, 40)) {
+        const li = document.createElement('li');
+        const copy = document.createElement('span');
+        const time = `${String(Math.floor(t.gameTime / 60)).padStart(2, '0')}:${String(t.gameTime % 60).padStart(2, '0')}`;
+        copy.textContent = `G${t.day} ${time} · ${t.description} · ${t.place}`;
+        const amount = document.createElement('span');
+        amount.className = `wallet-amount ${t.amount < 0 ? 'out' : 'in'}`;
+        amount.textContent = `${t.amount > 0 ? '+' : ''}${formatEuro(t.amount)}`;
+        li.append(copy, amount);
+        history.append(li);
       }
     }
+  }
+
+  /** Barre dei bisogni: 0–100, sotto 25 diventano rosse. */
+  setNeeds(needs: { hunger: number; energy: number; fun: number }): void {
+    const set = (id: string, value: number): void => {
+      const bar = document.getElementById(id) as HTMLElement | null;
+      if (!bar) return;
+      bar.style.width = `${Math.round(Math.max(0, Math.min(100, value)))}%`;
+      bar.classList.toggle('low', value <= 25);
+    };
+    set('need-hunger', needs.hunger);
+    set('need-energy', needs.energy);
+    set('need-fun', needs.fun);
+  }
+
+  setClock(day: number, minutes: number): void {
+    const clock = document.getElementById('clock-value');
+    if (clock) {
+      const total = ((Math.floor(minutes) % 1440) + 1440) % 1440;
+      clock.textContent = `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+    }
+    const dayEl = document.getElementById('day-value');
+    if (dayEl) dayEl.textContent = `Giorno ${day}`;
+  }
+
+  setNeedsWarning(text: string | null): void {
+    const el = document.getElementById('needs-warning');
+    if (!el) return;
+    el.textContent = text ?? '';
+    el.classList.toggle('hidden', !text);
   }
 
   setWeatherStatus(text: string): void {

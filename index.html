@@ -24,12 +24,13 @@
           </div>
         </div>
         <div class="top-right">
+          <button id="btn-wallet" class="icon-btn" type="button" aria-label="Portafoglio virtuale" title="Portafoglio e movimenti (I)">€</button>
           <button id="btn-settings" class="icon-btn" type="button" aria-label="Impostazioni" title="Impostazioni (P)">⚙</button>
           <div id="mode-pill" class="pill">A piedi</div>
-          <div id="balance-panel" class="balance-panel">
+          <button id="balance-panel" class="balance-panel" type="button" title="Apri il portafoglio virtuale (I)">
             <span id="balance-cash" class="balance-amount">--,-- €</span> / <span id="balance-total" class="balance-amount">--,-- €</span>
             <span id="balance-transactions" class="balance-transaction-count">0 trans.</span>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -37,6 +38,27 @@
         <canvas id="minimap" width="440" height="440"></canvas>
         <div id="minimap-label">Palata · casa</div>
         <div id="compass"><span>N</span></div>
+      </div>
+
+      <div id="needs-panel" aria-label="Bisogni e orologio di gioco">
+        <div class="needs-clock">
+          <span>Ora di gioco</span>
+          <b id="clock-value">08:00</b>
+          <small id="day-value">Giorno 1</small>
+        </div>
+        <div class="need">
+          <span>Fame</span>
+          <div class="need-bar"><i id="need-hunger" class="need-fill"></i></div>
+        </div>
+        <div class="need">
+          <span>Energia</span>
+          <div class="need-bar"><i id="need-energy" class="need-fill"></i></div>
+        </div>
+        <div class="need">
+          <span>Divertimento</span>
+          <div class="need-bar"><i id="need-fun" class="need-fill"></i></div>
+        </div>
+        <small id="needs-warning" class="needs-warning"></small>
       </div>
 
       <div id="speedo" class="hidden">
@@ -64,6 +86,8 @@
         <div class="help-row"><kbd>Shift</kbd><span>corsa / spinta</span></div>
         <div class="help-row"><kbd>Spazio</kbd><span>salta / freno a mano</span></div>
         <div class="help-row"><kbd>F</kbd><span>entra o esci dall'auto</span></div>
+        <div class="help-row"><kbd>E</kbd><span>entra nell'attività / dormi a casa</span></div>
+        <div class="help-row"><kbd>I</kbd><span>portafoglio e movimenti virtuali</span></div>
         <div class="help-row"><kbd>C</kbd><span>cambia visuale</span></div>
         <div class="help-row"><kbd>M</kbd><span>mappa grande · clicca per l'itinerario</span></div>
         <div class="help-row"><kbd>V</kbd><span>radar satellite / mappa</span></div>
@@ -160,24 +184,14 @@
         <div class="setting-row">
           <div class="setting-copy">
             <strong>Veicolo</strong>
-            <small>Nove tipologie, ognuna con ingombri e parametri di guida propri.</small>
+            <small id="vehicle-count-copy">Catalogo completo: modelli preesistenti e nuovi, ognuno con ingombri e parametri di guida propri.</small>
           </div>
         </div>
 
         <div class="manual-controls">
           <label class="setting-field">
             <span>Modello</span>
-            <select id="vehicle-select">
-              <option value="panda-classic">Panda vecchia</option>
-              <option value="panda-new">Panda nuova</option>
-              <option value="punto">Punto</option>
-              <option value="renegade">Renegade</option>
-              <option value="trike">Tre ruote</option>
-              <option value="500x">500X</option>
-              <option value="captur">Captur</option>
-              <option value="c3">C3</option>
-              <option value="junior">Junior</option>
-            </select>
+            <select id="vehicle-select"></select>
           </label>
           <div id="vehicle-spec" class="vehicle-spec">1.0 Fire 8V · 45 CV · 140 km/h</div>
         </div>
@@ -268,6 +282,65 @@
           Dati meteo: <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a> (CC BY 4.0).
           Personaggio e capi sono modelli procedurali originali: nessun marchio reale di abbigliamento viene riprodotto.
         </p>
+      </div>
+    </div>
+
+    <div id="venue-panel" class="hidden" role="dialog" aria-modal="true" aria-labelledby="venue-title">
+      <div class="venue-card">
+        <header class="settings-head">
+          <div>
+            <h2 id="venue-title">Attività</h2>
+            <p id="venue-subtitle">Palata (CB)</p>
+          </div>
+          <button id="btn-venue-close" class="icon-btn" type="button" aria-label="Chiudi attività">×</button>
+        </header>
+        <div id="venue-badge" class="venue-badge">Da verificare</div>
+        <p id="venue-note" class="venue-note"></p>
+        <div id="venue-services" class="venue-services"></div>
+        <div id="venue-menu" class="venue-menu"></div>
+        <div id="venue-confirm" class="venue-confirm hidden"></div>
+        <footer class="venue-footer">
+          <span id="venue-balance">Saldo virtuale</span>
+          <span class="venue-virtual">€ di gioco · nessun pagamento reale</span>
+        </footer>
+      </div>
+    </div>
+
+    <div id="wallet-panel" class="hidden" role="dialog" aria-modal="true" aria-labelledby="wallet-title">
+      <div class="settings-card">
+        <header class="settings-head">
+          <div>
+            <h2 id="wallet-title">Portafoglio virtuale</h2>
+            <p>Denaro di gioco · non è denaro reale</p>
+          </div>
+          <button id="btn-wallet-close" class="icon-btn" type="button" aria-label="Chiudi portafoglio">×</button>
+        </header>
+        <div class="wallet-balances">
+          <div class="wallet-box">
+            <span>Contanti virtuali</span>
+            <strong id="wallet-cash">0,00 €</strong>
+          </div>
+          <div class="wallet-box">
+            <span>Conto virtuale</span>
+            <strong id="wallet-account">0,00 €</strong>
+          </div>
+          <div class="wallet-box">
+            <span>Totale virtuale</span>
+            <strong id="wallet-total">0,00 €</strong>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-copy">
+            <strong>Movimenti</strong>
+            <small>Gli euro sono una valuta fittizia interna al gioco: nessun conto o pagamento reale è collegato.</small>
+          </div>
+        </div>
+        <ul id="wallet-history" class="wallet-history"></ul>
+        <div class="settings-actions">
+          <button id="btn-save-now" class="text-btn" type="button">Salva partita</button>
+          <button id="btn-reset-game" class="text-btn" type="button">Nuova partita</button>
+          <span class="settings-hint">Il salvataggio è locale (localStorage).</span>
+        </div>
       </div>
     </div>
 

@@ -399,11 +399,16 @@ Legenda: ✅ implementato · 🟡 parziale · ⬜ non iniziato
 | Meteo reale | ✅ | Open-Meteo, refresh 10 min, sole NOAA locale, fallback offline |
 | Pioggia / neve | ✅ | Particelle riutilizzate, foschia e strada bagnata |
 | Fari notturni | ✅ | Due spot sul veicolo, lampade emissive |
-| Veicoli | ✅ | 9 veicoli procedurali con dati di fabbrica reali per motore, coppia, 0-100 e velocità massima (`src/sim/vehicle-catalog.ts`, fonti in `docs/VEHICLE_DATA.md`) |
+| Veicoli | ✅ | **22 veicoli** procedurali con dati di fabbrica reali per motore, coppia, 0-100 e velocità massima (9 preesistenti + 13 richiesti; `src/sim/vehicle-catalog.ts`, fonti in `docs/VEHICLE_DATA.md`). Sagome procedurali originali, **nessun asset GLB di marca** |
 | Cambio e freni | ✅ | Cambio automatico 5/6 marce con strappo e kickdown, curva coppia/potenza, pattinamento in partenza, frenata 8,8–10,2 m/s², retromarcia; HUD con marcia e giri |
 | Garage / personalizzazione | ✅ | Casa scelta sulle impronte OSM con segnalibro in mappa (`T`/menu, `L` per tornarci), auto parcheggiata lì, cambio veicolo e 10 tinte per veicolo |
 | Personaggio | ✅ | Rig procedurale con ossa, 3 clip base + 2 additive; sesso, altezza, corporatura, carnagione, capelli, barba e 7 outfit con 3 toni, ricostruiti a runtime |
 | Entrata/uscita auto | ✅ | Tasto `F`, punto di discesa validato sui muri |
-| Salvataggi | ✅ | Veicolo, tinta, aspetto del personaggio, casa/garage e meteo in `localStorage` |
+| Salvataggi | ✅ | Veicolo, tinta, aspetto del personaggio, casa/garage e meteo in `localStorage`; modalità vita in `molise.life.v1` (`src/sim/save.ts`), versionata e convalidata |
+| Economia virtuale | ✅ | **Solo euro di gioco**: contanti + conto virtuale, acquisti atomici con conferma, storico movimenti, ATM simulato (`src/sim/economy.ts`). Nessun pagamento reale |
+| Luoghi e attività | 🟡 | Catalogo data-driven usato da mappa, minimappa, interazione e menu (`src/sim/venue-catalog.ts`); stato di verifica esplicito, **nessun luogo `verified`**, prezzi simulati |
+| Bisogni e orologio | ✅ | Fame/energia/divertimento con calo nel tempo, avvisi graduali, sonno a casa, giorno/notte (`src/sim/needs.ts`) |
+| Interni 3D | ⬜ | Le attività e la casa usano un pannello contestuale, non un interno camminabile |
+| Sandbox libero | ⬜ | Prove veicoli/outfit senza denaro: da progettare (vedi `docs/ROADMAP.md`) |
 | Stereo | ✅ | Side-by-side con tasto `Y` |
-| Test | ✅ | Vitest su fisica, sole, meteo, geometria, routing |
+| Test | ✅ | Vitest su fisica, sole, meteo, geometria, routing, economia, bisogni, catalogo luoghi e salvataggio |

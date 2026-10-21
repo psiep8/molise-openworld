@@ -41,9 +41,9 @@ describe('prestazioni reali dei veicoli', () => {
     });
   }
 
-  it('nessun veicolo va oltre i 210 km/h e il tre ruote non è un missile', () => {
+  it('nessun veicolo va oltre i 230 km/h e il tre ruote non è un missile', () => {
     for (const spec of VEHICLES) {
-      expect(drive(spec, gas, 150).speed * 3.6).toBeLessThan(210);
+      expect(drive(spec, gas, 150).speed * 3.6).toBeLessThanOrEqual(230);
     }
     const trike = VEHICLES.find((v) => v.id === 'trike');
     expect(trike?.topSpeedKmh).toBeLessThan(200);

@@ -47,13 +47,29 @@ Stack: TypeScript + Vite + Three.js (WebGL2), Vitest, nessun framework UI.
 | Qualità | ✅ nuovo | preset low/medium/high/ultra + resolution scaling adattivo |
 | Audio | ✅ nuovo | WebAudio procedurale: motore, rotolamento, vento, passi, uccelli |
 | Fisica auto | ✅ | modello bicycle puro, testato |
+| Catalogo veicoli | ✅ aggiornato | **22 modelli**: 9 preesistenti + 13 richiesti (sagome procedurali, prestazioni reali) |
+| Economia virtuale | ✅ nuovo | SOLO EURO DI GIOCO: contanti + conto virtuale, acquisti atomici, storico, ATM simulato (`src/sim/economy.ts`) |
+| Luoghi di Palata | ✅ nuovo | catalogo data-driven, stato di verifica esplicito, **nessuno `verified`** (`src/sim/venue-catalog.ts`) |
+| Bisogni + orologio | ✅ nuovo | fame/energia/divertimento, giorno/notte, sonno a casa (`src/sim/needs.ts`) |
+| Salvataggio modalità vita | ✅ nuovo | `molise.life.v1`, versionato e convalidato, autosalvataggio 30 s (`src/sim/save.ts`) |
+| Interni camminabili | ⚠️ pianificato | le attività usano un pannello contestuale, non un interno 3D |
+| Sandbox libero | ⚠️ pianificato | prove veicoli/outfit senza denaro: non ancora separata |
 | Traffico/pedoni | ❌ | non implementati |
 | Cache tile offline | ❌ | solo cache HTTP del browser |
-| Smoke test | ✅ eseguito | 21/10/2026, verde: auto, camminata, texture, PNG |
+| Smoke test | ✅ eseguito | 21/10/2026 dopo l'integrazione vita: verde, `wallet` 50.000/200.000 + `needs` + `clock 08:00` corretti |
+
+> **Denaro di gioco (regola inderogabile).** Gli euro del gioco sono una valuta
+> fittizia interna al videogioco: nessun conto, carta, IBAN o gateway reale. Le
+> attività possono corrispondere a luoghi reali di Palata, ma gli acquisti sono
+> **simulati** e il gioco non invia ordini o pagamenti ai locali. I luoghi marcati
+> `needs-review`/`simulated` non hanno nome/posizione/prezzi verificati.
+
+Dettagli di progetto e stato funzionalità: `docs/LIFE_SIMULATOR.md` e
+`docs/ROADMAP.md`.
 
 Ultime verifiche fatte (macchina Windows, 21/10/2026, rete disponibile):
-`npm ci` ✅, `npm test` 58/58 ✅ (inclusi i test astronomici sul sole, quelli del
-routing e quelli dei tetti sugli edifici reali),
+`npm ci` ✅, `npm test` 151/151 ✅ (13 file: geo, DEM, OSM, fisica auto, routing,
+tetti, sole, economia, bisogni, catalogo luoghi, salvataggio),
 `npm run build` ✅, `npm run smoke` ✅ con `npm run preview` attivo — nessun errore
 console, auto che avanza con `W`, giocatore che cammina, `textured`/`detailed` ≥ 1,
 screenshot non piatto. Lo smoke che prima falliva (auto ferma a 0,43 m) ha rivelato
@@ -74,7 +90,7 @@ npm ci                 # installa le dipendenze (package-lock committato)
 npm run dev            # http://127.0.0.1:5173
 npm run build          # tsc --noEmit + vite build
 npm run preview        # serve dist/ su http://127.0.0.1:4173
-npm test               # 58 test puri (geo, DEM, OSM, fisica auto, routing, tetti, sole)
+npm test               # test Vitest puri (geo, DEM, OSM, fisica auto, routing, tetti, sole, economia, bisogni, luoghi, salvataggio)
 npm run streets        # censimento foto stradali Mapillary (serve MAPILLARY_TOKEN)
 npm run smoke          # e2e Chrome headless; richiede `npm run preview` attivo
 npm run geo            # riscarica OSM + DEM (rete! attenzione ai DNS)
@@ -98,6 +114,8 @@ URL utili:
 | `Shift` | corri | — |
 | `Spazio` | salta | freno a mano |
 | `F` | entra in auto (se vicino) | scendi |
+| `E` | entra nell'attività vicina / dormi e salva a casa | — |
+| `I` | portafoglio virtuale e movimenti | portafoglio virtuale e movimenti |
 | `C` | prima/terza persona | — |
 | `M` | mappa grande (click = itinerario) | mappa grande (click = itinerario) |
 | `X` | annulla l'itinerario | annulla l'itinerario |
@@ -139,6 +157,10 @@ src/
     vehicle.ts           auto procedurale + assetto 4 punti
   sim/car.ts             fisica arcade pura (testata)
   sim/routing.ts         grafo stradale da OSM + A* per l'itinerario (testato)
+  sim/economy.ts         economia SOLO di gioco: contanti+conto virtuali, acquisti atomici
+  sim/needs.ts           fame/energia/divertimento: calo nel tempo ed effetti
+  sim/venue-catalog.ts   luoghi e attività di Palata + menu simulati, stato di verifica
+  sim/save.ts            salvataggio modalità vita (versione, convalida, orologio)
   ui/
     hud.ts               HUD, toast, schermate
     minimap.ts           radar satellite/vettoriale + mappa grande
@@ -208,9 +230,14 @@ In console, ogni frame:
 ```js
 window.__molise
 // { ready, running, mode, chunks, textured, detailed, fps, x, z, speed, keys,
-//   tileErrors, quality, renderScale, route, weather, errors }
+//   tileErrors, quality, renderScale, route, wallet, needs, clock, venue,
+//   errorCount, weather, errors }
 // weather = null oppure { enabled, loading, code, cloudCover, error }
 // route = null oppure { distance, label } (itinerario attivo)
+// wallet = { cash, account, total, transactions } (centesimi di euro di gioco)
+// needs = { hunger, energy, fun } (0–100)
+// clock = { day, minutes, label } (label es. "08:00")
+// venue = nome dell'attività aperta, oppure null
 ```
 
 - `chunks` = chunk terreno attivi; `textured` = con texture; `detailed` = z17+.
@@ -248,6 +275,12 @@ Screenshot smoke: `smoke/shot.png` (ignorato da git). Il profilo Chrome è in
   Rispetta la licenza CC BY 4.0 e l'attribuzione nel pannello/README.
 - **Post-processing**: non assumere che sia attivo; testa anche il percorso diretto.
 - **Mobile**: non è ancora ottimizzato; i preset `low` sono il punto di partenza.
+- **Denaro SOLO di gioco**: mai collegare l'economia a pagamenti, carte, IBAN,
+  gateway, conti o API finanziarie reali. Gli acquisti sono simulati e i prezzi
+  dei menu sono inventati. Non presentare un luogo `needs-review`/`simulated`
+  come verificato: servono fonte, data e conferma della posizione.
+- **Interni**: la modalità vita usa pannelli contestuali, non interni 3D
+  camminabili. Non far credere che esistano finché non sono implementati.
 
 ---
 
@@ -263,6 +296,11 @@ Screenshot smoke: `smoke/shot.png` (ignorato da git). Il profilo Chrome è in
    texture strade non stirate, radar leggibile, audio non clipping.
 3. Misurare fps a 1080p con preset high e con low (DevTools performance + `fps` in
    `window.__molise`). Se < 50 fps su GPU media, ridurre prima `renderScale`/bloom.
+4. **Verificare i flussi della modalità vita a mano**: `E` vicino a un'attività →
+   comprare in contanti e col conto (controllare che il saldo non vada mai negativo
+   e che lo storico cresca), ATM simulato, `E` a casa → dormire (giorno +1, 07:00,
+   energia 100), `I` per il portafoglio, e provare su strada i 22 modelli. Segnare
+   qui l'esito prima di dichiarare la funzione "verificata".
 
 ### P1 — Qualità grafica “quasi AAA”
 

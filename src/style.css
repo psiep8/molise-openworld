@@ -995,6 +995,13 @@ kbd {
     height: 158px;
   }
 
+  #needs-panel {
+    top: auto !important;
+    bottom: 12px;
+    left: 12px;
+    padding: 10px 12px;
+  }
+
   #speedo {
     width: 124px;
     height: 124px;
@@ -1014,11 +1021,356 @@ kbd {
     bottom: 12px;
   }
 
-  #settings {
+  #settings,
+  #venue-panel,
+  #wallet-panel {
     padding: 12px;
   }
 
   .settings-card {
     padding: 20px;
   }
+}
+
+/* --------------------------------------------------- economia / bisogni */
+.balance-panel {
+  pointer-events: auto;
+  display: grid;
+  gap: 1px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+  font-family: var(--font);
+  text-align: right;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+}
+
+.balance-panel:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.balance-amount {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffe0a8;
+  font-variant-numeric: tabular-nums;
+}
+
+.balance-transaction-count {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+#needs-panel {
+  position: absolute;
+  top: 100px;
+  left: 24px;
+  width: 196px;
+  display: grid;
+  gap: 7px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3);
+}
+
+.needs-clock {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.needs-clock b {
+  font-family: var(--mono);
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  color: #ffe0a8;
+  font-variant-numeric: tabular-nums;
+}
+
+.needs-clock small {
+  font-size: 9px;
+  color: rgba(244, 239, 230, 0.5);
+}
+
+.need {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: rgba(244, 239, 230, 0.72);
+}
+
+.need-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.need-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #7ee2a8, #cfd76a);
+  transition: width 0.3s ease, background 0.3s ease;
+}
+
+.need-fill.low {
+  background: linear-gradient(90deg, #ff7b5b, #ffb35b);
+}
+
+.needs-warning {
+  font-size: 10px;
+  line-height: 1.4;
+  color: #ffc0a4;
+}
+
+/* --------------------------------------------------------------- venue */
+#venue-panel,
+#wallet-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(60% 50% at 50% 40%, rgba(24, 38, 44, 0.5), transparent 70%),
+    rgba(4, 8, 10, 0.72);
+  backdrop-filter: blur(9px);
+}
+
+.venue-card {
+  width: min(660px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 24px 26px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(12, 18, 22, 0.96);
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.5);
+  animation: rise 0.3s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.venue-badge {
+  display: inline-block;
+  margin-top: 14px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #ffd479;
+}
+
+.venue-badge.simulated {
+  color: #9fd8ff;
+  border-color: rgba(120, 190, 255, 0.4);
+}
+
+.venue-badge.verified {
+  color: #8ef0b0;
+  border-color: rgba(120, 240, 170, 0.4);
+}
+
+.venue-note {
+  margin: 12px 0 0;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: rgba(244, 239, 230, 0.62);
+}
+
+.venue-services {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.venue-service {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--line);
+  font-size: 10px;
+  color: rgba(244, 239, 230, 0.75);
+}
+
+.venue-menu {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.venue-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.venue-item-copy strong {
+  display: block;
+  font-size: 13px;
+}
+
+.venue-item-copy small {
+  display: block;
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.venue-item-buy {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.venue-price {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffe0a8;
+  font-variant-numeric: tabular-nums;
+}
+
+.venue-confirm {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid rgba(255, 212, 121, 0.35);
+  border-radius: 12px;
+  background: rgba(255, 212, 121, 0.08);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.venue-confirm strong {
+  color: #ffe0a8;
+}
+
+.venue-confirm-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.venue-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+  color: rgba(244, 239, 230, 0.78);
+}
+
+.venue-virtual {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* -------------------------------------------------------------- wallet */
+.wallet-balances {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.wallet-box {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.wallet-box span {
+  display: block;
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.wallet-box strong {
+  display: block;
+  margin-top: 5px;
+  font-family: var(--mono);
+  font-size: 15px;
+  color: #ffe0a8;
+  font-variant-numeric: tabular-nums;
+}
+
+.wallet-history {
+  display: grid;
+  gap: 6px;
+  max-height: 220px;
+  margin: 14px 0 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.wallet-history li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.035);
+  font-size: 11px;
+  color: rgba(244, 239, 230, 0.78);
+}
+
+.wallet-history .wallet-amount {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.wallet-history .wallet-amount.in {
+  color: #8ef0b0;
+}
+
+.wallet-history .wallet-amount.out {
+  color: #ffb08a;
+}
+
+.wallet-empty {
+  color: var(--muted);
+  font-size: 11px;
 }

@@ -59,7 +59,31 @@ import {
 import { findNearestProperty, loadProperty, saveProperty, type Property } from './world/property';
 import { Vehicle } from './entities/vehicle';
 import { Hud, type Mode } from './ui/hud';
-import { purchase as _purchase, deposit as _deposit, withdraw as _withdraw, getBalanceSummary as _getBalanceSummary, getTransactionHistory as _getTransactionHistory, type Transaction as _Transaction } from './sim/economy';
+import {
+  createInitialWallet,
+  deposit as depositCash,
+  formatEuro,
+  purchase as buyItem,
+  withdraw as withdrawCash,
+  type MoneyMethod,
+  type Wallet,
+} from './sim/economy';
+import {
+  VENUES,
+  findNearestVenue,
+  venueStatusLabel,
+  type Venue,
+  type VenueMenuItem,
+} from './sim/venue-catalog';
+import {
+  advanceNeeds,
+  applyNeedEffect,
+  createInitialNeeds,
+  needsWarning,
+  sleepNeeds,
+  type Needs,
+} from './sim/needs';
+import { advanceClock, formatGameClock, loadLifeSave, saveLifeSave, type LifeSave } from './sim/save';
 import { MapRenderer } from './ui/minimap';
 import type { CarInput } from './sim/car';
 import { buildRoadGraph, planRoute, type RoadGraph, type RouteResult } from './sim/routing';
@@ -97,6 +121,11 @@ export interface Diagnostics {
   quality: QualityLevel;
   renderScale: number;
   route: { distance: number; label: string } | null;
+  wallet: { cash: number; account: number; total: number; transactions: number };
+  needs: { hunger: number; energy: number; fun: number };
+  clock: { day: number; minutes: number; label: string };
+  venue: string | null;
+  errorCount: number;
   weather: {
     enabled: boolean;
     loading: boolean;
@@ -142,12 +171,24 @@ export class Game {
   private lastRouteTime = 0;
   private garage: Property | null = loadProperty();
 
+  // --- modalità vita: denaro solo virtuale, bisogni, orologio --------------
+  private wallet: Wallet = createInitialWallet();
+  private needs: Needs = createInitialNeeds();
+  private gameDay = 1;
+  private gameMinutes = 8 * 60;
+  /** Minuti di gioco per secondo reale (0,5 = un'ora ogni due minuti). */
+  private readonly gameMinutesPerSecond = 0.5;
+  private saveClock = 0;
+  private lifeSave: LifeSave | null = null;
+  private walletVisible = false;
+  private venueOpen: Venue | null = null;
+  private pendingItem: VenueMenuItem | null = null;
+  private venuePanelVisible = false;
+
   private mode: Mode = 'walk';
   private loaded = false;
   private running = false;
   private keys = new Set<string>();
-  // economia virtuale SOLO DENARO DI GIOCO - see sim/economy.ts for the full wallet system
-// private initialWallet = createInitialWallet(); // commented out until fully integrated
   private pointerLocked = false;
   private thirdPerson = false;
   private camYawOffset = 0;
@@ -223,6 +264,20 @@ export class Game {
     this.post = new PostPipeline(this.renderer, this.scene, this.camera, this.quality.bloom);
     this.applyQuality(this.qualityLevel, false);
 
+    // Ripristina la modalità vita (denaro virtuale, bisogni, orologio).
+    const save = loadLifeSave();
+    if (save) {
+      this.lifeSave = save;
+      this.wallet = save.wallet;
+      this.needs = save.needs;
+      this.gameDay = save.day;
+      this.gameMinutes = save.minutes;
+    }
+    this.hud.setBalance(this.wallet);
+    this.hud.setNeeds(this.needs);
+    this.hud.setClock(this.gameDay, this.gameMinutes);
+    this.hud.setNeedsWarning(needsWarning(this.needs));
+
     this.bindUi();
     this.bindInput();
     window.addEventListener('resize', this.onResize);
@@ -246,6 +301,8 @@ export class Game {
       this.roadIndex = new RoadIndex(osm.roads);
       this.buildingIndex = new BuildingIndex(osm.buildings);
       this.roadGraph = buildRoadGraph(osm.roads);
+      this.ensureHome();
+      this.populateVehicles();
       this.roadsGroup = buildRoads(osm, heights);
       this.scene.add(this.roadsGroup);
       this.scene.add(buildWater(osm, heights));
@@ -264,6 +321,7 @@ export class Game {
       this.hud.setVehicleName(this.car.spec.name);
       this.hud.setVehicleSpec(vehicleLabel(this.car.spec));
       this.buildPaintSwatches();
+      this.syncSettingsControls();
 
       this.hud.setLoading(0.72, 'Alzo il cielo…');
       await nextFrame();
@@ -315,15 +373,22 @@ export class Game {
   // setup
   // -------------------------------------------------------------------------
   private spawnAtStart(): void {
-    const pose = this.findRoadPose(START.x, START.z, 0.6) ?? {
-      x: START.x,
-      z: START.z,
-      yaw: 0,
-      distance: 0,
-    };
-    this.player.spawn(pose.x, pose.z, pose.yaw, this.heights);
+    const saved = this.lifeSave?.position;
+    if (saved) {
+      const safe = this.buildingIndex.resolveCircle(saved.x, saved.z, 0.6);
+      this.player.spawn(safe.x, safe.z, 0, this.heights);
+    } else {
+      const pose = this.findRoadPose(START.x, START.z, 0.6) ?? {
+        x: START.x,
+        z: START.z,
+        yaw: 0,
+        distance: 0,
+      };
+      this.player.spawn(pose.x, pose.z, pose.yaw, this.heights);
+    }
     this.player.avatar.visible = false;
 
+    const pose = { x: this.player.position.x, z: this.player.position.z, yaw: this.player.yaw, distance: 0 };
     const aheadX = pose.x - Math.sin(pose.yaw) * 13;
     const aheadZ = pose.z - Math.cos(pose.yaw) * 13;
     // l'auto non deve nascere dentro un muro: cerca un punto libero nei paraggi
@@ -332,6 +397,34 @@ export class Game {
 
     this.terrain.update(this.player.position.x, this.player.position.z, VIEW_RADIUS, true);
     this.snapWalkCamera();
+  }
+
+  /** Casa iniziale unica: la prima casa del centro di Palata, se non è già scelta. */
+  private ensureHome(): void {
+    if (this.garage) return;
+    for (const range of [40, 90, 160, 260]) {
+      const property = findNearestProperty(this.buildingIndex, START.x, START.z, range);
+      if (property) {
+        this.garage = property;
+        saveProperty(property);
+        this.syncGarage();
+        return;
+      }
+    }
+  }
+
+  /** Riempie la select del veicolo con tutto il catalogo (preesistenti + nuovi). */
+  private populateVehicles(): void {
+    this.fillSelect(
+      'vehicle-select',
+      VEHICLES.map((v) => [v.id, v.name] as const),
+    );
+    const select = document.getElementById('vehicle-select') as HTMLSelectElement | null;
+    if (select) select.value = this.car.spec.id;
+    const copy = document.getElementById('vehicle-count-copy');
+    if (copy) {
+      copy.textContent = `${VEHICLES.length} modelli disponibili: quelli già presenti nel progetto e i 13 richiesti. Ognuno ha ingombri e parametri di guida propri.`;
+    }
   }
 
   /** Cerca il punto più vicino su una strada asfaltata, con l'orientamento della carreggiata. */
@@ -408,6 +501,19 @@ export class Game {
     document.getElementById('btn-garage-set')?.addEventListener('click', () => this.setGarageFromHere());
     document.getElementById('btn-garage-go')?.addEventListener('click', () => this.goToGarage());
     document.getElementById('btn-garage-clear')?.addEventListener('click', () => this.clearGarage());
+
+    document.getElementById('btn-wallet')?.addEventListener('click', () => this.showWallet(!this.walletVisible));
+    document.getElementById('balance-panel')?.addEventListener('click', () => this.showWallet(!this.walletVisible));
+    document.getElementById('btn-wallet-close')?.addEventListener('click', () => this.showWallet(false));
+    document.getElementById('btn-save-now')?.addEventListener('click', () => {
+      this.saveGame();
+      this.hud.toast('Partita salvata', 2200);
+    });
+    document.getElementById('btn-reset-game')?.addEventListener('click', () => this.resetGame());
+    document.getElementById('btn-venue-close')?.addEventListener('click', () => this.closeVenue());
+    document.getElementById('venue-panel')?.addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) this.closeVenue();
+    });
 
     document.getElementById('bigmap')?.addEventListener('click', (e) => this.pickDestination(e));
     this.syncSettingsControls();
@@ -682,6 +788,444 @@ export class Game {
   private cycleVehicle(): void {
     const index = VEHICLES.findIndex((v) => v.id === this.car.spec.id);
     this.selectVehicle(VEHICLES[(index + 1) % VEHICLES.length].id);
+  }
+
+  // -------------------------------------------------------------------------
+  // vita quotidiana: interazioni, attività, denaro virtuale, bisogni
+  // -------------------------------------------------------------------------
+  private interact(): void {
+    if (!this.loaded) return;
+    const x = this.player.position.x;
+    const z = this.player.position.z;
+    const venue = findNearestVenue(x, z, 16);
+    if (venue) {
+      this.openVenue(venue);
+      return;
+    }
+    if (this.garage && Math.hypot(this.garage.x - x, this.garage.z - z) < 22) {
+      this.openHomePanel();
+      return;
+    }
+    this.hud.toast('Nessuna attività qui vicino: avvicinati a un locale o a casa', 2600);
+  }
+
+  private venuePanel(): HTMLElement | null {
+    return document.getElementById('venue-panel');
+  }
+
+  private showWallet(show: boolean): void {
+    if (show && !this.loaded) return;
+    this.walletVisible = show;
+    document.getElementById('wallet-panel')?.classList.toggle('hidden', !show);
+    if (show) {
+      this.keys.clear();
+      if (document.pointerLockElement) document.exitPointerLock();
+      this.hud.setBalance(this.wallet);
+    }
+  }
+
+  private saveGame(): void {
+    if (!this.loaded) return;
+    const position =
+      this.mode === 'walk'
+        ? { x: this.player.position.x, z: this.player.position.z }
+        : { x: this.car.state.x, z: this.car.state.z };
+    const save: LifeSave = {
+      version: 1,
+      wallet: this.wallet,
+      needs: this.needs,
+      day: this.gameDay,
+      minutes: Math.floor(this.gameMinutes),
+      position,
+      savedAt: Date.now(),
+    };
+    if (saveLifeSave(save)) this.lifeSave = save;
+  }
+
+  private resetGame(): void {
+    if (!window.confirm('Nuova partita? Il salvataggio locale della modalità vita, i movimenti e l\'aspetto verranno azzerati.')) {
+      return;
+    }
+    try {
+      const store = window.localStorage;
+      const keys: string[] = [];
+      for (let i = 0; i < store.length; i++) {
+        const key = store.key(i);
+        if (key && key.startsWith('molise.')) keys.push(key);
+      }
+      for (const key of keys) store.removeItem(key);
+    } catch {
+      // localStorage può essere disabilitato
+    }
+    window.location.reload();
+  }
+
+  private openVenue(venue: Venue): void {
+    if (!this.loaded) return;
+    this.venueOpen = venue;
+    this.pendingItem = null;
+    this.venuePanelVisible = true;
+    this.keys.clear();
+    if (document.pointerLockElement) document.exitPointerLock();
+    this.venuePanel()?.classList.remove('hidden');
+
+    const title = document.getElementById('venue-title');
+    if (title) title.textContent = venue.name;
+    const subtitle = document.getElementById('venue-subtitle');
+    if (subtitle) subtitle.textContent = `${venue.category} · ${venue.openHours}`;
+
+    const badge = document.getElementById('venue-badge');
+    if (badge) {
+      badge.textContent = venueStatusLabel(venue.status);
+      badge.className = `venue-badge ${venue.status}`;
+    }
+    const note = document.getElementById('venue-note');
+    if (note) {
+      note.textContent = `${venue.note} Fonte: ${venue.source}. Verificato il ${venue.dateChecked}. Prezzi e menu sono fittizi.`;
+    }
+
+    const services = document.getElementById('venue-services');
+    if (services) {
+      services.textContent = '';
+      for (const service of venue.services) {
+        const chip = document.createElement('span');
+        chip.className = 'venue-service';
+        chip.textContent = service;
+        services.append(chip);
+      }
+    }
+
+    this.renderVenueBody(venue);
+    this.renderVenueBalance();
+  }
+
+  private renderVenueBody(venue: Venue): void {
+    const host = document.getElementById('venue-menu');
+    const confirm = document.getElementById('venue-confirm');
+    confirm?.classList.add('hidden');
+    if (!host) return;
+    host.textContent = '';
+
+    if (venue.interaction === 'atm') {
+      this.renderAtm(host);
+      return;
+    }
+
+    if (venue.menu.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'venue-note';
+      empty.textContent = 'Nessun servizio acquistabile in questa attività.';
+      host.append(empty);
+      return;
+    }
+
+    for (const item of venue.menu) {
+      const row = document.createElement('div');
+      row.className = 'venue-item';
+      const copy = document.createElement('div');
+      copy.className = 'venue-item-copy';
+      const label = document.createElement('strong');
+      label.textContent = item.label;
+      const desc = document.createElement('small');
+      desc.textContent = item.description;
+      copy.append(label, desc);
+
+      const action = document.createElement('div');
+      action.className = 'venue-item-buy';
+      const price = document.createElement('span');
+      price.className = 'venue-price';
+      price.textContent = item.priceCents === 0 ? 'Gratis' : formatEuro(item.priceCents);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'text-btn';
+      button.textContent = item.priceCents === 0 ? 'Fai' : 'Scegli';
+      button.addEventListener('click', () => this.chooseItem(item));
+      action.append(price, button);
+      row.append(copy, action);
+      host.append(row);
+    }
+  }
+
+  private renderAtm(host: HTMLElement): void {
+    const info = document.createElement('p');
+    info.className = 'venue-note';
+    info.textContent =
+      'ATM SIMULATO: i movimenti avvengono solo tra contanti virtuali e conto virtuale del gioco. Nessuna banca reale è collegata.';
+    host.append(info);
+
+    const actions = document.createElement('div');
+    actions.className = 'settings-actions';
+    for (const amount of [5000, 10000, 20000]) {
+      const depositBtn = document.createElement('button');
+      depositBtn.type = 'button';
+      depositBtn.className = 'text-btn';
+      depositBtn.textContent = `Versa ${formatEuro(amount)}`;
+      depositBtn.addEventListener('click', () => this.atmTransfer('deposit', amount));
+      const withdrawBtn = document.createElement('button');
+      withdrawBtn.type = 'button';
+      withdrawBtn.className = 'text-btn';
+      withdrawBtn.textContent = `Preleva ${formatEuro(amount)}`;
+      withdrawBtn.addEventListener('click', () => this.atmTransfer('withdraw', amount));
+      actions.append(depositBtn, withdrawBtn);
+    }
+    host.append(actions);
+  }
+
+  private atmTransfer(kind: 'deposit' | 'withdraw', amountCents: number): void {
+    const venue = this.venueOpen;
+    const place = venue?.name ?? 'ATM virtuale';
+    const result =
+      kind === 'deposit'
+        ? depositCash(this.wallet, amountCents, place, Math.floor(this.gameMinutes), this.gameDay)
+        : withdrawCash(this.wallet, amountCents, place, Math.floor(this.gameMinutes), this.gameDay);
+
+    if (!result.ok) {
+      this.hud.toast(
+        kind === 'deposit' ? 'Non hai abbastanza contanti virtuali' : 'Conto virtuale insufficiente',
+        2600,
+      );
+      return;
+    }
+    this.wallet = result.wallet;
+    this.hud.setBalance(this.wallet);
+    if (venue) this.renderVenueBalance();
+    this.hud.toast(
+      kind === 'deposit'
+        ? `Versati ${formatEuro(amountCents)} sul conto virtuale`
+        : `Prelevati ${formatEuro(amountCents)} in contanti virtuali`,
+      2600,
+    );
+    this.saveGame();
+  }
+
+  private chooseItem(item: VenueMenuItem): void {
+    const venue = this.venueOpen;
+    if (!venue) return;
+    if (item.priceCents === 0) {
+      this.applyItemEffect(venue, item);
+      this.hud.toast(`${item.label}: fatto · ${item.description}`, 2600);
+      this.renderVenueBody(venue);
+      this.renderVenueBalance();
+      return;
+    }
+    this.pendingItem = item;
+    this.renderConfirm(item);
+  }
+
+  private renderConfirm(item: VenueMenuItem): void {
+    const box = document.getElementById('venue-confirm');
+    if (!box) return;
+    box.textContent = '';
+    box.classList.remove('hidden');
+
+    const cashAfter = this.wallet.cash - item.priceCents;
+    const accountAfter = this.wallet.account - item.priceCents;
+    const text = document.createElement('div');
+    text.innerHTML =
+      `<strong>${item.label}</strong> · ${formatEuro(item.priceCents)}<br>` +
+      `Saldo dopo l'acquisto: contanti ${cashAfter >= 0 ? formatEuro(cashAfter) : 'fondi insufficienti'} · ` +
+      `conto ${accountAfter >= 0 ? formatEuro(accountAfter) : 'fondi insufficienti'}<br>` +
+      `<span class="venue-virtual">Acquisto simulato: nessun ordine o pagamento reale.</span>`;
+
+    const actions = document.createElement('div');
+    actions.className = 'venue-confirm-actions';
+    const cashBtn = document.createElement('button');
+    cashBtn.type = 'button';
+    cashBtn.className = 'text-btn';
+    cashBtn.textContent = 'Conferma in contanti';
+    cashBtn.disabled = cashAfter < 0;
+    cashBtn.addEventListener('click', () => this.confirmPurchase('contanti'));
+    const accountBtn = document.createElement('button');
+    accountBtn.type = 'button';
+    accountBtn.className = 'text-btn';
+    accountBtn.textContent = 'Conferma col conto virtuale';
+    accountBtn.disabled = accountAfter < 0;
+    accountBtn.addEventListener('click', () => this.confirmPurchase('conto'));
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'text-btn';
+    cancelBtn.textContent = 'Annulla';
+    cancelBtn.addEventListener('click', () => {
+      this.pendingItem = null;
+      box.classList.add('hidden');
+    });
+    actions.append(cashBtn, accountBtn, cancelBtn);
+    box.append(text, actions);
+  }
+
+  private confirmPurchase(method: MoneyMethod): void {
+    const venue = this.venueOpen;
+    const item = this.pendingItem;
+    if (!venue || !item) return;
+
+    const result = buyItem(this.wallet, {
+      amountCents: item.priceCents,
+      place: venue.name,
+      description: item.label,
+      method,
+      category: item.product,
+      gameTime: Math.floor(this.gameMinutes),
+      day: this.gameDay,
+    });
+
+    if (!result.ok) {
+      this.hud.toast('Fondi virtuali insufficienti: scegli un altro metodo o un prodotto più economico', 3200);
+      return;
+    }
+
+    this.wallet = result.wallet;
+    this.applyItemEffect(venue, item);
+    this.pendingItem = null;
+    document.getElementById('venue-confirm')?.classList.add('hidden');
+    this.renderVenueBody(venue);
+    this.renderVenueBalance();
+    this.hud.setBalance(this.wallet);
+    this.hud.toast(`${item.label} · −${formatEuro(item.priceCents)} (${method === 'contanti' ? 'contanti virtuali' : 'conto virtuale'})`, 3000);
+    this.saveGame();
+  }
+
+  private applyItemEffect(venue: Venue, item: VenueMenuItem): void {
+    if (item.needs) {
+      this.needs = applyNeedEffect(this.needs, item.needs);
+      this.hud.setNeeds(this.needs);
+      this.hud.setNeedsWarning(needsWarning(this.needs));
+    }
+    if (item.outfit) {
+      const look = sanitizeAppearance({ ...this.player.appearance, outfit: item.outfit as Appearance['outfit'] });
+      this.player.applyAppearance(look);
+      saveAppearance(look);
+      this.syncSettingsControls();
+      this.hud.toast(`Indossi: ${OUTFITS[look.outfit].label}`, 2400);
+    }
+    if (venue.interaction === 'walk' || venue.interaction === 'visit') {
+      // le visite hanno solo effetti sui bisogni, già applicati sopra
+    }
+  }
+
+  private renderVenueBalance(): void {
+    const el = document.getElementById('venue-balance');
+    if (el) {
+      el.textContent = `Contanti ${formatEuro(this.wallet.cash)} · Conto ${formatEuro(this.wallet.account)}`;
+    }
+  }
+
+  private closeVenue(): void {
+    this.venueOpen = null;
+    this.pendingItem = null;
+    this.venuePanelVisible = false;
+    this.venuePanel()?.classList.add('hidden');
+    this.keys.clear();
+    this.saveGame();
+  }
+
+  private openHomePanel(): void {
+    if (!this.garage) return;
+    this.venueOpen = null;
+    this.venuePanelVisible = true;
+    this.keys.clear();
+    if (document.pointerLockElement) document.exitPointerLock();
+    this.venuePanel()?.classList.remove('hidden');
+
+    const title = document.getElementById('venue-title');
+    if (title) title.textContent = 'Casa';
+    const subtitle = document.getElementById('venue-subtitle');
+    if (subtitle) subtitle.textContent = `${this.garage.label} · una sola casa nella modalità vita`;
+    const badge = document.getElementById('venue-badge');
+    if (badge) {
+      badge.textContent = 'Casa del giocatore';
+      badge.className = 'venue-badge verified';
+    }
+    const note = document.getElementById('venue-note');
+    if (note) note.textContent = 'La casa è un edificio di Palata scelto come base. Qui puoi dormire, salvare e cambiare outfit.';
+    const services = document.getElementById('venue-services');
+    if (services) {
+      services.textContent = '';
+      for (const label of ['riposo', 'salvataggio', 'guardaroba']) {
+        const chip = document.createElement('span');
+        chip.className = 'venue-service';
+        chip.textContent = label;
+        services.append(chip);
+      }
+    }
+
+    const host = document.getElementById('venue-menu');
+    if (!host) return;
+    host.textContent = '';
+    const actions: { label: string; hint: string; run: () => void }[] = [
+      {
+        label: 'Dormi fino alle 07:00',
+        hint: 'Avanza il tempo al giorno successivo e recupera tutta l\'energia.',
+        run: () => this.sleepAtHome(),
+      },
+      {
+        label: 'Riposa un\'ora',
+        hint: 'Recupera un po\' di energia senza cambiare giorno.',
+        run: () => this.restOneHour(),
+      },
+      {
+        label: 'Salva partita',
+        hint: 'Salva denaro virtuale, bisogni, orologio e posizione.',
+        run: () => {
+          this.saveGame();
+          this.hud.toast('Partita salvata', 2200);
+        },
+      },
+      {
+        label: 'Guardaroba',
+        hint: 'Apri le impostazioni per cambiare outfit e aspetto.',
+        run: () => {
+          this.closeVenue();
+          this.showSettings(true);
+        },
+      },
+    ];
+    for (const action of actions) {
+      const row = document.createElement('div');
+      row.className = 'venue-item';
+      const copy = document.createElement('div');
+      copy.className = 'venue-item-copy';
+      const label = document.createElement('strong');
+      label.textContent = action.label;
+      const hint = document.createElement('small');
+      hint.textContent = action.hint;
+      copy.append(label, hint);
+      const actionWrap = document.createElement('div');
+      actionWrap.className = 'venue-item-buy';
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'text-btn';
+      button.textContent = 'Fai';
+      button.addEventListener('click', action.run);
+      actionWrap.append(button);
+      row.append(copy, actionWrap);
+      host.append(row);
+    }
+    document.getElementById('venue-confirm')?.classList.add('hidden');
+    this.renderVenueBalance();
+  }
+
+  private sleepAtHome(): void {
+    const nextDay = this.gameMinutes < 7 * 60 ? this.gameDay : this.gameDay + 1;
+    this.gameMinutes = 7 * 60;
+    this.gameDay = nextDay;
+    this.needs = sleepNeeds(this.needs);
+    this.hud.setNeeds(this.needs);
+    this.hud.setClock(this.gameDay, this.gameMinutes);
+    this.hud.setNeedsWarning(needsWarning(this.needs));
+    this.closeVenue();
+    this.hud.toast(`Giorno ${this.gameDay} · 07:00 · energia recuperata`, 3200);
+  }
+
+  private restOneHour(): void {
+    const clock = advanceClock(this.gameDay, Math.floor(this.gameMinutes), 60);
+    this.gameDay = clock.day;
+    this.gameMinutes = clock.minutes;
+    this.needs = applyNeedEffect(this.needs, { energy: 12, fun: 2 });
+    this.hud.setNeeds(this.needs);
+    this.hud.setClock(this.gameDay, this.gameMinutes);
+    this.hud.setNeedsWarning(needsWarning(this.needs));
+    this.renderVenueBalance();
+    this.hud.toast('Hai riposato un\'ora', 2200);
   }
 
   // -------------------------------------------------------------------------
@@ -1049,6 +1593,20 @@ export class Game {
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
+    if (this.venuePanelVisible) {
+      if (!e.repeat && (e.code === 'Escape' || e.code === 'KeyE')) {
+        e.preventDefault();
+        this.closeVenue();
+      }
+      return;
+    }
+    if (this.walletVisible) {
+      if (!e.repeat && (e.code === 'Escape' || e.code === 'KeyI')) {
+        e.preventDefault();
+        this.showWallet(false);
+      }
+      return;
+    }
     if (this.settingsVisible) {
       if (!e.repeat && (e.code === 'KeyP' || e.code === 'Escape')) {
         e.preventDefault();
@@ -1064,6 +1622,13 @@ export class Game {
     if (e.repeat || !this.running) return;
 
     switch (e.code) {
+      case 'KeyE':
+        if (this.mode === 'walk') this.interact();
+        else this.hud.toast('Scendi dall\'auto per entrare nell\'attività', 2400);
+        break;
+      case 'KeyI':
+        this.showWallet(!this.walletVisible);
+        break;
       case 'KeyF':
         if (this.mode === 'walk') this.enterCar();
         else this.exitCar();
@@ -1350,6 +1915,23 @@ export class Game {
     this.realWeather.update();
     const move = this.readMoveInput();
 
+    // Orologio e bisogni: si fermano quando un pannello è aperto.
+    const paused = this.venuePanelVisible || this.walletVisible || this.settingsVisible;
+    const gameDelta = paused ? 0 : dt * this.gameMinutesPerSecond;
+    if (gameDelta > 0) {
+      this.gameMinutes += gameDelta;
+      if (this.gameMinutes >= 1440) {
+        this.gameMinutes -= 1440;
+        this.gameDay++;
+      }
+      this.needs = advanceNeeds(this.needs, gameDelta);
+    }
+    this.saveClock += dt;
+    if (this.saveClock >= 30) {
+      this.saveClock = 0;
+      this.saveGame();
+    }
+
     if (this.mode === 'walk') {
       this.player.update(dt, move, this.heights, this.buildingIndex);
       this.player.position.x = clamp(this.player.position.x, -WORLD.halfWidth + 25, WORLD.halfWidth - 25);
@@ -1390,6 +1972,7 @@ export class Game {
           this.mode === 'walk' ? { x: this.car.state.x, z: this.car.state.z } : undefined,
           this.route?.points,
           this.garage,
+          VENUES,
         );
         if (this.hud.mapVisible) this.drawBigMap();
       }
@@ -1500,6 +2083,9 @@ export class Game {
     this.hud.setMode(this.mode);
     this.hud.setSpeed(this.mode === 'drive' ? this.car.kmh : 0);
     this.hud.setGear(this.car.gear, this.car.rpm);
+    this.hud.setNeeds(this.needs);
+    this.hud.setClock(this.gameDay, this.gameMinutes);
+    this.hud.setNeedsWarning(needsWarning(this.needs));
 
     let nearest: { name: string; d: number } | null = null;
     for (const v of VILLAGES) {
@@ -1513,16 +2099,21 @@ export class Game {
 
     if (this.mode === 'walk') {
       const d = distance2(x, z, this.car.state.x, this.car.state.z);
-      const atGarage = this.garage !== null && distance2(x, z, this.garage.x, this.garage.z) < 16;
-      if (d <= GAME.interactionRange) {
-        this.hud.setObjective('Premi <kbd>F</kbd> per guidare');
+      const venue = findNearestVenue(x, z, 16);
+      const atGarage = this.garage !== null && distance2(x, z, this.garage.x, this.garage.z) < 22;
+      if (venue) {
+        this.hud.setObjective(`Premi <kbd>E</kbd> per entrare a <strong>${venue.name}</strong>`);
       } else if (atGarage) {
-        this.hud.setObjective('Garage · <kbd>B</kbd> cambia auto · <kbd>K</kbd> colore');
+        this.hud.setObjective('Casa · <kbd>E</kbd> dormi o salva · <kbd>T</kbd> cambia casa');
+      } else if (d <= GAME.interactionRange) {
+        this.hud.setObjective('Premi <kbd>F</kbd> per guidare');
       } else {
         this.hud.setObjective(null);
       }
     } else {
-      this.hud.setObjective('Premi <kbd>F</kbd> per scendere · <kbd>R</kbd> per tornare in strada');
+      const nearVenue = findNearestVenue(x, z, 18);
+      const hint = nearVenue ? ` · ${nearVenue.name}: scendi con <kbd>F</kbd>` : '';
+      this.hud.setObjective(`Premi <kbd>F</kbd> per scendere · <kbd>R</kbd> per tornare in strada${hint}`);
     }
   }
 
@@ -1538,6 +2129,7 @@ export class Game {
       this.mode === 'walk' ? { x: this.car.state.x, z: this.car.state.z } : undefined,
       this.route?.points,
       this.garage,
+      VENUES,
     );
   }
 
@@ -1560,6 +2152,16 @@ export class Game {
       quality: this.qualityLevel,
       renderScale: this.renderScale,
       route: this.route ? { distance: Math.round(this.route.distance), label: this.routeLabel } : null,
+      wallet: {
+        cash: this.wallet.cash,
+        account: this.wallet.account,
+        total: this.wallet.cash + this.wallet.account,
+        transactions: this.wallet.transactions.length,
+      },
+      needs: { hunger: Math.round(this.needs.hunger), energy: Math.round(this.needs.energy), fun: Math.round(this.needs.fun) },
+      clock: { day: this.gameDay, minutes: Math.floor(this.gameMinutes), label: formatGameClock(this.gameMinutes) },
+      venue: this.venueOpen?.name ?? null,
+      errorCount: this.errors.length,
       weather: this.realWeatherEnabled
         ? {
             enabled: true,

@@ -268,6 +268,36 @@ export class MapRenderer {
     ctx.restore();
   }
 
+  /** Marker di un'attività: rombo pieno; anello tratteggiato se da verificare. */
+  private drawVenue(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    s: number,
+    color: string,
+    status: string,
+  ): void {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = color;
+    ctx.strokeStyle = 'rgba(8, 14, 12, 0.9)';
+    ctx.lineWidth = Math.max(1, s * 0.22);
+    ctx.fillRect(-s * 0.62, -s * 0.62, s * 1.24, s * 1.24);
+    ctx.strokeRect(-s * 0.62, -s * 0.62, s * 1.24, s * 1.24);
+    ctx.restore();
+    if (status !== 'verified') {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(x, y, s * 1.35, 0, Math.PI * 2);
+      ctx.setLineDash([s * 0.35, s * 0.35]);
+      ctx.strokeStyle = 'rgba(255, 244, 226, 0.75)';
+      ctx.lineWidth = Math.max(1, s * 0.18);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
   /** Minimappa locale (nord in alto), 780 m di lato. */
   drawMinimap(
     canvas: HTMLCanvasElement,
@@ -275,6 +305,7 @@ export class MapRenderer {
     car?: { x: number; z: number },
     route?: Pt[],
     garage?: { x: number; z: number } | null,
+    venues?: readonly { x: number; z: number; name: string; color: string; status: string }[],
   ): void {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -372,6 +403,13 @@ export class MapRenderer {
       }
     }
 
+    for (const venue of venues ?? []) {
+      const vx = cx + (venue.x - view.x) * k;
+      const vy = cy + (venue.z - view.z) * k;
+      if (Math.hypot(vx - cx, vy - cy) > size / 2 - 10) continue;
+      this.drawVenue(ctx, vx, vy, 4.2 * (size / 440), venue.color, venue.status);
+    }
+
     // giocatore
     ctx.save();
     ctx.translate(cx, cy);
@@ -421,6 +459,7 @@ export class MapRenderer {
     car?: { x: number; z: number },
     route?: Pt[],
     garage?: { x: number; z: number } | null,
+    venues?: readonly { x: number; z: number; name: string; color: string; status: string }[],
   ): void {
     const ctx = canvas.getContext('2d');
     const map = this.staticMap;
@@ -523,6 +562,19 @@ export class MapRenderer {
       ctx.fillText('Garage', p.x, p.y + 22 * dpr);
       ctx.font = `600 ${15 * dpr}px system-ui, sans-serif`;
     }
+
+    for (const venue of venues ?? []) {
+      const p = this.toStaticScreen(venue.x, venue.z, placement);
+      this.drawVenue(ctx, p.x, p.y - 4 * dpr, 6 * dpr, venue.color, venue.status);
+      ctx.font = `600 ${11 * dpr}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.lineWidth = 3.5 * dpr;
+      ctx.strokeStyle = 'rgba(8, 12, 10, 0.9)';
+      ctx.strokeText(venue.name, p.x, p.y - 15 * dpr);
+      ctx.fillStyle = '#f3e7cf';
+      ctx.fillText(venue.name, p.x, p.y - 15 * dpr);
+    }
+    ctx.font = `600 ${15 * dpr}px system-ui, sans-serif`;
 
     if (car) {
       const p = this.toStaticScreen(car.x, car.z, placement);

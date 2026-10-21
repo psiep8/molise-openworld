@@ -18,7 +18,12 @@
 - **Terreno 3D** a chunk (912 m) con DEM a 10 m, texture satellite fino a zoom 18 (~0,45 m/px) vicino al giocatore e normal map ricavata dal rilievo.
 - **Meteo reale opzionale** (`P` → interruttore): condizioni attuali, nuvole, pioggia/neve e **sole alla posizione e ora vere**, con alba/tramonto del giorno. Aggiornamento ogni 10 minuti, fallback al pomeriggio fisso se lo spegni.
 - **Ora del giorno manuale** (`P` → slider 0–24): alba, mezzogiorno, tramonto e notte, con preset meteo sereno/nuvoloso/pioggia/neve/nebbia. Strada bagnata e fari si accendono da soli quando il sole scende.
-- **Nove veicoli procedurali** (`P` → Veicolo, oppure `B` per cambiarli al volo): Panda vecchia e nuova, Punto, Renegade, tre ruote, 500X, Captur, C3, Junior. Ognuno ha ingombri, passo, raggio ruota e **prestazioni reali** della versione rappresentata: cilindrata, potenza, coppia, 0-100 e velocità massima vengono dalle schede tecniche (vedi `docs/VEHICLE_DATA.md`), non da stime a occhio.
+- **Ventidue veicoli procedurali** (`P` → Veicolo, oppure `B` per cambiarli al volo): i nove già presenti (Panda vecchia e nuova, Punto, Renegade, tre ruote, 500X, Captur, C3, Junior) più i tredici richiesti (Cupra Formentor, Alfa Romeo Tonale, Audi Q3, BMW X1, Mercedes-Benz GLA, Dacia Sandero, Toyota Yaris, Kia Picanto, Ford Fiesta, Nissan Qashqai, Fiat 500, Fiat 600, Peugeot 3008). Ognuno ha ingombri, passo, raggio ruota e **prestazioni reali** della versione rappresentata: cilindrata, potenza, coppia, 0-100 e velocità massima vengono dalle schede tecniche (vedi `docs/VEHICLE_DATA.md`). Le **sagome sono procedurali originali**, non modelli ufficiali dei marchi.
+- **Modalità vita e negozi di Palata** (`E` vicino a un'attività): catalogo di luoghi (ristorazione, alimentari, abbigliamento, servizi, punti d'interesse), pannello attività con menu simulato, conferma dell'acquisto con costo e saldo residuo, spesa, guardaroba e ATM simulato.
+- **Denaro SOLO virtuale**: contanti e conto sono valute di gioco (500 € e 2.000 € iniziali, in centesimi interi). Nessun collegamento a carte, conti, IBAN, gateway o pagamenti reali. Il portafoglio (`I`) mostra contanti, conto e movimenti.
+- **Bisogni e orologio di gioco**: fame, energia e divertimento calano col tempo; mangiare, bere, comprare, passeggiare e dormire li modificano. Avvisi graduali, nessuna morte improvvisa. Si dorme a casa con `E` (avanza il giorno e recupera energia).
+- **Casa unica**: la modalità vita ha una sola casa (indicata in mappa come "Garage") e una sola auto attiva; dormire e salvare si fanno lì.
+
 - **Casa / garage** (`T` oppure dal menu): scegli un edificio reale del paese come base; il segnalibro resta su minimappa e mappa grande, l'auto si parcheggia lì e con `L` ci torni quando vuoi.
 - **Colore carrozzeria**: dieci tinte, ricordate veicolo per veicolo; si cambiano dal menu o dal garage.
 - **Personaggio personalizzabile** (`P`): sesso, altezza 1,50–2,00 m, corporatura, carnagione, capelli (stile e colore), barba e outfit — casual, elegante, formale, tuta, campagna, sportivo, hippie — con tre varianti di tono. Il rig si ricostruisce al volo mantenendo posizione e animazioni.
@@ -36,6 +41,18 @@
 - **Minimappa** e **mappa grande** dei cinque comuni, con strade, boschi e toponimi.
 - **HUD** in italiano: velocità, coordinate, quota, fps, suggerimenti contestuali.
 - **Offline-friendly**: i dati vettoriali e il DEM sono nel repo; solo le immagini satellite arrivano dalla rete (con fallback verde se mancano).
+
+## Economia, denaro virtuale e attività di Palata
+
+> **Gli euro del gioco sono una valuta fittizia interna al videogioco.** Non sono denaro reale, non hanno valore monetario, non sono collegati a carte, conti, IBAN, gateway o servizi finanziari, e nessun acquisto nel gioco richiede un pagamento esterno. Le attività commerciali possono corrispondere a luoghi di Palata, ma il personaggio compra prodotti e servizi **simulati**: il gioco non invia ordini, prenotazioni o pagamenti ai locali.
+
+- **Portafoglio** (`I` o clic sul saldo in alto): contanti virtuali (500 € iniziali) e conto virtuale (2.000 € iniziali), più lo storico dei movimenti con giorno e ora di gioco.
+- **Acquisti atomici**: ogni acquisto mostra prima costo e saldo residuo; se i fondi virtuali non bastano il saldo e lo storico restano invariati. Gli importi sono interi in centesimi.
+- **ATM simulato**: versamenti e prelievi spostano denaro solo tra contanti e conto virtuali e conservano il totale.
+- **Luoghi**: catalogo in `src/sim/venue-catalog.ts`, usato da mappa, minimappa, interazione e menu. Ogni voce ha stato di verifica esplicito (`needs-review`, `simulated`), fonte, data e nota. **Nessun luogo è oggi `verified`**: i nomi sono piste di ricerca, le posizioni nel gioco sono approssimative e i prezzi sono inventati per il gameplay.
+- **Menu**: i prodotti sono dati di gioco con effetti su fame/energia/divertimento; nel negozio di abbigliamento gli acquisti cambiano l'outfit del personaggio.
+
+Dettagli e stato reale delle funzionalità: [docs/LIFE_SIMULATOR.md](docs/LIFE_SIMULATOR.md) e [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Realismo: come avviciniamo la realtà
 
@@ -108,6 +125,8 @@ npm run geo -- --skip-osm
 | `Shift` | corri | — |
 | `Spazio` | salta | freno a mano |
 | `F` | entra in auto (se vicino) | scendi |
+| `E` | entra nell'attività vicina / dormi e salva a casa | — |
+| `I` | portafoglio virtuale e movimenti | portafoglio virtuale e movimenti |
 | `C` | prima/terza persona | — |
 | `M` | mappa grande (click = itinerario) | mappa grande (click = itinerario) |
 | `X` | annulla l'itinerario | annulla l'itinerario |
@@ -170,8 +189,12 @@ src/
     vehicle.ts         veicoli procedurali dal catalogo + assetto e tinta
   sim/
     car.ts             fisica pura e testabile: motore, cambio, freni, aderenza
-    vehicle-catalog.ts nove veicoli con dati reali (docs/VEHICLE_DATA.md)
+    vehicle-catalog.ts 22 veicoli con dati reali (docs/VEHICLE_DATA.md)
     routing.ts         grafo stradale + A* per l'itinerario scelto sulla mappa
+    economy.ts         economia virtuale: contanti, conto, acquisti atomici, movimenti
+    needs.ts           fame, energia, divertimento: calo nel tempo ed effetti
+    venue-catalog.ts   luoghi e attività di Palata + menu di gioco simulati
+    save.ts            salvataggio della modalità vita (versione, convalida, orologio)
   ui/
     hud.ts             HUD, impostazioni e schermate
     minimap.ts         minimappa + mappa grande (radar satellite o vettoriale)

@@ -1,246 +1,288 @@
-/** Economia virtuale SOLO DENARO DI GIOCO.
- * Regola inderogabile: gli euro sono una valuta fittizia interna al gioco.
- * Non sono denaro vero e non hanno valore monetario reale.
- * Non integrano pagamenti reali, carte bancarie reali, conti reali,
- * gateway, wallet reali, acquisti in-app o API finanziarie.
+/**
+ * Economia virtuale — SOLO DENARO DI GIOCO.
  *
- * Il denaro è memorizzato come interi in centesimi per evitare errori floating-point.
- * Tutte le transazioni sono atomiche: un acquisto fallito non deve modificare il saldo.
- * Per impostazione predefinita si impediscono saldi negativi (salve meccanica esplicita).
- * Importi decimali sono rappresentati correttamente tramite centesimi interi.
- * Registra importo, data/ora di gioco, categoria, luogo, descrizione, metodo virtuale
- * e saldo risultante.
- * Consente di consultare il saldo e lo storico transazioni dalla UI.
- * Depositi e prelievi da ATM/banca sono trasferimenti tra contanti virtuali e conto virtuale.
- * Prezzi e ricompense sono configurabili e sottoposti a test.
- * Prevede reset della partita/salvataggio e gestione di dati corrotti senza perdita silenziosa.
+ * Regola inderogabile: gli euro di questo modulo sono una valuta fittizia
+ * interna al gioco. Non sono denaro vero, non hanno valore monetario reale e
+ * non sono collegati a carte, conti, IBAN, gateway o servizi finanziari reali.
+ *
+ * Scelte di progetto:
+ * - tutti gli importi sono interi in centesimi (nessun errore floating-point);
+ * - le operazioni sono pure: ricevono un wallet e restituiscono un nuovo wallet,
+ *   così un acquisto fallito non può lasciare uno stato parzialmente aggiornato;
+ * - i saldi non possono diventare negativi;
+ * - ogni movimento registra importo, categoria, luogo, descrizione, metodo
+ *   virtuale, orario di gioco e saldo risultante.
  */
+
+export type MoneyMethod = 'contanti' | 'conto' | 'carta-simulata';
+
+export type TransactionType = 'spesa' | 'deposito' | 'prelievo' | 'ricarica';
+
 export interface Transaction {
   id: string;
-  amount: number; // in centesimi (intero)
-  type: 'spesa' | 'deposito' | 'prelievo' | 'bonifico'; // must match Wallet interface
+  /** Importo in centesimi; negativo per le uscite. */
+  amount: number;
+  type: TransactionType;
   category: string;
   place: string;
   description: string;
-  method: string;
-  timestamp: number;
+  method: MoneyMethod;
+  /** Orario di gioco in minuti dalla mezzanotte del giorno corrente. */
+  gameTime: number;
+  /** Giorno di gioco (1 = primo giorno). */
+  day: number;
   balanceBefore: number;
   balanceAfter: number;
+  cashAfter: number;
+  accountAfter: number;
 }
 
 export interface Wallet {
-  cash: number; // contanti in centesimi
-  balance: number; // conto virtuale in centesimi
+  /** Contanti virtuali, in centesimi. */
+  cash: number;
+  /** Conto virtuale in-game, in centesimi. */
+  account: number;
   transactions: Transaction[];
 }
 
-export const INITIAL_CASH_CENTS = 50000; // €500 in centesimi
-export const INITIAL_BALANCE_CENTS = 200000; // €2000 in centesimi
+export const INITIAL_CASH_CENTS = 50_000; // 500 € virtuali
+export const INITIAL_ACCOUNT_CENTS = 200_000; // 2.000 € virtuali
 
 export function createInitialWallet(): Wallet {
-  return {
-    cash: INITIAL_CASH_CENTS,
-    balance: INITIAL_BALANCE_CENTS,
-    transactions: [],
-  };
+  return { cash: INITIAL_CASH_CENTS, account: INITIAL_ACCOUNT_CENTS, transactions: [] };
 }
 
-export function getBalanceCash(wallet: Wallet): number {
-  return wallet.cash;
+export function cloneWallet(wallet: Wallet): Wallet {
+  return { cash: wallet.cash, account: wallet.account, transactions: [...wallet.transactions] };
 }
 
-export function getBalanceTotal(wallet: Wallet): number {
-  return wallet.cash + wallet.balance;
+export function totalCents(wallet: Wallet): number {
+  return wallet.cash + wallet.account;
 }
 
-export function canAfford(wallet: Wallet, amountCents: number): boolean {
-  return wallet.cash >= amountCents;
+export function availableCents(wallet: Wallet, method: MoneyMethod = 'contanti'): number {
+  return method === 'contanti' ? wallet.cash : wallet.account;
 }
 
-export function purchase(
+export function canAfford(wallet: Wallet, amountCents: number, method: MoneyMethod = 'contanti'): boolean {
+  return isValidAmount(amountCents) && availableCents(wallet, method) >= amountCents;
+}
+
+export function isValidAmount(amountCents: number): boolean {
+  return Number.isInteger(amountCents) && amountCents > 0;
+}
+
+export interface PurchaseInput {
+  amountCents: number;
+  place: string;
+  description: string;
+  /** Metodo virtuale usato; default contanti. */
+  method?: MoneyMethod;
+  category?: string;
+  gameTime?: number;
+  day?: number;
+}
+
+export type EconomyResult =
+  | { ok: true; wallet: Wallet; transaction: Transaction }
+  | { ok: false; wallet: Wallet; reason: 'importo-non-valido' | 'fondi-insufficienti' };
+
+let sequence = 0;
+
+function nextId(day: number, gameTime: number): string {
+  sequence = (sequence + 1) % 1_000_000;
+  return `tx-${day}-${gameTime}-${sequence}`;
+}
+
+function makeTransaction(
   wallet: Wallet,
-  amountCents: number,
-  place: string,
-  description: string,
-  method: string
-): { success: boolean; wallet: Wallet; transaction: Transaction } {
-  // Verifica fondi sufficienti
-  if (wallet.cash < amountCents) {
-    return {
-      success: false,
-      wallet,
-      transaction: {
-        id: Date.now().toString(),
-        amount: amountCents,
-        type: 'spesa' as const,
-        category: 'acquisto',
-        place,
-        description,
-        method,
-        timestamp: Date.now(),
-        balanceBefore: getBalanceTotal(wallet),
-        balanceAfter: getBalanceTotal(wallet),
-      },
-    };
-  }
-
-  // Nuova wallet con saldo aggiornato
-  const newCash = wallet.cash - amountCents;
-  const newBalance = wallet.balance;
-  const newTransaction: Transaction = {
-    id: Date.now().toString(),
-    amount: -amountCents, // negativo per spesa
-    type: 'spesa' as const,
-    category: 'acquisto',
-    place,
-    description,
-    method,
-    timestamp: Date.now(),
-    balanceBefore: getBalanceTotal(wallet),
-    balanceAfter: newCash + newBalance,
-  };
-  const newTransactions = [...wallet.transactions, newTransaction];
-
-  const newWallet: Wallet = {
-    cash: newCash,
-    balance: newBalance,
-    transactions: newTransactions,
-  };
-
+  amount: number,
+  type: TransactionType,
+  input: { place: string; description: string; method: MoneyMethod; category: string; gameTime?: number; day?: number },
+  cashAfter: number,
+  accountAfter: number,
+): Transaction {
+  const day = input.day ?? 1;
+  const gameTime = input.gameTime ?? 0;
   return {
-    success: true,
-    wallet: newWallet,
-    transaction: newTransaction,
+    id: nextId(day, gameTime),
+    amount,
+    type,
+    category: input.category,
+    place: input.place,
+    description: input.description,
+    method: input.method,
+    gameTime,
+    day,
+    balanceBefore: totalCents(wallet),
+    balanceAfter: cashAfter + accountAfter,
+    cashAfter,
+    accountAfter,
   };
 }
 
-export function deposit(
-  wallet: Wallet,
-  amountCents: number,
-  place: string,
-  description: string
-): { success: boolean; wallet: Wallet; transaction: Transaction } {
-  if (amountCents <= 0) {
-    return { success: false, wallet, transaction: {} as Transaction };
+/** Acquisto atomico: se non ci sono fondi sufficienti il wallet resta identico. */
+export function purchase(wallet: Wallet, input: PurchaseInput): EconomyResult {
+  const method = input.method ?? 'contanti';
+  if (!isValidAmount(input.amountCents)) {
+    return { ok: false, wallet, reason: 'importo-non-valido' };
+  }
+  if (availableCents(wallet, method) < input.amountCents) {
+    return { ok: false, wallet, reason: 'fondi-insufficienti' };
   }
 
-  const newCash = wallet.cash + amountCents;
-  const newBalance = wallet.balance - amountCents;
-  const newTransaction: Transaction = {
-    id: Date.now().toString(),
-    amount: amountCents,
-    type: 'deposito' as const,
-    category: 'banca',
-    place,
-    description,
-    method: 'bonifico/cash',
-    timestamp: Date.now(),
-    balanceBefore: getBalanceTotal(wallet),
-    balanceAfter: newCash + newBalance,
-  };
-  const newTransactions = [...wallet.transactions, newTransaction];
-
-  const newWallet: Wallet = {
-    cash: newCash,
-    balance: newBalance,
-    transactions: newTransactions,
-  };
+  const cashAfter = method === 'contanti' ? wallet.cash - input.amountCents : wallet.cash;
+  const accountAfter = method === 'contanti' ? wallet.account : wallet.account - input.amountCents;
+  const transaction = makeTransaction(
+    wallet,
+    -input.amountCents,
+    'spesa',
+    {
+      place: input.place,
+      description: input.description,
+      method,
+      category: input.category ?? 'acquisto',
+      gameTime: input.gameTime,
+      day: input.day,
+    },
+    cashAfter,
+    accountAfter,
+  );
 
   return {
-    success: true,
-    wallet: newWallet,
-    transaction: newTransaction,
+    ok: true,
+    wallet: {
+      cash: cashAfter,
+      account: accountAfter,
+      transactions: [...wallet.transactions, transaction],
+    },
+    transaction,
   };
 }
 
-export function withdraw(
-  wallet: Wallet,
-  amountCents: number,
-  place: string,
-  description: string
-): { success: boolean; wallet: Wallet; transaction: Transaction } {
-  if (amountCents <= 0) {
-    return { success: false, wallet, transaction: {} as Transaction };
-  }
+/** Deposito virtuale: contanti → conto. Non crea né distrugge denaro. */
+export function deposit(wallet: Wallet, amountCents: number, place: string, gameTime = 0, day = 1): EconomyResult {
+  if (!isValidAmount(amountCents)) return { ok: false, wallet, reason: 'importo-non-valido' };
+  if (wallet.cash < amountCents) return { ok: false, wallet, reason: 'fondi-insufficienti' };
 
-  // Non permittere saldo negativo nel conto
-  if (wallet.balance < amountCents) {
-    return {
-      success: false,
-      wallet,
-      transaction: {
-        id: Date.now().toString(),
-        amount: -amountCents,
-        type: 'prelievo' as const,
-        category: 'banca',
-        place,
-        description,
-        method: 'ATM',
-        timestamp: Date.now(),
-        balanceBefore: getBalanceTotal(wallet),
-        balanceAfter: getBalanceTotal(wallet),
-      },
-    };
-  }
-
-  const newCash = wallet.cash - amountCents;
-  const newBalance = wallet.balance + amountCents;
-  const newTransaction: Transaction = {
-    id: Date.now().toString(),
-    amount: amountCents,
-    type: 'prelievo' as const,
-    category: 'banca',
-    place,
-    description,
-    method: 'ATM',
-    timestamp: Date.now(),
-    balanceBefore: getBalanceTotal(wallet),
-    balanceAfter: newCash + newBalance,
-  };
-  const newTransactions = [...wallet.transactions, newTransaction];
-
-  const newWallet: Wallet = {
-    cash: newCash,
-    balance: newBalance,
-    transactions: newTransactions,
-  };
+  const cashAfter = wallet.cash - amountCents;
+  const accountAfter = wallet.account + amountCents;
+  const transaction = makeTransaction(
+    wallet,
+    amountCents,
+    'deposito',
+    { place, description: 'Versamento contanti sul conto virtuale', method: 'contanti', category: 'banca', gameTime, day },
+    cashAfter,
+    accountAfter,
+  );
 
   return {
-    success: true,
-    wallet: newWallet,
-    transaction: newTransaction,
+    ok: true,
+    wallet: { cash: cashAfter, account: accountAfter, transactions: [...wallet.transactions, transaction] },
+    transaction,
   };
 }
 
-export function transferBetweenCashAndBank(
+/** Prelievo virtuale: conto → contanti. Non crea né distrugge denaro. */
+export function withdraw(wallet: Wallet, amountCents: number, place: string, gameTime = 0, day = 1): EconomyResult {
+  if (!isValidAmount(amountCents)) return { ok: false, wallet, reason: 'importo-non-valido' };
+  if (wallet.account < amountCents) return { ok: false, wallet, reason: 'fondi-insufficienti' };
+
+  const cashAfter = wallet.cash + amountCents;
+  const accountAfter = wallet.account - amountCents;
+  const transaction = makeTransaction(
+    wallet,
+    -amountCents,
+    'prelievo',
+    { place, description: 'Prelievo dal conto virtuale', method: 'conto', category: 'banca', gameTime, day },
+    cashAfter,
+    accountAfter,
+  );
+
+  return {
+    ok: true,
+    wallet: { cash: cashAfter, account: accountAfter, transactions: [...wallet.transactions, transaction] },
+    transaction,
+  };
+}
+
+export function transfer(
   wallet: Wallet,
   amountCents: number,
   direction: 'cash-to-bank' | 'bank-to-cash',
   place: string,
-  description: string
-): { success: boolean; wallet: Wallet; transaction: Transaction } {
-  // direction: 'cash-to-bank' = deposit, 'bank-to-cash' = withdraw
-  if (direction === 'cash-to-bank') {
-    return deposit(wallet, amountCents, place, description);
-  } else {
-    return withdraw(wallet, amountCents, place, description);
-  }
+  gameTime = 0,
+  day = 1,
+): EconomyResult {
+  return direction === 'cash-to-bank'
+    ? deposit(wallet, amountCents, place, gameTime, day)
+    : withdraw(wallet, amountCents, place, gameTime, day);
 }
 
+/** Storico dal più recente al più vecchio (la lista originale non viene mutata). */
 export function getTransactionHistory(wallet: Wallet): Transaction[] {
-  return [...wallet.transactions].sort((a, b) => b.timestamp - a.timestamp);
+  return [...wallet.transactions].reverse();
 }
 
 export function getBalanceSummary(wallet: Wallet): {
   cash: number;
-  balance: number;
+  account: number;
   total: number;
   transactionCount: number;
 } {
   return {
     cash: wallet.cash,
-    balance: wallet.balance,
-    total: getBalanceTotal(wallet),
+    account: wallet.account,
+    total: totalCents(wallet),
     transactionCount: wallet.transactions.length,
   };
+}
+
+/** Formattazione italiana: 12,50 €. */
+export function formatEuro(cents: number): string {
+  const negative = cents < 0;
+  const value = Math.abs(Math.round(cents)) / 100;
+  return `${negative ? '−' : ''}${value.toFixed(2).replace('.', ',')} €`;
+}
+
+/**
+ * Convalida un wallet caricato da localStorage. Restituisce `null` se i dati
+ * non sono recuperabili: il chiamante può ripartire da un wallet iniziale
+ * senza perdere il file originale (che resta intatto finché non si salva).
+ */
+export function sanitizeWallet(input: unknown): Wallet | null {
+  if (!input || typeof input !== 'object') return null;
+  const raw = input as Partial<Wallet>;
+  if (!Number.isFinite(raw.cash) || !Number.isFinite(raw.account)) return null;
+  const cash = Math.max(0, Math.round(raw.cash as number));
+  const account = Math.max(0, Math.round(raw.account as number));
+  const transactions: Transaction[] = [];
+  if (Array.isArray(raw.transactions)) {
+    for (const item of raw.transactions) {
+      const t = item as Partial<Transaction>;
+      if (
+        typeof t.id === 'string' &&
+        Number.isFinite(t.amount) &&
+        typeof t.place === 'string' &&
+        typeof t.description === 'string'
+      ) {
+        transactions.push({
+          id: t.id,
+          amount: Math.round(t.amount as number),
+          type: t.type ?? 'spesa',
+          category: t.category ?? 'acquisto',
+          place: t.place,
+          description: t.description,
+          method: t.method ?? 'contanti',
+          gameTime: Number.isFinite(t.gameTime) ? (t.gameTime as number) : 0,
+          day: Number.isFinite(t.day) ? (t.day as number) : 1,
+          balanceBefore: Number.isFinite(t.balanceBefore) ? (t.balanceBefore as number) : 0,
+          balanceAfter: Number.isFinite(t.balanceAfter) ? (t.balanceAfter as number) : 0,
+          cashAfter: Number.isFinite(t.cashAfter) ? (t.cashAfter as number) : cash,
+          accountAfter: Number.isFinite(t.accountAfter) ? (t.accountAfter as number) : account,
+        });
+      }
+    }
+  }
+  return { cash, account, transactions };
 }
