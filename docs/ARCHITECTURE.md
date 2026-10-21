@@ -106,10 +106,12 @@ La minimappa ridisegna solo ciò che cade nei 780 m intorno al giocatore, con no
 
 ## 10. Post-processing e qualità
 
-`PostPipeline` (`src/gfx/post.ts`) incatena `RenderPass → UnrealBloom → SMAA → OutputPass`.
+`PostPipeline` (`src/gfx/post.ts`) incatena `RenderPass → UnrealBloom → SSAO → SMAA → OutputPass`.
 Il bloom è volutamente debole (soglia 0.82) e serve a far respirare cielo e tetti; `OutputPass`
-applica tone mapping e color space corretti sul render target lineare. Se il preset è
-`low`/`medium` la pipeline viene saltata e si renderizza diretto.
+applica tone mapping e color space corretti sul render target lineare. L'occlusione ambientale
+(`SSAOPass`, kernel 16 campioni, raggio ~0,6 m) si attiva solo su `high`/`ultra` e si spegne
+con gli altri preset. Se il preset è `low`/`medium` la pipeline viene saltata e si renderizza
+diretto.
 
 `src/gfx/quality.ts` definisce quattro preset (`low`, `medium`, `high`, `ultra`) con
 `pixelRatio`, dimensione shadow map, post-processing e zoom massimo delle tile satellite.
@@ -118,9 +120,26 @@ forzato con `?quality=` e viene salvato in `localStorage`. In più `Game` applic
 **resolution scaling adattivo**: se gli fps scendono sotto 34 il pixel ratio scende fino a
 0.65×, se risalgono sopra 56 torna a 1×.
 
-Le superfici vicine (asfalto, sterrato, intonaco, coppi) usano texture canvas generate da
-`surface-textures.ts`, moltiplicate dai vertex color: zero asset esterni, grana e giunti
-visibili da vicino. Le UV delle strade sono in metri (una tile ogni ~6 m).
+Le superfici usano texture PBR fotografiche CC0 (Poly Haven + ambientCG) raccolte in
+`public/textures/` da `scripts/fetch-textures.mjs` (`npm run textures`): colore in sRGB,
+normal e roughness lineari, `opacity` per le foglie. `src/gfx/textures.ts` è l'unico punto
+che carica e mette in cache i set (`pbr`, `pbrColor`, `foliageSet`, `waterNormals`); se un
+file manca, il materiale resta valido col solo colore/vertex color. Le vecchie texture
+canvas di `surface-textures.ts` restano per i casi senza asset (intonaco di fallback).
+Le UV delle strade sono in metri (una tile ogni ~6 m).
+
+Le animazioni di superficie stanno in `src/gfx/wind.ts`: un registro condiviso con lo
+uniform `uTime` del vento (chiome e ciuffi d'erba, iniettato in `onBeforeCompile`) e le
+texture da far scorrere (normali dell'acqua). `Game.update` chiama `updateWind(dt)` una
+volta per frame.
+
+Strade: `buildRoads` drappeggia tre nastri (asfalto, sterrato, cemento). Marciapiedi e
+cordoli esistono solo sulle strade asfaltate e vengono spezzati davanti agli incroci con
+`RoadIndex.isOnRoad`, per non attraversare l'altra carreggiata. L'acqua usa normali
+fotografiche scorrevoli (nastri veloci, laghi lenti) e un materiale fisico con clearcoat.
+La vegetazione unisce corteccia PBR sui tronchi, card fotografiche con `alphaMap` e vento
+nei vertici; i prati sono ciuffi istanziati con una texture di lame disegnata su canvas
+(`alphaTest`, niente ordinamento) e lo stesso vento.
 
 ## 11. Audio procedurale
 

@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import { COLORS } from '../config';
+import { pbr, waterNormals } from '../gfx/textures';
+import { registerScroll } from '../gfx/wind';
 import type { Heightfield } from '../geo/elevation';
 import { hashInt, type Pt } from '../geo/geo';
-import type { OsmData } from '../geo/osm';
-import { asphaltTexture, dirtTexture } from './surface-textures';
+import type { OsmData, RoadIndex } from '../geo/osm';
 
 interface RibbonArrays {
   positions: number[];
@@ -29,6 +30,48 @@ export function resample(points: Pt[], step: number): Pt[] {
       const t = k / n;
       out.push({ x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t });
     }
+  }
+  return out;
+}
+
+/**
+ * Spinge una polilinea a pezzi, saltando i tratti in cui `blocked` è vero.
+ * Serve ai marciapiedi: davanti agli incroci si interrompono invece di
+ * attraversare l'altra strada con una striscia di cemento.
+ */
+function pushRuns(
+  target: RibbonArrays,
+  line: Pt[],
+  width: number,
+  lift: number,
+  color: THREE.Color,
+  heights: Heightfield,
+  blocked: (x: number, z: number) => boolean,
+): void {
+  let run: Pt[] = [];
+  const flush = (): void => {
+    if (run.length >= 2) pushRibbon(target, run, width, lift, color, heights, 1);
+    run = [];
+  };
+  for (const p of line) {
+    if (blocked(p.x, p.z)) flush();
+    else run.push(p);
+  }
+  flush();
+}
+
+/** Sposta una polilinea di `offset` metri lungo la perpendicolare (negativo = sinistra). */
+function offsetPolyline(points: Pt[], offset: number): Pt[] {
+  const out: Pt[] = [];
+  for (let i = 0; i < points.length; i++) {
+    const prev = points[Math.max(0, i - 1)];
+    const next = points[Math.min(points.length - 1, i + 1)];
+    let tx = next.x - prev.x;
+    let tz = next.z - prev.z;
+    const len = Math.hypot(tx, tz) || 1;
+    tx /= len;
+    tz /= len;
+    out.push({ x: points[i].x - tz * offset, z: points[i].z + tx * offset });
   }
   return out;
 }
@@ -90,35 +133,65 @@ function toGeometry(a: RibbonArrays): THREE.BufferGeometry {
 /**
  * Strade come nastri drappeggiati sul DEM. Due mesh (asfalto/sterrato) per
  * limitare le draw call, con leggera variazione di tono per non sembrare finto.
+ *
+ * Le mappe colore sono texture PBR CC0: il vertex color resta un tint quasi
+ * bianco (variazione per strada), perché il colore dell'asfalto arriva dalla
+ * texture e non va moltiplicato una seconda volta.
  */
-export function buildRoads(osm: OsmData, heights: Heightfield): THREE.Group {
+export function buildRoads(
+  osm: OsmData,
+  heights: Heightfield,
+  renderer: THREE.WebGLRenderer,
+  roadIndex?: RoadIndex,
+): THREE.Group {
   const group = new THREE.Group();
   group.name = 'roads';
   const asphalt = emptyRibbon();
   const dirt = emptyRibbon();
-  const asphaltColor = new THREE.Color(COLORS.asphalt);
-  const dirtColor = new THREE.Color(COLORS.dirt);
+  const pavement = emptyRibbon();
+  const asphaltColor = new THREE.Color(0xffffff);
+  const dirtColor = new THREE.Color(0xf6efe6);
+  const pavementColor = new THREE.Color(0xc8c3ba);
 
   osm.roads.forEach((road, idx) => {
     const pts = resample(road.points, road.paved ? 7 : 6);
     const isDirt = !road.paved;
     const target = isDirt ? dirt : asphalt;
     const base = isDirt ? dirtColor : asphaltColor;
-    const color = base.clone().multiplyScalar(0.86 + (hashInt(idx, 7) % 100) / 400);
+    const color = base.clone().multiplyScalar(0.9 + (hashInt(idx, 7) % 100) / 500);
     // micro offset per evitare z-fighting negli incroci
     const lift = (isDirt ? 0.12 : 0.2) + (idx % 7) * 0.004;
     pushRibbon(target, pts, road.width, lift, color, heights, 1);
+
+    // Solo le strade asfaltate hanno marciapiede e cordolo: le sterrate no.
+    if (isDirt) return;
+    const walkWidth = road.width >= 6 ? 1.5 : 1.2;
+    const walkLift = lift + 0.035;
+    const curbLift = lift + 0.06;
+    for (const side of [-1, 1]) {
+      // marciapiede accostato al bordo carreggiata, interrotto agli incroci
+      const walkLine = offsetPolyline(pts, side * (road.width / 2 + walkWidth / 2));
+      pushRuns(pavement, walkLine, walkWidth, walkLift, pavementColor, heights, (x, z) =>
+        roadIndex ? roadIndex.isOnRoad(x, z, 0.4) : false,
+      );
+      // cordolo: filo di cemento appena fuori dall'asfalto
+      const curbLine = offsetPolyline(pts, side * (road.width / 2 + 0.45));
+      pushRuns(pavement, curbLine, 0.25, curbLift, pavementColor, heights, (x, z) =>
+        roadIndex ? roadIndex.isOnRoad(x, z, 0.3) : false,
+      );
+    }
   });
 
-  const asphaltMap = asphaltTexture();
-  const dirtMap = dirtTexture();
+  // un tile ogni ~3 m: le UV dei nastri scorrono già in metri (6 m per tile)
+  const asphaltPbr = pbr(renderer, 'asphalt', { repeat: 2, normal: true, rough: true });
+  const dirtPbr = pbr(renderer, 'gravel', { repeat: 2, normal: true, rough: true });
   const asphaltMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    map: asphaltMap,
-    bumpMap: asphaltMap,
-    bumpScale: 0.12,
-    roughness: 0.9,
+    ...asphaltPbr,
+    normalScale: new THREE.Vector2(0.9, 0.9),
+    roughness: 1,
     metalness: 0,
+    envMapIntensity: 0.55,
     side: THREE.DoubleSide,
     polygonOffset: true,
     polygonOffsetFactor: -2,
@@ -126,15 +199,28 @@ export function buildRoads(osm: OsmData, heights: Heightfield): THREE.Group {
   });
   const dirtMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    map: dirtMap,
-    bumpMap: dirtMap,
-    bumpScale: 0.18,
+    ...dirtPbr,
+    normalScale: new THREE.Vector2(1, 1),
     roughness: 1,
     metalness: 0,
     side: THREE.DoubleSide,
     polygonOffset: true,
     polygonOffsetFactor: -2,
     polygonOffsetUnits: -2,
+  });
+  // marciapiedi e cordoli in cemento: tinta quasi bianca, colore dalla texture
+  const concretePbr = pbr(renderer, 'concrete', { repeat: 2, normal: true, rough: true });
+  const pavementMat = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    ...concretePbr,
+    normalScale: new THREE.Vector2(0.7, 0.7),
+    roughness: 1,
+    metalness: 0,
+    envMapIntensity: 0.45,
+    side: THREE.DoubleSide,
+    polygonOffset: true,
+    polygonOffsetFactor: -3,
+    polygonOffsetUnits: -3,
   });
 
   if (asphalt.indices.length) {
@@ -149,32 +235,57 @@ export function buildRoads(osm: OsmData, heights: Heightfield): THREE.Group {
     mesh.receiveShadow = true;
     group.add(mesh);
   }
+  if (pavement.indices.length) {
+    const mesh = new THREE.Mesh(toGeometry(pavement), pavementMat);
+    mesh.name = 'sidewalks';
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
   return group;
 }
 
-/** Fiumi/torrenti come nastri azzurri; laghi e invasi come poligoni piatti. */
-export function buildWater(osm: OsmData, heights: Heightfield): THREE.Group {
+/**
+ * Fiumi/torrenti come nastri; laghi e invasi come poligoni piatti.
+ *
+ * L'acqua usa normali fotografiche che scorrono: i nastri hanno UV metriche
+ * (2,5 m per tile trasversale, ~3 m lungo il corso) e scorrono veloci, i laghi
+ * usano un tiling di 6 m e un movimento lento, così la superficie non sembra
+ * una lastra di vetro.
+ */
+export function buildWater(osm: OsmData, heights: Heightfield, renderer: THREE.WebGLRenderer): THREE.Group {
   const group = new THREE.Group();
   group.name = 'water';
   const ribbons = emptyRibbon();
-  const waterColor = new THREE.Color(COLORS.water);
+  const waterColor = new THREE.Color(0xffffff);
 
   for (const w of osm.waterways) {
     const width = w.type === 'river' ? 5 : w.type === 'canal' ? 3.2 : 2.2;
     pushRibbon(ribbons, resample(w.points, 8), width, 0.08, waterColor, heights, 1);
   }
 
-  const ribbonMat = new THREE.MeshStandardMaterial({
+  const streamNormals = waterNormals(renderer, 2, 2);
+  registerScroll(streamNormals, 0.02, 0.11);
+  const ribbonMat = new THREE.MeshPhysicalMaterial({
     vertexColors: true,
-    roughness: 0.24,
-    metalness: 0.15,
+    normalMap: streamNormals,
+    normalScale: new THREE.Vector2(0.55, 0.55),
+    roughness: 0.12,
+    metalness: 0.05,
+    clearcoat: 1,
+    clearcoatRoughness: 0.08,
+    ior: 1.33,
     transparent: true,
-    opacity: 0.9,
+    opacity: 0.78,
+    envMapIntensity: 1.1,
     side: THREE.DoubleSide,
+    polygonOffset: true,
+    polygonOffsetFactor: -4,
+    polygonOffsetUnits: -4,
   });
   if (ribbons.indices.length) {
     const mesh = new THREE.Mesh(toGeometry(ribbons), ribbonMat);
     mesh.name = 'streams';
+    mesh.receiveShadow = true;
     group.add(mesh);
   }
 
@@ -191,17 +302,37 @@ export function buildWater(osm: OsmData, heights: Heightfield): THREE.Group {
   }
   if (polygonGeoms.length) {
     const merged = mergeSimple(polygonGeoms);
+    // UV metriche: un tile di normali ogni 6 m, indipendenti dalla forma del lago
+    const position = merged.attributes.position as THREE.BufferAttribute;
+    const uvs = new Float32Array(position.count * 2);
+    for (let i = 0; i < position.count; i++) {
+      uvs[i * 2] = position.getX(i) / 6;
+      uvs[i * 2 + 1] = position.getZ(i) / 6;
+    }
+    merged.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    const lakeNormals = waterNormals(renderer, 1, 1);
+    registerScroll(lakeNormals, 0.006, 0.013);
     const mesh = new THREE.Mesh(
       merged,
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshPhysicalMaterial({
         color: COLORS.water,
-        roughness: 0.2,
-        metalness: 0.2,
+        normalMap: lakeNormals,
+        normalScale: new THREE.Vector2(0.4, 0.4),
+        roughness: 0.08,
+        metalness: 0.08,
+        clearcoat: 1,
+        clearcoatRoughness: 0.05,
+        ior: 1.33,
         transparent: true,
-        opacity: 0.92,
+        opacity: 0.82,
+        envMapIntensity: 1.2,
+        polygonOffset: true,
+        polygonOffsetFactor: -4,
+        polygonOffsetUnits: -4,
       }),
     );
     mesh.name = 'water-areas';
+    mesh.receiveShadow = true;
     group.add(mesh);
   }
   return group;

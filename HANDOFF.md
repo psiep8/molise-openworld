@@ -36,14 +36,15 @@ Stack: TypeScript + Vite + Three.js (WebGL2), Vitest, nessun framework UI.
 | Terreno | ✅ | chunk 912 m, 96 segmenti, streaming raggio 3,1 km |
 | Satellite | ✅ | z18 ≤520 m, z17 ≤1,5 km, z16 ≤2,6 km, z15 oltre |
 | Normal map | ✅ | 128×128 per chunk, generata dal DEM |
-| Strade | ✅ | nastri drappeggiati + texture procedurale asfalto/sterrato |
+| Strade | ✅ aggiornato | nastri drappeggiati con PBR CC0 (asfalto/sterrato) + **marciapiedi e cordoli in cemento** solo sulle asfaltate, interrotti agli incroci |
 | Edifici | ✅ aggiornato | estrusione + **tetti a falde** (padiglione) + facciate con finestre, persiane e davanzali |
-| Vegetazione | ✅ base | alberi instanziati deterministici, max 7000 |
-| Acqua | ✅ base | nastri torrenti + poligoni laghi |
+| Vegetazione | ✅ aggiornato | tronchi con corteccia PBR, chiome a card fotografiche con `alphaMap`, vento nei vertici, max 7000 alberi |
+| Prati | ✅ nuovo | ciuffi istanziati con texture di lame su canvas (`alphaTest`) e vento, densità dai preset |
+| Acqua | ✅ aggiornato | nastri torrenti + poligoni laghi con normali scorrevoli e materiale fisico (clearcoat) |
 | Meteo reale | ✅ nuovo | Open-Meteo + sole NOAA, cupola nuvole, pioggia/neve, switch in impostazioni |
 | Radar / mappa | ✅ | satellite Esri z17 + overlay OSM, mosaico z14 per mappa grande |
 | Itinerario | ✅ nuovo | click sulla mappa grande → A* sulla rete OSM, km e tempi, beacon 3D |
-| Post-processing | ✅ nuovo | bloom + SMAA + OutputPass, disattivabile |
+| Post-processing | ✅ aggiornato | bloom + **SSAO** (high/ultra) + SMAA + OutputPass, disattivabile |
 | Qualità | ✅ nuovo | preset low/medium/high/ultra + resolution scaling adattivo |
 | Audio | ✅ nuovo | WebAudio procedurale: motore, rotolamento, vento, passi, uccelli |
 | Fisica auto | ✅ | modello bicycle puro, testato |
@@ -78,6 +79,23 @@ time reale > 50 ms il gioco dichiarava sempre 20 fps e il resolution scaling ada
 non poteva mai scattare. Ora `fps` usa il tempo reale e solo la fisica usa il `dt`
 limitato; lo smoke misura lo spostamento invece di un tempo fisso, così resta valido
 anche a 2 fps di rendering software (SwiftShader in headless).
+
+**Pacchetto texture (22/10/2026).** Superfici PBR CC0 in `public/textures/`
+(Poly Haven + ambientCG + `waternormals.jpg` di three.js, provenienze in
+`public/textures/ATTRIBUTION.md`), caricate da `src/gfx/textures.ts` e scaricabili con
+`npm run textures`. Stesse mappe su strade (asfalto/sterrato + marciapiedi e cordoli in
+cemento), edifici, tetti, terreno, corteccia e foglie. `src/gfx/wind.ts` è il registro
+condiviso di vento e scorrimento UV; `Game.update` chiama `updateWind(dt)`.
+Verifiche di questa sessione: `npx tsc --noEmit` ✅, `npm test` 151/151 ✅,
+`npx vite build` ✅, catture headless `captures/after4` (preset high, luminosità media
+204 contro 173 di `captures/after3`, nessun errore riportato dallo script). La scena è
+più chiara soprattutto per i marciapiedi in cemento e per l'ora reale del sole: prima di
+toccare le texture, ricontrollare l'esposizione con una cattura alla stessa ora.
+
+> **Texture e git.** `public/textures/` pesa ~28 MB: non è stata committata, in linea con
+> la regola «niente asset binari pesanti». Su una macchina nuova lancia `npm run textures`
+> una volta (rete necessaria); senza file il gioco resta giocabile con i colori di
+> fallback.
 
 ---
 
@@ -319,11 +337,14 @@ Screenshot smoke: `smoke/shot.png` (ignorato da git). Il profilo Chrome è in
   Palata si leggono come tetti, non come lastre.
 - **Facciate**: finestre/porte procedurali (texture per edificio o shader) e
   variazione di altezza/piano; evitare l'effetto “scatole colorate”.
-- **Vegetazione**: LOD (billboard oltre ~150 m), vento nei vertici, macchie di
-  vegetazione bassa vicino al giocatore; mantenere 2 draw call per gli alberi.
+- **Vegetazione**: resta il LOD (billboard oltre ~150 m); vento e macchie d'erba
+  vicino al giocatore sono fatti (`vegetation.ts`, `grass.ts`), 3 draw call per gli alberi.
 - **Terreno**: micro-rilievo e triplanar detail texture vicino alla camera;
   evitare il “plastico” quando si cammina.
-- **Acqua**: normale animata e riflesso cielo sui torrenti.
+- **Acqua**: fatto (normali scorrevoli + materiale fisico); resta il riflesso del cielo
+  a schermo intero se servirà più realismo.
+- **Texture**: le mappe sono 1K; valutare 2K solo su `ultra` e un `KHR_texture_basisu`
+  per la RAM video, misurando gli fps prima di alzare il dettaglio.
 - **Atmosfera**: ombre più lunghe all'alba/tramonto, god rays semplici (screen-space),
   esposizione adattiva.
 

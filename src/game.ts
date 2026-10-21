@@ -88,6 +88,7 @@ import { MapRenderer } from './ui/minimap';
 import type { CarInput } from './sim/car';
 import { buildRoadGraph, planRoute, type RoadGraph, type RouteResult } from './sim/routing';
 import { PostPipeline } from './gfx/post';
+import { updateWind } from './gfx/wind';
 import {
   QUALITY_PRESETS,
   loadQuality,
@@ -239,7 +240,7 @@ export class Game {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.92;
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
 
     this.camera = new THREE.PerspectiveCamera(68, window.innerWidth / window.innerHeight, 0.1, 12000);
     this.camera.rotation.order = 'YXZ';
@@ -303,17 +304,17 @@ export class Game {
       this.roadGraph = buildRoadGraph(osm.roads);
       this.ensureHome();
       this.populateVehicles();
-      this.roadsGroup = buildRoads(osm, heights);
+      this.roadsGroup = buildRoads(osm, heights, this.renderer, this.roadIndex);
       this.scene.add(this.roadsGroup);
-      this.scene.add(buildWater(osm, heights));
+      this.scene.add(buildWater(osm, heights, this.renderer));
 
       this.hud.setLoading(0.5, 'Costruisco le case…');
       await nextFrame();
-      this.scene.add(buildBuildings(osm, heights).group);
+      this.scene.add(buildBuildings(osm, heights, this.renderer).group);
 
       this.hud.setLoading(0.64, 'Pianto alberi e uliveti…');
       await nextFrame();
-      this.scene.add(buildVegetation(osm, heights, this.roadIndex, this.buildingIndex).group);
+      this.scene.add(buildVegetation(osm, heights, this.roadIndex, this.buildingIndex, this.renderer).group);
       this.grass = new GrassField();
       this.scene.add(this.grass.group);
 
@@ -336,7 +337,7 @@ export class Game {
       const imagery = new ImageryStreamer(ESRI_WORLD_IMAGERY, this.renderer.capabilities.getMaxAnisotropy(), () => {
         this.tileErrors++;
       });
-      this.terrain = new Terrain(heights, imagery);
+      this.terrain = new Terrain(heights, imagery, this.renderer);
       this.scene.add(this.terrain.group);
 
       this.spawnAtStart();
@@ -1490,8 +1491,8 @@ export class Game {
       sunIntensity,
       hemiSky: day < 0.2 ? 0x263a58 : cloud > 0.5 ? 0xb2bcc4 : 0xa8c8ee,
       hemiGround: day < 0.2 ? 0x0d1218 : 0x63583f,
-      hemiIntensity: 0.2 + 0.55 * day + 0.2 * cloud,
-      ambientIntensity: 0.08 + 0.14 * day + 0.06 * cloud,
+      hemiIntensity: 0.12 + 0.4 * day + 0.12 * cloud,
+      ambientIntensity: 0.04 + 0.1 * day + 0.04 * cloud,
       moonIntensity: sun.elevation < 0 ? 0.4 : 0,
     });
 
@@ -1564,8 +1565,9 @@ export class Game {
     this.terrain?.setMaxZoom(this.quality.maxSatelliteZoom);
     this.post?.setEnabled(this.quality.post && !this.stereo);
     this.post?.setBloom(this.quality.bloom);
+    this.post?.setSSAO(this.quality.ssao && !this.stereo);
     if (announce) {
-      const fx = this.quality.post ? ' · bloom' : '';
+      const fx = this.quality.post ? ` · bloom${this.quality.ssao ? ' + SSAO' : ''}` : '';
       this.hud.toast(`Grafica: ${this.quality.label}${fx} · satellite z${this.quality.maxSatelliteZoom}`, 3200);
     }
   }
@@ -1860,7 +1862,10 @@ export class Game {
     if (this.running && this.loaded) this.update(dt);
     else this.idle(dt);
 
-    if (this.sky) this.sky.dome.position.copy(this.camera.position);
+    if (this.sky) {
+      this.sky.dome.position.copy(this.camera.position);
+      this.sky.updateEnvironment(this.renderer, this.scene);
+    }
     if (this.stereo) this.renderStereo();
     else if (this.post) this.post.render(dt);
     else this.renderer.render(this.scene, this.camera);
@@ -1945,6 +1950,7 @@ export class Game {
     const focus = this.mode === 'walk' ? this.player.position : this.car.position;
     this.terrain.update(focus.x, focus.z, VIEW_RADIUS);
     this.terrain.tick();
+    updateWind(dt);
     this.grass?.update(focus.x, focus.z, this.heights, this.roadIndex, this.buildingIndex, this.quality.grassDensity);
     if (this.manualTime) this.applyManualAtmosphere(dt, focus);
     else if (this.realWeatherEnabled) this.applyWeatherVisuals(dt, focus);

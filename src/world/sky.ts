@@ -30,6 +30,8 @@ export interface SkyRig {
   setSun(elevationDeg: number, thetaDeg: number): void;
   setSkyParams(params: Partial<SkyParams>): void;
   setLighting(params: Partial<LightingParams>): void;
+  /** Genera la luce ambientale riflessa dal cielo (IBL). Costa poco: si auto-limita. */
+  updateEnvironment(renderer: THREE.WebGLRenderer, scene: THREE.Scene): void;
 }
 
 /** Pomeriggio molisano di default: sole non troppo basso, luce calda, ombre leggibili. */
@@ -45,8 +47,8 @@ export const DEFAULT_LIGHTING: LightingParams = {
   sunIntensity: 2.9,
   hemiSky: 0xa8c8ee,
   hemiGround: 0x63583f,
-  hemiIntensity: 0.75,
-  ambientIntensity: 0.22,
+  hemiIntensity: 0.52,
+  ambientIntensity: 0.14,
   moonIntensity: 0,
 };
 
@@ -73,17 +75,29 @@ export function createSky(scene: THREE.Scene): SkyRig {
   setSun(DEFAULT_SUN.elevation, DEFAULT_SUN.theta);
   scene.add(sky);
 
+  // Seconda cupola, usata solo per fotografare il cielo in una cubemap PMREM.
+  const envScene = new THREE.Scene();
+  const envSky = new Sky();
+  envSky.scale.setScalar(90); // deve stare dentro il far (100) di PMREMGenerator
+  envSky.frustumCulled = false;
+  envScene.add(envSky);
+  let pmrem: THREE.PMREMGenerator | null = null;
+  let envTarget: THREE.WebGLRenderTarget | null = null;
+  const lastEnvSun = new THREE.Vector3(0, -1, 0);
+  let lastEnvTime = -Infinity;
+
   const sunLight = new THREE.DirectionalLight(DEFAULT_LIGHTING.sunColor, DEFAULT_LIGHTING.sunIntensity);
   sunLight.castShadow = true;
   sunLight.shadow.mapSize.set(2048, 2048);
-  sunLight.shadow.camera.left = -300;
-  sunLight.shadow.camera.right = 300;
-  sunLight.shadow.camera.top = 300;
-  sunLight.shadow.camera.bottom = -300;
+  sunLight.shadow.camera.left = -170;
+  sunLight.shadow.camera.right = 170;
+  sunLight.shadow.camera.top = 170;
+  sunLight.shadow.camera.bottom = -170;
   sunLight.shadow.camera.near = 1;
   sunLight.shadow.camera.far = 1600;
-  sunLight.shadow.bias = -0.0004;
-  sunLight.shadow.normalBias = 0.9;
+  sunLight.shadow.bias = -0.0002;
+  // 0,05 m: un normal bias grande (0,9) faceva sparire le ombre di contatto
+  sunLight.shadow.normalBias = 0.05;
   scene.add(sunLight);
   scene.add(sunLight.target);
 
@@ -133,5 +147,42 @@ export function createSky(scene: THREE.Scene): SkyRig {
     if (params.moonIntensity !== undefined) moonLight.intensity = params.moonIntensity;
   };
 
-  return { sunLight, sunDirection, dome: sky, update, setShadowMapSize, setSun, setSkyParams, setLighting };
+  const updateEnvironment = (renderer: THREE.WebGLRenderer, scene: THREE.Scene): void => {
+    const now = performance.now();
+    const sunMoved = sunDirection.dot(lastEnvSun) < 0.9995;
+    // al massimo una volta al secondo, e solo se il sole si è mosso davvero
+    if (envTarget && (!sunMoved || now - lastEnvTime < 1000)) return;
+    lastEnvTime = now;
+    lastEnvSun.copy(sunDirection);
+
+    const src = (sky.material as THREE.ShaderMaterial).uniforms;
+    const dst = (envSky.material as THREE.ShaderMaterial).uniforms;
+    dst.turbidity.value = src.turbidity.value;
+    dst.rayleigh.value = src.rayleigh.value;
+    dst.mieCoefficient.value = src.mieCoefficient.value;
+    dst.mieDirectionalG.value = src.mieDirectionalG.value;
+    dst.sunPosition.value.copy(sunDirection);
+
+    pmrem ??= new THREE.PMREMGenerator(renderer);
+    envTarget?.dispose();
+    envTarget = pmrem.fromScene(envScene);
+    scene.environment = envTarget.texture;
+    // di notte il cielo non deve illuminare: l'intensità segue l'altezza del sole
+    const day = THREE.MathUtils.clamp((sunDirection.y + 0.05) / 0.4, 0, 1);
+    // è questa la luce ambientale principale: emisferica e ambiente restano solo
+    // un riempimento piccolo (vedi restoreDefaultAtmosphere) per non sommare due volte
+    scene.environmentIntensity = 0.08 + 0.22 * day;
+  };
+
+  return {
+    sunLight,
+    sunDirection,
+    dome: sky,
+    update,
+    setShadowMapSize,
+    setSun,
+    setSkyParams,
+    setLighting,
+    updateEnvironment,
+  };
 }

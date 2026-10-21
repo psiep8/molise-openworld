@@ -8,6 +8,8 @@ export interface QualityPreset {
   shadowMapSize: number;
   post: boolean;
   bloom: number;
+  /** occlusione ambientale (SSAO) nella pipeline di post */
+  ssao: boolean;
   /** zoom massimo delle texture satellite (16 lontano … 18 vicino) */
   maxSatelliteZoom: number;
   /** densità del tappeto d'erba, 0…1 */
@@ -22,6 +24,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     shadowMapSize: 1024,
     post: false,
     bloom: 0,
+    ssao: false,
     maxSatelliteZoom: 16,
     grassDensity: 0.22,
   },
@@ -32,6 +35,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     shadowMapSize: 1024,
     post: false,
     bloom: 0,
+    ssao: false,
     maxSatelliteZoom: 17,
     grassDensity: 0.45,
   },
@@ -41,7 +45,8 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     pixelRatio: 1.35,
     shadowMapSize: 2048,
     post: true,
-    bloom: 0.2,
+    bloom: 0.1,
+    ssao: true,
     maxSatelliteZoom: 18,
     grassDensity: 0.72,
   },
@@ -51,7 +56,8 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     pixelRatio: 1.75,
     shadowMapSize: 4096,
     post: true,
-    bloom: 0.3,
+    bloom: 0.16,
+    ssao: true,
     maxSatelliteZoom: 18,
     grassDensity: 1,
   },

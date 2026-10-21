@@ -1,17 +1,34 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { TREES_MAX } from '../config';
 import type { Heightfield } from '../geo/elevation';
 import { mulberry32, pointInPolygon } from '../geo/geo';
 import type { BuildingIndex, OsmData, RoadIndex } from '../geo/osm';
+import { foliageSet, pbr } from '../gfx/textures';
+import { windTimeUniform } from '../gfx/wind';
 
 const TREE_KINDS = new Set(['wood', 'forest', 'scrub', 'orchard', 'park']);
-const FOLIAGE_COLORS = [0x3d5a30, 0x476a37, 0x526f3b, 0x3a512c, 0x5c7440];
+const FOLIAGE_COLORS = [0x8ba86a, 0x9cb477, 0xa8bd82, 0x7f9a5f, 0xb2c48e];
 
+/**
+ * Alberi istanziati ma non più "a blocchi":
+ *
+ *  - **tronco** conico a 8 lati con corteccia PBR fotografica;
+ *  - **chioma** formata da un nucleo scuro (dà volume da lontano) e da sei
+ *    quad di foglie fotografiche con alpha reale (`foliageSet`), che è quello
+ *    che toglie l'effetto Minecraft da vicino;
+ *  - **vento**: le foglie ondeggiando in base al tempo e alla posizione
+ *    dell'albero, con ampiezza crescente con l'altezza.
+ *
+ * Le istanze riusano le matrici già calcolate per il posizionamento; il colore
+ * per albero varia la tinta della chioma senza cambiare materiale.
+ */
 export function buildVegetation(
   osm: OsmData,
   heights: Heightfield,
   roads: RoadIndex,
   buildings: BuildingIndex,
+  renderer: THREE.WebGLRenderer,
 ): { group: THREE.Group; count: number } {
   const rng = mulberry32(0x5eed);
   const placements: { x: number; y: number; z: number; s: number; rot: number; color: number }[] = [];
@@ -45,20 +62,69 @@ export function buildVegetation(
   group.name = 'vegetation';
   if (placements.length === 0) return { group, count: 0 };
 
-  const trunkGeo = new THREE.CylinderGeometry(0.16, 0.3, 2.1, 5);
-  trunkGeo.translate(0, 1.05, 0);
-  const crownGeo = new THREE.IcosahedronGeometry(1.85, 0);
-  crownGeo.scale(1, 1.35, 1);
-  crownGeo.translate(0, 3.15, 0);
+  // tronco: conico, 8 lati (abbastanza rotondo da non sembrare un pentagono)
+  const trunkGeo = new THREE.CylinderGeometry(0.12, 0.27, 2.4, 8, 2);
+  trunkGeo.translate(0, 1.2, 0);
+  const trunkMat = new THREE.MeshStandardMaterial({
+    ...pbr(renderer, 'bark', { repeat: 2 }),
+    color: 0xffffff,
+    roughness: 1,
+    metalness: 0,
+    normalScale: new THREE.Vector2(0.8, 0.8),
+    envMapIntensity: 0.4,
+  });
 
-  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5b4632, roughness: 1, flatShading: true });
-  const crownMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, flatShading: true });
+  // nucleo scuro della chioma: da lontano tiene la massa, da vicino non si nota
+  const coreGeo = new THREE.SphereGeometry(1.3, 8, 6);
+  coreGeo.scale(1, 1.18, 1);
+  coreGeo.translate(0, 3.35, 0);
+  const coreMat = new THREE.MeshStandardMaterial({
+    color: 0x3d5324,
+    roughness: 1,
+    metalness: 0,
+    envMapIntensity: 0.35,
+  });
+
+  // foglie: sei quad incrociati dentro il volume della chioma
+  const leafGeo = buildCrownCards();
+  const leafMat = new THREE.MeshStandardMaterial({
+    ...foliageSet(renderer),
+    roughness: 1,
+    metalness: 0,
+    side: THREE.DoubleSide,
+    alphaTest: 0.45,
+    normalScale: new THREE.Vector2(0.6, 0.6),
+    envMapIntensity: 0.5,
+  });
+  const uTime = windTimeUniform();
+  leafMat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = uTime;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uTime;')
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        #ifdef USE_INSTANCING
+          vec3 windOrigin = vec3( instanceMatrix[ 3 ][ 0 ], instanceMatrix[ 3 ][ 1 ], instanceMatrix[ 3 ][ 2 ] );
+        #else
+          vec3 windOrigin = vec3( 0.0 );
+        #endif
+        float windPhase = windOrigin.x * 0.35 + windOrigin.z * 0.27;
+        float windHeight = clamp( ( position.y - 1.7 ) / 2.6, 0.0, 1.0 );
+        float windSway = sin( uTime * 1.6 + windPhase ) * 0.17 + sin( uTime * 2.9 + windPhase * 1.7 ) * 0.05;
+        transformed.x += windSway * windHeight;
+        transformed.z += windSway * 0.55 * windHeight;`,
+      );
+  };
+  leafMat.customProgramCacheKey = () => 'foliage-wind-v1';
 
   const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, placements.length);
-  const crowns = new THREE.InstancedMesh(crownGeo, crownMat, placements.length);
-  trunks.castShadow = true;
-  crowns.castShadow = true;
-  crowns.receiveShadow = false;
+  const cores = new THREE.InstancedMesh(coreGeo, coreMat, placements.length);
+  const leaves = new THREE.InstancedMesh(leafGeo, leafMat, placements.length);
+  for (const mesh of [trunks, cores, leaves]) {
+    mesh.castShadow = true;
+    mesh.receiveShadow = false;
+  }
 
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
@@ -68,14 +134,46 @@ export function buildVegetation(
     dummy.scale.setScalar(p.s);
     dummy.updateMatrix();
     trunks.setMatrixAt(i, dummy.matrix);
-    crowns.setMatrixAt(i, dummy.matrix);
+    cores.setMatrixAt(i, dummy.matrix);
+    leaves.setMatrixAt(i, dummy.matrix);
     color.setHex(p.color).multiplyScalar(0.9 + (i % 17) / 90);
-    crowns.setColorAt(i, color);
+    cores.setColorAt(i, color.clone().multiplyScalar(0.55));
+    leaves.setColorAt(i, color);
   });
-  trunks.instanceMatrix.needsUpdate = true;
-  crowns.instanceMatrix.needsUpdate = true;
-  if (crowns.instanceColor) crowns.instanceColor.needsUpdate = true;
+  for (const mesh of [trunks, cores, leaves]) {
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  }
 
-  group.add(trunks, crowns);
+  group.add(trunks, cores, leaves);
   return { group, count: placements.length };
+}
+
+/**
+ * Sei quad da 2,6 m distribuiti a caso dentro un ellissoide: ogni card mostra
+ * l'intera texture di foglie, così la chioma sembra finta di rami e non di
+ * riquadri ripetuti.
+ */
+function buildCrownCards(): THREE.BufferGeometry {
+  const rng = mulberry32(0xc0ffee);
+  const parts: THREE.BufferGeometry[] = [];
+  for (let i = 0; i < 6; i++) {
+    const size = 2.4 + rng() * 0.6;
+    const g = new THREE.PlaneGeometry(size, size);
+    // quota: distribuita sulla parte alta del tronco (2.4 m) fino alla cima
+    const y = 2.5 + rng() * 1.9;
+    // raggio massimo a metà chioma, stretto in cima e in basso
+    const bulge = Math.max(0.35, 1 - Math.abs(y - 3.5) / 1.7);
+    const ang = (i / 6) * Math.PI * 2 + rng() * 0.8;
+    const rad = (0.25 + rng() * 0.75) * bulge * 1.25;
+    g.rotateY(rng() * Math.PI * 2);
+    g.rotateX((rng() - 0.5) * 0.7);
+    g.translate(Math.cos(ang) * rad, y, Math.sin(ang) * rad);
+    parts.push(g);
+  }
+  const merged = mergeGeometries(parts, false);
+  for (const g of parts) g.dispose();
+  if (!merged) return new THREE.PlaneGeometry(2.6, 2.6).translate(0, 3.3, 0);
+  merged.computeBoundingSphere();
+  return merged;
 }

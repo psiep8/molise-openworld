@@ -4,11 +4,16 @@ import type { Heightfield } from '../geo/elevation';
 import { hashInt, type Pt } from '../geo/geo';
 import type { Building, OsmData } from '../geo/osm';
 import { clamp } from '../geo/geo';
-import { facadeTexture, plasterTexture, roofTileTexture } from './surface-textures';
+import { pbr } from '../gfx/textures';
+import { facadeTexture } from './surface-textures';
 import { planHipRoof, type HipRoofPlan, type Pt3 } from './roof';
 
 const WALL_COLORS = [0xd9cbb1, 0xe7ddc6, 0xcdbb9a, 0xd8c3a4, 0xe3d6bb, 0xc2b197, 0xd2c2a8, 0xe9dfcc];
-const ROOF_COLORS = [0x9c5b3f, 0xaa6a4a, 0x8c4f38, 0xb3765a, 0x8f5a42];
+/**
+ * Tinte chiare: il colore dei coppi arriva dalla texture CC0, qui si varia solo
+ * la luminosità/calore per casa, senza scurire il laterizio.
+ */
+const ROOF_COLORS = [0xffffff, 0xf2e8df, 0xe8dbd0, 0xf7eee6, 0xdfd2c7];
 
 function applyColor(geometry: THREE.BufferGeometry, color: THREE.Color): void {
   const count = geometry.attributes.position.count;
@@ -135,7 +140,11 @@ function buildOne(b: Building, heights: Heightfield, seed: number): { wall: THRE
  * Edifici estrusi dalle impronte OSM (altezza da tag o stimata).
  * Due sole mesh (muri + tetti) tenute separate anche per l'ombra.
  */
-export function buildBuildings(osm: OsmData, heights: Heightfield): { group: THREE.Group; count: number } {
+export function buildBuildings(
+  osm: OsmData,
+  heights: Heightfield,
+  renderer: THREE.WebGLRenderer,
+): { group: THREE.Group; count: number } {
   const group = new THREE.Group();
   group.name = 'buildings';
   const walls: THREE.BufferGeometry[] = [];
@@ -156,25 +165,27 @@ export function buildBuildings(osm: OsmData, heights: Heightfield): { group: THR
   facade.repeat.set(0.3, 0.3);
   // alza la prima fila di finestre di ~0,9 m dal suolo
   facade.offset.set(0, -0.28);
-  const plaster = plasterTexture();
-  plaster.repeat.set(0.3, 0.3);
-  const tiles = roofTileTexture();
-  tiles.repeat.set(0.36, 0.36);
+  // Normal e roughness reali dell'intonaco, indipendenti dal disegno della
+  // facciata: un tile ogni ~2 m sulle UV metriche del muro.
+  const plaster = pbr(renderer, 'plaster', { color: false, repeat: 0.5 });
+  // Le UV delle falde sono già in unità di 2,7 m: repeat 2 → un tile ogni ~1,35 m
+  const tiles = pbr(renderer, 'rooftiles', { repeat: 2, normal: true, rough: true });
   const wallMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
     map: facade,
-    bumpMap: plaster,
-    bumpScale: 0.08,
-    roughness: 0.94,
+    ...plaster,
+    normalScale: new THREE.Vector2(0.5, 0.5),
+    roughness: 1,
     metalness: 0,
+    envMapIntensity: 0.45,
   });
   const roofMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    map: tiles,
-    bumpMap: tiles,
-    bumpScale: 0.22,
-    roughness: 0.86,
+    ...tiles,
+    normalScale: new THREE.Vector2(1.1, 1.1),
+    roughness: 1,
     metalness: 0,
+    envMapIntensity: 0.6,
   });
 
   if (walls.length) {

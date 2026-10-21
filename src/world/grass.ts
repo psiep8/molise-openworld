@@ -3,24 +3,31 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Heightfield } from '../geo/elevation';
 import { mulberry32 } from '../geo/geo';
 import type { BuildingIndex, RoadIndex } from '../geo/osm';
+import { windTimeUniform } from '../gfx/wind';
 
 /** Raggio del tappeto d'erba intorno al giocatore (m). */
 const RADIUS = 46;
-const MAX_TUFTS = 4200;
+const MAX_TUFTS = 5200;
 /** Oltre questa distanza il campo viene ricostruito. */
 const REBUILD_DISTANCE = 16;
+/** Altezza del ciuffo in metri: la geometria base è alta 0,6. */
+const TUFT_HEIGHT = 0.6;
 
 /**
- * Erba procedurale a ciuffi.
+ * Erba a ciuffi.
  *
- * Ogni ciuffo è un quad incrociato, quindi due triangoli per lato: un solo
- * `InstancedMesh` copre migliaia di ciuffi con una draw call. Il campo insegue
- * il giocatore e si ricostruisce solo quando ci si allontana, mai ogni frame.
+ * Ogni ciuffo è un quad incrociato con una texture di lame disegnata su canvas
+ * e ritagliata con `alphaTest`: niente rettangoli verdi, ma fili d'erba veri
+ * anche a pochi metri. Tutto sta in un `InstancedMesh` (una draw call) e
+ * ondeggia nel vertex shader con il vento condiviso di `gfx/wind`.
+ *
+ * Il campo insegue il giocatore e si ricostruisce solo quando ci si allontana.
  */
 export class GrassField {
   readonly group = new THREE.Group();
   private readonly geometry: THREE.BufferGeometry;
   private readonly material: THREE.MeshStandardMaterial;
+  private readonly bladeTexture: THREE.CanvasTexture;
   private mesh: THREE.InstancedMesh | null = null;
   private originX = Number.NaN;
   private originZ = Number.NaN;
@@ -28,19 +35,46 @@ export class GrassField {
 
   constructor() {
     this.geometry = GrassField.buildGeometry();
+    this.bladeTexture = GrassField.buildBladeTexture();
+
+    const uTime = windTimeUniform();
     this.material = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      roughness: 1,
-      metalness: 0,
+      map: this.bladeTexture,
+      alphaTest: 0.35,
       side: THREE.DoubleSide,
+      roughness: 0.95,
+      metalness: 0,
+      envMapIntensity: 0.45,
     });
+    this.material.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = uTime;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nuniform float uTime;')
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+          #ifdef USE_INSTANCING
+            vec3 tuftPos = vec3( instanceMatrix[ 3 ][ 0 ], instanceMatrix[ 3 ][ 1 ], instanceMatrix[ 3 ][ 2 ] );
+          #else
+            vec3 tuftPos = vec3( 0.0 );
+          #endif
+          float tuftBend = clamp( position.y / ${TUFT_HEIGHT.toFixed(2)}, 0.0, 1.0 );
+          float tuftPhase = tuftPos.x * 0.42 + tuftPos.z * 0.31;
+          float tuftSway = sin( uTime * 1.9 + tuftPhase ) * 0.085 + sin( uTime * 3.4 + tuftPhase * 1.7 ) * 0.03;
+          transformed.x += tuftSway * tuftBend * tuftBend;
+          transformed.z += tuftSway * 0.6 * tuftBend * tuftBend;`,
+        );
+    };
+    this.material.customProgramCacheKey = () => 'grass-wind-v1';
+
     this.group.name = 'grass';
     this.group.matrixAutoUpdate = false;
   }
 
+  /** Due quad incrociati, con la base a y = 0. */
   private static buildGeometry(): THREE.BufferGeometry {
-    const blade = new THREE.PlaneGeometry(0.42, 0.52, 1, 1);
-    blade.translate(0, 0.26, 0);
+    const blade = new THREE.PlaneGeometry(0.55, TUFT_HEIGHT, 1, 1);
+    blade.translate(0, TUFT_HEIGHT / 2, 0);
     const crossed = blade.clone();
     crossed.rotateY(Math.PI / 2);
     const merged = mergeGeometries([blade, crossed], false);
@@ -51,8 +85,64 @@ export class GrassField {
   }
 
   /**
-   * `density` 0…1 (dal preset grafico). Ricostruisce solo se serve.
+   * Texture dei fili d'erba: sfondo trasparente, lame affusolate di verdi
+   * diversi, qualche punta secca. Serve `alphaTest`, non la trasparenza, per
+   * non pagare l'ordinamento dei 5000 ciuffi.
    */
+  private static buildBladeTexture(): THREE.CanvasTexture {
+    const size = 128;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('canvas 2d non disponibile');
+    ctx.clearRect(0, 0, size, size);
+    const rng = mulberry32(0x9a55);
+
+    const blades = 26;
+    for (let i = 0; i < blades; i++) {
+      const baseX = 8 + rng() * (size - 16);
+      const baseY = size - 2;
+      const height = size * (0.45 + rng() * 0.5);
+      const lean = (rng() - 0.5) * size * 0.5;
+      const tipX = baseX + lean;
+      const tipY = baseY - height;
+      const ctrlX = baseX + lean * 0.35;
+      const ctrlY = baseY - height * 0.55;
+
+      // verde con variazione di luminosità e punta più chiara
+      const hue = 78 + rng() * 24;
+      const light = 24 + rng() * 22;
+      ctx.strokeStyle = `hsl(${hue.toFixed(0)} 38% ${light.toFixed(0)}%)`;
+      ctx.lineCap = 'round';
+      ctx.lineWidth = 2.6 + rng() * 2.4;
+      ctx.beginPath();
+      ctx.moveTo(baseX, baseY);
+      ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY);
+      ctx.stroke();
+    }
+    // punte secche
+    for (let i = 0; i < 5; i++) {
+      const baseX = 10 + rng() * (size - 20);
+      const baseY = size - 2;
+      const tipX = baseX + (rng() - 0.5) * 30;
+      const tipY = baseY - size * (0.5 + rng() * 0.35);
+      ctx.strokeStyle = 'rgba(150, 132, 74, 0.85)';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.moveTo(baseX, baseY);
+      ctx.quadraticCurveTo(baseX + 6, baseY - 40, tipX, tipY);
+      ctx.stroke();
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 4;
+    texture.needsUpdate = true;
+    return texture;
+  }
+
+  /** `density` 0…1 (dal preset grafico). Ricostruisce solo se serve. */
   update(
     x: number,
     z: number,
@@ -95,7 +185,7 @@ export class GrassField {
     const rng = mulberry32(Math.round(x * 31 + z * 17) | 1);
     const dummy = new THREE.Object3D();
     const color = new THREE.Color();
-    const palette = [0x5d7642, 0x66804a, 0x546c3c, 0x6f8a52];
+    const palette = [0x93ae6d, 0xa4bd7b, 0x86a266, 0xb0c68c, 0x9cb473];
 
     const mesh = new THREE.InstancedMesh(this.geometry, this.material, target);
     mesh.castShadow = false;
@@ -110,15 +200,15 @@ export class GrassField {
       const radius = Math.sqrt(rng()) * RADIUS;
       const px = x + Math.cos(angle) * radius;
       const pz = z + Math.sin(angle) * radius;
-      if (heights.slopeAt(px, pz) > 28) continue;
+      if (heights.slopeAt(px, pz) > 30) continue;
       if (roads.isOnRoad(px, pz, 1.1)) continue;
       if (buildings.near(px, pz).length > 0) continue;
 
       const py = heights.heightAt(px, pz);
       dummy.position.set(px, py - 0.02, pz);
       dummy.rotation.set(0, rng() * Math.PI, 0);
-      const scale = 0.7 + rng() * 0.85;
-      dummy.scale.set(scale, scale * (0.8 + rng() * 0.6), scale);
+      const scale = 0.75 + rng() * 0.8;
+      dummy.scale.set(scale, scale * (0.8 + rng() * 0.65), scale);
       dummy.updateMatrix();
       mesh.setMatrixAt(placed, dummy.matrix);
       color.setHex(palette[Math.floor(rng() * palette.length)]).multiplyScalar(0.85 + rng() * 0.3);
@@ -141,5 +231,6 @@ export class GrassField {
     }
     this.geometry.dispose();
     this.material.dispose();
+    this.bladeTexture.dispose();
   }
 }

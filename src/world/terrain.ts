@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CHUNK_SIZE, TERRAIN_SEGMENTS, VIEW_RADIUS } from '../config';
 import type { Heightfield } from '../geo/elevation';
+import { pbrColor } from '../gfx/textures';
 import { chunkCenter, chunkIndex, chunkKey, chunkOrigin } from './chunks';
 import { zoomForDistance, type ImageryStreamer } from './imagery';
 
@@ -112,6 +113,52 @@ function terrainDetailMap(): THREE.CanvasTexture {
 }
 
 /**
+ * Aggiunge il dettaglio ravvicinato al terreno: la foto satellite è nitida solo
+ * da lontano, quindi si moltiplica per una texture erba/roccia campionata in
+ * coordinate mondo. La modulazione è centrata su 1 (luminanza media), così non
+ * cambia il colore medio del satellite, e sfuma con la distanza per non far
+ * vedere la ripetizione all'orizzonte.
+ */
+function applyTerrainDetail(material: THREE.MeshStandardMaterial, renderer: THREE.WebGLRenderer): void {
+  const grass = pbrColor(renderer, 'grass');
+  const rock = pbrColor(renderer, 'rock');
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uDetailGrass = { value: grass };
+    shader.uniforms.uDetailRock = { value: rock };
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        '#include <common>\nvarying vec3 vDetailWorld;\nvarying vec3 vDetailNormal;',
+      )
+      .replace(
+        '#include <begin_vertex>',
+        '#include <begin_vertex>\nvDetailWorld = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;\nvDetailNormal = normalize( mat3( modelMatrix ) * objectNormal );',
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        '#include <common>\nvarying vec3 vDetailWorld;\nvarying vec3 vDetailNormal;\nuniform sampler2D uDetailGrass;\nuniform sampler2D uDetailRock;',
+      )
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+        float detailDist = length( vDetailWorld - cameraPosition );
+        float detailFade = 1.0 - smoothstep( 70.0, 240.0, detailDist );
+        if ( detailFade > 0.001 ) {
+          float slope = smoothstep( 0.62, 0.86, 1.0 - clamp( normalize( vDetailNormal ).y, 0.0, 1.0 ) );
+          vec3 g = texture2D( uDetailGrass, vDetailWorld.xz * 0.22 ).rgb;
+          vec3 r = texture2D( uDetailRock, vDetailWorld.xz * 0.16 ).rgb;
+          vec3 tex = mix( g, r, slope );
+          float lum = dot( tex, vec3( 0.299, 0.587, 0.114 ) );
+          float mod = 1.0 + ( lum - 0.38 ) * 0.9;
+          diffuseColor.rgb *= mix( 1.0, mod, 0.55 * detailFade );
+        }`,
+      );
+  };
+  material.customProgramCacheKey = () => 'terrain-detail-v1';
+}
+
+/**
  * Streaming del terreno a chunk: geometria dal DEM, texture satellite dal
  * provider con zoom progressivo (z15 lontano → z18 vicino) e normal map.
  * Carica al massimo N chunk per frame, ordina per distanza e libera quelli lontani.
@@ -133,7 +180,12 @@ export class Terrain {
   private lastCz = Number.NaN;
   private lastRadius = 0;
 
-  constructor(heightfield: Heightfield, imagery: ImageryStreamer, maxZoom = 18) {
+  constructor(
+    heightfield: Heightfield,
+    imagery: ImageryStreamer,
+    private readonly renderer: THREE.WebGLRenderer,
+    maxZoom = 18,
+  ) {
     this.heightfield = heightfield;
     this.imagery = imagery;
     this.maxZoom = Math.max(15, Math.min(18, maxZoom));
@@ -293,12 +345,16 @@ export class Terrain {
     const normalMap = buildNormalMap(this.heightfield, cx, cz);
     const material = new THREE.MeshStandardMaterial({
       color: 0x6d7a50,
-      roughness: 0.96,
+      roughness: 1,
       metalness: 0,
       normalMap,
       normalScale: new THREE.Vector2(1.05, 1.05),
       roughnessMap: terrainDetailMap(),
+      // il satellite è opaco: senza questo, il cielo si specchia radente e
+      // sembra ghiaccio invece che prato/asfalto
+      envMapIntensity: 0.35,
     });
+    applyTerrainDetail(material, this.renderer);
 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(centerX, 0, centerZ);

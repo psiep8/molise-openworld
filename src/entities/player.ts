@@ -133,12 +133,44 @@ export class Player {
     const girth = BUILD_GIRTH[look.build];
     rig.scale.set(girth * RIG_SCALE, height * RIG_SCALE, girth * RIG_SCALE);
 
-    const top = new THREE.MeshStandardMaterial({ color: colors.top, roughness: colors.roughness, metalness: colors.metalness });
-    const bottom = new THREE.MeshStandardMaterial({ color: colors.bottom, roughness: Math.min(1, colors.roughness + 0.1) });
-    const shoes = new THREE.MeshStandardMaterial({ color: colors.shoes, roughness: 0.8 });
-    const skin = new THREE.MeshStandardMaterial({ color: look.skin, roughness: 0.82 });
-    const accent = new THREE.MeshStandardMaterial({ color: colors.accent, roughness: 0.55 });
-    const hair = new THREE.MeshStandardMaterial({ color: look.hairColor, roughness: 0.75 });
+    // Tessuti e pelle fisici: il `sheen` dà la peluria dei capi in cotone, il
+    // leggero clearcoat della pelle restituisce il riflesso grasso dell'epidermide.
+    const top = new THREE.MeshPhysicalMaterial({
+      color: colors.top,
+      roughness: colors.roughness,
+      metalness: colors.metalness,
+      sheen: 0.7,
+      sheenRoughness: 0.7,
+      sheenColor: new THREE.Color(colors.top).lerp(new THREE.Color(0xffffff), 0.5),
+      envMapIntensity: 0.5,
+    });
+    const bottom = new THREE.MeshPhysicalMaterial({
+      color: colors.bottom,
+      roughness: Math.min(1, colors.roughness + 0.1),
+      sheen: 0.5,
+      sheenRoughness: 0.8,
+      sheenColor: new THREE.Color(colors.bottom).lerp(new THREE.Color(0xffffff), 0.4),
+      envMapIntensity: 0.45,
+    });
+    const shoes = new THREE.MeshPhysicalMaterial({
+      color: colors.shoes,
+      roughness: 0.7,
+      clearcoat: 0.35,
+      clearcoatRoughness: 0.35,
+      envMapIntensity: 0.6,
+    });
+    const skin = new THREE.MeshPhysicalMaterial({
+      color: look.skin,
+      roughness: 0.62,
+      clearcoat: 0.08,
+      clearcoatRoughness: 0.55,
+      sheen: 0.25,
+      sheenRoughness: 0.9,
+      sheenColor: 0xffd9c0,
+      envMapIntensity: 0.35,
+    });
+    const accent = new THREE.MeshPhysicalMaterial({ color: colors.accent, roughness: 0.55, sheen: 0.4, sheenRoughness: 0.6 });
+    const hair = new THREE.MeshPhysicalMaterial({ color: look.hairColor, roughness: 0.62, sheen: 0.5, sheenRoughness: 0.45, envMapIntensity: 0.7 });
 
     const addMesh = (
       parent: THREE.Object3D,
