@@ -40,7 +40,7 @@
           <span id="speed-value">0</span>
           <small>km/h</small>
         </div>
-        <div id="car-name">Fiat Panda 4x4</div>
+        <div id="car-name">Panda vecchia</div>
       </div>
 
       <div id="objective" class="pill">Premi <kbd>F</kbd> per entrare in auto</div>
@@ -60,6 +60,8 @@
         <div class="help-row"><kbd>M</kbd><span>mappa grande · clicca per l'itinerario</span></div>
         <div class="help-row"><kbd>V</kbd><span>radar satellite / mappa</span></div>
         <div class="help-row"><kbd>G</kbd><span>qualità grafica</span></div>
+        <div class="help-row"><kbd>B</kbd><span>cambia veicolo</span></div>
+        <div class="help-row"><kbd>Y</kbd><span>stereo affiancato</span></div>
         <div class="help-row"><kbd>N</kbd><span>audio on/off</span></div>
         <div class="help-row"><kbd>X</kbd><span>annulla l'itinerario</span></div>
         <div class="help-row"><kbd>P</kbd><span>impostazioni e meteo</span></div>
@@ -115,6 +117,59 @@
           <span class="settings-hint">Sole calcolato in locale · meteo da Open-Meteo</span>
         </div>
 
+        <div class="setting-row">
+          <div class="setting-copy">
+            <strong>Ora del giorno manuale</strong>
+            <small>Prova alba, mezzogiorno, tramonto e notte senza aspettare il tempo reale.</small>
+          </div>
+          <label class="switch" aria-label="Attiva ora manuale">
+            <input type="checkbox" id="toggle-manual-time" />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div id="manual-controls" class="manual-controls muted">
+          <label class="setting-field">
+            <span>Ora · <b id="time-value">15:00</b></span>
+            <input type="range" id="time-slider" min="0" max="24" step="0.25" value="15" />
+          </label>
+          <label class="setting-field">
+            <span>Meteo</span>
+            <select id="weather-select">
+              <option value="auto">Come il gioco</option>
+              <option value="clear">Sereno</option>
+              <option value="cloudy">Nuvoloso</option>
+              <option value="rain">Pioggia</option>
+              <option value="snow">Neve</option>
+              <option value="fog">Nebbia</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-copy">
+            <strong>Veicolo</strong>
+            <small>Nove tipologie, ognuna con ingombri e parametri di guida propri.</small>
+          </div>
+        </div>
+
+        <div class="manual-controls">
+          <label class="setting-field">
+            <span>Modello</span>
+            <select id="vehicle-select">
+              <option value="panda-classic">Panda vecchia</option>
+              <option value="panda-new">Panda nuova</option>
+              <option value="punto">Punto</option>
+              <option value="renegade">Renegade</option>
+              <option value="trike">Tre ruote</option>
+              <option value="500x">500X</option>
+              <option value="captur">Captur</option>
+              <option value="c3">C3</option>
+              <option value="junior">Junior</option>
+            </select>
+          </label>
+        </div>
+
         <p class="settings-note">
           Con il meteo reale attivo il sole sorge e tramonta all'ora vera della posizione in cui ti trovi;
           se la rete manca, il sole reale resta attivo e il meteo usa l'ultimo dato disponibile.
@@ -131,7 +186,8 @@
           Casa base: <strong>Palata</strong>. Da lì cammina e guida tra <strong>Montecilfone</strong>,
           <strong>Acquaviva Collecroce</strong>, <strong>Tavenna</strong> e <strong>Castelmauro</strong>,
           con foto aeree reali ad alta definizione, rilievo DEM, radar che segue la strada,
-          audio procedurale (motore, passi, vento, uccelli) e meteo reale opzionale.
+          nove veicoli procedurali, erba e vegetazione a istanze, ciclo giorno/notte con
+          ora manuale, pioggia e neve, audio procedurale e meteo reale opzionale.
           Un esperimento in stile open-world costruito <em>da zero</em> su mappe e dati aperti:
           nessun asset di videogiochi commerciali.
         </p>

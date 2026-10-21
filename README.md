@@ -6,6 +6,7 @@
 > **Non contiene e non usa nessun asset, codice o dato estratto da GTA V / Rockstar Games**: tutto il mondo è generato da fonti aperte.
 >
 > **Stato, comandi, limiti e prossimi passi:** [HANDOFF.md](HANDOFF.md) — il documento da leggere prima di riprendere il progetto su un'altra macchina.
+> **Specifica completa del simulatore:** [docs/MASTER_PROMPT.md](docs/MASTER_PROMPT.md), con lo stato di avanzamento punto per punto.
 
 **Area giocabile:** Palata · Montecilfone · Acquaviva Collecroce · Tavenna · Castelmauro (~14 × 12 km di campagna molisana)
 
@@ -16,13 +17,18 @@
 - **Casa base: Palata.** Il gioco parte dal centro del paese e la mappa segna Palata come "casa".
 - **Terreno 3D** a chunk (912 m) con DEM a 10 m, texture satellite fino a zoom 18 (~0,45 m/px) vicino al giocatore e normal map ricavata dal rilievo.
 - **Meteo reale opzionale** (`P` → interruttore): condizioni attuali, nuvole, pioggia/neve e **sole alla posizione e ora vere**, con alba/tramonto del giorno. Aggiornamento ogni 10 minuti, fallback al pomeriggio fisso se lo spegni.
+- **Ora del giorno manuale** (`P` → slider 0–24): alba, mezzogiorno, tramonto e notte, con preset meteo sereno/nuvoloso/pioggia/neve/nebbia. Strada bagnata e fari si accendono da soli quando il sole scende.
+- **Nove veicoli procedurali** (`P` → Veicolo, oppure `B` per cambiarli al volo): Panda vecchia e nuova, Punto, Renegade, tre ruote, 500X, Captur, C3, Junior. Ognuno ha ingombri, passo, raggio ruota e parametri di guida propri.
+- **Stereo affiancato** (`Y`): due viewport con camere separate di 6,5 cm, per visori o visione incrociata.
+- **Erba a istanze** intorno al giocatore, con densità legata al preset grafico e rispetto di strade ed edifici.
+- **Personaggio con scheletro**: rig umanoide a 21 ossa, clip idle/camminata/corsa e due clip additive (salto e caduta) sommate alla camminata.
 - **Radar satellite reale** in minimappa e mappa grande, con strade OSM evidenziate sopra la foto aerea (`V` per passare alla mappa vettoriale).
 - **Strade** ricostruite da OpenStreetMap e drappeggiate sul rilievo (asfalto e sterrati, larghezze per tipo).
 - **Paesi** con edifici estrusi dalle impronte OSM, **tetti a falde** (padiglione) in laterizio, **facciate con finestre, persiane e davanzali**, altezze stimate o da tag.
 - **Boschi e uliveti** con alberi instanziati in modo deterministico (stesso seed → stesso paesaggio).
 - **Acqua**: torrenti e specchi d'acqua.
 - **Camminata** in prima/terza persona con collisioni contro gli edifici, corsa, salto.
-- **Auto arcade** (Fiat Panda 4x4 stilizzata) con fisica su pendenza, off-road più lento, freno a mano, assetto a 4 punti di contatto.
+- **Auto arcade** con fisica su pendenza, off-road più lento, freno a mano, assetto a 4 punti di contatto. Nove modelli, dalla Panda al tre ruote.
 - **Itinerario scegliendo dalla mappa** (`M`, poi click): percorso più breve sulla rete stradale OSM, distanza e tempi stimati a piedi e in auto, linea in mappa e colonna luminosa sulla destinazione. `X` annulla.
 - **Minimappa** e **mappa grande** dei cinque comuni, con strade, boschi e toponimi.
 - **HUD** in italiano: velocità, coordinate, quota, fps, suggerimenti contestuali.
@@ -104,6 +110,8 @@ npm run geo -- --skip-osm
 | `X` | annulla l'itinerario | annulla l'itinerario |
 | `V` | radar satellite / mappa | radar satellite / mappa |
 | `G` | qualità grafica (bassa/media/alta/ultra) | qualità grafica |
+| `B` | cambia veicolo | cambia veicolo |
+| `Y` | stereo affiancato | stereo affiancato |
 | `N` | audio on/off | audio on/off |
 | `P` | impostazioni (meteo reale) | impostazioni |
 | `H` | mostra/nascondi aiuto | — |
@@ -116,7 +124,7 @@ URL utili: `?autostart=walk` e `?autostart=drive` saltano il menu (usati dallo s
 ## Verifica
 
 ```bash
-npm test          # 58 test: proiezione, DEM, OSM, fisica auto, itinerari, tetti, sole e meteo
+npm test          # proiezione, DEM, OSM, fisica auto, itinerari, tetti, sole e meteo
 npm run build     # typecheck + build di produzione
 npm run preview   # serve dist/ su :4173
 npm run smoke     # Chrome headless: carica, guida, cammina, itinerario, controlla il PNG
@@ -145,12 +153,16 @@ src/
     weather.ts         meteo Open-Meteo, posizione reale del sole, auto-refresh
     clouds.ts          cupola di nuvole procedurali guidata dalla copertura
     precipitation.ts   pioggia e neve sintetiche intorno alla camera
+    grass.ts           campo d'erba instanziato che segue il giocatore
     sky.ts             cielo, sole, ombre
+  environment/
+    sun-clock.ts       sole per un'ora locale arbitraria + preset meteo
   entities/
-    player.ts          controller a piedi + avatar animato
-    vehicle.ts         auto procedurale + assetto sul terreno
+    player.ts          controller a piedi + rig animato (mixer, clip additive)
+    vehicle.ts         veicoli procedurali dal catalogo + assetto sul terreno
   sim/
-    car.ts             fisica arcade pura (testabile)
+    car.ts             fisica arcade pura (testabile, tuning per veicolo)
+    vehicle-catalog.ts nove veicoli: dimensioni, colori, parametri
     routing.ts         grafo stradale + A* per l'itinerario scelto sulla mappa
   ui/
     hud.ts             HUD, impostazioni e schermate

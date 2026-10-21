@@ -11,25 +11,27 @@ export interface MoveInput {
   jump: boolean;
 }
 
+type Locomotion = 'idle' | 'walk' | 'run';
+
 const RADIUS = 0.42;
 
-/** Skeleton joints for a humanoid character. */
-export interface SkeletonJoint {
-  name: string;
-  bone: THREE.Bone;
-  children: SkeletonJoint[];
+function makeBone(name: string, x: number, y: number, z = 0): THREE.Bone {
+  const bone = new THREE.Bone();
+  bone.name = name;
+  bone.position.set(x, y, z);
+  return bone;
 }
 
-/** Human-readable animation clip names. */
-export type AnimationName = 'idle' | 'walk' | 'run' | 'jump' | 'fall';
-
-/** Additive animation mixing data. */
-export interface AdditiveAction {
-  clip: THREE.AnimationClip;
-  weight: number;
-  enabled: boolean;
-}
-
+/**
+ * Personaggio umanoide procedurale.
+ *
+ * Le mesh sono figlie delle ossa (non c'è vertex skinning): ruotando un osso
+ * si muove l'arto e tutta la catena sotto di lui, esattamente come in un rig
+ * scheletrico. Le animazioni passano da un `AnimationMixer` con clip su
+ * `osso.rotation[x]`, con blend pesato tra idle/walk/run e due clip additive
+ * (salto e caduta) sommate sopra la camminata — la stessa tecnica dell'esempio
+ * three.js `webgl_animation_skinning_additive_blending`.
+ */
 export class Player {
   readonly position = new THREE.Vector3();
   readonly velocity = new THREE.Vector3();
@@ -37,304 +39,182 @@ export class Player {
   pitch = 0;
   grounded = true;
   readonly avatar: THREE.Group;
-  private mixer: THREE.AnimationMixer | null = null;
-  private readonly clock = new THREE.Clock();
-  private readonly actions = new Map<AnimationName, THREE.AnimationAction>();
-  private readonly additiveActions = new Map<AnimationName, THREE.AnimationAction>();
-  private currentAnimation: AnimationName = 'idle';
-  private lastGrounded = true;
+
+  private readonly mixer: THREE.AnimationMixer;
+  private readonly actions: Record<Locomotion, THREE.AnimationAction>;
+  private readonly jumpAction: THREE.AnimationAction;
+  private readonly fallAction: THREE.AnimationAction;
+  private walkPhase = 0;
+  private bob = 0;
 
   constructor() {
     this.avatar = this.buildAvatar();
-    this.initMixer(this.avatar);
+    const clips = this.buildClips();
+    this.mixer = new THREE.AnimationMixer(this.avatar);
+
+    this.actions = {
+      idle: this.prepare(this.mixer.clipAction(clips.idle), 1),
+      walk: this.prepare(this.mixer.clipAction(clips.walk), 0),
+      run: this.prepare(this.mixer.clipAction(clips.run), 0),
+    };
+
+    this.jumpAction = this.mixer.clipAction(clips.jump);
+    this.jumpAction.blendMode = THREE.AdditiveAnimationBlendMode;
+    this.jumpAction.setEffectiveWeight(0);
+    this.jumpAction.play();
+
+    this.fallAction = this.mixer.clipAction(clips.fall);
+    this.fallAction.blendMode = THREE.AdditiveAnimationBlendMode;
+    this.fallAction.setEffectiveWeight(0);
+    this.fallAction.play();
   }
 
+  private prepare(action: THREE.AnimationAction, weight: number): THREE.AnimationAction {
+    action.setEffectiveWeight(weight);
+    action.setLoop(THREE.LoopRepeat, Infinity);
+    action.play();
+    return action;
+  }
+
+  // -------------------------------------------------------------------------
+  // rig
+  // -------------------------------------------------------------------------
   private buildAvatar(): THREE.Group {
-    const group = new THREE.Group();
-    group.name = 'player-avatar';
+    const root = new THREE.Group();
+    root.name = 'player-avatar';
 
-    // Create a simple humanoid skeleton
-    const skeletonRoot = new THREE.Group();
-    skeletonRoot.name = 'skeleton';
-    group.add(skeletonRoot);
+    const rig = new THREE.Group();
+    rig.name = 'player-rig';
+    root.add(rig);
 
-    // Hip bone
-    const hip = new THREE.Bone();
-    hip.name = 'hip';
-    hip.position.set(0, 0, 0);
-    skeletonRoot.add(hip);
-
-    // Left Upper Leg
-    const leftUpperLeg = new THREE.Bone();
-    leftUpperLeg.name = 'leftUpperLeg';
-    leftUpperLeg.position.set(-0.12, -0.5, 0);
-    hip.add(leftUpperLeg);
-    const leftLowerLeg = new THREE.Bone();
-    leftLowerLeg.name = 'leftLowerLeg';
-    leftLowerLeg.position.set(0, -0.4, 0);
-    leftUpperLeg.add(leftLowerLeg);
-    const leftFoot = new THREE.Bone();
-    leftFoot.name = 'leftFoot';
-    leftFoot.position.set(0, -0.3, 0);
-    leftLowerLeg.add(leftFoot);
-
-    // Right Upper Leg
-    const rightUpperLeg = new THREE.Bone();
-    rightUpperLeg.name = 'rightUpperLeg';
-    rightUpperLeg.position.set(0.12, -0.5, 0);
-    hip.add(rightUpperLeg);
-    const rightLowerLeg = new THREE.Bone();
-    rightLowerLeg.name = 'rightLowerLeg';
-    rightLowerLeg.position.set(0, -0.4, 0);
-    rightUpperLeg.add(rightLowerLeg);
-    const rightFoot = new THREE.Bone();
-    rightFoot.name = 'rightFoot';
-    rightFoot.position.set(0, -0.3, 0);
-    rightLowerLeg.add(rightFoot);
-
-    // Spine
-    const spine = new THREE.Bone();
-    spine.name = 'spine';
-    spine.position.set(0, 0.2, 0);
-    hip.add(spine);
-    const spine2 = new THREE.Bone();
-    spine2.name = 'spine2';
-    spine2.position.set(0, 0.4, 0);
-    spine.add(spine2);
-
-    // Chest
-    const chest = new THREE.Bone();
-    chest.name = 'chest';
-    chest.position.set(0, 0.6, 0);
-    spine.add(chest);
-
-    // Neck
-    const neck = new THREE.Bone();
-    neck.name = 'neck';
-    neck.position.set(0, 0.8, 0);
-    chest.add(neck);
-    const head = new THREE.Bone();
-    head.name = 'head';
-    head.position.set(0, 0.2, 0);
-    neck.add(head);
-
-    // Left Upper Arm
-    const leftUpperArm = new THREE.Bone();
-    leftUpperArm.name = 'leftUpperArm';
-    leftUpperArm.position.set(-0.3, 0.7, 0);
-    chest.add(leftUpperArm);
-    const leftLowerArm = new THREE.Bone();
-    leftLowerArm.name = 'leftLowerArm';
-    leftLowerArm.position.set(0, -0.3, 0);
-    leftUpperArm.add(leftLowerArm);
-    const leftHand = new THREE.Bone();
-    leftHand.name = 'leftHand';
-    leftHand.position.set(0, -0.2, 0);
-    leftLowerArm.add(leftHand);
-
-    // Right Upper Arm
-    const rightUpperArm = new THREE.Bone();
-    rightUpperArm.name = 'rightUpperArm';
-    rightUpperArm.position.set(0.3, 0.7, 0);
-    chest.add(rightUpperArm);
-    const rightLowerArm = new THREE.Bone();
-    rightLowerArm.name = 'rightLowerArm';
-    rightLowerArm.position.set(0, -0.3, 0);
-    rightUpperArm.add(rightLowerArm);
-    const rightHand = new THREE.Bone();
-    rightHand.name = 'rightHand';
-    rightHand.position.set(0, -0.2, 0);
-    rightLowerArm.add(rightHand);
-
-    // Setup bone hierarchy for AnimationMixer
-    (skeletonRoot as any).computeBonePoses();
-
-    // Add visual meshes over the skeleton
-    const jacket = new THREE.MeshStandardMaterial({ color: 0x2f5d7c, roughness: 0.9 });
+    const jacket = new THREE.MeshStandardMaterial({ color: 0x2f5d7c, roughness: 0.88 });
     const trousers = new THREE.MeshStandardMaterial({ color: 0x394150, roughness: 1 });
     const skin = new THREE.MeshStandardMaterial({ color: 0xd7a07c, roughness: 0.85 });
     const shoes = new THREE.MeshStandardMaterial({ color: 0x3b2f27, roughness: 1 });
 
-    // Torso
-    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.24, 0.52, 3, 8), jacket);
-    torso.position.y = 1.12;
-    torso.add(new THREE.Bone()); // bind to skeleton
-    skeletonRoot.add(torso);
+    const addMesh = (parent: THREE.Object3D, geometry: THREE.BufferGeometry, material: THREE.Material, x = 0, y = 0, z = 0): void => {
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(x, y, z);
+      mesh.castShadow = true;
+      parent.add(mesh);
+    };
 
-    // Head
-    const headMesh = new THREE.Mesh(new THREE.SphereGeometry(0.19, 12, 10), skin);
-    headMesh.position.y = 1.66;
-    head.add(headMesh);
+    const hips = makeBone('hips', 0, 0.95);
+    rig.add(hips);
+    addMesh(hips, new THREE.BoxGeometry(0.34, 0.2, 0.22), trousers);
 
-    // Hips
-    const hips = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.18, 0.24), trousers);
-    hips.position.y = 0.82;
-    hip.add(hips);
+    const spine = makeBone('spine', 0, 0.1);
+    hips.add(spine);
+    const chest = makeBone('chest', 0, 0.34);
+    spine.add(chest);
+    addMesh(chest, new THREE.CapsuleGeometry(0.2, 0.32, 3, 8), jacket, 0, 0.1, 0);
 
-    for (const side of [-1, 1]) {
-      // Legs
-      const leg = new THREE.Group();
-      leg.position.set(side * 0.12, 0.82, 0);
-      const shin = new THREE.Mesh(new THREE.CapsuleGeometry(0.085, 0.5, 2, 6), trousers);
-      shin.position.y = -0.32;
-      leg.add(shin);
-      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.1, 0.3), shoes);
-      foot.position.set(0, -0.62, -0.06);
-      leg.add(foot);
-      skeletonRoot.add(leg);
+    const neck = makeBone('neck', 0, 0.3);
+    chest.add(neck);
+    addMesh(neck, new THREE.CylinderGeometry(0.06, 0.07, 0.08, 6), skin);
+    const head = makeBone('head', 0, 0.13);
+    neck.add(head);
+    addMesh(head, new THREE.SphereGeometry(0.145, 14, 12), skin, 0, 0.1, 0);
 
-      // Arms
-      const arm = new THREE.Group();
-      arm.position.set(side * 0.31, 1.36, 0);
-      const forearm = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.46, 2, 6), jacket);
-      forearm.position.y = -0.26;
-      arm.add(forearm);
-      skeletonRoot.add(arm);
+    for (const side of [-1, 1] as const) {
+      const tag = side < 0 ? 'L' : 'R';
+
+      const upArm = makeBone(`upArm${tag}`, side * 0.25, 0.24);
+      chest.add(upArm);
+      addMesh(upArm, new THREE.CapsuleGeometry(0.062, 0.2, 2, 6), jacket, 0, -0.12, 0);
+      const lowArm = makeBone(`lowArm${tag}`, 0, -0.28);
+      upArm.add(lowArm);
+      addMesh(lowArm, new THREE.CapsuleGeometry(0.055, 0.18, 2, 6), jacket, 0, -0.11, 0);
+      const hand = makeBone(`hand${tag}`, 0, -0.24);
+      lowArm.add(hand);
+      addMesh(hand, new THREE.SphereGeometry(0.06, 8, 6), skin, 0, -0.03, 0);
+
+      const upLeg = makeBone(`upLeg${tag}`, side * 0.11, -0.04);
+      hips.add(upLeg);
+      addMesh(upLeg, new THREE.CapsuleGeometry(0.085, 0.28, 2, 6), trousers, 0, -0.19, 0);
+      const lowLeg = makeBone(`lowLeg${tag}`, 0, -0.4);
+      upLeg.add(lowLeg);
+      addMesh(lowLeg, new THREE.CapsuleGeometry(0.072, 0.26, 2, 6), trousers, 0, -0.18, 0);
+      const foot = makeBone(`foot${tag}`, 0, -0.4);
+      lowLeg.add(foot);
+      addMesh(foot, new THREE.BoxGeometry(0.15, 0.09, 0.27), shoes, 0, -0.03, 0.06);
     }
 
-    // Store skeleton root for pose updates
-    ;
-
-    return group;
+    return root;
   }
 
+  // -------------------------------------------------------------------------
+  // clip
+  // -------------------------------------------------------------------------
+  private buildClips(): Record<Locomotion | 'jump' | 'fall', THREE.AnimationClip> {
+    const track = (path: string, times: number[], values: number[]): THREE.NumberKeyframeTrack =>
+      new THREE.NumberKeyframeTrack(path, times, values);
+    const swing = (name: string, axis: 'x' | 'y' | 'z', times: number[], values: number[]): THREE.NumberKeyframeTrack =>
+      track(`${name}.rotation[${axis}]`, times, values);
+
+    const idle = new THREE.AnimationClip('idle', 4, [
+      swing('chest', 'z', [0, 2, 4], [0, 0.02, 0]),
+      swing('head', 'y', [0, 2, 4], [0, 0.08, 0]),
+      swing('upArmL', 'z', [0, 2, 4], [-0.06, -0.11, -0.06]),
+      swing('upArmR', 'z', [0, 2, 4], [0.06, 0.11, 0.06]),
+    ]);
+
+    const walkTimes = [0, 0.25, 0.5, 0.75, 1];
+    const walk = new THREE.AnimationClip('walk', 1, [
+      swing('upLegL', 'x', walkTimes, [0.55, 0, -0.55, 0, 0.55]),
+      swing('upLegR', 'x', walkTimes, [-0.55, 0, 0.55, 0, -0.55]),
+      swing('lowLegL', 'x', walkTimes, [0.1, 0.45, 0.1, 0.02, 0.1]),
+      swing('lowLegR', 'x', walkTimes, [0.1, 0.02, 0.1, 0.45, 0.1]),
+      swing('upArmL', 'x', walkTimes, [-0.38, 0, 0.38, 0, -0.38]),
+      swing('upArmR', 'x', walkTimes, [0.38, 0, -0.38, 0, 0.38]),
+      swing('lowArmL', 'x', walkTimes, [-0.25, -0.35, -0.25, -0.15, -0.25]),
+      swing('lowArmR', 'x', walkTimes, [-0.25, -0.15, -0.25, -0.35, -0.25]),
+      swing('chest', 'y', [0, 0.5, 1], [0.07, -0.07, 0.07]),
+      swing('hips', 'y', walkTimes, [0, 0.012, 0, -0.012, 0]),
+    ]);
+
+    const runTimes = [0, 0.175, 0.35];
+    const run = new THREE.AnimationClip('run', 0.7, [
+      swing('upLegL', 'x', [0, 0.175, 0.35, 0.525, 0.7], [0.95, 0, -0.95, 0, 0.95]),
+      swing('upLegR', 'x', [0, 0.175, 0.35, 0.525, 0.7], [-0.95, 0, 0.95, 0, -0.95]),
+      swing('lowLegL', 'x', [0, 0.175, 0.35, 0.525, 0.7], [0.3, 1.1, 0.3, 0.1, 0.3]),
+      swing('lowLegR', 'x', [0, 0.175, 0.35, 0.525, 0.7], [0.3, 0.1, 0.3, 1.1, 0.3]),
+      swing('upArmL', 'x', runTimes, [-0.85, 0, 0.85]),
+      swing('upArmR', 'x', runTimes, [0.85, 0, -0.85]),
+      swing('spine', 'x', [0, 0.35, 0.7], [0.16, 0.16, 0.16]),
+      swing('hips', 'y', [0, 0.35, 0.7], [0.02, -0.02, 0.02]),
+    ]);
+
+    // Clip additive: si sommano alla base senza sovrascriverla.
+    const jump = new THREE.AnimationClip('jump', 0.55, [
+      track('hips.position[y]', [0, 0.25, 0.55], [0, 0.22, 0]),
+      swing('upArmL', 'z', [0, 0.55], [0, 0.35]),
+      swing('upArmR', 'z', [0, 0.55], [0, -0.35]),
+    ]);
+
+    const fall = new THREE.AnimationClip('fall', 0.9, [
+      swing('upArmL', 'z', [0, 0.45, 0.9], [0.2, 0.3, 0.2]),
+      swing('upArmR', 'z', [0, 0.45, 0.9], [-0.2, -0.3, -0.2]),
+      swing('upLegL', 'x', [0, 0.45, 0.9], [0.12, 0.2, 0.12]),
+      swing('upLegR', 'x', [0, 0.45, 0.9], [-0.12, -0.2, -0.12]),
+    ]);
+
+    return { idle, walk, run, jump, fall };
+  }
+
+  // -------------------------------------------------------------------------
+  // sim
+  // -------------------------------------------------------------------------
   spawn(x: number, z: number, yaw: number, heights: Heightfield): void {
     this.position.set(x, heights.heightAt(x, z), z);
     this.velocity.set(0, 0, 0);
     this.yaw = yaw;
     this.pitch = 0;
     this.grounded = true;
-    this.lastGrounded = true;
+    this.walkPhase = 0;
+    this.bob = 0;
+    this.mixer.setTime(0);
     this.syncMesh();
-  }
-
-  /** Initialize the animation mixer with a skeleton. */
-  initMixer(avatar: THREE.Group): THREE.AnimationMixer {
-    this.mixer = new THREE.AnimationMixer(avatar);
-    this.clock = new THREE.Clock();
-    // Add idle action (no movement)
-    const idleClip = new THREE.AnimationClip('idle', -1, [
-      new THREE.KeyframeTrack('hip.position.y', [0, 1], [0, 0, 0]),
-      new THREE.KeyframeTrack('hip.rotation.x', [0, 1], [0, Math.PI / 180 * 5]),
-    ]);
-    const idleAction = this.mixer!.clipAction(idleClip);
-    idleAction.setWeight(1);
-    idleAction.play();
-    this.actions.set('idle', idleAction);
-
-    // Add walk action
-    const walkClip = new THREE.AnimationClip('walk', -1, [
-      new THREE.KeyframeTrack('hip.position.x', [0, 1], [0, 0.1]),
-      new THREE.KeyframeTrack('hip.position.z', [0, 1], [0, -0.1]),
-      new THREE.KeyframeTrack('leftUpperLeg.rotation.x', [0, 1], [0, -Math.PI / 2]),
-      new THREE.KeyframeTrack('rightUpperLeg.rotation.x', [0, 1], [0, Math.PI / 2]),
-      new THREE.KeyframeTrack('leftLowerArm.rotation.x', [0, 1], [0, Math.PI / 4]),
-      new THREE.KeyframeTrack('rightLowerArm.rotation.x', [0, 1], [0, -Math.PI / 4]),
-    ]);
-    const walkAction = this.mixer!.clipAction(walkClip);
-    walkAction.setEffectiveWeight(1);
-    walkAction.setLoop(THREE.LoopRepeat);
-    walkAction.play();
-    this.actions.set('walk', walkAction);
-
-    // Additive jump action (added on top of walk)
-    const jumpClip = new THREE.AnimationClip('jump', -1, [
-      new THREE.KeyframeTrack('hip.position.y', [0, 0.5, 1], [0, 2, 0]),
-      new THREE.KeyframeTrack('hip.rotation.x', [0, 0.5, 1], [0, -Math.PI / 10, 0]),
-    ]);
-    const jumpAction = this.mixer!.clipAction(jumpClip);
-    jumpAction.setEffectiveWeight(0); // Start disabled, enabled when jumping
-    jumpAction.setLoop(THREE.LoopOnce);
-    jumpAction.clampWhenFinished = true;
-    this.additiveActions.set('jump', jumpAction);
-
-    // Additive fall action
-    const fallClip = new THREE.AnimationClip('fall', -1, [
-      new THREE.KeyframeTrack('hip.position.y', [0, 1], [0, -1]),
-      new THREE.KeyframeTrack('spine.rotation.z', [0, 1], [0, -Math.PI / 8]),
-    ]);
-    const fallAction = this.mixer!.clipAction(fallClip);
-    fallAction.setEffectiveWeight(0); // Start disabled
-    fallAction.setLoop(THREE.LoopRepeat);
-    this.additiveActions.set('fall', fallAction);
-
-    // Additive run action (faster walk)
-    const runClip = new THREE.AnimationClip('run', -1, [
-      new THREE.KeyframeTrack('hip.position.x', [0, 1], [0, 0.2]),
-      new THREE.KeyframeTrack('hip.position.z', [0, 1], [0, -0.2]),
-      new THREE.KeyframeTrack('leftUpperLeg.rotation.x', [0, 1], [0, -Math.PI]),
-      new THREE.KeyframeTrack('rightUpperLeg.rotation.x', [0, 1], [0, Math.PI]),
-    ]);
-    const runAction = this.mixer!.clipAction(runClip);
-    runAction.setEffectiveWeight(0); // Start disabled
-    runAction.setLoop(THREE.LoopRepeat);
-    this.actions.set('run', runAction);
-
-    this.mixer!.getRootAction().setEffectiveWeight(1);
-    this.mixer!.time = 0;
-    return this.mixer!;
-  }
-
-  /** Update animation mixer and skeleton poses. */
-  updateMixer(dt: number, input: MoveInput, heights: Heightfield, buildings: BuildingIndex): void {
-    if (!this.mixer) return;
-
-    this.mixer.update(dt);
-
-    // Handle additive blending
-    const wasGrounded = this.lastGrounded;
-    this.lastGrounded = this.grounded;
-
-    // Switch between walk/run based on sprint
-    const speed = input.sprint ? GAME.runSpeed : GAME.walkSpeed;
-    const horizontalSpeed = Math.hypot(this.velocity.x, this.velocity.z);
-
-    if (horizontalSpeed > 0.5) {
-      // Fast movement - switch to run or additive run
-      if (input.sprint && this.currentAnimation !== 'run') {
-        this.transitionTo('run');
-      }
-      // Enable additive jump if jumping
-      if (input.jump && !wasGrounded) {
-        this.additiveActions.get('jump')?.setEffectiveWeight(1);
-      }
-    } else {
-      // Walking speed - ensure walk action is active
-      this.transitionTo('walk');
-      // Disable jump additive when grounded
-      this.additiveActions.get('jump')?.setEffectiveWeight(0);
-    }
-
-    // Update walk/Run bone offsets for additive blending
-    this.updateWalkAnimation(dt, horizontalSpeed);
-  }
-
-  private transitionTo(newAnim: AnimationName): void {
-    // Disable current action
-    for (const [name, action] of this.actions) {
-      action.setEffectiveWeight(name === newAnim ? 1 : 0);
-    }
-    this.currentAnimation = newAnim;
-  }
-
-  private updateWalkAnimation(dt: number, horizontalSpeed: number): void {
-    // Update the walk animation based on speed
-    const walkAction = this.actions.get('walk');
-    if (walkAction) {
-      walkAction.setTimeScale(Math.max(0.5, horizontalSpeed / GAME.walkSpeed));
-    }
-
-    // Update additive jump if active
-    const jumpAction = this.additiveActions.get('jump');
-    if (jumpAction && jumpAction.getEffectiveWeight() > 0) {
-      jumpAction.play();
-    }
-
-    // Update additive fall if active
-    const fallAction = this.additiveActions.get('fall');
-    if (fallAction && fallAction.getEffectiveWeight() > 0) {
-      fallAction.play();
-    }
   }
 
   update(dt: number, input: MoveInput, heights: Heightfield, buildings: BuildingIndex): void {
@@ -356,8 +236,6 @@ export class Player {
     this.velocity.x += (dx * speed - this.velocity.x) * k;
     this.velocity.z += (dz * speed - this.velocity.z) * k;
 
-    const prevX = this.position.x;
-    const prevZ = this.position.z;
     this.position.x += this.velocity.x * dt;
     this.position.z += this.velocity.z * dt;
 
@@ -385,22 +263,34 @@ export class Player {
       this.position.z = fixed.z;
     }
 
-    const moved = Math.hypot(this.position.x - prevX, this.position.z - prevZ);
-    this.animate(dt, moved / Math.max(dt, 1e-3));
-    this.updateMixer(dt, input, heights, buildings);
+    const horizontalSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+    this.updateAnimation(dt, horizontalSpeed);
     this.syncMesh();
   }
 
-  private animate(dt: number, horizontalSpeed: number): void {
-    const target = clamp(horizontalSpeed / GAME.runSpeed, 0, 1);
-    const stride = this.grounded ? target : 0.2;
-    this.walkPhase += dt * (4 + horizontalSpeed * 1.1);
-    const swing = Math.sin(this.walkPhase) * 0.62 * stride;
-    this.legs[0].rotation.x = swing;
-    this.legs[1].rotation.x = -swing;
-    this.arms[0].rotation.x = -swing * 0.7;
-    this.arms[1].rotation.x = swing * 0.7;
-    this.bob = this.grounded ? Math.abs(Math.sin(this.walkPhase)) * 0.035 * stride : 0;
+  private updateAnimation(dt: number, horizontalSpeed: number): void {
+    const target: Locomotion =
+      horizontalSpeed < 0.35 ? 'idle' : horizontalSpeed > GAME.walkSpeed + 0.7 ? 'run' : 'walk';
+    const blend = 1 - Math.exp(-9 * dt);
+    for (const key of ['idle', 'walk', 'run'] as const) {
+      const action = this.actions[key];
+      const want = key === target ? 1 : 0;
+      const now = action.getEffectiveWeight();
+      action.setEffectiveWeight(now + (want - now) * blend);
+    }
+    this.actions.walk.timeScale = clamp(horizontalSpeed / GAME.walkSpeed, 0.65, 1.6);
+    this.actions.run.timeScale = clamp(horizontalSpeed / GAME.runSpeed, 0.8, 1.3);
+
+    // clip additive sopra la camminata
+    const rising = !this.grounded && this.velocity.y > 0.4;
+    const falling = !this.grounded && this.velocity.y <= 0.4;
+    this.jumpAction.setEffectiveWeight(rising ? 1 : 0);
+    this.fallAction.setEffectiveWeight(falling ? 1 : 0);
+
+    this.walkPhase += dt * (2.4 + horizontalSpeed * 0.9);
+    this.bob = this.grounded ? Math.abs(Math.sin(this.walkPhase)) * 0.022 * clamp(horizontalSpeed / GAME.runSpeed, 0, 1) : 0;
+
+    this.mixer.update(dt);
   }
 
   syncMesh(): void {

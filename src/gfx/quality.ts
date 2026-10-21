@@ -10,6 +10,8 @@ export interface QualityPreset {
   bloom: number;
   /** zoom massimo delle texture satellite (16 lontano … 18 vicino) */
   maxSatelliteZoom: number;
+  /** densità del tappeto d'erba, 0…1 */
+  grassDensity: number;
 }
 
 export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
@@ -21,6 +23,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     post: false,
     bloom: 0,
     maxSatelliteZoom: 16,
+    grassDensity: 0.22,
   },
   medium: {
     level: 'medium',
@@ -30,6 +33,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     post: false,
     bloom: 0,
     maxSatelliteZoom: 17,
+    grassDensity: 0.45,
   },
   high: {
     level: 'high',
@@ -39,6 +43,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     post: true,
     bloom: 0.2,
     maxSatelliteZoom: 18,
+    grassDensity: 0.72,
   },
   ultra: {
     level: 'ultra',
@@ -48,6 +53,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     post: true,
     bloom: 0.3,
     maxSatelliteZoom: 18,
+    grassDensity: 1,
   },
 };
 

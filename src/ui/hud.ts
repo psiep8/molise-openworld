@@ -125,6 +125,27 @@ export class Hud {
     if (this.weatherToggle) this.weatherToggle.checked = enabled;
   }
 
+  /** Attiva o attenua i controlli di ora e meteo manuali. */
+  setManualTime(enabled: boolean): void {
+    const toggle = document.getElementById('toggle-manual-time') as HTMLInputElement | null;
+    if (toggle) toggle.checked = enabled;
+    const controls = document.getElementById('manual-controls');
+    controls?.classList.toggle('muted', !enabled);
+  }
+
+  setTimeLabel(hour: number): void {
+    const el = document.getElementById('time-value');
+    if (!el) return;
+    const h = Math.floor(hour) % 24;
+    const m = Math.round((hour - Math.floor(hour)) * 60) % 60;
+    el.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  }
+
+  setVehicleName(name: string): void {
+    const el = document.getElementById('car-name');
+    if (el) el.textContent = name;
+  }
+
   setWeatherStatus(text: string): void {
     if (this.weatherStatus) this.weatherStatus.textContent = text;
   }

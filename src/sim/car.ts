@@ -33,7 +33,23 @@ export interface CarEnv {
   groundHeight: (x: number, z: number) => number;
 }
 
-export const CAR = {
+export interface CarTuning {
+  maxSpeed: number;
+  reverseSpeed: number;
+  engineAccel: number;
+  brakeDecel: number;
+  offroadSpeedFactor: number;
+  offroadGrip: number;
+  wheelbase: number;
+  track: number;
+  maxSteer: number;
+  dragLinear: number;
+  dragQuadratic: number;
+  gravity: number;
+}
+
+/** Parametri di riferimento: una berlina media. Ogni veicolo può sovrascriverli. */
+export const CAR: CarTuning = {
   maxSpeed: 34.5,
   reverseSpeed: 8.5,
   engineAccel: 9.2,
@@ -46,7 +62,7 @@ export const CAR = {
   dragLinear: 0.16,
   dragQuadratic: 0.0009,
   gravity: 9.81,
-} as const;
+};
 
 const clamp = (v: number, a: number, b: number): number => (v < a ? a : v > b ? b : v);
 
@@ -54,38 +70,44 @@ export function createCarState(x: number, z: number, yaw = 0): CarState {
   return { x, z, yaw, speed: 0, steer: 0 };
 }
 
-export function stepCar(state: CarState, input: CarInput, env: CarEnv, dt: number): CarState {
+export function stepCar(
+  state: CarState,
+  input: CarInput,
+  env: CarEnv,
+  dt: number,
+  tuning: CarTuning = CAR,
+): CarState {
   const next: CarState = { ...state };
-  const surface = env.onRoad ? 1 : CAR.offroadSpeedFactor;
-  const maxSpeed = CAR.maxSpeed * surface;
-  const reverseMax = CAR.reverseSpeed * surface;
+  const surface = env.onRoad ? 1 : tuning.offroadSpeedFactor;
+  const maxSpeed = tuning.maxSpeed * surface;
+  const reverseMax = tuning.reverseSpeed * surface;
 
   // --- motore / freni -----------------------------------------------------
   if (input.throttle > 0) {
     const fade = 1 - clamp(Math.max(0, next.speed) / maxSpeed, 0, 1) * 0.55;
-    next.speed += CAR.engineAccel * surface * fade * input.throttle * dt;
+    next.speed += tuning.engineAccel * surface * fade * input.throttle * dt;
   }
   if (input.brake > 0) {
     if (next.speed > 0.4) {
-      next.speed -= CAR.brakeDecel * input.brake * dt;
+      next.speed -= tuning.brakeDecel * input.brake * dt;
     } else {
-      next.speed -= CAR.engineAccel * 0.55 * surface * input.brake * dt;
+      next.speed -= tuning.engineAccel * 0.55 * surface * input.brake * dt;
     }
   }
 
   // --- resistenze ---------------------------------------------------------
-  next.speed -= next.speed * CAR.dragLinear * dt;
-  next.speed -= Math.sign(next.speed) * CAR.dragQuadratic * next.speed * next.speed * dt;
+  next.speed -= next.speed * tuning.dragLinear * dt;
+  next.speed -= Math.sign(next.speed) * tuning.dragQuadratic * next.speed * next.speed * dt;
   if (input.handbrake) next.speed -= next.speed * 2.2 * dt;
   if (input.throttle === 0 && input.brake === 0) next.speed -= next.speed * 0.55 * dt;
 
   // --- pendenza -----------------------------------------------------------
   const fx = -Math.sin(next.yaw);
   const fz = -Math.cos(next.yaw);
-  const front = env.groundHeight(next.x + fx * CAR.wheelbase * 0.5, next.z + fz * CAR.wheelbase * 0.5);
-  const back = env.groundHeight(next.x - fx * CAR.wheelbase * 0.5, next.z - fz * CAR.wheelbase * 0.5);
-  const pitch = Math.atan2(front - back, CAR.wheelbase);
-  next.speed -= CAR.gravity * Math.sin(pitch) * dt * 0.85;
+  const front = env.groundHeight(next.x + fx * tuning.wheelbase * 0.5, next.z + fz * tuning.wheelbase * 0.5);
+  const back = env.groundHeight(next.x - fx * tuning.wheelbase * 0.5, next.z - fz * tuning.wheelbase * 0.5);
+  const pitch = Math.atan2(front - back, tuning.wheelbase);
+  next.speed -= tuning.gravity * Math.sin(pitch) * dt * 0.85;
 
   next.speed = clamp(next.speed, -reverseMax, maxSpeed);
 
@@ -94,9 +116,9 @@ export function stepCar(state: CarState, input: CarInput, env: CarEnv, dt: numbe
   const steerLerp = 1 - Math.exp(-9 * dt);
   next.steer += (steerTarget - next.steer) * steerLerp;
 
-  const speedRatio = clamp(Math.abs(next.speed) / CAR.maxSpeed, 0, 1);
-  const steerAngle = next.steer * CAR.maxSteer * (1 - 0.55 * speedRatio);
-  let yawRate = (next.speed / CAR.wheelbase) * Math.tan(steerAngle);
+  const speedRatio = clamp(Math.abs(next.speed) / tuning.maxSpeed, 0, 1);
+  const steerAngle = next.steer * tuning.maxSteer * (1 - 0.55 * speedRatio);
+  let yawRate = (next.speed / tuning.wheelbase) * Math.tan(steerAngle);
   if (input.handbrake) yawRate *= 1.9;
   // fuori strada il posteriore scivola un po' di più
   if (!env.onRoad) yawRate *= 1.12;

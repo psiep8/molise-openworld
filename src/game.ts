@@ -11,7 +11,24 @@ import { buildVegetation } from './world/vegetation';
 import { DEFAULT_LIGHTING, DEFAULT_SKY, DEFAULT_SUN, createSky, type SkyRig } from './world/sky';
 import { CloudLayer } from './world/clouds';
 import { Precipitation } from './world/precipitation';
-import { RealWeather, defaultWeather, isFogCode, sunPosition, weatherLabel } from './world/weather';
+import { GrassField } from './world/grass';
+import {
+  RealWeather,
+  defaultWeather,
+  isFogCode,
+  sunPosition,
+  weatherLabel,
+  type SunPosition,
+  type WeatherSnapshot,
+} from './world/weather';
+import {
+  WEATHER_PRESETS,
+  dayOfYear,
+  isWeatherPreset,
+  sunAtLocalTime,
+  type WeatherPreset,
+} from './environment/sun-clock';
+import { VEHICLES, getVehicle, loadVehicleId, saveVehicleId } from './sim/vehicle-catalog';
 import { Player, type MoveInput } from './entities/player';
 import { Vehicle } from './entities/vehicle';
 import { Hud, type Mode } from './ui/hud';
@@ -79,7 +96,7 @@ export class Game {
   private readonly car = new Vehicle();
   private readonly audio = new GameAudio();
   private readonly realWeather = new RealWeather();
-  private readonly stereoEnabled = false;
+  private stereo = false;
 
   private heights!: Heightfield;
   private osm!: OsmData;
@@ -120,8 +137,14 @@ export class Game {
   private lastQualityCheck = 0;
   private clouds!: CloudLayer;
   private precipitation!: Precipitation;
+  private grass?: GrassField;
+  private roadsGroup?: THREE.Group;
+  private lastWetness = -1;
   private realWeatherEnabled = false;
   private settingsVisible = false;
+  private manualTime = false;
+  private manualHour = 15;
+  private manualWeather: WeatherPreset = 'auto';
   private readonly fogColor = new THREE.Color();
   private readonly tintA = new THREE.Color();
   private readonly tintB = new THREE.Color();
@@ -192,7 +215,8 @@ export class Game {
       this.roadIndex = new RoadIndex(osm.roads);
       this.buildingIndex = new BuildingIndex(osm.buildings);
       this.roadGraph = buildRoadGraph(osm.roads);
-      this.scene.add(buildRoads(osm, heights));
+      this.roadsGroup = buildRoads(osm, heights);
+      this.scene.add(this.roadsGroup);
       this.scene.add(buildWater(osm, heights));
 
       this.hud.setLoading(0.5, 'Costruisco le case…');
@@ -202,6 +226,11 @@ export class Game {
       this.hud.setLoading(0.64, 'Pianto alberi e uliveti…');
       await nextFrame();
       this.scene.add(buildVegetation(osm, heights, this.roadIndex, this.buildingIndex).group);
+      this.grass = new GrassField();
+      this.scene.add(this.grass.group);
+
+      this.car.setSpec(getVehicle(loadVehicleId()));
+      this.hud.setVehicleName(this.car.spec.name);
 
       this.hud.setLoading(0.72, 'Alzo il cielo…');
       await nextFrame();
@@ -328,7 +357,89 @@ export class Game {
     document.getElementById('btn-weather-refresh')?.addEventListener('click', () => this.refreshWeather());
     const weatherToggle = document.getElementById('toggle-real-weather') as HTMLInputElement | null;
     weatherToggle?.addEventListener('change', () => this.setRealWeather(weatherToggle.checked));
+
+    const timeToggle = document.getElementById('toggle-manual-time') as HTMLInputElement | null;
+    timeToggle?.addEventListener('change', () => this.setManualTime(timeToggle.checked));
+    const timeSlider = document.getElementById('time-slider') as HTMLInputElement | null;
+    timeSlider?.addEventListener('input', () => this.setManualHour(Number(timeSlider.value)));
+    const weatherSelect = document.getElementById('weather-select') as HTMLSelectElement | null;
+    weatherSelect?.addEventListener('change', () => {
+      if (isWeatherPreset(weatherSelect.value)) this.setManualWeather(weatherSelect.value);
+    });
+    const vehicleSelect = document.getElementById('vehicle-select') as HTMLSelectElement | null;
+    vehicleSelect?.addEventListener('change', () => this.selectVehicle(vehicleSelect.value));
+
     document.getElementById('bigmap')?.addEventListener('click', (e) => this.pickDestination(e));
+    this.syncSettingsControls();
+  }
+
+  private syncSettingsControls(): void {
+    const timeToggle = document.getElementById('toggle-manual-time') as HTMLInputElement | null;
+    if (timeToggle) timeToggle.checked = this.manualTime;
+    const timeSlider = document.getElementById('time-slider') as HTMLInputElement | null;
+    if (timeSlider) timeSlider.value = String(this.manualHour);
+    const weatherSelect = document.getElementById('weather-select') as HTMLSelectElement | null;
+    if (weatherSelect) weatherSelect.value = this.manualWeather;
+    const vehicleSelect = document.getElementById('vehicle-select') as HTMLSelectElement | null;
+    if (vehicleSelect) vehicleSelect.value = this.car.spec.id;
+    this.hud.setManualTime(this.manualTime);
+    this.hud.setTimeLabel(this.manualHour);
+  }
+
+  // -------------------------------------------------------------------------
+  // atmosfera manuale / veicolo
+  // -------------------------------------------------------------------------
+  private setManualTime(enabled: boolean): void {
+    this.manualTime = enabled;
+    if (enabled && this.realWeatherEnabled) this.setRealWeather(false, false);
+    this.hud.setManualTime(enabled);
+    this.syncSettingsControls();
+    if (enabled) {
+      this.hud.toast(`Ora manuale ${this.formatHour(this.manualHour)} · ${this.weatherPresetLabel()}`, 3000);
+    } else {
+      this.restoreDefaultAtmosphere();
+      this.hud.toast('Atmosfera del gioco ripristinata', 2400);
+    }
+    this.updateWeatherStatus();
+  }
+
+  private setManualHour(hour: number): void {
+    this.manualHour = clamp(hour, 0, 24);
+    this.hud.setTimeLabel(this.manualHour);
+  }
+
+  private setManualWeather(preset: WeatherPreset): void {
+    this.manualWeather = preset;
+    this.hud.toast(`Meteo: ${this.weatherPresetLabel()}`, 2000);
+  }
+
+  private formatHour(hour: number): string {
+    const h = Math.floor(hour) % 24;
+    const m = Math.round((hour - Math.floor(hour)) * 60);
+    return `${String(h).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  }
+
+  private weatherPresetLabel(): string {
+    return this.manualWeather === 'auto' ? 'come il gioco' : WEATHER_PRESETS[this.manualWeather].label;
+  }
+
+  private selectVehicle(id: string): void {
+    const spec = getVehicle(id);
+    if (spec.id === this.car.spec.id) return;
+    this.car.setSpec(spec);
+    saveVehicleId(spec.id);
+    if (this.heights) {
+      const { x, z, yaw } = this.car.state;
+      this.car.reset(x, z, yaw, this.heights);
+    }
+    this.hud.setVehicleName(spec.name);
+    this.syncSettingsControls();
+    this.hud.toast(`Veicolo: ${spec.name} · ${spec.blurb}`, 2800);
+  }
+
+  private cycleVehicle(): void {
+    const index = VEHICLES.findIndex((v) => v.id === this.car.spec.id);
+    this.selectVehicle(VEHICLES[(index + 1) % VEHICLES.length].id);
   }
 
   // -------------------------------------------------------------------------
@@ -419,6 +530,7 @@ export class Game {
     if (show) {
       this.keys.clear();
       if (document.pointerLockElement) document.exitPointerLock();
+      this.syncSettingsControls();
       this.updateWeatherStatus();
     }
   }
@@ -433,6 +545,8 @@ export class Game {
     }
 
     if (enabled) {
+      this.manualTime = false;
+      this.hud.setManualTime(false);
       const ll = worldToLatLon(this.player.position.x, this.player.position.z);
       this.realWeather.enable(ll.lat, ll.lon);
       if (announce) this.hud.toast('Meteo reale attivo · sole e condizioni aggiornati', 3200);
@@ -456,6 +570,13 @@ export class Game {
   }
 
   private updateWeatherStatus(): void {
+    if (this.manualTime) {
+      this.hud.setWeatherStatus(
+        `Atmosfera manuale · ${this.formatHour(this.manualHour)} · ${this.weatherPresetLabel()}`,
+      );
+      this.hud.setWeatherBusy(false);
+      return;
+    }
     if (!this.realWeatherEnabled) {
       this.hud.setWeatherStatus('Meteo reale disattivato: il mondo usa il pomeriggio fisso del gioco.');
       this.hud.setWeatherBusy(false);
@@ -495,6 +616,8 @@ export class Game {
     this.scene.background = new THREE.Color(0xccd8dd);
     this.clouds?.setVisible(false);
     this.precipitation?.clear();
+    this.car.setLights(0);
+    this.applyWetness(0);
   }
 
   /** Applica sole reale e condizioni meteo al cielo, alle luci e alle particelle. */
@@ -503,7 +626,48 @@ export class Game {
     // la posizione aggiornata serve al prossimo refresh automatico
     this.realWeather.setLocation(ll.lat, ll.lon);
     const sun = sunPosition(new Date(), ll.lat, ll.lon);
-    const w = this.realWeather.snapshot ?? defaultWeather();
+    this.applyAtmosphere(sun, this.realWeather.snapshot ?? defaultWeather(), dt);
+  }
+
+  /** Atmosfera scelta a mano: ora del giorno + preset meteo. */
+  private applyManualAtmosphere(dt: number, focus: THREE.Vector3): void {
+    const ll = worldToLatLon(focus.x, focus.z);
+    const sun = sunAtLocalTime(this.manualHour, ll.lat, ll.lon, dayOfYear(new Date()));
+    this.applyAtmosphere(sun, this.manualSnapshot(), dt);
+  }
+
+  private manualSnapshot(): WeatherSnapshot {
+    if (this.manualWeather === 'auto') return defaultWeather();
+    const preset = WEATHER_PRESETS[this.manualWeather];
+    return {
+      ...defaultWeather(),
+      code: preset.code,
+      cloudCover: preset.cloudCover,
+      precipitation: preset.precipitation,
+      snowfall: preset.snowfall,
+      windSpeed: preset.windSpeed,
+      temperature: preset.temperature,
+    };
+  }
+
+  /** Strada bagnata: le superfici diventano più lisce e più scure. */
+  private applyWetness(wet: number): void {
+    const target = clamp(wet, 0, 1);
+    if (Math.abs(target - this.lastWetness) < 0.02) return;
+    this.lastWetness = target;
+    this.roadsGroup?.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const material = mesh.material as THREE.MeshStandardMaterial | THREE.MeshStandardMaterial[];
+      if (Array.isArray(material)) return;
+      material.roughness = THREE.MathUtils.lerp(0.92, 0.34, target);
+      material.color.setScalar(1 - 0.3 * target);
+      material.needsUpdate = true;
+    });
+  }
+
+  /** Cielo, luci, nebbia e particelle a partire da sole e condizioni. */
+  private applyAtmosphere(sun: SunPosition, w: WeatherSnapshot, dt: number): void {
     const day = smoothstep(-6, 8, sun.elevation);
     const cloud = clamp(w.cloudCover / 100, 0, 1);
     const foggy = isFogCode(w.code);
@@ -575,6 +739,11 @@ export class Game {
     const windZ = -Math.cos(windRad) * w.windSpeed * 0.08;
     this.clouds.update(dt, this.camera, { coverage: cover, windX, windZ, sunElevation: sun.elevation });
     this.precipitation.update(dt, this.camera, { rain, snow, windX, windZ });
+
+    // fari accesi quando il sole è basso, strada bagnata con pioggia o neve
+    const night = 1 - smoothstep(-3, 10, sun.elevation);
+    this.car.setLights(night);
+    this.applyWetness(Math.max(rain, snow * 0.5));
   }
 
   // -------------------------------------------------------------------------
@@ -602,7 +771,7 @@ export class Game {
     this.applyRenderScale();
     this.sky?.setShadowMapSize(this.quality.shadowMapSize);
     this.terrain?.setMaxZoom(this.quality.maxSatelliteZoom);
-    this.post?.setEnabled(this.quality.post);
+    this.post?.setEnabled(this.quality.post && !this.stereo);
     this.post?.setBloom(this.quality.bloom);
     if (announce) {
       const fx = this.quality.post ? ' · bloom' : '';
@@ -670,6 +839,14 @@ export class Game {
         break;
       case 'KeyG':
         this.applyQuality(nextQuality(this.qualityLevel));
+        break;
+      case 'KeyY':
+        this.stereo = !this.stereo;
+        this.post?.setEnabled(this.stereo ? false : this.quality.post);
+        this.hud.toast(this.stereo ? 'Stereo affiancato attivo (Y per uscire)' : 'Stereo disattivato');
+        break;
+      case 'KeyB':
+        this.cycleVehicle();
         break;
       case 'KeyN': {
         const muted = this.audio.toggleMute();
@@ -863,10 +1040,43 @@ export class Game {
     else this.idle(dt);
 
     if (this.sky) this.sky.dome.position.copy(this.camera.position);
-    if (this.post) this.post.render(dt);
+    if (this.stereo) this.renderStereo();
+    else if (this.post) this.post.render(dt);
     else this.renderer.render(this.scene, this.camera);
     this.publishDiagnostics();
   };
+
+  /**
+   * Stereo affiancato (side-by-side): due viewport, due camere separate da
+   * ~6,5 cm. Serve per visori e per guardare la scena in 3D incrociando gli occhi.
+   * Il post-processing è disattivato in questa modalità per non raddoppiare i pass.
+   */
+  private renderStereo(): void {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const eye = 0.0325;
+    const dir = this.tmp1;
+    const right = this.tmp2;
+    this.camera.getWorldDirection(dir);
+    right.crossVectors(dir, this.camera.up).normalize();
+
+    const renderer = this.renderer;
+    renderer.setScissorTest(true);
+    for (let i = 0; i < 2; i++) {
+      const cam = this.stereoCamera;
+      cam.copy(this.camera);
+      cam.aspect = w / 2 / h;
+      cam.updateProjectionMatrix();
+      cam.position.copy(this.camera.position).addScaledVector(right, i === 0 ? -eye : eye);
+      const x = Math.round((i * w) / 2);
+      const width = Math.round(w / 2);
+      renderer.setViewport(x, 0, width, h);
+      renderer.setScissor(x, 0, width, h);
+      renderer.render(this.scene, cam);
+    }
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, w, h);
+  }
 
   private idle(dt: number): void {
     if (!this.heights) return;
@@ -897,7 +1107,9 @@ export class Game {
     const focus = this.mode === 'walk' ? this.player.position : this.car.position;
     this.terrain.update(focus.x, focus.z, VIEW_RADIUS);
     this.terrain.tick();
-    if (this.realWeatherEnabled) this.applyWeatherVisuals(dt, focus);
+    this.grass?.update(focus.x, focus.z, this.heights, this.roadIndex, this.buildingIndex, this.quality.grassDensity);
+    if (this.manualTime) this.applyManualAtmosphere(dt, focus);
+    else if (this.realWeatherEnabled) this.applyWeatherVisuals(dt, focus);
     this.updateSky(focus);
 
     const moveSpeed =
