@@ -75,6 +75,75 @@ function buildNormalMap(hf: Heightfield, cx: number, cz: number): THREE.CanvasTe
 }
 
 /**
+ * Texture granular detail overlay per terreni: aggiunge piccoli dettagli di grana
+ * che rimangono visibili anche a distanze maggiori, moltiplicati per il vertex color.
+ */
+function buildDetailTexture(hf: Heightfield, cx: number, cz: number): THREE.CanvasTexture {
+  const size = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('canvas 2d non disponibile');
+  const img = ctx.createImageData(size, size);
+  const ox = chunkOrigin(cx);
+  const oz = chunkOrigin(cz);
+  const step = CHUNK_SIZE / (size - 1);
+  const max = size - 1;
+  const sample = (i: number, j: number): number => hf.heightAt(ox + i * step, oz + j * step);
+  const mean = (hf.heightAt(ox, oz) + hf.heightAt(ox + CHUNK_SIZE, oz + CHUNK_SIZE)) / 2;
+  const range = mean * 0.15;
+
+  for (let j = 0; j < size; j++) {
+    for (let i = 0; i < size; i++) {
+      const h = sample(i, j);
+      const norm = (h - mean) / range;
+      const val = (norm + 1) / 2 * 200 + 55;
+      const k = (j * size + i) * 4;
+      img.data[k] = val;
+      img.data[k + 1] = val;
+      img.data[k + 2] = val;
+      img.data[k + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.anisotropy = 4;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+/**
+ * Aggiunge dettaglio di grana alla mesh terrain usando vertex colors aggiuntivi
+ * per simulare micro-rilievo senza impatto prestazionale enorme.
+ */
+function addDetailVertexColors(geometry: THREE.BufferGeometry, hf: Heightfield, cx: number, cz: number): void {
+  const count = geometry.attributes.position.count;
+  const colors = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
+  const ox = chunkOrigin(cx);
+  const oz = chunkOrigin(cz);
+  const step = CHUNK_SIZE / 64;
+  const maxX = 64;
+  const maxZ = 64;
+
+  for (let i = 0; i < count; i++) {
+    const wx = geometry.attributes.position.getX(i);
+    const wz = geometry.attributes.position.getZ(i);
+    const bx = Math.round((wx - ox) / step);
+    const bz = Math.round((wz - oz) / step);
+    const bi = (bz * maxX + bx + (bx < 0 ? maxX + bx : bx)) % (maxX * maxZ);
+    const h = hf.heightAt(wx, wz);
+    const norm = ((h - meanHeight) / (maxHeight * 0.15) + 1) / 2;
+    colors.setXYZ(i, norm, norm, norm);
+  }
+  geometry.setAttribute('color', colors);
+}
+
+/**
  * Streaming del terreno a chunk: geometria dal DEM, texture satellite dal
  * provider con zoom progressivo (z15 lontano → z18 vicino) e normal map.
  * Carica al massimo N chunk per frame, ordina per distanza e libera quelli lontani.

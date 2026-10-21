@@ -72,12 +72,14 @@ export class Game {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
   private readonly camera: THREE.PerspectiveCamera;
+  private readonly stereoCamera: THREE.PerspectiveCamera;
   private readonly clock = new THREE.Clock();
   private readonly hud = new Hud();
   private readonly player = new Player();
   private readonly car = new Vehicle();
   private readonly audio = new GameAudio();
   private readonly realWeather = new RealWeather();
+  private readonly stereoEnabled = false;
 
   private heights!: Heightfield;
   private osm!: OsmData;
@@ -147,6 +149,11 @@ export class Game {
     this.camera = new THREE.PerspectiveCamera(68, window.innerWidth / window.innerHeight, 0.1, 12000);
     this.camera.rotation.order = 'YXZ';
     this.camera.position.set(START.x, 400, START.z);
+
+    // Stereo camera for VR/dual-rendering
+    this.stereoCamera = new THREE.PerspectiveCamera(68, window.innerWidth / window.innerHeight, 0.1, 12000);
+    this.stereoCamera.rotation.order = 'YXZ';
+    this.stereoCamera.position.set(START.x, 400, START.z);
 
     this.scene.fog = new THREE.Fog(0xccd8dd, 1100, 4200);
     this.scene.background = new THREE.Color(0xccd8dd);

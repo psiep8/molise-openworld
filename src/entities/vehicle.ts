@@ -29,20 +29,24 @@ export class Vehicle {
   }
 
   private build(): void {
-    const bodyMat = new THREE.MeshStandardMaterial({ color: 0xa6332c, roughness: 0.55, metalness: 0.15 });
-    const darkMat = new THREE.MeshStandardMaterial({ color: 0x24272a, roughness: 0.8 });
-    const glassMat = new THREE.MeshStandardMaterial({ color: 0x223442, roughness: 0.15, metalness: 0.5 });
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0xa6332c, roughness: 0.55, metalness: 0.15, clearcoat: 1.0, clearcoatRoughness: 0.05 });
+    const darkMat = new THREE.MeshStandardMaterial({ color: 0x24272a, roughness: 0.8, metalness: 0.2, clearcoat: 0.8, clearcoatRoughness: 0.1 });
+    const glassMat = new THREE.MeshStandardMaterial({ color: 0x223442, roughness: 0.15, metalness: 0.5, transmission: 1.0 });
     const lightMat = new THREE.MeshStandardMaterial({
       color: 0xfff3d0,
       emissive: 0xffe6a8,
       emissiveIntensity: 0.7,
       roughness: 0.4,
+      clearcoat: 0.3,
+      clearcoatRoughness: 0.5,
     });
     const tailMat = new THREE.MeshStandardMaterial({
       color: 0x8f1f1a,
       emissive: 0x5a0d0a,
       emissiveIntensity: 0.4,
       roughness: 0.5,
+      clearcoat: 0.5,
+      clearcoatRoughness: 0.3,
     });
 
     const add = (mesh: THREE.Mesh, x: number, y: number, z: number): THREE.Mesh => {
@@ -78,8 +82,8 @@ export class Vehicle {
     wheelGeo.rotateZ(Math.PI / 2);
     const hubGeo = new THREE.CylinderGeometry(WHEEL_RADIUS * 0.45, WHEEL_RADIUS * 0.45, 0.26, 10);
     hubGeo.rotateZ(Math.PI / 2);
-    const wheelMat = new THREE.MeshStandardMaterial({ color: 0x17191b, roughness: 0.95 });
-    const hubMat = new THREE.MeshStandardMaterial({ color: 0x9aa0a4, roughness: 0.4, metalness: 0.7 });
+    const wheelMat = new THREE.MeshStandardMaterial({ color: 0x17191b, roughness: 0.95, metalness: 0.1, clearcoat: 0.3, clearcoatRoughness: 0.05 });
+    const hubMat = new THREE.MeshStandardMaterial({ color: 0x9aa0a4, roughness: 0.4, metalness: 0.7, clearcoat: 0.5, clearcoatRoughness: 0.2 });
 
     for (const sx of [-1, 1]) {
       for (const sz of [-1, 1]) {
