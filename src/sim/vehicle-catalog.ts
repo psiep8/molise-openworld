@@ -461,6 +461,44 @@ export function tuningFor(spec: VehicleSpec): CarTuning {
   };
 }
 
+/** Tinte disponibili per la carrozzeria (cambio colore dal menu). */
+export const PAINT_CHOICES: readonly { label: string; color: number }[] = [
+  { label: 'Rosso', color: 0xa6332c },
+  { label: 'Blu', color: 0x1f4f8a },
+  { label: 'Azzurro', color: 0x2f6f8f },
+  { label: 'Verde', color: 0x46584a },
+  { label: 'Giallo', color: 0xd8a12b },
+  { label: 'Arancio', color: 0xd8672c },
+  { label: 'Bianco', color: 0xe6e6e0 },
+  { label: 'Grigio', color: 0x9aa0a4 },
+  { label: 'Nero', color: 0x1b1d1f },
+  { label: 'Bordeaux', color: 0x6d2432 },
+];
+
+function paintKey(id: string): string {
+  return `molise.paint.${id}`;
+}
+
+/** Tinta scelta per quel veicolo (o il colore di fabbrica). */
+export function loadPaintFor(id: string, fallback: number): number {
+  try {
+    const saved = window.localStorage.getItem(paintKey(id));
+    if (!saved) return fallback;
+    const value = Number(saved);
+    return Number.isFinite(value) ? value : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export function savePaintFor(id: string, color: number): void {
+  try {
+    window.localStorage.setItem(paintKey(id), String(color));
+  } catch {
+    // localStorage può essere disabilitato
+  }
+}
+
 const STORAGE_KEY = 'molise.vehicle';
 
 export function loadVehicleId(): string {

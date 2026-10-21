@@ -3,6 +3,14 @@ import { GAME } from '../config';
 import type { Heightfield } from '../geo/elevation';
 import type { BuildingIndex } from '../geo/osm';
 import { clamp } from '../geo/geo';
+import {
+  BUILD_GIRTH,
+  loadAppearance,
+  outfitColors,
+  heightScale,
+  type Appearance,
+  type HairStyle,
+} from './appearance';
 
 export interface MoveInput {
   forward: number;
@@ -14,6 +22,8 @@ export interface MoveInput {
 type Locomotion = 'idle' | 'walk' | 'run';
 
 const RADIUS = 0.42;
+/** Il rig base misura ~2,06 m: lo si riporta a 1,75 m prima di applicare l'altezza scelta. */
+const RIG_SCALE = 0.85;
 
 function makeBone(name: string, x: number, y: number, z = 0): THREE.Bone {
   const bone = new THREE.Bone();
@@ -23,7 +33,7 @@ function makeBone(name: string, x: number, y: number, z = 0): THREE.Bone {
 }
 
 /**
- * Personaggio umanoide procedurale.
+ * Personaggio umanoide procedurale, personalizzabile.
  *
  * Le mesh sono figlie delle ossa (non c'è vertex skinning): ruotando un osso
  * si muove l'arto e tutta la catena sotto di lui, esattamente come in un rig
@@ -31,6 +41,9 @@ function makeBone(name: string, x: number, y: number, z = 0): THREE.Bone {
  * `osso.rotation[x]`, con blend pesato tra idle/walk/run e due clip additive
  * (salto e caduta) sommate sopra la camminata — la stessa tecnica dell'esempio
  * three.js `webgl_animation_skinning_additive_blending`.
+ *
+ * Cambiare aspetto ricostruisce l'avatar nello stesso `Group`, così la scena
+ * non deve riaggiungerlo: cambiano mesh, materiali e mixer, non la posizione.
  */
 export class Player {
   readonly position = new THREE.Vector3();
@@ -39,19 +52,39 @@ export class Player {
   pitch = 0;
   grounded = true;
   readonly avatar: THREE.Group;
+  appearance: Appearance;
 
-  private readonly mixer: THREE.AnimationMixer;
-  private readonly actions: Record<Locomotion, THREE.AnimationAction>;
-  private readonly jumpAction: THREE.AnimationAction;
-  private readonly fallAction: THREE.AnimationAction;
+  private mixer!: THREE.AnimationMixer;
+  private actions!: Record<Locomotion, THREE.AnimationAction>;
+  private jumpAction!: THREE.AnimationAction;
+  private fallAction!: THREE.AnimationAction;
   private walkPhase = 0;
   private bob = 0;
 
-  constructor() {
-    this.avatar = this.buildAvatar();
+  constructor(appearance: Appearance = loadAppearance()) {
+    this.appearance = { ...appearance };
+    this.avatar = new THREE.Group();
+    this.avatar.name = 'player-avatar';
+    this.rebuild();
+  }
+
+  /** Cambia carnagione, capelli, corporatura o outfit senza perdere la posizione. */
+  applyAppearance(appearance: Appearance): void {
+    this.appearance = { ...appearance };
+    this.rebuild();
+    this.syncMesh();
+  }
+
+  private rebuild(): void {
+    this.mixer?.stopAllAction();
+    this.disposeAvatar();
+    this.avatar.clear();
+
+    const rig = this.buildRig();
+    this.avatar.add(rig);
+
     const clips = this.buildClips();
     this.mixer = new THREE.AnimationMixer(this.avatar);
-
     this.actions = {
       idle: this.prepare(this.mixer.clipAction(clips.idle), 1),
       walk: this.prepare(this.mixer.clipAction(clips.walk), 0),
@@ -69,6 +102,16 @@ export class Player {
     this.fallAction.play();
   }
 
+  private disposeAvatar(): void {
+    this.avatar.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.geometry.dispose();
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const material of materials) material.dispose();
+    });
+  }
+
   private prepare(action: THREE.AnimationAction, weight: number): THREE.AnimationAction {
     action.setEffectiveWeight(weight);
     action.setLoop(THREE.LoopRepeat, Infinity);
@@ -79,35 +122,54 @@ export class Player {
   // -------------------------------------------------------------------------
   // rig
   // -------------------------------------------------------------------------
-  private buildAvatar(): THREE.Group {
-    const root = new THREE.Group();
-    root.name = 'player-avatar';
+  private buildRig(): THREE.Group {
+    const look = this.appearance;
+    const colors = outfitColors(look);
+    const female = look.sex === 'donna';
 
     const rig = new THREE.Group();
     rig.name = 'player-rig';
-    root.add(rig);
+    const height = heightScale(look);
+    const girth = BUILD_GIRTH[look.build];
+    rig.scale.set(girth * RIG_SCALE, height * RIG_SCALE, girth * RIG_SCALE);
 
-    const jacket = new THREE.MeshStandardMaterial({ color: 0x2f5d7c, roughness: 0.88 });
-    const trousers = new THREE.MeshStandardMaterial({ color: 0x394150, roughness: 1 });
-    const skin = new THREE.MeshStandardMaterial({ color: 0xd7a07c, roughness: 0.85 });
-    const shoes = new THREE.MeshStandardMaterial({ color: 0x3b2f27, roughness: 1 });
+    const top = new THREE.MeshStandardMaterial({ color: colors.top, roughness: colors.roughness, metalness: colors.metalness });
+    const bottom = new THREE.MeshStandardMaterial({ color: colors.bottom, roughness: Math.min(1, colors.roughness + 0.1) });
+    const shoes = new THREE.MeshStandardMaterial({ color: colors.shoes, roughness: 0.8 });
+    const skin = new THREE.MeshStandardMaterial({ color: look.skin, roughness: 0.82 });
+    const accent = new THREE.MeshStandardMaterial({ color: colors.accent, roughness: 0.55 });
+    const hair = new THREE.MeshStandardMaterial({ color: look.hairColor, roughness: 0.75 });
 
-    const addMesh = (parent: THREE.Object3D, geometry: THREE.BufferGeometry, material: THREE.Material, x = 0, y = 0, z = 0): void => {
+    const addMesh = (
+      parent: THREE.Object3D,
+      geometry: THREE.BufferGeometry,
+      material: THREE.Material,
+      x = 0,
+      y = 0,
+      z = 0,
+    ): THREE.Mesh => {
       const mesh = new THREE.Mesh(geometry, material);
       mesh.position.set(x, y, z);
       mesh.castShadow = true;
       parent.add(mesh);
+      return mesh;
     };
 
     const hips = makeBone('hips', 0, 0.95);
     rig.add(hips);
-    addMesh(hips, new THREE.BoxGeometry(0.34, 0.2, 0.22), trousers);
+    addMesh(hips, new THREE.BoxGeometry(female ? 0.37 : 0.35, 0.2, female ? 0.24 : 0.22), bottom);
 
     const spine = makeBone('spine', 0, 0.1);
     hips.add(spine);
     const chest = makeBone('chest', 0, 0.34);
     spine.add(chest);
-    addMesh(chest, new THREE.CapsuleGeometry(0.2, 0.32, 3, 8), jacket, 0, 0.1, 0);
+    addMesh(chest, new THREE.CapsuleGeometry(female ? 0.185 : 0.21, 0.32, 3, 8), top, 0, 0.1, 0);
+
+    if (colors.collar) {
+      // camicia sotto la giacca: una striscia chiara sul petto
+      addMesh(chest, new THREE.BoxGeometry(0.12, 0.26, 0.03), accent, 0, 0.16, -0.19);
+      if (colors.tie) addMesh(chest, new THREE.BoxGeometry(0.045, 0.2, 0.02), bottom, 0, 0.14, -0.21);
+    }
 
     const neck = makeBone('neck', 0, 0.3);
     chest.add(neck);
@@ -115,32 +177,113 @@ export class Player {
     const head = makeBone('head', 0, 0.13);
     neck.add(head);
     addMesh(head, new THREE.SphereGeometry(0.145, 14, 12), skin, 0, 0.1, 0);
+    // occhi e naso: pochi poligoni ma il volto non resta liscio
+    const eyes = new THREE.MeshStandardMaterial({ color: 0x1c1a18, roughness: 0.35 });
+    for (const side of [-1, 1] as const) {
+      addMesh(head, new THREE.SphereGeometry(0.019, 8, 6), eyes, side * 0.052, 0.118, -0.129);
+    }
+    addMesh(head, new THREE.SphereGeometry(0.022, 6, 5), skin, 0, 0.085, -0.141);
+    this.buildHair(head, hair);
+    if (look.sex === 'uomo' && look.beard) {
+      addMesh(head, new THREE.BoxGeometry(0.17, 0.09, 0.07), hair, 0, 0.035, -0.11);
+    }
+    this.buildHat(head, colors.hat, accent, bottom);
 
+    const shoulder = female ? 0.235 : 0.255;
     for (const side of [-1, 1] as const) {
       const tag = side < 0 ? 'L' : 'R';
 
-      const upArm = makeBone(`upArm${tag}`, side * 0.25, 0.24);
+      const upArm = makeBone(`upArm${tag}`, side * shoulder, 0.24);
       chest.add(upArm);
-      addMesh(upArm, new THREE.CapsuleGeometry(0.062, 0.2, 2, 6), jacket, 0, -0.12, 0);
+      addMesh(upArm, new THREE.CapsuleGeometry(female ? 0.055 : 0.062, 0.2, 2, 6), top, 0, -0.12, 0);
       const lowArm = makeBone(`lowArm${tag}`, 0, -0.28);
       upArm.add(lowArm);
-      addMesh(lowArm, new THREE.CapsuleGeometry(0.055, 0.18, 2, 6), jacket, 0, -0.11, 0);
+      addMesh(lowArm, new THREE.CapsuleGeometry(female ? 0.05 : 0.055, 0.18, 2, 6), top, 0, -0.11, 0);
       const hand = makeBone(`hand${tag}`, 0, -0.24);
       lowArm.add(hand);
       addMesh(hand, new THREE.SphereGeometry(0.06, 8, 6), skin, 0, -0.03, 0);
 
       const upLeg = makeBone(`upLeg${tag}`, side * 0.11, -0.04);
       hips.add(upLeg);
-      addMesh(upLeg, new THREE.CapsuleGeometry(0.085, 0.28, 2, 6), trousers, 0, -0.19, 0);
+      addMesh(upLeg, new THREE.CapsuleGeometry(female ? 0.082 : 0.088, 0.28, 2, 6), bottom, 0, -0.19, 0);
       const lowLeg = makeBone(`lowLeg${tag}`, 0, -0.4);
       upLeg.add(lowLeg);
-      addMesh(lowLeg, new THREE.CapsuleGeometry(0.072, 0.26, 2, 6), trousers, 0, -0.18, 0);
+      addMesh(lowLeg, new THREE.CapsuleGeometry(0.072, 0.26, 2, 6), bottom, 0, -0.18, 0);
       const foot = makeBone(`foot${tag}`, 0, -0.4);
       lowLeg.add(foot);
       addMesh(foot, new THREE.BoxGeometry(0.15, 0.09, 0.27), shoes, 0, -0.03, 0.06);
     }
 
-    return root;
+    return rig;
+  }
+
+  /** Capelli per stile: una calotta più eventuali ciocche, coda o chignon. */
+  private buildHair(head: THREE.Bone, hair: THREE.Material): void {
+    const style: HairStyle = this.appearance.hairStyle;
+    if (style === 'raso') return;
+
+    const cap = new THREE.Mesh(
+      new THREE.SphereGeometry(0.152, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.62),
+      hair,
+    );
+    cap.position.set(0, 0.1, 0);
+    cap.castShadow = true;
+    head.add(cap);
+
+    if (style === 'riccio') {
+      for (const [x, y, z] of [
+        [-0.09, 0.17, 0.04],
+        [0.09, 0.17, 0.04],
+        [0, 0.2, -0.04],
+        [0, 0.18, 0.1],
+      ] as const) {
+        const curl = new THREE.Mesh(new THREE.SphereGeometry(0.062, 8, 6), hair);
+        curl.position.set(x, y, z);
+        curl.castShadow = true;
+        head.add(curl);
+      }
+    } else if (style === 'coda') {
+      const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.028, 0.24, 8), hair);
+      tail.position.set(0, 0.03, 0.16);
+      tail.rotation.x = -0.5;
+      tail.castShadow = true;
+      head.add(tail);
+    } else if (style === 'lunghi') {
+      const back = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.42, 0.1), hair);
+      back.position.set(0, -0.02, 0.13);
+      back.castShadow = true;
+      head.add(back);
+    } else if (style === 'chignon') {
+      const bun = new THREE.Mesh(new THREE.SphereGeometry(0.075, 10, 8), hair);
+      bun.position.set(0, 0.15, 0.13);
+      bun.castShadow = true;
+      head.add(bun);
+    }
+  }
+
+  private buildHat(head: THREE.Bone, hat: string, accent: THREE.Material, dark: THREE.Material): void {
+    if (hat === 'cap') {
+      const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.155, 0.16, 0.09, 12), accent);
+      crown.position.set(0, 0.2, 0);
+      const visor = new THREE.Mesh(new THREE.BoxGeometry(0.29, 0.025, 0.13), dark);
+      visor.position.set(0, 0.17, -0.13);
+      crown.castShadow = true;
+      visor.castShadow = true;
+      head.add(crown, visor);
+    } else if (hat === 'band') {
+      const band = new THREE.Mesh(new THREE.TorusGeometry(0.152, 0.018, 6, 16), accent);
+      band.position.set(0, 0.17, 0);
+      band.rotation.x = Math.PI / 2;
+      head.add(band);
+    } else if (hat === 'fedora') {
+      const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.23, 0.23, 0.012, 16), dark);
+      brim.position.set(0, 0.19, 0);
+      const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.145, 0.13, 12), dark);
+      crown.position.set(0, 0.255, 0);
+      brim.castShadow = true;
+      crown.castShadow = true;
+      head.add(brim, crown);
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -299,7 +442,7 @@ export class Player {
   }
 
   eyePosition(out = new THREE.Vector3()): THREE.Vector3 {
-    return out.set(this.position.x, this.position.y + GAME.eyeHeight, this.position.z);
+    return out.set(this.position.x, this.position.y + Math.max(1.35, this.appearance.height * 0.93), this.position.z);
   }
 
   forward(out = new THREE.Vector3()): THREE.Vector3 {

@@ -401,9 +401,9 @@ Legenda: ✅ implementato · 🟡 parziale · ⬜ non iniziato
 | Fari notturni | ✅ | Due spot sul veicolo, lampade emissive |
 | Veicoli | ✅ | 9 veicoli procedurali con dati di fabbrica reali per motore, coppia, 0-100 e velocità massima (`src/sim/vehicle-catalog.ts`, fonti in `docs/VEHICLE_DATA.md`) |
 | Cambio e freni | ✅ | Cambio automatico 5/6 marce con strappo e kickdown, curva coppia/potenza, pattinamento in partenza, frenata 8,8–10,2 m/s², retromarcia; HUD con marcia e giri |
-| Garage / personalizzazione | 🟡 | Selezione veicolo e colore di fabbrica; niente editor completo |
-| Personaggio | 🟡 | Rig procedurale con ossa, 3 clip base + 2 additive; niente volto configurabile |
+| Garage / personalizzazione | ✅ | Casa scelta sulle impronte OSM con segnalibro in mappa (`T`/menu, `L` per tornarci), auto parcheggiata lì, cambio veicolo e 10 tinte per veicolo |
+| Personaggio | ✅ | Rig procedurale con ossa, 3 clip base + 2 additive; sesso, altezza, corporatura, carnagione, capelli, barba e 7 outfit con 3 toni, ricostruiti a runtime |
 | Entrata/uscita auto | ✅ | Tasto `F`, punto di discesa validato sui muri |
-| Salvataggi | 🟡 | Veicolo e meteo in `localStorage`; niente profilo personaggio |
+| Salvataggi | ✅ | Veicolo, tinta, aspetto del personaggio, casa/garage e meteo in `localStorage` |
 | Stereo | ✅ | Side-by-side con tasto `Y` |
 | Test | ✅ | Vitest su fisica, sole, meteo, geometria, routing |

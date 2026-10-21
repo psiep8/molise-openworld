@@ -19,6 +19,9 @@
 - **Meteo reale opzionale** (`P` → interruttore): condizioni attuali, nuvole, pioggia/neve e **sole alla posizione e ora vere**, con alba/tramonto del giorno. Aggiornamento ogni 10 minuti, fallback al pomeriggio fisso se lo spegni.
 - **Ora del giorno manuale** (`P` → slider 0–24): alba, mezzogiorno, tramonto e notte, con preset meteo sereno/nuvoloso/pioggia/neve/nebbia. Strada bagnata e fari si accendono da soli quando il sole scende.
 - **Nove veicoli procedurali** (`P` → Veicolo, oppure `B` per cambiarli al volo): Panda vecchia e nuova, Punto, Renegade, tre ruote, 500X, Captur, C3, Junior. Ognuno ha ingombri, passo, raggio ruota e **prestazioni reali** della versione rappresentata: cilindrata, potenza, coppia, 0-100 e velocità massima vengono dalle schede tecniche (vedi `docs/VEHICLE_DATA.md`), non da stime a occhio.
+- **Casa / garage** (`T` oppure dal menu): scegli un edificio reale del paese come base; il segnalibro resta su minimappa e mappa grande, l'auto si parcheggia lì e con `L` ci torni quando vuoi.
+- **Colore carrozzeria**: dieci tinte, ricordate veicolo per veicolo; si cambiano dal menu o dal garage.
+- **Personaggio personalizzabile** (`P`): sesso, altezza 1,50–2,00 m, corporatura, carnagione, capelli (stile e colore), barba e outfit — casual, elegante, formale, tuta, campagna, sportivo, hippie — con tre varianti di tono. Il rig si ricostruisce al volo mantenendo posizione e animazioni.
 - **Stereo affiancato** (`Y`): due viewport con camere separate di 6,5 cm, per visori o visione incrociata.
 - **Erba a istanze** intorno al giocatore, con densità legata al preset grafico e rispetto di strade ed edifici.
 - **Personaggio con scheletro**: rig umanoide a 21 ossa, clip idle/camminata/corsa e due clip additive (salto e caduta) sommate alla camminata.
@@ -111,9 +114,12 @@ npm run geo -- --skip-osm
 | `V` | radar satellite / mappa | radar satellite / mappa |
 | `G` | qualità grafica (bassa/media/alta/ultra) | qualità grafica |
 | `B` | cambia veicolo | cambia veicolo |
+| `T` | imposta la casa più vicina come garage (segnalibro in mappa) | come a piedi |
+| `L` | torna al garage (auto parcheggiata lì) | come a piedi |
+| `K` | colore auto successivo | colore auto successivo |
+| `P` | impostazioni: meteo, ora, veicolo, colore, personaggio, garage | impostazioni |
 | `Y` | stereo affiancato | stereo affiancato |
 | `N` | audio on/off | audio on/off |
-| `P` | impostazioni (meteo reale) | impostazioni |
 | `H` | mostra/nascondi aiuto | — |
 | `R` | riporta in strada | riporta in strada |
 | mouse | guarda intorno (click per bloccare il puntatore) | orbita la telecamera |
@@ -154,12 +160,14 @@ src/
     clouds.ts          cupola di nuvole procedurali guidata dalla copertura
     precipitation.ts   pioggia e neve sintetiche intorno alla camera
     grass.ts           campo d'erba instanziato che segue il giocatore
+    property.ts        casa/garage scelto sulle impronte OSM + segnalibro
     sky.ts             cielo, sole, ombre
   environment/
     sun-clock.ts       sole per un'ora locale arbitraria + preset meteo
   entities/
     player.ts          controller a piedi + rig animato (mixer, clip additive)
-    vehicle.ts         veicoli procedurali dal catalogo + assetto sul terreno
+    appearance.ts      sesso, altezza, corporatura, carnagione, capelli, outfit
+    vehicle.ts         veicoli procedurali dal catalogo + assetto e tinta
   sim/
     car.ts             fisica pura e testabile: motore, cambio, freni, aderenza
     vehicle-catalog.ts nove veicoli con dati reali (docs/VEHICLE_DATA.md)

@@ -239,8 +239,43 @@ export class MapRenderer {
     ctx.restore();
   }
 
+  /** Segnalibro della casa/garage scelta dal giocatore. */
+  private drawGarage(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.fillStyle = '#8ef0b0';
+    ctx.strokeStyle = '#0c2016';
+    ctx.lineWidth = Math.max(1, s * 0.16);
+    ctx.beginPath();
+    ctx.moveTo(0, -s * 0.95);
+    ctx.lineTo(s * 0.82, -s * 0.2);
+    ctx.lineTo(s * 0.52, -s * 0.2);
+    ctx.lineTo(s * 0.52, s * 0.72);
+    ctx.lineTo(-s * 0.52, s * 0.72);
+    ctx.lineTo(-s * 0.52, -s * 0.2);
+    ctx.lineTo(-s * 0.82, -s * 0.2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // bandierina: distingue il garage dalla casa di Palata
+    ctx.beginPath();
+    ctx.moveTo(s * 0.5, -s * 0.95);
+    ctx.lineTo(s * 0.5, -s * 1.6);
+    ctx.lineTo(s * 1.05, -s * 1.33);
+    ctx.closePath();
+    ctx.fillStyle = '#ffd479';
+    ctx.fill();
+    ctx.restore();
+  }
+
   /** Minimappa locale (nord in alto), 780 m di lato. */
-  drawMinimap(canvas: HTMLCanvasElement, view: MapView, car?: { x: number; z: number }, route?: Pt[]): void {
+  drawMinimap(
+    canvas: HTMLCanvasElement,
+    view: MapView,
+    car?: { x: number; z: number },
+    route?: Pt[],
+    garage?: { x: number; z: number } | null,
+  ): void {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     const size = canvas.width;
@@ -329,6 +364,14 @@ export class MapRenderer {
       }
     }
 
+    if (garage) {
+      const gx = cx + (garage.x - view.x) * k;
+      const gy = cy + (garage.z - view.z) * k;
+      if (Math.hypot(gx - cx, gy - cy) < size / 2 - 12) {
+        this.drawGarage(ctx, gx, gy, 7 * (size / 440));
+      }
+    }
+
     // giocatore
     ctx.save();
     ctx.translate(cx, cy);
@@ -372,7 +415,13 @@ export class MapRenderer {
   }
 
   /** Mappa grande: satellite + overlay vettoriale, o mappa vettoriale notturna. */
-  drawBigMap(canvas: HTMLCanvasElement, view: MapView, car?: { x: number; z: number }, route?: Pt[]): void {
+  drawBigMap(
+    canvas: HTMLCanvasElement,
+    view: MapView,
+    car?: { x: number; z: number },
+    route?: Pt[],
+    garage?: { x: number; z: number } | null,
+  ): void {
     const ctx = canvas.getContext('2d');
     const map = this.staticMap;
     if (!ctx || !map) return;
@@ -460,6 +509,19 @@ export class MapRenderer {
       ctx.strokeText(label, p.x, p.y - 16 * dpr);
       ctx.fillStyle = isHome ? '#ffd479' : '#f3e7cf';
       ctx.fillText(label, p.x, p.y - 16 * dpr);
+    }
+
+    if (garage) {
+      const p = this.toStaticScreen(garage.x, garage.z, placement);
+      this.drawGarage(ctx, p.x, p.y - 4 * dpr, 9 * dpr);
+      ctx.font = `600 ${13 * dpr}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.lineWidth = 4 * dpr;
+      ctx.strokeStyle = 'rgba(8, 12, 10, 0.9)';
+      ctx.strokeText('Garage', p.x, p.y + 22 * dpr);
+      ctx.fillStyle = '#8ef0b0';
+      ctx.fillText('Garage', p.x, p.y + 22 * dpr);
+      ctx.font = `600 ${15 * dpr}px system-ui, sans-serif`;
     }
 
     if (car) {

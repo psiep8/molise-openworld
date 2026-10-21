@@ -65,6 +65,9 @@
         <div class="help-row"><kbd>V</kbd><span>radar satellite / mappa</span></div>
         <div class="help-row"><kbd>G</kbd><span>qualità grafica</span></div>
         <div class="help-row"><kbd>B</kbd><span>cambia veicolo</span></div>
+        <div class="help-row"><kbd>T</kbd><span>imposta la casa più vicina come garage</span></div>
+        <div class="help-row"><kbd>L</kbd><span>torna al garage</span></div>
+        <div class="help-row"><kbd>K</kbd><span>cambia colore dell'auto</span></div>
         <div class="help-row"><kbd>Y</kbd><span>stereo affiancato</span></div>
         <div class="help-row"><kbd>N</kbd><span>audio on/off</span></div>
         <div class="help-row"><kbd>X</kbd><span>annulla l'itinerario</span></div>
@@ -84,7 +87,7 @@
         <strong>Mappa dei 5 comuni · Palata è casa</strong>
         <span>Palata · Montecilfone · Acquaviva Collecroce · Tavenna · Castelmauro</span>
         <small>Radar satellite: Esri World Imagery · Strade e edifici: OpenStreetMap (ODbL) · Rilievo: AWS Terrain Tiles (SRTM/Copernicus) · <kbd>V</kbd> cambia stile</small>
-        <span class="map-close">Clicca un punto per scegliere la destinazione · <kbd>X</kbd> annulla · <kbd>M</kbd> chiude</span>
+        <span class="map-close">Clicca un punto per la destinazione · <kbd>Shift</kbd>+clic su una casa = garage · <kbd>X</kbd> annulla · <kbd>M</kbd> chiude</span>
       </div>
     </div>
 
@@ -175,10 +178,91 @@
           <div id="vehicle-spec" class="vehicle-spec">1.0 Fire 8V · 45 CV · 140 km/h</div>
         </div>
 
+        <div class="setting-row">
+          <div class="setting-copy">
+            <strong>Colore carrozzeria</strong>
+            <small>Dieci tinte, ricordate per ogni veicolo.</small>
+          </div>
+        </div>
+        <div id="paint-swatches" class="paint-swatches" role="group" aria-label="Colore carrozzeria"></div>
+
+        <div class="setting-row">
+          <div class="setting-copy">
+            <strong>Casa / garage</strong>
+            <small>
+              Scegli un edificio come base: il segnalibro resta sulla mappa, l'auto si parcheggia
+              lì e dal menu puoi tornare al garage in un clic.
+            </small>
+          </div>
+        </div>
+        <div class="garage-box">
+          <div id="garage-status" class="garage-status">Nessuna casa scelta</div>
+          <div class="settings-actions">
+            <button id="btn-garage-set" class="text-btn" type="button">Imposta casa vicina</button>
+            <button id="btn-garage-go" class="text-btn" type="button">Vai al garage</button>
+            <button id="btn-garage-clear" class="text-btn" type="button">Rimuovi</button>
+          </div>
+          <small class="settings-hint">La casa si sceglie anche in gioco con <kbd>T</kbd>; <kbd>L</kbd> riporta al garage.</small>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-copy">
+            <strong>Personaggio</strong>
+            <small>
+              Tratti somatici e outfit per entrambi i sessi: altezza, corporatura, carnagione,
+              capelli, barba e stile dei vestiti. I capi sono stili generici, senza marchi reali.
+            </small>
+          </div>
+        </div>
+
+        <div class="manual-controls">
+          <label class="setting-field">
+            <span>Sesso</span>
+            <select id="sex-select"></select>
+          </label>
+          <label class="setting-field">
+            <span>Altezza · <b id="height-value">1,70 m</b></span>
+            <input type="range" id="height-slider" min="1.5" max="2" step="0.01" value="1.7" />
+          </label>
+          <label class="setting-field">
+            <span>Corporatura</span>
+            <select id="build-select"></select>
+          </label>
+          <label class="setting-field">
+            <span>Carnagione</span>
+            <select id="skin-select"></select>
+          </label>
+          <label class="setting-field">
+            <span>Capelli</span>
+            <select id="hair-style-select"></select>
+          </label>
+          <label class="setting-field">
+            <span>Colore capelli</span>
+            <select id="hair-color-select"></select>
+          </label>
+          <label class="setting-field">
+            <span>Barba</span>
+            <select id="beard-select">
+              <option value="no">No</option>
+              <option value="yes">Sì</option>
+            </select>
+          </label>
+          <label class="setting-field">
+            <span>Outfit</span>
+            <select id="outfit-select"></select>
+          </label>
+          <label class="setting-field">
+            <span>Colore outfit</span>
+            <select id="outfit-tone-select"></select>
+          </label>
+          <div id="appearance-summary" class="vehicle-spec">Donna · 1,70 m · Normale</div>
+        </div>
+
         <p class="settings-note">
           Con il meteo reale attivo il sole sorge e tramonta all'ora vera della posizione in cui ti trovi;
           se la rete manca, il sole reale resta attivo e il meteo usa l'ultimo dato disponibile.
           Dati meteo: <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a> (CC BY 4.0).
+          Personaggio e capi sono modelli procedurali originali: nessun marchio reale di abbigliamento viene riprodotto.
         </p>
       </div>
     </div>

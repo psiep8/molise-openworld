@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { createCarState, speedKmh, stepCar, type CarInput, type CarState } from '../sim/car';
-import { VEHICLES, getVehicle, tuningFor, type VehicleSpec } from '../sim/vehicle-catalog';
+import { VEHICLES, getVehicle, loadPaintFor, tuningFor, type VehicleSpec } from '../sim/vehicle-catalog';
 import type { Heightfield } from '../geo/elevation';
 import type { BuildingIndex, RoadIndex } from '../geo/osm';
 import { clamp } from '../geo/geo';
@@ -27,6 +27,7 @@ export class Vehicle {
   private readonly materials = new Set<THREE.Material>();
   private lampMat = new THREE.MeshStandardMaterial();
   private tailMat = new THREE.MeshStandardMaterial();
+  private paintMat: THREE.MeshPhysicalMaterial | null = null;
   private tiltPitch = 0;
   private tiltRoll = 0;
   private wheelSpin = 0;
@@ -100,12 +101,13 @@ export class Vehicle {
     const bodyY = ride + spec.height * 0.22;
 
     const paint = this.material({
-      color: spec.paint,
+      color: loadPaintFor(spec.id, spec.paint),
       roughness: 0.42,
       metalness: 0.25,
       clearcoat: 1,
       clearcoatRoughness: 0.06,
     });
+    this.paintMat = paint;
     const trim = this.material({ color: spec.accent, roughness: 0.82, metalness: 0.1, clearcoat: 0.4, clearcoatRoughness: 0.25 });
     // Vetro: trasparenza classica (la `transmission` fisica costa un pass extra
     // di scena e senza environment map risulta sporca).
@@ -230,6 +232,13 @@ export class Vehicle {
     this.group.add(pivot);
     this.wheels.push(wheel);
     if (steerable) this.frontPivots.push(pivot);
+  }
+
+  /** Cambia la tinta della carrozzeria senza ricostruire il modello. */
+  setPaint(color: number): void {
+    if (!this.paintMat) return;
+    this.paintMat.color.setHex(color);
+    this.paintMat.needsUpdate = true;
   }
 
   get kmh(): number {

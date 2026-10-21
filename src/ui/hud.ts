@@ -14,6 +14,8 @@ export class Hud {
   private readonly gearValue = $('gear-value');
   private readonly rpmValue = $('rpm-value');
   private readonly vehicleSpec = $('vehicle-spec');
+  private readonly appearanceSummary = $('appearance-summary');
+  private readonly garageStatus = $('garage-status');
   private readonly objective = $('objective');
   private readonly routePanel = $('route-panel');
   private readonly routeText = $('route-text');
@@ -68,6 +70,16 @@ export class Hud {
   /** Dati meccanici del veicolo selezionato (motore, potenza, velocità reale). */
   setVehicleSpec(text: string): void {
     if (this.vehicleSpec) this.vehicleSpec.textContent = text;
+  }
+
+  /** Riepilogo del personaggio (sesso, altezza, corporatura, outfit). */
+  setAppearanceSummary(text: string): void {
+    if (this.appearanceSummary) this.appearanceSummary.textContent = text;
+  }
+
+  /** Casa/garage selezionato, o il messaggio "nessuna casa scelta". */
+  setGarageStatus(text: string): void {
+    if (this.garageStatus) this.garageStatus.textContent = text;
   }
 
   setObjective(text: string | null): void {

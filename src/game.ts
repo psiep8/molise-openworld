@@ -28,8 +28,35 @@ import {
   sunAtLocalTime,
   type WeatherPreset,
 } from './environment/sun-clock';
-import { VEHICLES, getVehicle, loadVehicleId, saveVehicleId, vehicleLabel } from './sim/vehicle-catalog';
+import {
+  PAINT_CHOICES,
+  VEHICLES,
+  getVehicle,
+  loadPaintFor,
+  loadVehicleId,
+  savePaintFor,
+  saveVehicleId,
+  vehicleLabel,
+} from './sim/vehicle-catalog';
 import { Player, type MoveInput } from './entities/player';
+import {
+  BUILD_LABEL,
+  HAIR_COLORS,
+  HAIR_LABEL,
+  HEIGHT_MAX,
+  HEIGHT_MIN,
+  OUTFITS,
+  OUTFIT_STYLES,
+  SEX_LABEL,
+  SKINS,
+  TONE_LABEL,
+  appearanceSummary,
+  outfitLabel,
+  sanitizeAppearance,
+  saveAppearance,
+  type Appearance,
+} from './entities/appearance';
+import { findNearestProperty, loadProperty, saveProperty, type Property } from './world/property';
 import { Vehicle } from './entities/vehicle';
 import { Hud, type Mode } from './ui/hud';
 import { MapRenderer } from './ui/minimap';
@@ -112,6 +139,7 @@ export class Game {
   private routeBeacon?: THREE.Group;
   private lastRouteOrigin: Pt | null = null;
   private lastRouteTime = 0;
+  private garage: Property | null = loadProperty();
 
   private mode: Mode = 'walk';
   private loaded = false;
@@ -232,6 +260,7 @@ export class Game {
       this.car.setSpec(getVehicle(loadVehicleId()));
       this.hud.setVehicleName(this.car.spec.name);
       this.hud.setVehicleSpec(vehicleLabel(this.car.spec));
+      this.buildPaintSwatches();
 
       this.hud.setLoading(0.72, 'Alzo il cielo…');
       await nextFrame();
@@ -370,8 +399,179 @@ export class Game {
     const vehicleSelect = document.getElementById('vehicle-select') as HTMLSelectElement | null;
     vehicleSelect?.addEventListener('change', () => this.selectVehicle(vehicleSelect.value));
 
+    this.setupAppearanceUi();
+    this.buildPaintSwatches();
+
+    document.getElementById('btn-garage-set')?.addEventListener('click', () => this.setGarageFromHere());
+    document.getElementById('btn-garage-go')?.addEventListener('click', () => this.goToGarage());
+    document.getElementById('btn-garage-clear')?.addEventListener('click', () => this.clearGarage());
+
     document.getElementById('bigmap')?.addEventListener('click', (e) => this.pickDestination(e));
     this.syncSettingsControls();
+  }
+
+  /** Select e slider del personaggio, popolati dalle costanti di `appearance`. */
+  private setupAppearanceUi(): void {
+    this.fillSelect('sex-select', Object.entries(SEX_LABEL));
+    this.fillSelect('build-select', Object.entries(BUILD_LABEL));
+    this.fillSelect('skin-select', SKINS.map((s) => [String(s.color), s.label] as const));
+    this.fillSelect('hair-style-select', Object.entries(HAIR_LABEL));
+    this.fillSelect('hair-color-select', HAIR_COLORS.map((c) => [String(c.color), c.label] as const));
+    this.fillSelect('outfit-select', OUTFIT_STYLES.map((style) => [style, OUTFITS[style].label] as const));
+    this.fillSelect('outfit-tone-select', Object.entries(TONE_LABEL));
+
+    const select = (id: string, apply: (value: string) => void): void => {
+      const element = document.getElementById(id) as HTMLSelectElement | null;
+      element?.addEventListener('change', () => apply(element.value));
+    };
+
+    select('sex-select', (value) => this.updateAppearance({ sex: value as Appearance['sex'] }));
+    select('build-select', (value) => this.updateAppearance({ build: value as Appearance['build'] }));
+    select('skin-select', (value) => this.updateAppearance({ skin: Number(value) }));
+    select('hair-style-select', (value) => this.updateAppearance({ hairStyle: value as Appearance['hairStyle'] }));
+    select('hair-color-select', (value) => this.updateAppearance({ hairColor: Number(value) }));
+    select('beard-select', (value) => this.updateAppearance({ beard: value === 'yes' }));
+    select('outfit-select', (value) => this.updateAppearance({ outfit: value as Appearance['outfit'] }));
+    select('outfit-tone-select', (value) => this.updateAppearance({ tone: value as Appearance['tone'] }));
+
+    const height = document.getElementById('height-slider') as HTMLInputElement | null;
+    const heightValue = document.getElementById('height-value');
+    const showHeight = (value: number): void => {
+      if (heightValue) heightValue.textContent = `${value.toFixed(2).replace('.', ',')} m`;
+    };
+    height?.addEventListener('input', () => showHeight(Number(height.value)));
+    height?.addEventListener('change', () => this.updateAppearance({ height: Number(height.value) }));
+  }
+
+  private fillSelect(id: string, entries: readonly (readonly [string, string])[]): void {
+    const element = document.getElementById(id) as HTMLSelectElement | null;
+    if (!element) return;
+    element.textContent = '';
+    for (const [value, label] of entries) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      element.append(option);
+    }
+  }
+
+  private updateAppearance(patch: Partial<Appearance>): void {
+    const next = sanitizeAppearance({ ...this.player.appearance, ...patch });
+    this.player.applyAppearance(next);
+    saveAppearance(next);
+    this.syncSettingsControls();
+  }
+
+  private buildPaintSwatches(): void {
+    const host = document.getElementById('paint-swatches');
+    if (!host) return;
+    host.textContent = '';
+    // se la tinta di fabbrica non è in palette, la si aggiunge come "Di fabbrica"
+    const factory = this.car.spec.paint;
+    const choices = PAINT_CHOICES.some((p) => p.color === factory)
+      ? PAINT_CHOICES
+      : [{ label: 'Di fabbrica', color: factory }, ...PAINT_CHOICES];
+    for (const choice of choices) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'swatch';
+      button.dataset.color = String(choice.color);
+      button.title = choice.label;
+      button.setAttribute('aria-label', `Colore ${choice.label}`);
+      button.style.background = `#${choice.color.toString(16).padStart(6, '0')}`;
+      button.addEventListener('click', () => this.setPaint(choice.color));
+      host.append(button);
+    }
+    this.syncPaintSwatches();
+  }
+
+  private syncPaintSwatches(): void {
+    const host = document.getElementById('paint-swatches');
+    if (!host) return;
+    const current = loadPaintFor(this.car.spec.id, this.car.spec.paint);
+    for (const node of Array.from(host.children)) {
+      const button = node as HTMLButtonElement;
+      button.classList.toggle('active', Number(button.dataset.color) === current);
+    }
+  }
+
+  private setPaint(color: number): void {
+    this.car.setPaint(color);
+    savePaintFor(this.car.spec.id, color);
+    this.syncPaintSwatches();
+    const label = PAINT_CHOICES.find((p) => p.color === color)?.label ?? 'personalizzato';
+    this.hud.toast(`Carrozzeria: ${label}`, 1800);
+  }
+
+  /** Tinta successiva con un tasto, senza aprire il menu. */
+  private cyclePaint(): void {
+    const current = loadPaintFor(this.car.spec.id, this.car.spec.paint);
+    const index = PAINT_CHOICES.findIndex((p) => p.color === current);
+    const next = PAINT_CHOICES[(index + 1) % PAINT_CHOICES.length];
+    this.setPaint(next.color);
+  }
+
+  /** Sceglie l'edificio più vicino al giocatore come casa/garage. */
+  private setGarageFromHere(): void {
+    if (!this.loaded) return;
+    const focus = this.mode === 'walk' ? this.player.position : this.car.position;
+    this.setGarageAt(focus.x, focus.z, 22, 'Avvicinati a una casa del paese per sceglierla come garage');
+  }
+
+  /** Casa/garage a partire da un punto sulla mappa (Shift+clic) o dalla posizione. */
+  private setGarageAt(x: number, z: number, range = 60, emptyMessage = 'Nessuna casa vicino a quel punto'): void {
+    if (!this.loaded) return;
+    const property = findNearestProperty(this.buildingIndex, x, z, range);
+    if (!property) {
+      this.hud.toast(emptyMessage, 2800);
+      return;
+    }
+    this.garage = property;
+    saveProperty(property);
+    this.syncGarage();
+    this.hud.toast(`Garage: ${property.label} · segnalibro salvato`, 3200);
+  }
+
+  private clearGarage(): void {
+    if (!this.garage) return;
+    this.garage = null;
+    saveProperty(null);
+    this.syncGarage();
+    this.hud.toast('Segnalibro del garage rimosso', 2200);
+  }
+
+  /** Riporta giocatore e auto alla casa scelta, con l'auto parcheggiata in strada. */
+  private goToGarage(): void {
+    if (!this.loaded) return;
+    if (!this.garage) {
+      this.hud.toast('Prima scegli una casa: avvicinati a un edificio e premi T', 2800);
+      return;
+    }
+    const { x, z, label } = this.garage;
+    const spot = this.buildingIndex.resolveCircle(x, z, 2.4);
+    const pose =
+      this.findRoadPose(x, z, 1.7) ?? this.findRoadPose(x, z, 1.0) ?? { x, z, yaw: 0, distance: 0 };
+    this.player.spawn(spot.x, spot.z, pose.yaw, this.heights);
+    this.car.reset(pose.x, pose.z, pose.yaw, this.heights);
+    this.mode = 'walk';
+    this.hud.setMode('walk');
+    this.player.avatar.visible = this.thirdPerson;
+    this.camera.fov = 68;
+    this.camera.updateProjectionMatrix();
+    this.snapWalkCamera();
+    this.terrain.update(this.player.position.x, this.player.position.z, VIEW_RADIUS, true);
+    this.hud.toast(`Sei al garage: ${label}`, 2800);
+    if (this.hud.mapVisible) this.drawBigMap();
+    if (this.routeDestination) this.recomputeRoute();
+  }
+
+  private syncGarage(): void {
+    this.hud.setGarageStatus(
+      this.garage
+        ? `${this.garage.label} · segnalibro salvato sulla mappa`
+        : 'Nessuna casa scelta: avvicinati a un edificio e premi T.',
+    );
+    if (this.hud.mapVisible) this.drawBigMap();
   }
 
   private syncSettingsControls(): void {
@@ -385,6 +585,42 @@ export class Game {
     if (vehicleSelect) vehicleSelect.value = this.car.spec.id;
     this.hud.setManualTime(this.manualTime);
     this.hud.setTimeLabel(this.manualHour);
+
+    // personaggio
+    const look = this.player.appearance;
+    const setValue = (id: string, value: string): void => {
+      const element = document.getElementById(id) as HTMLSelectElement | null;
+      if (element && element.value !== value) element.value = value;
+    };
+    setValue('sex-select', look.sex);
+    setValue('build-select', look.build);
+    setValue('skin-select', String(look.skin));
+    setValue('hair-style-select', look.hairStyle);
+    setValue('hair-color-select', String(look.hairColor));
+    setValue('beard-select', look.beard ? 'yes' : 'no');
+    setValue('outfit-select', look.outfit);
+    setValue('outfit-tone-select', look.tone);
+    const beard = document.getElementById('beard-select') as HTMLSelectElement | null;
+    if (beard) beard.disabled = look.sex === 'donna';
+    const height = document.getElementById('height-slider') as HTMLInputElement | null;
+    if (height) {
+      height.min = String(HEIGHT_MIN);
+      height.max = String(HEIGHT_MAX);
+      height.value = String(look.height);
+    }
+    const heightValue = document.getElementById('height-value');
+    if (heightValue) heightValue.textContent = `${look.height.toFixed(2).replace('.', ',')} m`;
+    this.hud.setAppearanceSummary(
+      `${appearanceSummary(look)} · ${outfitLabel(look)} — ${OUTFITS[look.outfit].hint}. In gioco premi C per vederti in terza persona.`,
+    );
+
+    this.hud.setVehicleSpec(vehicleLabel(this.car.spec));
+    this.syncPaintSwatches();
+    this.hud.setGarageStatus(
+      this.garage
+        ? `${this.garage.label} · segnalibro salvato sulla mappa`
+        : 'Nessuna casa scelta: avvicinati a un edificio e premi T.',
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -435,6 +671,7 @@ export class Game {
     }
     this.hud.setVehicleName(spec.name);
     this.hud.setVehicleSpec(vehicleLabel(spec));
+    this.buildPaintSwatches();
     this.syncSettingsControls();
     this.hud.toast(`Veicolo: ${spec.name} · ${spec.blurb}`, 2800);
   }
@@ -451,6 +688,11 @@ export class Game {
     if (!this.map || !this.hud.mapVisible) return;
     const world = this.map.worldFromBigMap(event.currentTarget as HTMLCanvasElement, event.clientX, event.clientY);
     if (!world) return;
+    // Shift+clic sulla mappa = scegli quella casa come garage
+    if (event.shiftKey) {
+      this.setGarageAt(world.x, world.z);
+      return;
+    }
     this.setDestination(world.x, world.z);
   }
 
@@ -867,6 +1109,15 @@ export class Game {
       case 'KeyR':
         this.respawnOnRoad();
         break;
+      case 'KeyT':
+        this.setGarageFromHere();
+        break;
+      case 'KeyL':
+        this.goToGarage();
+        break;
+      case 'KeyK':
+        this.cyclePaint();
+        break;
       case 'Escape':
         if (this.hud.mapVisible) {
           this.hud.showMap(false);
@@ -1135,6 +1386,7 @@ export class Game {
           { x: focus.x, z: focus.z, yaw },
           this.mode === 'walk' ? { x: this.car.state.x, z: this.car.state.z } : undefined,
           this.route?.points,
+          this.garage,
         );
         if (this.hud.mapVisible) this.drawBigMap();
       }
@@ -1258,7 +1510,14 @@ export class Game {
 
     if (this.mode === 'walk') {
       const d = distance2(x, z, this.car.state.x, this.car.state.z);
-      this.hud.setObjective(d <= GAME.interactionRange ? 'Premi <kbd>F</kbd> per guidare' : null);
+      const atGarage = this.garage !== null && distance2(x, z, this.garage.x, this.garage.z) < 16;
+      if (d <= GAME.interactionRange) {
+        this.hud.setObjective('Premi <kbd>F</kbd> per guidare');
+      } else if (atGarage) {
+        this.hud.setObjective('Garage · <kbd>B</kbd> cambia auto · <kbd>K</kbd> colore');
+      } else {
+        this.hud.setObjective(null);
+      }
     } else {
       this.hud.setObjective('Premi <kbd>F</kbd> per scendere · <kbd>R</kbd> per tornare in strada');
     }
@@ -1275,6 +1534,7 @@ export class Game {
       { x: focus.x, z: focus.z, yaw },
       this.mode === 'walk' ? { x: this.car.state.x, z: this.car.state.z } : undefined,
       this.route?.points,
+      this.garage,
     );
   }
 
