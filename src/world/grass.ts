@@ -32,6 +32,7 @@ export class GrassField {
   private readonly bladeTexture: THREE.CanvasTexture;
   private mesh: THREE.InstancedMesh | null = null;
   private carpet: THREE.InstancedMesh | null = null;
+  private edge: THREE.InstancedMesh | null = null;
   private readonly carpetGeometry: THREE.BufferGeometry;
   private readonly carpetMaterial: THREE.MeshStandardMaterial;
   private readonly carpetTexture: THREE.CanvasTexture;
@@ -255,6 +256,11 @@ export class GrassField {
       this.carpet.dispose();
       this.carpet = null;
     }
+    if (this.edge) {
+      this.group.remove(this.edge);
+      this.edge.dispose();
+      this.edge = null;
+    }
 
     const target = Math.round(MAX_TUFTS * density);
     const rng = mulberry32(Math.round(x * 31 + z * 17) | 1);
@@ -341,6 +347,46 @@ export class GrassField {
     if (carpet.instanceColor) carpet.instanceColor.needsUpdate = true;
     this.carpet = carpet;
     this.group.add(carpet);
+
+    // erba che sconfina sull'asfalto: una fascia di 40 cm sul bordo della
+    // carreggiata. È quello che rende vivo il ciglio, invece del taglio netto
+    // fra asfalto e prato che sembra un decalcomania.
+    const edgeTarget = Math.round(1500 * density);
+    const edgeMesh = new THREE.InstancedMesh(this.geometry, this.material, edgeTarget);
+    edgeMesh.castShadow = false;
+    edgeMesh.receiveShadow = false;
+    edgeMesh.frustumCulled = false;
+    let edges = 0;
+    let guardEdge = 0;
+    while (edges < edgeTarget && guardEdge < edgeTarget * 45) {
+      guardEdge++;
+      const angle = rng() * Math.PI * 2;
+      const radius = Math.sqrt(rng()) * RADIUS;
+      const px = x + Math.cos(angle) * radius;
+      const pz = z + Math.sin(angle) * radius;
+      // solo la fascia appena fuori dal manto: dentro l'asfalto non cresce
+      if (!roads.isOnRoad(px, pz, 0.42)) continue;
+      if (roads.isOnRoad(px, pz, -0.06)) continue;
+      if (heights.slopeAt(px, pz) > 30) continue;
+      if (buildings.resolveCircle(px, pz, 0.3).hit) continue;
+      const py = heights.heightAt(px, pz);
+      dummy.position.set(px, py - 0.02, pz);
+      dummy.rotation.set(0, rng() * Math.PI, 0);
+      const scale = 0.55 + rng() * 0.4;
+      dummy.scale.set(scale, scale * (0.9 + rng() * 0.5), scale);
+      dummy.updateMatrix();
+      edgeMesh.setMatrixAt(edges, dummy.matrix);
+      // erba di bordo più secca e polverosa: è quella che prende lo sporco
+      color.setHex(edges % 3 === 0 ? 0x9b9a6b : palette[Math.floor(rng() * palette.length)]!);
+      color.multiplyScalar(0.9 + rng() * 0.18);
+      edgeMesh.setColorAt(edges, color);
+      edges++;
+    }
+    edgeMesh.count = edges;
+    edgeMesh.instanceMatrix.needsUpdate = true;
+    if (edgeMesh.instanceColor) edgeMesh.instanceColor.needsUpdate = true;
+    this.edge = edgeMesh;
+    this.group.add(edgeMesh);
   }
 
   dispose(): void {
@@ -353,6 +399,11 @@ export class GrassField {
       this.group.remove(this.carpet);
       this.carpet.dispose();
       this.carpet = null;
+    }
+    if (this.edge) {
+      this.group.remove(this.edge);
+      this.edge.dispose();
+      this.edge = null;
     }
     this.geometry.dispose();
     this.material.dispose();
