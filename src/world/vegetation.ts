@@ -221,6 +221,41 @@ export function buildVegetation(
   const olives = placements.filter((p) => p.kind === 'olive');
   const cypresses = placements.filter((p) => p.kind === 'cypress');
 
+  // ---- sottobosco: cespugli ai piedi degli alberi, quello che riempie il vuoto
+  // tra il prato e la chioma e toglie l'aria di "alberi piantati sul nulla" ---
+  const bushList: typeof placements = [];
+  const bushRng = mulberry32(0x8bad);
+  for (const p of placements) {
+    if (bushList.length >= 2600) break;
+    if (bushRng() > 0.3) continue;
+    const a = bushRng() * Math.PI * 2;
+    const d = 1.5 + bushRng() * 2.6;
+    const x = p.x + Math.cos(a) * d;
+    const z = p.z + Math.sin(a) * d;
+    if (roads.isOnRoad(x, z, 1.3)) continue;
+    if (buildings.resolveCircle(x, z, 1.1).hit) continue;
+    if (heights.slopeAt(x, z) > 30) continue;
+    bushList.push({
+      x,
+      y: heights.heightAt(x, z),
+      z,
+      s: 0.55 + bushRng() * 0.65,
+      rot: bushRng() * Math.PI * 2,
+      color: FOLIAGE_COLORS[Math.floor(bushRng() * FOLIAGE_COLORS.length)],
+      kind: 'broadleaf',
+    });
+  }
+  // tre quad di foglie bassi: un cespuglio, non un albero in miniatura
+  const bushParts: THREE.BufferGeometry[] = [];
+  for (let i = 0; i < 3; i++) {
+    const card = new THREE.PlaneGeometry(1.5, 1.1);
+    card.rotateY((i / 3) * Math.PI);
+    card.translate((bushRng() - 0.5) * 0.45, 0.58 + bushRng() * 0.22, (bushRng() - 0.5) * 0.45);
+    bushParts.push(card);
+  }
+  const bushGeo = mergeGeometries(bushParts, false) ?? bushParts[0];
+  for (const g of bushParts) g.dispose();
+
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
 
@@ -266,6 +301,8 @@ export function buildVegetation(
       { geo: leafGeo, mat: leafMat, scale: [1.15, 0.82, 1.15] },
     ]),
     ...buildSet(cypresses, [{ geo: cypressGeo, mat: cypressMat }]),
+    // i cespugli non hanno nucleo né tronco: solo foglie basse
+    ...buildSet(bushList, [{ geo: bushGeo, mat: leafMat }]),
   ];
 
   group.add(...meshes);
