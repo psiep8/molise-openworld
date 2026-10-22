@@ -32,6 +32,8 @@ export class Vehicle {
   private tiltPitch = 0;
   private tiltRoll = 0;
   private wheelSpin = 0;
+  /** 0 = giorno, 1 = notte piena: serve a non azzerare il freno quando cambia la luce */
+  private nightLevel = 0;
   /** Quanto i nastri stradali stanno sopra il terreno (m). */
   private surfaceLift = 0;
 
@@ -372,6 +374,7 @@ export class Vehicle {
   /** `amount` 0 = giorno, 1 = notte piena. */
   setLights(amount: number): void {
     const on = clamp(amount, 0, 1);
+    this.nightLevel = on;
     for (const beam of this.headlights) beam.intensity = 42 * on;
     this.lampMat.emissiveIntensity = 0.5 + 2.6 * on;
     this.tailMat.emissiveIntensity = 0.3 + 1.2 * on;
@@ -442,6 +445,12 @@ export class Vehicle {
     for (const pivot of this.frontPivots) pivot.rotation.y = steerAngle;
     this.wheelSpin += (next.speed / spec.wheelRadius) * dt;
     for (const wheel of this.wheels) wheel.rotation.x = this.wheelSpin;
+
+    // fanalini: si accendono in frenata e diventano bianchi in retromarcia
+    const braking = clamp(input.brake, 0, 1);
+    const reversing = next.gear < 0;
+    this.tailMat.emissive.setHex(reversing ? 0xfff3dd : 0x5a0d0a);
+    this.tailMat.emissiveIntensity = 0.3 + 1.1 * this.nightLevel + (reversing ? 1.4 : 0) + 2.6 * braking;
   }
 
   /** Seleziona un modello per id (usato dal garage). */

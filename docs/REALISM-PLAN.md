@@ -315,6 +315,16 @@ Legenda stato: **fatto** = nel codice e verificato con `npm test` + `npm run bui
 | Arredo urbano e segnaletica verticale | fatto | `src/world/street-furniture.ts` |
 | SSAO nei preset alti | fatto | `src/gfx/post.ts` |
 
+### 22 ottobre 2026 — veicoli, luci
+
+| Voce | Stato | Note |
+| --- | --- | --- |
+| Fanalini posteriori: si intensificano in frenata, diventano bianchi in retromarcia | fatto | `src/entities/vehicle.ts`, `update()`; usa `input.brake` e `state.gear`, non aggiunge geometria |
+| Piano di realismo versionato nel repo | fatto | questo documento; `HANDOFF.md` §16 e `README.md` lo linkano |
+
+Da verificare in un browser vero: che la frenata accenda i fanalini anche di giorno
+e che in retromarcia il colore viri al bianco senza sfarfallare.
+
 ### Prossimi passi (in ordine)
 
 1. **Veicoli** (Fase 1): loader GLB con fallback procedurale, ruote con `LatheGeometry`, vetri, luci freno/retromarcia. Oggi sono l'unica area ancora "a scatole".
