@@ -1590,6 +1590,8 @@ export class Game {
     setCloudShadow(cloud * day, dt, windX, windZ);
     // finestre accese: si accendono al tramonto, si spengono all'alba
     setWindowGlow(1 - day);
+    // stelle e luna
+    this.sky.setNightSky(1 - day);
     this.precipitation.update(dt, this.camera, { rain, snow, windX, windZ });
 
     // fari accesi quando il sole è basso, strada bagnata con pioggia o neve

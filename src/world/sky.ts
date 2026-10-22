@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
+import { mulberry32 } from '../geo/geo';
 
 export interface SkyParams {
   turbidity: number;
@@ -30,6 +31,8 @@ export interface SkyRig {
   setSun(elevationDeg: number, thetaDeg: number): void;
   setSkyParams(params: Partial<SkyParams>): void;
   setLighting(params: Partial<LightingParams>): void;
+  /** 0 = giorno, 1 = notte piena: accende stelle e luna. */
+  setNightSky(amount: number): void;
   /** Genera la luce ambientale riflessa dal cielo (IBL). Costa poco: si auto-limita. */
   updateEnvironment(renderer: THREE.WebGLRenderer, scene: THREE.Scene): void;
 }
@@ -111,6 +114,71 @@ export function createSky(scene: THREE.Scene): SkyRig {
   scene.add(moonLight);
   scene.add(moonLight.target);
 
+  // -------------------------------------------------------------------------
+  // cielo notturno: stelle e disco lunare
+  // -------------------------------------------------------------------------
+  const starCount = 1700;
+  const starPositions = new Float32Array(starCount * 3);
+  const starColors = new Float32Array(starCount * 3);
+  const starRng = mulberry32(0x57a2);
+  const starRadius = 6000;
+  for (let i = 0; i < starCount; i++) {
+    // distribuzione uniforme sulla sfera, solo emisfero sopra l'orizzonte
+    const u = starRng() * 2 - 1;
+    const phi = starRng() * Math.PI * 2;
+    const s = Math.sqrt(Math.max(0, 1 - u * u));
+    starPositions[i * 3] = Math.cos(phi) * s * starRadius;
+    starPositions[i * 3 + 1] = (Math.abs(u) * 0.92 + 0.05) * starRadius;
+    starPositions[i * 3 + 2] = Math.sin(phi) * s * starRadius;
+    // magnitudine e temperatura: bianche, qualcuna azzurra, qualcuna calda
+    const mag = 0.35 + Math.pow(starRng(), 2.2) * 0.65;
+    const warm = starRng();
+    starColors[i * 3] = mag * (warm > 0.7 ? 1 : 0.86);
+    starColors[i * 3 + 1] = mag * 0.94;
+    starColors[i * 3 + 2] = mag * (warm < 0.3 ? 1 : 0.86);
+  }
+  const starGeo = new THREE.BufferGeometry();
+  starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+  starGeo.setAttribute('color', new THREE.BufferAttribute(starColors, 3));
+  const starMat = new THREE.PointsMaterial({
+    size: 3.1,
+    sizeAttenuation: false,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    fog: false,
+  });
+  const stars = new THREE.Points(starGeo, starMat);
+  stars.visible = false;
+  stars.frustumCulled = false;
+  scene.add(stars);
+
+  const moon = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: moonTexture(),
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      fog: false,
+      color: 0xf6f2e2,
+    }),
+  );
+  moon.scale.setScalar(320);
+  moon.visible = false;
+  scene.add(moon);
+
+  /** 0 = giorno, 1 = notte piena. */
+  const setNightSky = (amount: number): void => {
+    const on = THREE.MathUtils.clamp(amount, 0, 1);
+    const visible = on > 0.02;
+    // le stelle si accendono piano dopo il tramonto, non a scatto
+    starMat.opacity = Math.pow(on, 0.7) * 0.95;
+    stars.visible = visible;
+    (moon.material as THREE.SpriteMaterial).opacity = Math.pow(on, 0.8);
+    moon.visible = visible;
+  };
+
   const update = (target: THREE.Vector3): void => {
     sunLight.target.position.copy(target);
     sunLight.position.copy(target).addScaledVector(sunDirection, 800);
@@ -122,6 +190,11 @@ export function createSky(scene: THREE.Scene): SkyRig {
     moonLight.position.copy(target).addScaledVector(sunDirection, -800);
     moonLight.target.updateMatrixWorld();
     moonLight.updateMatrixWorld();
+
+    // stelle e disco lunare seguono la camera (sono a 6 km: non devono mai
+    // uscire dal far plane né mostrare parallasse)
+    stars.position.copy(target);
+    moon.position.copy(target).addScaledVector(sunDirection, -5200);
   };
 
   const setShadowMapSize = (size: number): void => {
@@ -183,6 +256,39 @@ export function createSky(scene: THREE.Scene): SkyRig {
     setSun,
     setSkyParams,
     setLighting,
+    setNightSky,
     updateEnvironment,
   };
+}
+
+/**
+ * Disco lunare con un alone morbido, disegnato su canvas: uno sprite è sempre
+ * rivolto alla camera e costa una texture di 128 px.
+ */
+function moonTexture(): THREE.CanvasTexture {
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    const g = ctx.createRadialGradient(size / 2, size / 2, size * 0.16, size / 2, size / 2, size * 0.5);
+    g.addColorStop(0, 'rgba(255,252,240,1)');
+    g.addColorStop(0.42, 'rgba(248,244,228,0.96)');
+    g.addColorStop(0.5, 'rgba(226,228,220,0.55)');
+    g.addColorStop(1, 'rgba(200,214,226,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+    // qualche "mare" più scuro, così non è una moneta piatta
+    ctx.fillStyle = 'rgba(190,192,184,0.35)';
+    ctx.beginPath();
+    ctx.arc(size * 0.42, size * 0.44, size * 0.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(size * 0.6, size * 0.58, size * 0.07, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
