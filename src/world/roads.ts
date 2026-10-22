@@ -331,6 +331,81 @@ function toGeometry(a: RibbonArrays): THREE.BufferGeometry {
 }
 
 /**
+ * Usura dell'asfalto, tutta nello shader del materiale.
+ *
+ * Le UV dei nastri sono metriche e comode: `u` attraversa la carreggiata
+ * (0 = bordo sinistro, 1 = bordo destro), `v` scorre lungo la strada. Le auto
+ * vere consumano due bande strette dove passano le ruote: lì l'asfalto è più
+ * scuro e più liscio (più riflesso), mentre il centro corsia resta più chiaro
+ * per la polvere. Sopra ci va un rumore a bassa frequenza in coordinate mondo,
+ * così la ripetizione della texture non si legge e ogni tratto ha le sue
+ * macchie. `uRoadWet` (0..1) scurisce e lucida tutto quando piove.
+ */
+function applyRoadWear(material: THREE.MeshStandardMaterial): void {
+  const wet = { value: 0 };
+  (material.userData as { roadWet?: { value: number } }).roadWet = wet;
+
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uRoadWet = wet;
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+varying vec2 vRoadUv;
+varying vec3 vRoadWorld;`,
+      )
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+vRoadUv = uv;
+vRoadWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;`,
+      );
+
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+varying vec2 vRoadUv;
+varying vec3 vRoadWorld;
+uniform float uRoadWet;
+
+// profilo delle due tracce di ruote: gaussiane strette a u = 0.30 e 0.70
+float wheelTracks(float u) {
+  float a = (u - 0.30) / 0.085;
+  float b = (u - 0.70) / 0.085;
+  return clamp(exp(-a * a) + exp(-b * b), 0.0, 1.0);
+}`,
+      )
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+{
+  float tread = wheelTracks(vRoadUv.x);
+  float centre = exp(-pow((vRoadUv.x - 0.5) / 0.14, 2.0));
+  // macchie ogni 20-35 m: coordinate mondo, così non seguono la strada
+  vec2 cell = floor(vRoadWorld.xz * 0.03);
+  float patch = fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453);
+  diffuseColor.rgb *= mix(1.0, 0.78, tread);
+  diffuseColor.rgb *= mix(1.0, 1.05, centre);
+  diffuseColor.rgb *= 0.92 + 0.16 * patch;
+  // bagnato: asfalto scuro, come dopo un temporale
+  diffuseColor.rgb *= mix(1.0, 0.60, uRoadWet);
+}`,
+      )
+      .replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+{
+  // le tracce sono lucide (gomma consumata), il bagnato lucida tutto
+  roughnessFactor = clamp(roughnessFactor - 0.24 * wheelTracks(vRoadUv.x), 0.18, 1.0);
+  roughnessFactor = mix(roughnessFactor, 0.12, uRoadWet);
+}`,
+      );
+  };
+  material.customProgramCacheKey = () => 'road-wear-v1';
+}
+
+/**
  * Strade come nastri drappeggiati sul DEM. Due mesh (asfalto/sterrato) per
  * limitare le draw call, con leggera variazione di tono per non sembrare finto.
  *
@@ -483,6 +558,7 @@ export function buildRoads(
     polygonOffsetFactor: -2,
     polygonOffsetUnits: -2,
   });
+  applyRoadWear(asphaltMat);
   const dirtMat = new THREE.MeshStandardMaterial({
     color: 0xb9a68a,
     vertexColors: true,

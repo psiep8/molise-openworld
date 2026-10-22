@@ -1498,7 +1498,12 @@ export class Game {
       const material = mesh.material as THREE.MeshStandardMaterial | THREE.MeshStandardMaterial[];
       if (Array.isArray(material)) return;
       // la tinta base dell'asfalto non va persa: la si conserva al primo passaggio
-      const store = material.userData as { baseColor?: THREE.Color };
+      const store = material.userData as { baseColor?: THREE.Color; roadWet?: { value: number } };
+      if (store.roadWet) {
+        // l'asfalto si scurisce e si lucida da solo, dentro lo shader di usura
+        store.roadWet.value = target;
+        return;
+      }
       store.baseColor ??= material.color.clone();
       material.roughness = THREE.MathUtils.lerp(0.92, 0.34, target);
       material.color.copy(store.baseColor).multiplyScalar(1 - 0.35 * target);
