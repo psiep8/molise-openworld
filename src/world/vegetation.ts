@@ -9,6 +9,12 @@ import { windTimeUniform } from '../gfx/wind';
 
 const TREE_KINDS = new Set(['wood', 'forest', 'scrub', 'orchard', 'park']);
 const FOLIAGE_COLORS = [0x8ba86a, 0x9cb477, 0xa8bd82, 0x7f9a5f, 0xb2c48e];
+/** Ulivi: fogliame grigio-verde, quello che rende riconoscibile un uliveto. */
+const OLIVE_COLORS = [0x9dab86, 0x8f9d78, 0xa8b492, 0x93a07c];
+/** Cipressi: verde molto scuro, quasi nero contro il cielo. */
+const CYPRESS_COLORS = [0x35502e, 0x2e4629, 0x3d5a34];
+/** Specie: latifoglia (roverella, quercia), ulivo, cipresso. */
+type TreeKind = 'broadleaf' | 'olive' | 'cypress';
 
 /**
  * Alberi istanziati ma non più "a blocchi":
@@ -31,20 +37,29 @@ export function buildVegetation(
   renderer: THREE.WebGLRenderer,
 ): { group: THREE.Group; count: number } {
   const rng = mulberry32(0x5eed);
-  const placements: { x: number; y: number; z: number; s: number; rot: number; color: number }[] = [];
+  const placements: { x: number; y: number; z: number; s: number; rot: number; color: number; kind: TreeKind }[] = [];
 
-  const tryPlace = (px: number, pz: number, minScale = 0.72, maxScale = 1.47, margin = 1.6): boolean => {
+  const tryPlace = (
+    px: number,
+    pz: number,
+    minScale = 0.72,
+    maxScale = 1.47,
+    margin = 1.6,
+    kind: TreeKind = 'broadleaf',
+  ): boolean => {
     if (placements.length >= TREES_MAX) return false;
     if (heights.slopeAt(px, pz) > 34) return false;
     if (roads.isOnRoad(px, pz, margin)) return false;
     if (buildings.resolveCircle(px, pz, 2.6).hit) return false;
+    const palette = kind === 'olive' ? OLIVE_COLORS : kind === 'cypress' ? CYPRESS_COLORS : FOLIAGE_COLORS;
     placements.push({
       x: px,
       y: heights.heightAt(px, pz),
       z: pz,
       s: minScale + rng() * (maxScale - minScale),
       rot: rng() * Math.PI * 2,
-      color: FOLIAGE_COLORS[Math.floor(rng() * FOLIAGE_COLORS.length)],
+      color: palette[Math.floor(rng() * palette.length)],
+      kind,
     });
     return true;
   };
@@ -62,7 +77,9 @@ export function buildVegetation(
         const pz = z + (rng() - 0.5) * step * 0.9;
         if (!pointInPolygon(px, pz, area.points)) continue;
         if (heights.slopeAt(px, pz) > 34) continue;
-        tryPlace(px, pz);
+        // gli uliveti sono ulivi; nei boschi ogni tanto un cipresso isolato
+        const kind: TreeKind = area.kind === 'orchard' ? 'olive' : rng() < 0.05 ? 'cypress' : 'broadleaf';
+        tryPlace(px, pz, 0.72, 1.47, 1.6, kind);
       }
     }
   }
@@ -89,7 +106,8 @@ export function buildVegetation(
       const off = road.width / 2 + 4.2 + rng() * 5.5;
       const px = b.x - tz * side * off;
       const pz = b.z + tx * side * off;
-      tryPlace(px, pz, 0.8, 1.5, 2.2);
+      const kind: TreeKind = rng() < 0.1 ? 'cypress' : 'broadleaf';
+      tryPlace(px, pz, 0.8, 1.5, 2.2, kind);
     }
   }
 
@@ -106,7 +124,8 @@ export function buildVegetation(
       const slope = heights.slopeAt(px, pz);
       if (slope > 33) continue;
       if (slope > 24 && rng() > 0.4) continue;
-      tryPlace(px, pz, 0.75, 1.55, 2.4);
+      const kind: TreeKind = rng() < 0.05 ? 'cypress' : 'broadleaf';
+      tryPlace(px, pz, 0.75, 1.55, 2.4, kind);
     }
   }
 
@@ -114,7 +133,32 @@ export function buildVegetation(
   group.name = 'vegetation';
   if (placements.length === 0) return { group, count: 0 };
 
-  // tronco: conico, 8 lati (abbastanza rotondo da non sembrare un pentagono)
+  // vento condiviso da tutte le chiome: ampiezza crescente con l'altezza
+  const uTime = windTimeUniform();
+  const applyWind = (material: THREE.MeshStandardMaterial, sway: number, cacheKey: string): void => {
+    material.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = uTime;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nuniform float uTime;')
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+        #ifdef USE_INSTANCING
+          vec3 windOrigin = vec3( instanceMatrix[ 3 ][ 0 ], instanceMatrix[ 3 ][ 1 ], instanceMatrix[ 3 ][ 2 ] );
+        #else
+          vec3 windOrigin = vec3( 0.0 );
+        #endif
+        float windPhase = windOrigin.x * 0.35 + windOrigin.z * 0.27;
+        float windHeight = clamp( ( position.y - 1.7 ) / 2.6, 0.0, 1.0 );
+        float windSway = sin( uTime * 1.6 + windPhase ) * 0.17 + sin( uTime * 2.9 + windPhase * 1.7 ) * 0.05;
+        transformed.x += windSway * ${sway.toFixed(3)} * windHeight;
+        transformed.z += windSway * ${(sway * 0.55).toFixed(3)} * windHeight;`,
+        );
+    };
+    material.customProgramCacheKey = () => cacheKey;
+  };
+
+  // ---- latifoglie (roverella, quercia): tronco, nucleo, sei quad di foglie ----
   const trunkGeo = new THREE.CylinderGeometry(0.12, 0.27, 2.4, 8, 2);
   trunkGeo.translate(0, 1.2, 0);
   const trunkMat = new THREE.MeshStandardMaterial({
@@ -125,8 +169,6 @@ export function buildVegetation(
     normalScale: new THREE.Vector2(0.8, 0.8),
     envMapIntensity: 0.4,
   });
-
-  // nucleo scuro della chioma: da lontano tiene la massa, da vicino non si nota
   const coreGeo = new THREE.SphereGeometry(1.3, 8, 6);
   coreGeo.scale(1, 1.18, 1);
   coreGeo.translate(0, 3.35, 0);
@@ -136,8 +178,6 @@ export function buildVegetation(
     metalness: 0,
     envMapIntensity: 0.35,
   });
-
-  // foglie: sei quad incrociati dentro il volume della chioma
   const leafGeo = buildCrownCards();
   const leafMat = new THREE.MeshStandardMaterial({
     ...foliageSet(renderer),
@@ -148,56 +188,87 @@ export function buildVegetation(
     normalScale: new THREE.Vector2(0.6, 0.6),
     envMapIntensity: 0.5,
   });
-  const uTime = windTimeUniform();
-  leafMat.onBeforeCompile = (shader) => {
-    shader.uniforms.uTime = uTime;
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nuniform float uTime;')
-      .replace(
-        '#include <begin_vertex>',
-        `#include <begin_vertex>
-        #ifdef USE_INSTANCING
-          vec3 windOrigin = vec3( instanceMatrix[ 3 ][ 0 ], instanceMatrix[ 3 ][ 1 ], instanceMatrix[ 3 ][ 2 ] );
-        #else
-          vec3 windOrigin = vec3( 0.0 );
-        #endif
-        float windPhase = windOrigin.x * 0.35 + windOrigin.z * 0.27;
-        float windHeight = clamp( ( position.y - 1.7 ) / 2.6, 0.0, 1.0 );
-        float windSway = sin( uTime * 1.6 + windPhase ) * 0.17 + sin( uTime * 2.9 + windPhase * 1.7 ) * 0.05;
-        transformed.x += windSway * windHeight;
-        transformed.z += windSway * 0.55 * windHeight;`,
-      );
-  };
-  leafMat.customProgramCacheKey = () => 'foliage-wind-v1';
+  applyWind(leafMat, 1, 'foliage-wind-v1');
 
-  const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, placements.length);
-  const cores = new THREE.InstancedMesh(coreGeo, coreMat, placements.length);
-  const leaves = new THREE.InstancedMesh(leafGeo, leafMat, placements.length);
-  for (const mesh of [trunks, cores, leaves]) {
-    mesh.castShadow = true;
-    mesh.receiveShadow = false;
-  }
+  // ---- ulivo: tronco corto e nodoso, chioma bassa e larga, fogliame grigio ----
+  const oliveTrunkGeo = new THREE.CylinderGeometry(0.17, 0.36, 1.6, 7, 2);
+  oliveTrunkGeo.translate(0, 0.8, 0);
+  const oliveCoreGeo = new THREE.SphereGeometry(1.5, 8, 6);
+  oliveCoreGeo.scale(1, 0.72, 1);
+  oliveCoreGeo.translate(0, 2.55, 0);
+
+  // ---- cipresso: cono stretto e scuro, il segno del paesaggio molisano ----
+  const cypressParts: THREE.BufferGeometry[] = [];
+  const cypressTrunk = new THREE.CylinderGeometry(0.09, 0.16, 0.9, 6);
+  cypressTrunk.translate(0, 0.45, 0);
+  cypressParts.push(cypressTrunk);
+  const cypressCone = new THREE.ConeGeometry(0.62, 5.6, 9, 4);
+  cypressCone.translate(0, 3.5, 0);
+  cypressParts.push(cypressCone);
+  const cypressGeo = mergeGeometries(cypressParts, false) ?? cypressCone;
+  for (const g of cypressParts) g.dispose();
+  const cypressMat = new THREE.MeshStandardMaterial({
+    color: 0x3a5630,
+    roughness: 1,
+    metalness: 0,
+    normalMap: pbr(renderer, 'bark', { color: false, normal: true, rough: false, repeat: 2 }).normalMap,
+    normalScale: new THREE.Vector2(0.35, 0.35),
+    envMapIntensity: 0.3,
+  });
+  applyWind(cypressMat, 0.35, 'cypress-wind-v1');
+
+  const broadleaf = placements.filter((p) => p.kind === 'broadleaf');
+  const olives = placements.filter((p) => p.kind === 'olive');
+  const cypresses = placements.filter((p) => p.kind === 'cypress');
 
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
-  placements.forEach((p, i) => {
-    dummy.position.set(p.x, p.y - 0.15, p.z);
-    dummy.rotation.set(0, p.rot, 0);
-    dummy.scale.setScalar(p.s);
-    dummy.updateMatrix();
-    trunks.setMatrixAt(i, dummy.matrix);
-    cores.setMatrixAt(i, dummy.matrix);
-    leaves.setMatrixAt(i, dummy.matrix);
-    color.setHex(p.color).multiplyScalar(0.9 + (i % 17) / 90);
-    cores.setColorAt(i, color.clone().multiplyScalar(0.55));
-    leaves.setColorAt(i, color);
-  });
-  for (const mesh of [trunks, cores, leaves]) {
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  }
 
-  group.add(trunks, cores, leaves);
+  /** Riempie le matrici di un gruppo di istanze e restituisce le mesh. */
+  const buildSet = (
+    list: typeof placements,
+    parts: { geo: THREE.BufferGeometry; mat: THREE.Material; core?: boolean; scale?: [number, number, number] }[],
+  ): THREE.InstancedMesh[] => {
+    if (!list.length) return [];
+    const meshes = parts.map((p) => new THREE.InstancedMesh(p.geo, p.mat, list.length));
+    list.forEach((p, i) => {
+      dummy.position.set(p.x, p.y - 0.15, p.z);
+      dummy.rotation.set(0, p.rot, 0);
+      const sc = parts[0].scale ?? [1, 1, 1];
+      dummy.scale.set(p.s * sc[0], p.s * sc[1], p.s * sc[2]);
+      dummy.updateMatrix();
+      meshes.forEach((mesh, k) => {
+        mesh.setMatrixAt(i, dummy.matrix);
+        color.setHex(p.color).multiplyScalar(0.9 + ((i * 7 + k) % 17) / 90);
+        // il nucleo della chioma è sempre più scuro delle foglie
+        if (parts[k].core) color.multiplyScalar(0.55);
+        mesh.setColorAt(i, color);
+      });
+    });
+    for (const mesh of meshes) {
+      mesh.castShadow = true;
+      mesh.receiveShadow = false;
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    }
+    return meshes;
+  };
+
+  const meshes: THREE.InstancedMesh[] = [
+    ...buildSet(broadleaf, [
+      { geo: trunkGeo, mat: trunkMat },
+      { geo: coreGeo, mat: coreMat, core: true },
+      { geo: leafGeo, mat: leafMat },
+    ]),
+    ...buildSet(olives, [
+      { geo: oliveTrunkGeo, mat: trunkMat, scale: [1.08, 1, 1.08] },
+      { geo: oliveCoreGeo, mat: coreMat, core: true, scale: [1.12, 1, 1.12] },
+      { geo: leafGeo, mat: leafMat, scale: [1.15, 0.82, 1.15] },
+    ]),
+    ...buildSet(cypresses, [{ geo: cypressGeo, mat: cypressMat }]),
+  ];
+
+  group.add(...meshes);
   return { group, count: placements.length };
 }
 
