@@ -4,7 +4,7 @@ import { clamp, distance2, smoothstep, type Pt } from './geo/geo';
 import { loadHeightfield, type Heightfield } from './geo/elevation';
 import { BuildingIndex, loadOsm, RoadIndex, type OsmData } from './geo/osm';
 import { ESRI_WORLD_IMAGERY, ImageryStreamer } from './world/imagery';
-import { Terrain } from './world/terrain';
+import { Terrain, setCloudShadow } from './world/terrain';
 import { buildBuildings } from './world/buildings';
 import { buildRoads, buildWater } from './world/roads';
 import { StreetLights, buildSigns, buildStreetProps } from './world/street-furniture';
@@ -1583,6 +1583,8 @@ export class Game {
     const windX = -Math.sin(windRad) * w.windSpeed * 0.08;
     const windZ = -Math.cos(windRad) * w.windSpeed * 0.08;
     this.clouds.update(dt, this.camera, { coverage: cover, windX, windZ, sunElevation: sun.elevation });
+    // ombre delle nuvole sul suolo: solo con cielo coperto e di giorno
+    setCloudShadow(cloud * day, dt, windX, windZ);
     this.precipitation.update(dt, this.camera, { rain, snow, windX, windZ });
 
     // fari accesi quando il sole è basso, strada bagnata con pioggia o neve

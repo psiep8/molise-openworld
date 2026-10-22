@@ -118,13 +118,28 @@ function terrainDetailMap(): THREE.CanvasTexture {
  * coordinate mondo. La modulazione è centrata su 1 (luminanza media), così non
  * cambia il colore medio del satellite, e sfuma con la distanza per non far
  * vedere la ripetizione all'orizzonte.
+ *
+ * Nello stesso shader arrivano le ombre delle nuvole: un rumore largo che scorre
+ * col vento e scurisce il suolo a chiazze, come succede davvero quando passano.
  */
+export const cloudShadowUniform = { value: 0 };
+export const cloudDriftUniform = { value: new THREE.Vector2(0, 0) };
+
+/** `amount` = copertura nuvolosa di giorno (0..1); il drift segue il vento. */
+export function setCloudShadow(amount: number, dt: number, windX: number, windZ: number): void {
+  cloudShadowUniform.value = Math.min(1, Math.max(0, amount));
+  cloudDriftUniform.value.x += windX * dt * 0.0025;
+  cloudDriftUniform.value.y += windZ * dt * 0.0025;
+}
+
 function applyTerrainDetail(material: THREE.MeshStandardMaterial, renderer: THREE.WebGLRenderer): void {
   const grass = pbrColor(renderer, 'grass');
   const rock = pbrColor(renderer, 'rock');
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uDetailGrass = { value: grass };
     shader.uniforms.uDetailRock = { value: rock };
+    shader.uniforms.uCloudShadow = cloudShadowUniform;
+    shader.uniforms.uCloudDrift = cloudDriftUniform;
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
@@ -137,7 +152,27 @@ function applyTerrainDetail(material: THREE.MeshStandardMaterial, renderer: THRE
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
-        '#include <common>\nvarying vec3 vDetailWorld;\nvarying vec3 vDetailNormal;\nuniform sampler2D uDetailGrass;\nuniform sampler2D uDetailRock;',
+        `#include <common>
+varying vec3 vDetailWorld;
+varying vec3 vDetailNormal;
+uniform sampler2D uDetailGrass;
+uniform sampler2D uDetailRock;
+uniform float uCloudShadow;
+uniform vec2 uCloudDrift;
+
+float cloudHash( vec2 p ) {
+  return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 );
+}
+float cloudNoise( vec2 p ) {
+  vec2 i = floor( p );
+  vec2 f = fract( p );
+  f = f * f * ( 3.0 - 2.0 * f );
+  float a = cloudHash( i );
+  float b = cloudHash( i + vec2( 1.0, 0.0 ) );
+  float c = cloudHash( i + vec2( 0.0, 1.0 ) );
+  float d = cloudHash( i + vec2( 1.0, 1.0 ) );
+  return mix( mix( a, b, f.x ), mix( c, d, f.x ), f.y );
+}`,
       )
       .replace(
         '#include <map_fragment>',
@@ -155,10 +190,17 @@ function applyTerrainDetail(material: THREE.MeshStandardMaterial, renderer: THRE
           float mod = 1.0 + ( lum - 0.34 ) * 1.3;
           float nearFade = 1.0 - smoothstep( 10.0, 40.0, detailDist );
           diffuseColor.rgb *= mix( 1.0, mod, ( 0.45 + 0.3 * nearFade ) * detailFade );
+        }
+        // ombre delle nuvole: due rumori sovrapposti che scorrono col vento
+        if ( uCloudShadow > 0.01 ) {
+          vec2 cp = vDetailWorld.xz * 0.0016 + uCloudDrift;
+          float n = cloudNoise( cp ) * 0.65 + cloudNoise( cp * 2.7 + 13.0 ) * 0.35;
+          float shade = smoothstep( 0.42, 0.78, n );
+          diffuseColor.rgb *= 1.0 - 0.34 * uCloudShadow * shade;
         }`,
       );
   };
-  material.customProgramCacheKey = () => 'terrain-detail-v1';
+  material.customProgramCacheKey = () => 'terrain-detail-v2';
 }
 
 /**
