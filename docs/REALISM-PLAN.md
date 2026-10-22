@@ -325,6 +325,29 @@ Legenda stato: **fatto** = nel codice e verificato con `npm test` + `npm run bui
 Da verificare in un browser vero: che la frenata accenda i fanalini anche di giorno
 e che in retromarcia il colore viri al bianco senza sfarfallare.
 
+### 23 ottobre 2026 — sessione "tutto reale" (strade, facciate, paesaggio, veicoli, alberi)
+
+Tutto quello che segue è nel codice e verificato con `npm test` (155/155) e
+`npm run build`. Non è ancora stato guardato in un browser su GPU vera: per il
+registro vale quindi **fatto nel codice**, **da verificare a schermo**.
+
+| Voce | Stato | Note |
+| --- | --- | --- |
+| Usura dell'asfalto nello shader: tracce delle ruote a u = 0,30 e 0,70 (più scure e più lisce), centro corsia più chiaro, macchie a bassa frequenza in coordinate mondo | fatto | `applyRoadWear` in `src/world/roads.ts`, agganciata a `<map_fragment>` e `<roughnessmap_fragment>` |
+| Asfalto bagnato guidato dal meteo: scurisce e lucida (roughness → 0,12) con la pioggia | fatto | uniform `uRoadWet`; `applyWetness` in `src/game.ts` lo pilota insieme alle altre superfici |
+| Chiusini in ghisa al centro corsia e caditoie a filo cordolo, lungo tutte le strade asfaltate | fatto | `buildRoadDrainage` in `src/world/street-furniture.ts`; due `InstancedMesh`, texture a cerchi concentrici |
+| Famiglie di facciata: intonaco chiaro, intonaco tinteggiato, pietra a vista, mattoni; una mesh per famiglia | fatto | `src/world/buildings.ts` (`facadeFamily`, `wallMats`), tinte dedicate in `STONE_COLORS`/`BRICK_COLORS` |
+| Texture PBR CC0 nuove: `stonewall` (rustic_stone_wall), `brick` (worn_brick_wall), `plaster2` (painted_plaster_wall) | fatto | `scripts/fetch-textures.mjs` + `public/textures/ATTRIBUTION.md` |
+| Ombre delle nuvole sul terreno: rumore largo che scorre col vento, pilotato dalla copertura nuvolosa diurna | fatto | `setCloudShadow` in `src/world/terrain.ts`, chiamata da `applyAtmosphere` |
+| Alberi per specie: ulivi negli uliveti (`orchard`), cipressi nei filari e sparsi nei boschi, latifoglie altrove | fatto | `src/world/vegetation.ts`; tre insiemi di istanze, vento condiviso anche per i cipressi |
+| Veicoli: battistrada come `bumpMap`, disco freno dietro le razze, terminale di scarico cromato | fatto | `src/entities/vehicle.ts` (`treadTexture`, `wheelAt`) |
+| Fanalini posteriori: più intensi in frenata, bianchi in retromarcia | fatto | `src/entities/vehicle.ts`, `update()` |
+
+Da verificare a schermo, in ordine di rischio: che l'usura dell'asfalto non
+sballi la luminosità di giorno; che i chiusini non affiorino sopra il manto nei
+punti dove il nastro è più alto; che il cono del cipresso non sembri troppo
+regolare da vicino.
+
 ### Prossimi passi (in ordine)
 
 1. **Veicoli** (Fase 1): loader GLB con fallback procedurale, ruote con `LatheGeometry`, vetri, luci freno/retromarcia. Oggi sono l'unica area ancora "a scatole".
