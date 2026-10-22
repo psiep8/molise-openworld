@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { createCarState, speedKmh, stepCar, type CarInput, type CarState } from '../sim/car';
 import { VEHICLES, getVehicle, loadPaintFor, tuningFor, type VehicleSpec } from '../sim/vehicle-catalog';
 import type { Heightfield } from '../geo/elevation';
@@ -31,6 +32,8 @@ export class Vehicle {
   private tiltPitch = 0;
   private tiltRoll = 0;
   private wheelSpin = 0;
+  /** Quanto i nastri stradali stanno sopra il terreno (m). */
+  private surfaceLift = 0;
 
   constructor(spec: VehicleSpec = VEHICLES[0]) {
     this.group = new THREE.Group();
@@ -98,20 +101,32 @@ export class Vehicle {
     const halfLength = spec.length / 2;
     const halfWidth = spec.width / 2;
     const ride = spec.style === 'suv' ? 0.5 : spec.style === 'crossover' ? 0.46 : 0.4;
-    const bodyY = ride + spec.height * 0.22;
+    const bodyH = spec.height * 0.34;
+    const bodyY = ride + bodyH * 0.55;
 
+    // Vernice da auto vera: metallizzato + clearcoat, ambiente riflesso
     const paint = this.material({
       color: loadPaintFor(spec.id, spec.paint),
-      roughness: 0.42,
-      metalness: 0.25,
+      roughness: 0.32,
+      metalness: 0.6,
       clearcoat: 1,
-      clearcoatRoughness: 0.06,
+      clearcoatRoughness: 0.035,
+      envMapIntensity: 1.2,
     });
     this.paintMat = paint;
-    const trim = this.material({ color: spec.accent, roughness: 0.82, metalness: 0.1, clearcoat: 0.4, clearcoatRoughness: 0.25 });
+    const trim = this.material({ color: spec.accent, roughness: 0.72, metalness: 0.25, clearcoat: 0.6, clearcoatRoughness: 0.25 });
+    const plastic = this.material({ color: 0x1a1c1e, roughness: 0.92, metalness: 0.05 });
+    const chrome = this.material({ color: 0xd8dcdf, roughness: 0.2, metalness: 1, clearcoat: 0.9, clearcoatRoughness: 0.08, envMapIntensity: 1.4 });
     // Vetro: trasparenza classica (la `transmission` fisica costa un pass extra
     // di scena e senza environment map risulta sporca).
-    const glass = this.material({ color: 0x22323d, roughness: 0.08, metalness: 0.55, transparent: true, opacity: 0.78 });
+    const glass = this.material({
+      color: 0x0d1a22,
+      roughness: 0.04,
+      metalness: 0.9,
+      transparent: true,
+      opacity: 0.84,
+      envMapIntensity: 1.7,
+    });
     const lamp = this.material({
       color: 0xfff3d0,
       emissive: 0xffe6a8,
@@ -131,74 +146,86 @@ export class Vehicle {
     this.lampMat = lamp;
     this.tailMat = tail;
 
-    // scocca
-    this.mesh(this.bodyGroup, new THREE.BoxGeometry(spec.width * 0.98, spec.height * 0.24, spec.length * 0.98), paint, 0, bodyY, 0);
-    this.mesh(this.bodyGroup, new THREE.BoxGeometry(spec.width, spec.height * 0.16, spec.length * 0.96), trim, 0, bodyY - spec.height * 0.17, 0);
+    const rounded = (w: number, h: number, d: number, radius: number): RoundedBoxGeometry =>
+      new RoundedBoxGeometry(w, h, d, 2, Math.min(radius, Math.min(w, h, d) * 0.45));
 
-    // abitacolo
-    const cabinLength = spec.length * (spec.roof === 'boxy' ? 0.58 : 0.5);
-    const cabinHeight = spec.height * (spec.roof === 'boxy' ? 0.4 : 0.34);
-    const cabinZ = spec.style === 'trike' ? 0.12 : 0.06;
-    const cabin = this.mesh(
+    // scocca: volume arrotondato + spalla, non un cubo
+    this.mesh(this.bodyGroup, rounded(spec.width * 0.99, bodyH, spec.length * 0.97, 0.12), paint, 0, bodyY, 0);
+    this.mesh(this.bodyGroup, rounded(spec.width * 0.95, bodyH * 0.55, spec.length * 0.9, 0.08), paint, 0, bodyY + bodyH * 0.42, 0);
+
+    // cofano e baule: due volumi bassi che danno la scaletta della berlina
+    this.mesh(this.bodyGroup, rounded(spec.width * 0.9, bodyH * 0.5, spec.length * 0.26, 0.06), paint, 0, bodyY + bodyH * 0.34, -halfLength * 0.64);
+    this.mesh(this.bodyGroup, rounded(spec.width * 0.9, bodyH * 0.5, spec.length * 0.2, 0.06), paint, 0, bodyY + bodyH * 0.34, halfLength * 0.68);
+
+    // minigonne e sottoscocca neri: la carrozzeria non "galleggia" più
+    this.mesh(this.bodyGroup, rounded(spec.width * 1.0, bodyH * 0.28, spec.length * 0.82, 0.05), plastic, 0, ride + bodyH * 0.12, 0);
+
+    // abitacolo: vetro arrotondato, montanti e tetto lo spezzano in superfici
+    const cabinLength = spec.length * (spec.roof === 'boxy' ? 0.56 : 0.48);
+    const cabinHeight = spec.height * (spec.roof === 'boxy' ? 0.36 : 0.31);
+    const cabinZ = spec.style === 'trike' ? 0.12 : 0.02;
+    const cabinX = wheelbaseOffset(spec) * 0.1;
+    const cabinY = bodyY + bodyH * 0.42 + cabinHeight * 0.5;
+    this.mesh(
       this.bodyGroup,
-      new THREE.BoxGeometry(spec.width * 0.9, cabinHeight, cabinLength),
+      rounded(spec.width * 0.88, cabinHeight, cabinLength, 0.14),
       glass,
-      wheelbaseOffset(spec) * 0.12,
-      bodyY + spec.height * 0.2,
+      cabinX,
+      cabinY,
       cabinZ,
       false,
     );
-    if (spec.roof === 'sloped') cabin.rotation.x = -0.06;
 
-    // tetto
-    this.mesh(
-      this.bodyGroup,
-      new THREE.BoxGeometry(spec.width * 0.84, 0.07, cabinLength * 0.96),
-      paint,
-      cabin.position.x,
-      bodyY + spec.height * 0.2 + cabinHeight / 2,
-      cabinZ,
-    );
-
-    // paraurti e minigonne
-    this.mesh(this.bodyGroup, new THREE.BoxGeometry(spec.width * 1.01, spec.height * 0.13, 0.18), trim, 0, bodyY - spec.height * 0.09, -halfLength + 0.05);
-    this.mesh(this.bodyGroup, new THREE.BoxGeometry(spec.width * 1.01, spec.height * 0.13, 0.18), trim, 0, bodyY - spec.height * 0.09, halfLength - 0.05);
-
-    // fari e fanali
+    const roofY = cabinY + cabinHeight / 2;
+    this.mesh(this.bodyGroup, rounded(spec.width * 0.82, 0.07, cabinLength * 0.95, 0.03), paint, cabinX, roofY, cabinZ);
     for (const side of [-1, 1]) {
-      this.mesh(this.bodyGroup, new THREE.BoxGeometry(0.3, 0.14, 0.05), lamp, side * halfWidth * 0.62, bodyY + 0.06, -halfLength + 0.03, false);
-      this.mesh(this.bodyGroup, new THREE.BoxGeometry(0.24, 0.16, 0.05), tail, side * halfWidth * 0.66, bodyY + 0.05, halfLength - 0.03, false);
+      this.mesh(this.bodyGroup, rounded(0.07, cabinHeight * 1.02, 0.1, 0.02), paint, cabinX + side * spec.width * 0.42, cabinY, cabinZ - cabinLength * 0.42);
+      this.mesh(this.bodyGroup, rounded(0.07, cabinHeight * 1.02, 0.1, 0.02), paint, cabinX + side * spec.width * 0.42, cabinY, cabinZ + cabinLength * 0.42);
+    }
+
+    // paraurti in plastica, calandra e targa
+    this.mesh(this.bodyGroup, rounded(spec.width * 1.0, bodyH * 0.42, 0.2, 0.06), plastic, 0, bodyY - bodyH * 0.32, -halfLength + 0.06);
+    this.mesh(this.bodyGroup, rounded(spec.width * 1.0, bodyH * 0.42, 0.2, 0.06), plastic, 0, bodyY - bodyH * 0.32, halfLength - 0.06);
+    this.mesh(this.bodyGroup, rounded(spec.width * 0.46, bodyH * 0.34, 0.05, 0.02), plastic, 0, bodyY + bodyH * 0.1, -halfLength + 0.03, false);
+    this.mesh(this.bodyGroup, new THREE.BoxGeometry(spec.width * 0.34, 0.02, 0.03), chrome, 0, bodyY + bodyH * 0.22, -halfLength + 0.05, false);
+    this.mesh(this.bodyGroup, new THREE.BoxGeometry(0.44, 0.11, 0.02), chrome, 0, bodyY - bodyH * 0.2, halfLength - 0.02, false);
+
+    // labbro anteriore e diffusore posteriore nel colore d'accento
+    this.mesh(this.bodyGroup, rounded(spec.width * 0.92, bodyH * 0.12, 0.06, 0.02), trim, 0, bodyY - bodyH * 0.5, -halfLength + 0.02, false);
+    this.mesh(this.bodyGroup, rounded(spec.width * 0.92, bodyH * 0.12, 0.06, 0.02), trim, 0, bodyY - bodyH * 0.5, halfLength - 0.02, false);
+
+    // fari affusolati, striscia LED, specchietti e maniglie
+    for (const side of [-1, 1]) {
+      this.mesh(this.bodyGroup, rounded(0.32, 0.1, 0.07, 0.03), lamp, side * halfWidth * 0.56, bodyY + bodyH * 0.34, -halfLength + 0.04, false);
+      this.mesh(this.bodyGroup, new THREE.BoxGeometry(0.26, 0.02, 0.03), lamp, side * halfWidth * 0.56, bodyY + bodyH * 0.25, -halfLength + 0.03, false);
+      this.mesh(this.bodyGroup, rounded(0.3, 0.09, 0.06, 0.025), tail, side * halfWidth * 0.58, bodyY + bodyH * 0.32, halfLength - 0.04, false);
+      this.mesh(this.bodyGroup, rounded(0.12, 0.07, 0.06, 0.02), paint, side * (spec.width * 0.5 + 0.02), cabinY - 0.05, cabinZ - cabinLength * 0.4, false);
+      this.mesh(this.bodyGroup, new THREE.BoxGeometry(0.02, 0.03, 0.14), chrome, side * spec.width * 0.49, bodyY + bodyH * 0.15, cabinZ + 0.1, false);
     }
 
     // dettagli di carrozzeria
     if (spec.style === 'suv' || spec.style === 'crossover') {
-      // barre sul tetto
-      const roofY = bodyY + spec.height * 0.2 + cabinHeight / 2 + 0.09;
+      const rails = roofY + 0.06;
       for (const side of [-1, 1]) {
-        this.mesh(this.bodyGroup, new THREE.BoxGeometry(0.05, 0.05, cabinLength * 0.8), trim, side * spec.width * 0.3, roofY, cabinZ);
+        this.mesh(this.bodyGroup, rounded(0.05, 0.05, cabinLength * 0.8, 0.02), chrome, cabinX + side * spec.width * 0.3, rails, cabinZ);
       }
     }
     if (spec.style === 'trike') {
-      // muso stretto: due carenature anteriori
-      this.mesh(this.bodyGroup, new THREE.BoxGeometry(0.5, 0.3, 0.5), paint, 0, bodyY - 0.05, -halfLength + 0.25);
+      this.mesh(this.bodyGroup, rounded(0.5, bodyH * 0.8, 0.55, 0.08), paint, 0, bodyY - bodyH * 0.1, -halfLength + 0.28);
     }
 
-    // ruote
-    const wheelGeo = new THREE.CylinderGeometry(spec.wheelRadius, spec.wheelRadius, 0.22, 16);
-    wheelGeo.rotateZ(Math.PI / 2);
-    const hubGeo = new THREE.CylinderGeometry(spec.wheelRadius * 0.48, spec.wheelRadius * 0.48, 0.24, 12);
-    hubGeo.rotateZ(Math.PI / 2);
-    const rubber = this.material({ color: 0x141618, roughness: 0.96, metalness: 0.05, clearcoat: 0.2, clearcoatRoughness: 0.4 });
-    const hub = this.material({ color: 0x9aa0a4, roughness: 0.35, metalness: 0.75, clearcoat: 0.6, clearcoatRoughness: 0.15 });
+    // ruote: toro per la gomma, disco e razze per il cerchio
+    const rubber = this.material({ color: 0x121416, roughness: 0.95, metalness: 0.05, clearcoat: 0.25, clearcoatRoughness: 0.5 });
+    const hub = this.material({ color: 0xb9bec2, roughness: 0.28, metalness: 0.9, clearcoat: 0.8, clearcoatRoughness: 0.1, envMapIntensity: 1.3 });
 
     const frontZ = -spec.wheelbase / 2;
     const rearZ = spec.wheelbase / 2;
     const frontX = spec.wheelLayout === 'three' ? [0] : [-1, 1];
     for (const side of frontX) {
-      this.wheel(wheelGeo, hubGeo, rubber, hub, side * spec.track * 0.5, spec.wheelRadius, frontZ, true);
+      this.wheelAt(side * spec.track * 0.5, spec.wheelRadius, frontZ, true, rubber, hub);
     }
     for (const side of [-1, 1]) {
-      this.wheel(wheelGeo, hubGeo, rubber, hub, side * spec.track * 0.5, spec.wheelRadius, rearZ, false);
+      this.wheelAt(side * spec.track * 0.5, spec.wheelRadius, rearZ, false, rubber, hub);
     }
 
     // fari veri (due spot, niente ombre)
@@ -213,21 +240,44 @@ export class Vehicle {
     }
   }
 
-  private wheel(
-    wheelGeo: THREE.BufferGeometry,
-    hubGeo: THREE.BufferGeometry,
-    rubber: THREE.Material,
-    hub: THREE.Material,
+  private wheelAt(
     x: number,
     y: number,
     z: number,
     steerable: boolean,
+    rubber: THREE.Material,
+    hub: THREE.Material,
   ): void {
+    const radius = this.spec.wheelRadius;
+    const width = 0.22;
+
     const pivot = new THREE.Group();
     pivot.position.set(x, y, z);
-    const wheel = new THREE.Mesh(this.track(wheelGeo), rubber);
-    wheel.castShadow = true;
-    wheel.add(new THREE.Mesh(this.track(hubGeo), hub));
+
+    // gomma con profilo tondo (toro) e spalla piena, cerchio a razze
+    const wheel = new THREE.Group();
+    const tire = new THREE.TorusGeometry(radius * 0.78, radius * 0.22, 10, 24);
+    tire.rotateY(Math.PI / 2);
+    const tireMesh = new THREE.Mesh(this.track(tire), rubber);
+    tireMesh.castShadow = true;
+    wheel.add(tireMesh);
+
+    const wall = new THREE.CylinderGeometry(radius * 0.78, radius * 0.78, width * 0.9, 20);
+    wall.rotateZ(Math.PI / 2);
+    wheel.add(new THREE.Mesh(this.track(wall), rubber));
+
+    const rim = new THREE.CylinderGeometry(radius * 0.5, radius * 0.5, width * 0.95, 18);
+    rim.rotateZ(Math.PI / 2);
+    wheel.add(new THREE.Mesh(this.track(rim), hub));
+
+    const spoke = new THREE.BoxGeometry(width * 0.45, radius * 0.86, radius * 0.1);
+    for (let i = 0; i < 5; i++) {
+      const piece = new THREE.Mesh(this.track(spoke.clone()), hub);
+      piece.rotation.x = (i / 5) * Math.PI * 2;
+      wheel.add(piece);
+    }
+    spoke.dispose();
+
     pivot.add(wheel);
     this.group.add(pivot);
     this.wheels.push(wheel);
@@ -323,7 +373,12 @@ export class Vehicle {
     this.tiltPitch += (targetPitch - this.tiltPitch) * k;
     this.tiltRoll += (targetRoll - this.tiltRoll) * k;
 
-    this.group.position.set(next.x, groundY, next.z);
+    // l'asfalto è drappeggiato ~20 cm sopra il DEM: senza questo offset le ruote
+    // finivano sotto il manto stradale
+    const targetLift = onRoad ? 0.205 : 0;
+    this.surfaceLift += (targetLift - this.surfaceLift) * k;
+
+    this.group.position.set(next.x, groundY + this.surfaceLift, next.z);
     this.group.rotation.set(this.tiltPitch, next.yaw, this.tiltRoll);
 
     const steerAngle = next.steer * spec.maxSteer * 0.95;

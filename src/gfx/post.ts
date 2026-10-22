@@ -29,7 +29,9 @@ export class PostPipeline {
   ) {
     this.composer = new EffectComposer(renderer);
     this.composer.addPass(new RenderPass(scene, camera));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), bloomStrength, 0.4, 1.0);
+    // threshold alto: il bloom deve accendersi solo sui riflessi del sole, non
+    // sul cielo (con soglia 1.0 il cielo intero diventava un velo bianco)
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), bloomStrength, 0.28, 2.2);
     this.composer.addPass(this.bloom);
 
     // SSAO: raggio in metri, distanze normalizzate; pochi campioni per restare leggero

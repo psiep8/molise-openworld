@@ -97,6 +97,16 @@ toccare le texture, ricontrollare l'esposizione con una cattura alla stessa ora.
 > una volta (rete necessaria); senza file il gioco resta giocabile con i colori di
 > fallback.
 
+**Velo bianco con la qualità alta (22/10/2026).** Il colpevole non erano le texture: con
+`UnrealBloomPass` a soglia 1.0 il cielo finiva nel bloom e ai preset `high`/`ultra`
+l'immagine si copriva di un velo bianco (confermato disattivando la pass dal vivo). Ora la
+soglia è 2.2, il raggio 0.28 e le intensità sono 0.075/0.11: si accendono solo i riflessi.
+Insieme: le ruote non affondano più nell'asfalto (la carrozzeria sale di 0.205 m quando è
+su strada), le auto hanno volume arrotondato con cerchi a razze, le case uno zoccolo in
+pietra, le strade il tratteggio di mezzeria e i marciapiedi una tinta grigia invece che
+sabbia. Se ricompare un'immagine "lattea", controllare prima bloom e `toneMappingExposure`,
+non i materiali.
+
 ---
 
 ## 3. Avvio e comandi

@@ -97,6 +97,29 @@ function pushRuns(
   flush();
 }
 
+/**
+ * Tratteggio al centro della carreggiata: di ogni tratto disegna solo il 45%
+ * centrale, così la linea si interrompe come sull'asfalto vero.
+ */
+function pushDashes(
+  target: RibbonArrays,
+  pts: Pt[],
+  width: number,
+  lift: number,
+  color: THREE.Color,
+  heights: Heightfield,
+): void {
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    const dash: Pt[] = [
+      { x: a.x + (b.x - a.x) * 0.28, z: a.z + (b.z - a.z) * 0.28 },
+      { x: a.x + (b.x - a.x) * 0.72, z: a.z + (b.z - a.z) * 0.72 },
+    ];
+    pushRibbon(target, dash, width, lift, color, heights, 1);
+  }
+}
+
 /** Sposta una polilinea di `offset` metri lungo la perpendicolare (negativo = sinistra). */
 function offsetPolyline(points: Pt[], offset: number): Pt[] {
   const out: Pt[] = [];
@@ -186,9 +209,11 @@ export function buildRoads(
   const asphalt = emptyRibbon();
   const dirt = emptyRibbon();
   const pavement = emptyRibbon();
+  const markings = emptyRibbon();
   const asphaltColor = new THREE.Color(0xffffff);
   const dirtColor = new THREE.Color(0xf6efe6);
-  const pavementColor = new THREE.Color(0xc8c3ba);
+  const pavementColor = new THREE.Color(0x8b9294);
+  const markingColor = new THREE.Color(0xf4f2e8);
 
   osm.roads.forEach((road, idx) => {
     // angoli smussati prima di drappeggiare: le cuspidi nei nastri si vedono
@@ -200,6 +225,10 @@ export function buildRoads(
     // micro offset per evitare z-fighting negli incroci
     const lift = (isDirt ? 0.12 : 0.2) + (idx % 7) * 0.004;
     pushRibbon(target, pts, road.width, lift, color, heights, 1);
+    // tratteggio di mezzeria sulle carreggiate larghe
+    if (!isDirt && road.width >= 5.4) {
+      pushDashes(markings, pts, 0.14, lift + 0.012, markingColor, heights);
+    }
 
     // Solo le strade asfaltate hanno marciapiede e cordolo: le sterrate no.
     if (isDirt) return;
@@ -276,6 +305,20 @@ export function buildRoads(
   if (pavement.indices.length) {
     const mesh = new THREE.Mesh(toGeometry(pavement), pavementMat);
     mesh.name = 'sidewalks';
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+  if (markings.indices.length) {
+    const markingMat = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.9,
+      metalness: 0,
+      polygonOffset: true,
+      polygonOffsetFactor: -4,
+      polygonOffsetUnits: -4,
+    });
+    const mesh = new THREE.Mesh(toGeometry(markings), markingMat);
+    mesh.name = 'road-markings';
     mesh.receiveShadow = true;
     group.add(mesh);
   }

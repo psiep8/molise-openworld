@@ -7,11 +7,11 @@ import { windTimeUniform } from '../gfx/wind';
 
 /** Raggio del tappeto d'erba intorno al giocatore (m). */
 const RADIUS = 46;
-const MAX_TUFTS = 5200;
+const MAX_TUFTS = 26000;
 /** Oltre questa distanza il campo viene ricostruito. */
 const REBUILD_DISTANCE = 16;
 /** Altezza del ciuffo in metri: la geometria base è alta 0,6. */
-const TUFT_HEIGHT = 0.6;
+const TUFT_HEIGHT = 0.22;
 
 /**
  * Erba a ciuffi.
@@ -99,7 +99,7 @@ export class GrassField {
     ctx.clearRect(0, 0, size, size);
     const rng = mulberry32(0x9a55);
 
-    const blades = 26;
+    const blades = 42;
     for (let i = 0; i < blades; i++) {
       const baseX = 8 + rng() * (size - 16);
       const baseY = size - 2;
@@ -111,11 +111,11 @@ export class GrassField {
       const ctrlY = baseY - height * 0.55;
 
       // verde con variazione di luminosità e punta più chiara
-      const hue = 78 + rng() * 24;
-      const light = 24 + rng() * 22;
+      const hue = 80 + rng() * 22;
+      const light = 22 + rng() * 18;
       ctx.strokeStyle = `hsl(${hue.toFixed(0)} 38% ${light.toFixed(0)}%)`;
       ctx.lineCap = 'round';
-      ctx.lineWidth = 2.6 + rng() * 2.4;
+      ctx.lineWidth = 1.2 + rng() * 1.4;
       ctx.beginPath();
       ctx.moveTo(baseX, baseY);
       ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY);
@@ -185,7 +185,7 @@ export class GrassField {
     const rng = mulberry32(Math.round(x * 31 + z * 17) | 1);
     const dummy = new THREE.Object3D();
     const color = new THREE.Color();
-    const palette = [0x93ae6d, 0xa4bd7b, 0x86a266, 0xb0c68c, 0x9cb473];
+    const palette = [0x74855a, 0x7d8f60, 0x6b7c52, 0x889a6a, 0x798a5c];
 
     const mesh = new THREE.InstancedMesh(this.geometry, this.material, target);
     mesh.castShadow = false;
@@ -202,16 +202,18 @@ export class GrassField {
       const pz = z + Math.sin(angle) * radius;
       if (heights.slopeAt(px, pz) > 30) continue;
       if (roads.isOnRoad(px, pz, 1.1)) continue;
-      if (buildings.near(px, pz).length > 0) continue;
+      // `near()` restituisce tutto ciò che sta nella cella: in paese bocciava
+      // ogni ciuffo e il prato restava a zero istanze. Qui serve il test vero.
+      if (buildings.resolveCircle(px, pz, 0.35).hit) continue;
 
       const py = heights.heightAt(px, pz);
       dummy.position.set(px, py - 0.02, pz);
       dummy.rotation.set(0, rng() * Math.PI, 0);
-      const scale = 0.75 + rng() * 0.8;
+      const scale = 0.55 + rng() * 0.5;
       dummy.scale.set(scale, scale * (0.8 + rng() * 0.65), scale);
       dummy.updateMatrix();
       mesh.setMatrixAt(placed, dummy.matrix);
-      color.setHex(palette[Math.floor(rng() * palette.length)]).multiplyScalar(0.85 + rng() * 0.3);
+      color.setHex(palette[Math.floor(rng() * palette.length)]).multiplyScalar(0.92 + rng() * 0.16);
       mesh.setColorAt(placed, color);
       placed++;
     }

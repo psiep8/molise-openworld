@@ -238,7 +238,7 @@ export class Game {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.92;
+    this.renderer.toneMappingExposure = 0.88;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
 
@@ -1403,7 +1403,7 @@ export class Game {
     this.sky.setSun(DEFAULT_SUN.elevation, DEFAULT_SUN.theta);
     this.sky.setSkyParams(DEFAULT_SKY);
     this.sky.setLighting(DEFAULT_LIGHTING);
-    this.renderer.toneMappingExposure = 0.92;
+    this.renderer.toneMappingExposure = 0.88;
     this.scene.fog = new THREE.Fog(0xccd8dd, 1100, 4200);
     this.scene.background = new THREE.Color(0xccd8dd);
     this.clouds?.setVisible(false);
@@ -1524,7 +1524,7 @@ export class Game {
       this.scene.fog.far = fogFar;
     }
     this.scene.background = this.fogColor;
-    this.renderer.toneMappingExposure = 0.92 - (1 - day) * 0.12 + cloud * 0.02;
+    this.renderer.toneMappingExposure = 0.88 - (1 - day) * 0.12 + cloud * 0.02;
 
     const windRad = THREE.MathUtils.degToRad(w.windDirection);
     const windX = -Math.sin(windRad) * w.windSpeed * 0.08;

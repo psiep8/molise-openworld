@@ -92,7 +92,11 @@ function buildHipGeometry(plan: HipRoofPlan, tile = 2.7): THREE.BufferGeometry {
   return geometry;
 }
 
-function buildOne(b: Building, heights: Heightfield, seed: number): { wall: THREE.BufferGeometry; roof: THREE.BufferGeometry } {
+function buildOne(
+  b: Building,
+  heights: Heightfield,
+  seed: number,
+): { wall: THREE.BufferGeometry; roof: THREE.BufferGeometry; base: THREE.BufferGeometry } {
   const c = centroid(b.points);
   const base = heights.heightAt(c.x, c.z) - 0.7;
   const shape = new THREE.Shape(b.points.map((p) => new THREE.Vector2(p.x, -p.z)));
@@ -133,7 +137,19 @@ function buildOne(b: Building, heights: Heightfield, seed: number): { wall: THRE
   applyColor(wall, wallColor);
   applyColor(roof, roofColor);
 
-  return { wall, roof };
+  // zoccolo in pietra: fascia di ~0,5 m sopra il terreno, leggermente a sporto.
+  // Senza, le case sembrano scatole appoggiate sull'erba.
+  const plinth = b.points.map((p) => ({
+    x: c.x + (p.x - c.x) * 1.02,
+    z: c.z + (p.z - c.z) * 1.02,
+  }));
+  const plinthShape = new THREE.Shape(plinth.map((p) => new THREE.Vector2(p.x, -p.z)));
+  const plinthGeo = new THREE.ExtrudeGeometry(plinthShape, { depth: 1.15, bevelEnabled: false, steps: 1 });
+  plinthGeo.rotateX(-Math.PI / 2);
+  plinthGeo.translate(0, base, 0);
+  applyColor(plinthGeo, new THREE.Color(0x8f8579).multiplyScalar(0.9 + (hashInt(seed, 13) % 60) / 400));
+
+  return { wall, roof, base: plinthGeo };
 }
 
 /**
@@ -149,6 +165,7 @@ export function buildBuildings(
   group.name = 'buildings';
   const walls: THREE.BufferGeometry[] = [];
   const roofs: THREE.BufferGeometry[] = [];
+  const bases: THREE.BufferGeometry[] = [];
 
   osm.buildings.forEach((b, i) => {
     if (b.points.length < 3 || b.area < 6) return;
@@ -156,6 +173,7 @@ export function buildBuildings(
       const out = buildOne(b, heights, i * 31 + Math.round(b.height * 10));
       walls.push(out.wall);
       roofs.push(out.roof);
+      bases.push(out.base);
     } catch {
       // geometria degenere: la saltiamo
     }
@@ -206,9 +224,23 @@ export function buildBuildings(
       group.add(mesh);
     }
   }
+  if (bases.length) {
+    const merged = mergeGeometries(bases, false);
+    if (merged) {
+      const mesh = new THREE.Mesh(
+        merged,
+        new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.96, metalness: 0, envMapIntensity: 0.3 }),
+      );
+      mesh.name = 'plinths';
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      group.add(mesh);
+    }
+  }
 
   for (const g of walls) g.dispose();
   for (const g of roofs) g.dispose();
+  for (const g of bases) g.dispose();
 
   return { group, count: walls.length };
 }
