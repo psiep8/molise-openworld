@@ -35,6 +35,19 @@ function facadeFamily(area: number, seed: number): FacadeFamily {
   if (h < 92) return 'stone';
   return 'brick';
 }
+
+/**
+ * Quanto sono accese le finestre: 0 di giorno, 1 a notte piena. Il materiale
+ * delle finestre accese è unico per tutto il paese (una sola mesh), quindi basta
+ * cambiargli l'emissività: nessuna draw call in più, nessuna luce in più.
+ */
+let litGlassMaterial: THREE.MeshStandardMaterial | null = null;
+
+export function setWindowGlow(amount: number): void {
+  if (!litGlassMaterial) return;
+  const on = clamp(amount, 0, 1);
+  litGlassMaterial.emissiveIntensity = 0.02 + 1.9 * on;
+}
 /**
  * Tinte chiare: il colore dei coppi arriva dalla texture CC0, qui si varia solo
  * la luminosità/calore per casa, senza scurire il laterizio.
@@ -639,17 +652,23 @@ export function buildBuildings(
   const bases: THREE.BufferGeometry[] = [];
   const trims: THREE.BufferGeometry[] = [];
   const glasses: THREE.BufferGeometry[] = [];
+  /** finestre accese: vetro emissivo, pilotato da `setWindowGlow` */
+  const glassesLit: THREE.BufferGeometry[] = [];
 
   osm.buildings.forEach((b, i) => {
     if (b.points.length < 3 || b.area < 6) return;
+    const seed = i * 31 + Math.round(b.height * 10);
     try {
-      const out = buildOne(b, heights, i * 31 + Math.round(b.height * 10));
+      const out = buildOne(b, heights, seed);
       walls.push(out.wall);
       wallsByFamily[out.family].push(out.wall);
       roofs.push(out.roof);
       bases.push(out.base);
       for (const t of out.trim) trims.push(t);
-      for (const g of out.glass) glasses.push(g);
+      // un terzo circa delle case ha le luci accese: la finestra accesa è
+      // geometria a parte, così di notte si vede la stanza illuminata
+      const lit = hashInt(seed, 53) % 100 < 34;
+      for (const g of out.glass) (lit ? glassesLit : glasses).push(g);
     } catch {
       // geometria degenere: la saltiamo
     }
@@ -699,6 +718,19 @@ export function buildBuildings(
     metalness: 0.35,
     envMapIntensity: 1.15,
   });
+  // Finestre accese: stesso vetro, ma emissivo caldo. Di giorno resta spento e
+  // la finestra si comporta come le altre; di notte circa un terzo delle case
+  // si accende, ed è ciò che fa leggere un paese abitato.
+  const glassLitMat = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    color: 0x2b2620,
+    roughness: 0.3,
+    metalness: 0.2,
+    emissive: 0xffca82,
+    emissiveIntensity: 0.02,
+    envMapIntensity: 0.7,
+  });
+  litGlassMaterial = glassLitMat;
   const roofMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
     ...tiles,
@@ -773,12 +805,22 @@ export function buildBuildings(
       group.add(mesh);
     }
   }
+  if (glassesLit.length) {
+    const merged = mergeGeometries(glassesLit, false);
+    if (merged) {
+      const mesh = new THREE.Mesh(merged, glassLitMat);
+      mesh.name = 'building-glass-lit';
+      mesh.receiveShadow = true;
+      group.add(mesh);
+    }
+  }
 
   for (const g of walls) g.dispose();
   for (const g of roofs) g.dispose();
   for (const g of bases) g.dispose();
   for (const g of trims) g.dispose();
   for (const g of glasses) g.dispose();
+  for (const g of glassesLit) g.dispose();
 
   if (import.meta.env.DEV) console.debug(`[edifici] ${walls.length} case, ${glasses.length} vetri`);
   return { group, count: walls.length };

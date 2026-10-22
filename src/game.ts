@@ -5,7 +5,7 @@ import { loadHeightfield, type Heightfield } from './geo/elevation';
 import { BuildingIndex, loadOsm, RoadIndex, type OsmData } from './geo/osm';
 import { ESRI_WORLD_IMAGERY, ImageryStreamer } from './world/imagery';
 import { Terrain, setCloudShadow } from './world/terrain';
-import { buildBuildings } from './world/buildings';
+import { buildBuildings, setWindowGlow } from './world/buildings';
 import { buildRoads, buildWater } from './world/roads';
 import { StreetLights, buildRoadDrainage, buildSigns, buildStreetProps } from './world/street-furniture';
 import { buildVegetation } from './world/vegetation';
@@ -1586,6 +1586,8 @@ export class Game {
     this.clouds.update(dt, this.camera, { coverage: cover, windX, windZ, sunElevation: sun.elevation });
     // ombre delle nuvole sul suolo: solo con cielo coperto e di giorno
     setCloudShadow(cloud * day, dt, windX, windZ);
+    // finestre accese: si accendono al tramonto, si spengono all'alba
+    setWindowGlow(1 - day);
     this.precipitation.update(dt, this.camera, { rain, snow, windX, windZ });
 
     // fari accesi quando il sole è basso, strada bagnata con pioggia o neve
