@@ -232,10 +232,23 @@ export class Vehicle {
     this.mesh(this.bodyGroup, rounded(spec.width * 0.96, bodyH * 0.16, 0.2, 0.04), plastic, 0, ride + bodyH * 0.08, -halfLength + 0.06, false);
     this.mesh(this.bodyGroup, rounded(spec.width * 0.96, bodyH * 0.16, 0.2, 0.04), plastic, 0, ride + bodyH * 0.08, halfLength - 0.06, false);
 
-    // calandra: mascherina scura con barra cromata e targa
+    // calandra: mascherina scura con barra cromata
     this.mesh(this.bodyGroup, rounded(spec.width * 0.5, bodyH * 0.26, 0.05, 0.02), plastic, 0, beltY - bodyH * 0.22, -halfLength + 0.03, false);
     this.mesh(this.bodyGroup, new THREE.BoxGeometry(spec.width * 0.42, 0.022, 0.03), chrome, 0, beltY - bodyH * 0.16, -halfLength + 0.05, false);
-    this.mesh(this.bodyGroup, new THREE.BoxGeometry(0.44, 0.11, 0.02), chrome, 0, ride + bodyH * 0.3, halfLength - 0.01, false);
+
+    // targhe: anteriore sotto la calandra, posteriore al centro del paraurti.
+    // Il piano è appena fuori dal paraurti, così non "affoga" nella carrozzeria.
+    const plateMat = this.material({
+      map: plateTexture(plateNumber(spec.id)),
+      roughness: 0.5,
+      metalness: 0.1,
+      envMapIntensity: 0.45,
+    });
+    const plateY = ride + bodyH * 0.29;
+    const plateFront = new THREE.PlaneGeometry(0.44, 0.096);
+    plateFront.rotateY(Math.PI);
+    this.mesh(this.bodyGroup, plateFront, plateMat, 0, plateY, -halfLength - 0.031, false);
+    this.mesh(this.bodyGroup, new THREE.PlaneGeometry(0.44, 0.096), plateMat, 0, plateY, halfLength + 0.031, false);
 
     // labbro anteriore e diffusore posteriore nel colore d'accento
     this.mesh(this.bodyGroup, rounded(spec.width * 0.9, bodyH * 0.1, 0.06, 0.02), trim, 0, ride + bodyH * 0.06, -halfLength + 0.02, false);
@@ -522,5 +535,51 @@ function treadTexture(): THREE.CanvasTexture {
   tex.repeat.set(4, 12);
   tex.anisotropy = 4;
   treadCache = tex;
+  return tex;
+}
+
+/**
+ * Numero di targa deterministico dall'id del veicolo, nel formato italiano
+ * `AB 123 CD`. La sigla di Campobasso sta sulla banda blu, come nelle targhe
+ * vere: è un dettaglio minuscolo ma dice subito "siamo in Molise".
+ */
+function plateNumber(id: string): string {
+  let h = 7;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  const letters = 'ABCDEFGHJKLMNPRSTVWXYZ';
+  const at = (n: number): string => letters[(h >>> n) % letters.length] ?? 'A';
+  return `${at(0)}${at(4)} ${100 + ((h >>> 8) % 900)} ${at(12)}${at(16)}`;
+}
+
+/** Targa: canvas 256 x 56, banda blu a sinistra e a destra, caratteri neri. */
+function plateTexture(text: string): THREE.CanvasTexture {
+  const w = 256;
+  const h = 56;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.fillStyle = '#f2f3ef';
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#12327d';
+    ctx.fillRect(0, 0, 20, h);
+    ctx.fillRect(w - 20, 0, 20, h);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 11px Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('CB', 10, h * 0.5);
+    ctx.fillText('I', 10, h * 0.22);
+    ctx.fillStyle = '#101010';
+    ctx.font = 'bold 33px "Arial Narrow", Arial, sans-serif';
+    ctx.fillText(text, w * 0.5, h * 0.53);
+    ctx.strokeStyle = '#0c1526';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(1.5, 1.5, w - 3, h - 3);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
   return tex;
 }

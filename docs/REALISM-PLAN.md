@@ -346,6 +346,8 @@ registro vale quindi **fatto nel codice**, **da verificare a schermo**.
 | Muretti a secco lungo le strade di campagna, con tratti crollati | fatto | `src/world/dry-stone.ts`, un solo `InstancedMesh` con la texture `stonewall` |
 | Sottobosco: cespugli a card di foglie ai piedi degli alberi | fatto | `src/world/vegetation.ts` (`bushList`, `bushGeo`) |
 | Cielo notturno: 1700 stelle con magnitudine e temperatura, disco lunare con alone | fatto | `src/world/sky.ts` (`setNightSky`, `moonTexture`) |
+| Rattoppi di catrame rettangolari (celle 7 × 9 m) e crepe sottili, in coordinate mondo nello shader dell'asfalto | fatto | `applyRoadWear` in `src/world/roads.ts` (`roadHash`, `roadNoise`, `roadToppa`, `roadCrack`) |
+| Targhe italiane vere: canvas con banda blu, sigla `CB` e numero deterministico per veicolo | fatto | `src/entities/vehicle.ts` (`plateTexture`, `plateNumber`) |
 
 Da verificare a schermo, in ordine di rischio: che l'usura dell'asfalto non
 sballi la luminosità di giorno; che i chiusini non affiorino sopra il manto nei
@@ -369,9 +371,10 @@ stelle e luna non si vedano ancora di giorno.
    valutare le shadow cascade solo se la qualità delle ombre lunghe non basta.
 3. **Veicoli** (Fase 1): resta il salto vero, cioè modelli GLB con licenza
    compatibile (oggi non ce ne sono nel repo, la carrozzeria è procedurale).
-   In alternativa: ruote con `LatheGeometry`, tergicristalli e targa.
-4. **Edifici** (Fase 6): persiane, davanzali, interni finti dietro le finestre,
-   chiesa e campanile come edifici-simbolo al posto delle case generiche.
+   In alternativa: ruote con `LatheGeometry`, tergicristalli, cornici dei vetri.
+4. **Edifici** (Fase 6): interni finti dietro le finestre, chiesa e campanile
+   come edifici-simbolo al posto delle case generiche. Persiane e davanzali ci
+   sono già, su circa il 70% delle case.
 5. **Personaggio** (Fase 7): materiali pelle/capelli, fusione walk/run, IK dei
    piedi sul terreno.
 6. **Alberi** (Fase 4): LOD vicino con rami veri, ceppaie, alberi caduti.
