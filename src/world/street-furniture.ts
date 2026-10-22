@@ -453,4 +453,129 @@ function setColor(geometry: THREE.BufferGeometry, color: THREE.Color): void {
   geometry.setAttribute('color', new THREE.BufferAttribute(array, 3));
 }
 
+/**
+ * Chiusini e caditoie sull'asfalto.
+ *
+ * Sono pochi centimetri di ghisa, ma sono una delle cose che si vedono di più
+ * camminando per strada: senza, la carreggiata sembra un nastro nuovo. I
+ * chiusini (tondi, in mezzo alla corsia) e le caditoie (rettangolari, a filo
+ * del cordolo) sono due `InstancedMesh`, quindi il costo è di due draw call.
+ */
+export function buildRoadDrainage(osm: OsmData, heights: Heightfield): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'road-drainage';
+  const rng = mulberry32(0x51dc);
+  const covers: THREE.Matrix4[] = [];
+  const grates: THREE.Matrix4[] = [];
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const up = new THREE.Vector3(0, 1, 0);
+  const one = new THREE.Vector3(1, 1, 1);
+  const pos = new THREE.Vector3();
+
+  for (const road of osm.roads) {
+    if (!road.paved || road.points.length < 2) continue;
+    let travelled = 0;
+    // un chiusino ogni ~34 m, una caditoia ogni ~26 m: mai regolari
+    let nextCover = 20 + rng() * 18;
+    let nextGrate = 12 + rng() * 14;
+    for (let i = 1; i < road.points.length; i++) {
+      const a = road.points[i - 1];
+      const b = road.points[i];
+      const seg = Math.hypot(b.x - a.x, b.z - a.z);
+      if (seg < 0.01) continue;
+      const tx = (b.x - a.x) / seg;
+      const tz = (b.z - a.z) / seg;
+      const px = -tz;
+      const pz = tx;
+      const yaw = Math.atan2(tx, tz);
+      travelled += seg;
+
+      if (travelled >= nextCover) {
+        nextCover = travelled + 26 + rng() * 22;
+        const off = (rng() - 0.5) * road.width * 0.4;
+        const x = b.x + px * off;
+        const z = b.z + pz * off;
+        q.setFromAxisAngle(up, yaw);
+        pos.set(x, heights.heightAt(x, z) + 0.215, z);
+        covers.push(m.compose(pos, q, one).clone());
+      }
+      if (travelled >= nextGrate) {
+        nextGrate = travelled + 20 + rng() * 16;
+        const side = rng() < 0.5 ? -1 : 1;
+        const off = side * (road.width / 2 - 0.42);
+        const x = b.x + px * off;
+        const z = b.z + pz * off;
+        q.setFromAxisAngle(up, yaw);
+        pos.set(x, heights.heightAt(x, z) + 0.208, z);
+        grates.push(m.compose(pos, q, one).clone());
+      }
+    }
+  }
+
+  const iron = new THREE.MeshStandardMaterial({
+    color: 0x4a4d50,
+    roughness: 0.72,
+    metalness: 0.55,
+    envMapIntensity: 0.5,
+    map: manholeTexture(),
+  });
+
+  if (covers.length) {
+    const geo = new THREE.CylinderGeometry(0.34, 0.34, 0.05, 20);
+    const mesh = new THREE.InstancedMesh(geo, iron, covers.length);
+    covers.forEach((mat, i) => mesh.setMatrixAt(i, mat));
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.receiveShadow = true;
+    mesh.name = 'manholes';
+    group.add(mesh);
+  }
+  if (grates.length) {
+    const geo = new THREE.BoxGeometry(0.56, 0.035, 0.36);
+    const grate = new THREE.MeshStandardMaterial({ color: 0x33373a, roughness: 0.68, metalness: 0.6, envMapIntensity: 0.5 });
+    const mesh = new THREE.InstancedMesh(geo, grate, grates.length);
+    grates.forEach((mat, i) => mesh.setMatrixAt(i, mat));
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.receiveShadow = true;
+    mesh.name = 'grates';
+    group.add(mesh);
+  }
+
+  return group;
+}
+
+/** Ghisa: cerchi concentrici, qualche granello di ruggine, nessuna scritta. */
+function manholeTexture(): THREE.CanvasTexture {
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.fillStyle = '#52555a';
+    ctx.fillRect(0, 0, size, size);
+    ctx.strokeStyle = '#3d4045';
+    ctx.lineWidth = 3;
+    for (const r of [16, 26, 36, 46]) {
+      ctx.beginPath();
+      ctx.arc(size / 2, size / 2, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    // motivo a raggiera, come i chiusini veri
+    ctx.strokeStyle = '#44474c';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(size / 2 + Math.cos(a) * 16, size / 2 + Math.sin(a) * 16);
+      ctx.lineTo(size / 2 + Math.cos(a) * 60, size / 2 + Math.sin(a) * 60);
+      ctx.stroke();
+    }
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
 export type { Pt };

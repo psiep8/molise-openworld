@@ -7,7 +7,7 @@ import { ESRI_WORLD_IMAGERY, ImageryStreamer } from './world/imagery';
 import { Terrain, setCloudShadow } from './world/terrain';
 import { buildBuildings } from './world/buildings';
 import { buildRoads, buildWater } from './world/roads';
-import { StreetLights, buildSigns, buildStreetProps } from './world/street-furniture';
+import { StreetLights, buildRoadDrainage, buildSigns, buildStreetProps } from './world/street-furniture';
 import { buildVegetation } from './world/vegetation';
 import { DEFAULT_LIGHTING, DEFAULT_SKY, DEFAULT_SUN, createSky, type SkyRig } from './world/sky';
 import { CloudLayer } from './world/clouds';
@@ -324,6 +324,7 @@ export class Game {
 
       this.scene.add(buildSigns(osm, heights, this.buildingIndex, this.renderer));
       this.scene.add(buildStreetProps(osm, heights, this.buildingIndex, this.renderer));
+      this.scene.add(buildRoadDrainage(osm, heights));
 
       this.hud.setLoading(0.5, 'Costruisco le case…');
       await nextFrame();
