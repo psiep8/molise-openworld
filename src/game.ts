@@ -6,6 +6,7 @@ import { BuildingIndex, loadOsm, RoadIndex, type OsmData } from './geo/osm';
 import { ESRI_WORLD_IMAGERY, ImageryStreamer } from './world/imagery';
 import { Terrain, setCloudShadow } from './world/terrain';
 import { buildBuildings, setWindowGlow } from './world/buildings';
+import { buildDryStoneWalls } from './world/dry-stone';
 import { buildRoads, buildWater } from './world/roads';
 import { StreetLights, buildRoadDrainage, buildSigns, buildStreetProps } from './world/street-furniture';
 import { buildVegetation } from './world/vegetation';
@@ -325,6 +326,7 @@ export class Game {
       this.scene.add(buildSigns(osm, heights, this.buildingIndex, this.renderer));
       this.scene.add(buildStreetProps(osm, heights, this.buildingIndex, this.renderer));
       this.scene.add(buildRoadDrainage(osm, heights));
+      this.scene.add(buildDryStoneWalls(osm, heights, this.roadIndex, this.buildingIndex, this.renderer));
 
       this.hud.setLoading(0.5, 'Costruisco le case…');
       await nextFrame();
