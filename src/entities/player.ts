@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GAME } from '../config';
 import type { Heightfield } from '../geo/elevation';
-import type { BuildingIndex } from '../geo/osm';
+import type { BuildingIndex, RoadIndex } from '../geo/osm';
 import { clamp } from '../geo/geo';
 import { fabricNormal, skinNormal } from '../gfx/detail-textures';
 import { HumanBody, type HumanAssets } from './human-model';
@@ -669,7 +669,7 @@ export class Player {
     this.syncMesh();
   }
 
-  update(dt: number, input: MoveInput, heights: Heightfield, buildings: BuildingIndex): void {
+  update(dt: number, input: MoveInput, heights: Heightfield, buildings: BuildingIndex, roads?: RoadIndex): void {
     const fx = -Math.sin(this.yaw);
     const fz = -Math.cos(this.yaw);
     const rx = Math.cos(this.yaw);
@@ -696,9 +696,14 @@ export class Player {
       this.grounded = false;
     }
 
-    const ground = heights.heightAt(this.position.x, this.position.z);
+    const ground =
+      heights.heightAt(this.position.x, this.position.z) +
+      (roads ? roads.surfaceOffset(this.position.x, this.position.z) : 0);
     if (this.grounded) {
-      this.position.y = ground;
+      // il marciapiede è 18 cm sopra l'asfalto: si sale con un passo, non con
+      // un teletrasporto. Oltre mezzo metro (scarpata) si segue il terreno.
+      const dy = ground - this.position.y;
+      this.position.y = Math.abs(dy) < 0.5 ? this.position.y + dy * (1 - Math.exp(-18 * dt)) : ground;
     } else {
       this.velocity.y -= GAME.gravity * dt;
       this.position.y += this.velocity.y * dt;

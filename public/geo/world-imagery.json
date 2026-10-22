@@ -1,0 +1,13 @@
+{
+  "width": 2048,
+  "height": 1773,
+  "bbox": {
+    "latMin": 41.815,
+    "latMax": 41.925,
+    "lonMin": 14.69,
+    "lonMax": 14.86
+  },
+  "attribution": "Sentinel-2 cloudless 2025 — © EOX IT Services GmbH, CC BY 4.0; contiene dati Copernicus Sentinel modificati",
+  "source": "https://s2maps.eu",
+  "generatedAt": "2026-10-22T22:59:03.556Z"
+}

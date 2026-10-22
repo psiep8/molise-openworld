@@ -191,6 +191,12 @@ float cloudNoise( vec2 p ) {
           float nearFade = 1.0 - smoothstep( 10.0, 40.0, detailDist );
           diffuseColor.rgb *= mix( 1.0, mod, ( 0.45 + 0.3 * nearFade ) * detailFade );
         }
+        // grana a media distanza: la foto Sentinel è a ~7 m/px e da lontano
+        // diventa una macchia liscia; un rumore neutro le ridà un po' di
+        // consistenza senza inventare confini di campo
+        float grain = cloudNoise( vDetailWorld.xz * 0.045 ) * 0.6 + cloudNoise( vDetailWorld.xz * 0.11 + 7.0 ) * 0.4;
+        float grainFade = smoothstep( 120.0, 320.0, detailDist );
+        diffuseColor.rgb *= 1.0 + ( grain - 0.5 ) * 0.14 * grainFade;
         // ombre delle nuvole: due rumori sovrapposti che scorrono col vento
         if ( uCloudShadow > 0.01 ) {
           vec2 cp = vDetailWorld.xz * 0.0016 + uCloudDrift;
@@ -200,13 +206,14 @@ float cloudNoise( vec2 p ) {
         }`,
       );
   };
-  material.customProgramCacheKey = () => 'terrain-detail-v2';
+  material.customProgramCacheKey = () => 'terrain-detail-v3';
 }
 
 /**
- * Streaming del terreno a chunk: geometria dal DEM, texture satellite dal
- * provider con zoom progressivo (z15 lontano → z18 vicino) e normal map.
- * Carica al massimo N chunk per frame, ordina per distanza e libera quelli lontani.
+ * Streaming del terreno a chunk: geometria dal DEM, ritaglio del mosaico
+ * Sentinel come base immediata per ogni chunk e tile Esri z17/z16 per il
+ * dettaglio. Carica al massimo N chunk per frame, ordina per distanza e
+ * libera quelli lontani.
  */
 export class Terrain {
   readonly group = new THREE.Group();
@@ -312,6 +319,16 @@ export class Terrain {
       this.buildNext();
     }
 
+    // il mosaico Sentinel è locale e sincrono: appena è decodificato dà una
+    // texture vera anche ai chunk costruiti prima che finisse il caricamento
+    if (this.imagery.hasBaseImage) {
+      for (const chunk of this.chunks.values()) {
+        if (chunk.disposed || chunk.texture) continue;
+        const base = this.imagery.baseChunkTexture(chunk.cx, chunk.cz);
+        if (base) this.applyBaseTexture(chunk, base);
+      }
+    }
+
     if (this.inflight.size >= this.maxTextureLoads) return;
     const upgrades: { chunk: Chunk; d: number; zoom: number }[] = [];
     for (const chunk of this.chunks.values()) {
@@ -338,6 +355,16 @@ export class Terrain {
     const chunk = this.buildChunk(next.cx, next.cz, next.d);
     this.chunks.set(key, chunk);
     this.group.add(chunk.mesh);
+  }
+
+  /** Applica il ritaglio Sentinel come texture di partenza (zoom 0 = da affinare). */
+  private applyBaseTexture(chunk: Chunk, texture: THREE.Texture): void {
+    chunk.texture = texture;
+    chunk.textureZoom = 0;
+    chunk.material.map = texture;
+    chunk.material.color.set(0xffffff);
+    chunk.material.needsUpdate = true;
+    chunk.hasTexture = true;
   }
 
   private requestTexture(chunk: Chunk, zoom: number): void {
@@ -417,6 +444,10 @@ export class Terrain {
       hasTexture: false,
       disposed: false,
     };
+
+    // prima il ritaglio Sentinel locale (immediato), poi l'affinamento Esri
+    const base = this.imagery.baseChunkTexture(cx, cz);
+    if (base) this.applyBaseTexture(chunk, base);
 
     this.requestTexture(chunk, Math.min(this.maxZoom, zoomForDistance(distance)));
     return chunk;

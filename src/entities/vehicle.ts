@@ -431,10 +431,13 @@ export class Vehicle {
     const halfTrack = spec.track / 2;
 
     const onRoad = roads.isOnRoad(this.state.x, this.state.z, 0.4);
+    // il piano di appoggio include asfalto e marciapiede: la fisica della
+    // pendenza deve sentire la stessa quota che si vede
+    const groundAt = (x: number, z: number): number => heights.heightAt(x, z) + roads.surfaceOffset(x, z);
     const next = stepCar(
       this.state,
       input,
-      { onRoad, groundHeight: (x, z) => heights.heightAt(x, z) },
+      { onRoad, groundHeight: groundAt },
       dt,
       tuningFor(spec),
     );
@@ -470,9 +473,9 @@ export class Vehicle {
     this.tiltPitch += (targetPitch - this.tiltPitch) * k;
     this.tiltRoll += (targetRoll - this.tiltRoll) * k;
 
-    // l'asfalto è drappeggiato ~20 cm sopra il DEM: senza questo offset le ruote
-    // finivano sotto il manto stradale
-    const targetLift = onRoad ? 0.205 : 0;
+    // l'asfalto è drappeggiato sopra il DEM e il marciapiede sta 18 cm più su:
+    // la carrozzeria sale con la stessa quota del piano calpestabile
+    const targetLift = roads.surfaceOffset(next.x, next.z);
     this.surfaceLift += (targetLift - this.surfaceLift) * k;
 
     this.group.position.set(next.x, groundY + this.surfaceLift, next.z);

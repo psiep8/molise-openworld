@@ -16,7 +16,7 @@
 ## Cosa c'è dentro
 
 - **Casa base: Palata.** Il gioco parte dal centro del paese e la mappa segna Palata come "casa".
-- **Terreno 3D** a chunk (912 m) con DEM a 10 m, texture satellite fino a zoom 18 (~0,45 m/px) vicino al giocatore e normal map ricavata dal rilievo.
+- **Terreno 3D** a chunk (912 m) con DEM a 10 m, **mosaico Sentinel-2 dell'intera area come base immediata** per ogni chunk, tile Esri z17 vicino e z16 lontano per il dettaglio, e normal map ricavata dal rilievo.
 - **Meteo reale opzionale** (`P` → interruttore): condizioni attuali, nuvole, pioggia/neve e **sole alla posizione e ora vere**, con alba/tramonto del giorno. Aggiornamento ogni 10 minuti, fallback al pomeriggio fisso se lo spegni.
 - **Ora del giorno manuale** (`P` → slider 0–24): alba, mezzogiorno, tramonto e notte, con preset meteo sereno/nuvoloso/pioggia/neve/nebbia. Strada bagnata e fari si accendono da soli quando il sole scende.
 - **Ventidue veicoli procedurali** (`P` → Veicolo, oppure `B` per cambiarli al volo): i nove già presenti (Panda vecchia e nuova, Punto, Renegade, tre ruote, 500X, Captur, C3, Junior) più i tredici richiesti (Cupra Formentor, Alfa Romeo Tonale, Audi Q3, BMW X1, Mercedes-Benz GLA, Dacia Sandero, Toyota Yaris, Kia Picanto, Ford Fiesta, Nissan Qashqai, Fiat 500, Fiat 600, Peugeot 3008). Ognuno ha ingombri, passo, raggio ruota e **prestazioni reali** della versione rappresentata: cilindrata, potenza, coppia, 0-100 e velocità massima vengono dalle schede tecniche (vedi `docs/VEHICLE_DATA.md`). Le **sagome sono procedurali originali**, non modelli ufficiali dei marchi.
@@ -43,7 +43,7 @@
 - **Itinerario scegliendo dalla mappa** (`M`, poi click): percorso più breve sulla rete stradale OSM, distanza e tempi stimati a piedi e in auto, linea in mappa e colonna luminosa sulla destinazione. `X` annulla.
 - **Minimappa** e **mappa grande** dei cinque comuni, con strade, boschi e toponimi.
 - **HUD** in italiano: velocità, coordinate, quota, fps, suggerimenti contestuali.
-- **Offline-friendly**: i dati vettoriali e il DEM sono nel repo; solo le immagini satellite arrivano dalla rete (con fallback verde se mancano).
+- **Offline-friendly**: i dati vettoriali, il DEM e il mosaico Sentinel-2 sono nel repo; solo le immagini di dettaglio arrivano dalla rete (con la base Sentinel che copre comunque ogni chunk).
 
 ## Economia, denaro virtuale e attività di Palata
 
@@ -63,17 +63,18 @@ L'obiettivo è semplice: girare per Palata e dintorni e riconoscere i posti. Non
 "reverse engineering" di GTA V: il lavoro è tutto sui **formati aperti** (tile Web Mercator,
 DEM Terrarium, tag OSM) e su come renderli credibili in un motore proprio.
 
-- **Foto aeree progressive.** Ogni chunk chiede il dettaglio giusto per la distanza:
-  z18 sotto i 520 m (tetti, uliveti, muretti), z17 fino a 1,5 km, z16 fino a 2,6 km,
-  z15 per l'orizzonte. Avvicinandosi, il chunk viene **riaffinato** senza essere ricostruito.
+- **Foto aeree progressive.** Ogni chunk parte dal **mosaico Sentinel-2 locale** (CC BY 4.0)
+  e chiede poi il dettaglio giusto per la distanza: z17 sotto i 900 m (tetti, uliveti,
+  muretti), z16 oltre. Avvicinandosi, il chunk viene **riaffinato** senza essere ricostruito.
 - **Rilievo che si vede.** Le normal map sono generate dal DEM (128×128 per chunk): anche
   dove la mesh è più grossolana del dato, il sole radente fa emergere crinali e fossi.
 - **Luce e foschia.** Sole a 27°, ombre morbide, esposizione ACES più alta e nebbia
   spostata più lontano: il paesaggio resta leggibile invece di sparire nel grigio.
 - **Post-processing.** Bloom morbido su cielo e tetti, antialiasing SMAA e OutputPass
   per tone mapping/color space corretti; si spegne da solo sui preset più leggeri.
-- **Texture procedurali.** Asfalto, sterrato, intonaco e coppi sono generati a runtime
-  (niente asset esterni) e aggiungono grana e giunti alle superfici viste da vicino.
+- **Texture PBR vere.** Asfalto, intonaco, pietra, mattoni, coppi, erba e corteccia sono
+  texture **CC0** (Poly Haven/ambientCG) in `public/textures/`, con normal e roughness;
+  usura, giunti e grana procedurale si aggiungono sopra (vedi `public/textures/ATTRIBUTION.md`).
 - **Meteo e sole veri.** Con `Meteo reale` attivo il gioco legge le condizioni attuali da
   Open-Meteo (open source, senza chiave) e calcola il sole in locale con la formula NOAA:
   elevazione e azimut cambiano con l'ora e con il punto in cui ti trovi, quindi alba e
@@ -86,10 +87,12 @@ DEM Terrarium, tag OSM) e su come renderli credibili in un motore proprio.
 - **Qualità scalabile.** Preset bassa/media/alta/ultra scelti in automatico, con
   resolution scaling adattivo per tenere il frame rate: il mondo gira anche su PC modesti.
 - **Radar vero.** La minimappa disegna le tile Esri z17 intorno al giocatore, con le strade
-  OSM in crema sopra; la mappa grande usa un mosaico z14 dell'intera area. `V` alterna
-  satellite e mappa vettoriale, `M` apre la mappa grande.
-- **Dati locali.** DEM e OSM sono pre-processati nel repo: il mondo parte anche senza rete,
-  e le sole immagini arrivano dal provider (con fallback verde se una tile manca).
+  OSM in crema sopra; la mappa grande parte dal mosaico Sentinel locale dell'intera area
+  e usa le tile Esri come fallback. `V` alterna satellite e mappa vettoriale, `M` apre la
+  mappa grande.
+- **Dati locali.** DEM, OSM e mosaico Sentinel sono pre-processati nel repo: il mondo parte
+  anche senza rete. Solo le tile di dettaglio arrivano dal provider (e se mancano resta la
+  base Sentinel, non un prato verde).
 
 ## Stack e perché
 
@@ -225,6 +228,7 @@ scripts/
 
 - **OpenStreetMap** — strade, edifici, aree, toponimi: © OpenStreetMap contributors, licenza **ODbL 1.0**. `public/geo/osm.json` è un'opera derivata: se lo ridistribuisci, resta ODbL.
 - **AWS Terrain Tiles (Terrarium)** — DEM SRTM/Copernicus/NASADEM: dati aperti, vedi [registry.opendata.aws/terrain-tiles](https://registry.opendata.aws/terrain-tiles/).
+- **Sentinel-2 cloudless 2025** — mosaico satellitare dell'intera area (`public/geo/world-imagery.jpg`): © EOX IT Services GmbH, licenza **CC BY 4.0**, contiene dati Copernicus Sentinel modificati ([s2maps.eu](https://s2maps.eu)). Si rigenera con `npm run geo:imagery`.
 - **Esri World Imagery** — immagini satellite: © Esri, Maxar, Earthstar Geographics. Usate qui per una demo non commerciale con attribuzione. **Per una pubblicazione** usa un provider con licenza esplicita (MapTiler, Mapbox, Bing, o tile self-hosted) cambiando `ESRI_WORLD_IMAGERY` in `src/world/imagery.ts`.
 - **Immagini stradali (opzionale)** — non ancora usate. `npm run streets` conta quante strade dei cinque comuni hanno una foto entro 50 m: interroga **Panoramax** (API pubblica, nessun account) e, se impostato `MAPILLARY_TOKEN` (gratuito, CC BY-SA 4.0), anche Mapillary. Al 21/10/2026 Panoramax non ha foto nel bbox: la copertura Mapillary è l'unica da verificare.
 - **Meteo** — Open-Meteo, dati CC BY 4.0, senza chiave API. Usato solo se attivi

@@ -11,6 +11,28 @@
 
 Oct 22, 2026 · @Giuseppe
 
+## Priorità del 23/10/2026 (dette dall'utente, in ordine)
+
+Queste vengono prima di tutto il resto. Sono i difetti che si vedono subito
+all'avvio e che fanno sembrare il gioco finto.
+
+1. **Paesaggio in lontananza definito.** All'ingresso non si devono vedere
+   campi, terreni e boschi sfocati "in 144p": il terreno lontano deve avere
+   texture vera, non una macchia verde. (importantissimo)
+2. **Edifici abbastanza alti.** Ci sono case di un piano con il portone
+   interrato: le altezze vanno alzate a misura di casa vera. (importantissimo)
+3. **Edifici in salita.** Oggi restano orizzontali e bucati sotto: devono
+   appoggiarsi alla pendenza, senza vuoti sotto i muri.
+4. **Pendenza reale delle strade.** La strada deve seguire il rilievo come
+   sulla mappa, non essere un nastro appoggiato.
+5. **Strade, marciapiedi e asfalto allineati.** Camminare non deve sembrare di
+   affondare nella sabbia; incroci e segnaletica (verticale e orizzontale) da
+   sistemare; niente panchine messe a caso. (importantissimo)
+6. **Guida credibile.** Una Panda vecchia non fa 0–100 in un secondo: meno
+   accelerazione e sterzo meno nervoso.
+7. **Console pulita.** `THREE.Clock` deprecato (usare `THREE.Timer`) e
+   `Texture marked for update but no image data found`.
+
 Questo documento è un brief da dare a un assistente AI di sviluppo che lavora sul repo `psiep8/molise-openworld` (TypeScript, Vite, three.js 0.186): porta strade, vegetazione, paesaggio lontano, edifici, veicoli e personaggio al massimo livello di dettaglio realistico che un gioco nel browser può permettersi.
 
 ## Obiettivo e vincoli
@@ -33,7 +55,7 @@ Il salto da "Minecraft" è già avvenuto su terreno, strade, edifici e vegetazio
 
 | Area | Cosa c'è ora | Cosa manca |
 | --- | --- | --- |
-| Terreno | Chunk da 912 m, DEM a 10 m, satellite z15–z18 a distanza progressiva, normal map dal rilievo, dettaglio erba/roccia in coordinate mondo | Orizzonte oltre i ~3 km, dettaglio calibrato sul tipo di suolo |
+| Terreno | Chunk da 912 m, DEM a 10 m, mosaico Sentinel-2 locale per ogni chunk, tile Esri z17/z16 a distanza progressiva, normal map dal rilievo, dettaglio erba/roccia in coordinate mondo | Orizzonte oltre i ~3 km, dettaglio calibrato sul tipo di suolo |
 | Strade | Asfalto PBR (Poly Haven `asphalt_02`), mezzeria, marciapiedi e cordoli, angoli smussati | Usura, rattoppi, tombini, segnaletica orizzontale completa, bagnato realistico |
 | Edifici | Estrusioni OSM, tetti a falde, cornicioni, comignoli, pluviali, balconi, finestre con cornice/davanzale/vetro | Varietà di facciate, interni finti nelle finestre di notte, edifici-simbolo modellati |
 | Alberi | Tronchi con corteccia PBR, chiome a card fotografiche con vento, max 7000 | Modelli 3D veri da vicino, specie diverse (ulivo, quercia, cipresso) |
@@ -359,6 +381,28 @@ nelle curve strette; che i cespugli non restino sospesi sui pendii ripidi; che
 stelle e luna non si vedano ancora di giorno; che la chiesa non sbatta contro
 una casa e che lo zoccolo copra il dislivello del terreno.
 
+### 23 ottobre 2026 — priorità dell'utente
+
+Verificato con `npm test` (161/161) e `npm run build`; `npm run smoke` è
+passato sulla build precedente (11/11 chunk texturizzati, nessun errore e
+nessun warning in console). Il controllo a schermo resta da fare su GPU vera:
+qui il rendering gira su SwiftShader a ~2 fps.
+
+| Voce | Stato | Note |
+| --- | --- | --- |
+| Paesaggio lontano definito | fatto nel codice | `public/geo/world-imagery.jpg`: mosaico **Sentinel-2 cloudless 2025** (CC BY 4.0, EOX) dell'intero bbox, ritagliato per chunk in `ImageryStreamer.baseChunkTexture`. Ogni chunk ha subito un'immagine vera; le tile Esri z17 (≤ 900 m) e z16 (oltre) affinano il dettaglio. Prima i chunk lontani restavano verdi perché lo streaming non faceva in tempo. |
+| Edifici troppo bassi | fatto nel codice | `minBuildingHeight` in `src/geo/osm.ts`: ≥ 3,4 m sotto 24 m² (garage), ≥ 6,4 m sotto 70 m², ≥ 7,6 m sotto 160 m², ≥ 8,6 m sopra. |
+| Edifici in salita bucati sotto | fatto nel codice | la base è il punto **più basso** dell'impronta (`buildOne`); lo zoccolo in pietra copre il dislivello sul lato in salita, niente vuoto a valle. |
+| Porte interrate | fatto nel codice | il portone parte dalla quota del terreno davanti a lui, non dalla base; le finestre del piano terra sono campionate sul punto della facciata. |
+| Strade, marciapiedi e asfalto allineati | fatto nel codice | `RoadIndex.surfaceOffset` restituisce la stessa quota del disegno: asfalto +0,20 m, marciapiede +0,38 m. Giocatore e auto ci camminano sopra (prima il giocatore affondava di 20 cm: effetto "sabbie mobili"). |
+| Guida credibile | fatto nel codice | sterzo più lento e lock ridotto con la velocità, con tetto di accelerazione laterale (`src/sim/car.ts`). Panda vecchia simulata 0–100 in 15,2 s (scheda: 16,2 s); a 50 km/h una sterzata piena gira ~21°/s, non ~190°/s. Test in `tests/driving.test.ts`. |
+| Panchine a caso | fatto nel codice | solo lungo strade asfaltate, davanti a una casa, 1,1 m oltre il bordo dell'asfalto, schienale verso la casa; scartate se cadono dentro un edificio o su un pendio ripido. |
+| Console pulita | fatto nel codice | `THREE.Timer` al posto di `THREE.Clock`; niente più cloni di texture con `needsUpdate` prima che l'immagine sia caricata (facciate, tetto della chiesa, normali dell'acqua). |
+
+**Non ancora fatto:** la segnaletica (verticale e orizzontale) è quella di prima;
+gli incroci usano ancora il micro-offset per strada. La pendenza delle strade
+segue il DEM, ma il DEM è a 10 m: sotto questa soglia non si può inventare.
+
 > **Nota del 23/10/2026.** `npm run smoke` ha trovato un errore reale: nello
 > shader dell'usura una variabile si chiamava `patch`, parola riservata del
 > linguaggio GLSL, e il programma non compilava affatto. Corretto in `a5c1a2d`
@@ -368,17 +412,21 @@ una casa e che lo zoccolo copra il dislivello del terreno.
 
 ### Prossimi passi (in ordine)
 
-1. **Look** (Fase 2): provare un tone mapping filmico, una LUT leggera, e
+1. **Verifica a schermo delle priorità del 23/10** (paesaggio, edifici, strade,
+   guida, console) su GPU vera, con `npm run smoke` per gli shader.
+2. **Segnaletica e incroci**: STOP/dare precedenza/limite sono ancora quelli di
+   prima; valutare le strisce di arresto e la continuità dei marciapiedi.
+3. **Look** (Fase 2): provare un tone mapping filmico, una LUT leggera, e
    valutare le shadow cascade solo se la qualità delle ombre lunghe non basta.
-2. **Veicoli** (Fase 1): resta il salto vero, cioè modelli GLB con licenza
+4. **Veicoli** (Fase 1): resta il salto vero, cioè modelli GLB con licenza
    compatibile (oggi non ce ne sono nel repo, la carrozzeria è procedurale).
    In alternativa: ruote con `LatheGeometry`, tergicristalli, cornici dei vetri.
-3. **Edifici** (Fase 6): interni finti dietro le finestre. Persiane, davanzali
+5. **Edifici** (Fase 6): interni finti dietro le finestre. Persiane, davanzali
    e la chiesa con il campanile ci sono già.
-4. **Personaggio** (Fase 7): materiali pelle/capelli, fusione walk/run, IK dei
+6. **Personaggio** (Fase 7): materiali pelle/capelli, fusione walk/run, IK dei
    piedi sul terreno.
-5. **Alberi** (Fase 4): LOD vicino con rami veri, ceppaie, alberi caduti.
-6. **Orizzonte** (Fase 5): anello DEM 9–10 e nebbia esponenziale. Non fatto:
+7. **Alberi** (Fase 4): LOD vicino con rami veri, ceppaie, alberi caduti.
+8. **Orizzonte** (Fase 5): anello DEM 9–10 e nebbia esponenziale. Non fatto:
    la nebbia lineare attuale (3000–4600 m) copre già il bordo del terreno, e
    senza una verifica visiva il rischio di buchi o doppio terreno è alto.
 

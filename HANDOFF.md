@@ -34,9 +34,9 @@ Stack: TypeScript + Vite + Three.js (WebGL2), Vitest, nessun framework UI.
 | Dati OSM | ✅ completi | 1.090 strade, 2.193 edifici, 1.337 aree, 96 corsi d'acqua |
 | DEM | ✅ | griglia 10 m, `heights.bin` Int16 in decimetri |
 | Terreno | ✅ | chunk 912 m, 96 segmenti, streaming raggio 3,1 km |
-| Satellite | ✅ | z18 ≤520 m, z17 ≤1,5 km, z16 ≤2,6 km, z15 oltre |
+| Satellite | ✅ | mosaico Sentinel-2 locale per ogni chunk; tile Esri z17 ≤900 m, z16 oltre |
 | Normal map | ✅ | 128×128 per chunk, generata dal DEM |
-| Strade | ✅ aggiornato | asfalto scuro con mezzeria tratteggiata; **marciapiede rialzato 15 cm con cordolo a faccia verticale**, interrotto agli incroci |
+| Strade | ✅ aggiornato | asfalto scuro con mezzeria tratteggiata; **marciapiede rialzato 18 cm con cordolo a faccia verticale**, interrotto agli incroci |
 | Edifici | ✅ aggiornato | estrusione + tetti a falde + **cornicione, comignolo, pluviali e balconi**; finestre incassate da normal map dedicata |
 | Vegetazione | ✅ aggiornato | tronchi con corteccia PBR, chiome a card fotografiche con `alphaMap`, vento nei vertici, max 7000 alberi |
 | Prati | ✅ aggiornato | 60k ciuffi istanziati, lame sottili su canvas 256 (`alphaTest`), vento; marciapiedi e cordoli restano liberi |
@@ -233,8 +233,8 @@ docs/ARCHITECTURE.md       spiegazione tecnica del motore
    `post`, `bloom`, `maxSatelliteZoom`. Auto-detect da core/memoria/mobile.
 4. **Resolution scaling** (`game.ts`): ogni 2 s, se fps < 34 scende fino a 0.65×;
    se fps > 56 risale. `renderScale` è esposto in `window.__molise`.
-5. **Terreno**: geometria 96×96 per chunk, normal map 128² dal DEM, texture
-   progressive z15→z18 con sostituzione a runtime.
+5. **Terreno**: geometria 96×96 per chunk, normal map 128² dal DEM, mosaico
+   Sentinel-2 locale come base e tile Esri z17/z16 con sostituzione a runtime.
 6. **Superfici**: texture canvas deterministiche (asfalto, sterrato, intonaco,
    coppi, **facciata con finestra e persiane**) moltiplicate dai vertex color; UV
    delle strade in metri (1 unità = 6 m).
@@ -272,7 +272,7 @@ window.__molise
 - `fps` è misurato sul tempo reale del frame (non sul `dt` di fisica limitato a 50 ms):
   resta veritiero anche sotto i 20 fps e il resolution scaling adattivo entra in azione.
 - `tileErrors` cresce se Esri non risponde (rete/DNS/licenza): il gioco resta in
-  piedi con fallback verde e mappa vettoriale.
+  piedi con il mosaico Sentinel locale e la mappa vettoriale.
 - `errors` raccoglie errori runtime e promise rejection.
 - `scripts/smoke.mjs` usa questi campi e attende fino a 12 s le texture prima di
   controllare `textured/detailed`.
@@ -285,7 +285,7 @@ Screenshot smoke: `smoke/shot.png` (ignorato da git). Il profilo Chrome è in
 ## 9. Limiti noti / cose da NON rompere
 
 - **La rete può essere bloccata**: non rendere il boot dipendente da tile esterne.
-  OSM + DEM devono restare locali e il fallback verde/mappa vettoriale deve funzionare.
+  OSM + DEM + mosaico Sentinel devono restare locali e la mappa vettoriale deve funzionare.
 - **Licenza immagini**: non cambiare provider senza aggiornare README e attribuzioni;
   non usare tile Mapbox/Google senza chiave e licenza.
 - **Palata è la casa**: non spostare lo spawn altrove e mantieni l'etichetta "casa".
@@ -380,7 +380,7 @@ Screenshot smoke: `smoke/shot.png` (ignorato da git). Il profilo Chrome è in
 
 - `npm run build` e `npm test` devono passare **prima** di ogni commit.
 - Nessuna regressione su: spawn a Palata, auto che parte, radar, `V`, `M`, `G`, `N`.
-- Il mondo deve caricarsi anche con rete assente (fallback verde + mappa vettoriale).
+- Il mondo deve caricarsi anche con rete assente (mosaico Sentinel + mappa vettoriale).
 - Non introdurre asset binari pesanti o non licenziati.
 - Commit piccoli, messaggi in italiano, niente segreti/token nel repo.
 - Se aggiungi una feature grafica, aggiungi anche il modo di spegnerla o un preset

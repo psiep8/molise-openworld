@@ -259,13 +259,18 @@ export function stepCar(
   next.rpm = clamp(rollingRpm, tuning.idleRpm, tuning.redlineRpm);
 
   // --- sterzo (bicycle model) ---------------------------------------------
+  // La tastiera dà tutto lo sterzo in un colpo: la risposta va addolcita e il
+  // lock va ridotto con la velocità. A 50 km/h il volante girava di ~190°/s e
+  // sembrava un kart; ora c'è anche un tetto di accelerazione laterale.
   const steerTarget = clamp(input.steer, -1, 1);
-  const steerLerp = 1 - Math.exp(-9 * dt);
+  const steerLerp = 1 - Math.exp(-6 * dt);
   next.steer += (steerTarget - next.steer) * steerLerp;
 
-  const speedRatio = clamp(Math.abs(next.speed) / tuning.maxSpeed, 0, 1);
-  const steerAngle = next.steer * tuning.maxSteer * (1 - 0.55 * speedRatio);
-  let yawRate = (next.speed / tuning.wheelbase) * Math.tan(steerAngle);
+  const kmh = Math.abs(next.speed) * 3.6;
+  const lock = tuning.maxSteer / (1 + kmh * 0.075);
+  let yawRate = (next.speed / tuning.wheelbase) * Math.tan(next.steer * lock);
+  const yawCap = Math.abs(next.speed) > 0.5 ? Math.min(2.4, 5.5 / Math.abs(next.speed)) : 2.4;
+  yawRate = clamp(yawRate, -yawCap, yawCap);
   if (input.handbrake) yawRate *= 1.9;
   // fuori strada il posteriore scivola un po' di più
   if (!env.onRoad) yawRate *= 1.12;

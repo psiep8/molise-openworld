@@ -10,7 +10,7 @@ export interface QualityPreset {
   bloom: number;
   /** occlusione ambientale (SSAO) nella pipeline di post */
   ssao: boolean;
-  /** zoom massimo delle texture satellite (16 lontano … 18 vicino) */
+  /** zoom massimo delle texture satellite (16 lontano, 17 vicino) */
   maxSatelliteZoom: number;
   /** densità del tappeto d'erba, 0…1 */
   grassDensity: number;

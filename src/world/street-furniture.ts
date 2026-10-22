@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Heightfield } from '../geo/elevation';
-import { mulberry32, type Pt } from '../geo/geo';
+import { clamp, distanceToSegment2, mulberry32, type Pt } from '../geo/geo';
 import type { BuildingIndex, OsmData } from '../geo/osm';
 import { pbr } from '../gfx/textures';
 
@@ -377,7 +377,7 @@ function signTexture(kind: SignKind): THREE.CanvasTexture {
 
 /** Panche e cestini nelle piazze: arredo minimo ma rompe il vuoto dei marciapiedi. */
 export function buildStreetProps(
-  _osm: OsmData,
+  osm: OsmData,
   heights: Heightfield,
   buildings: BuildingIndex,
   renderer: THREE.WebGLRenderer,
@@ -388,18 +388,74 @@ export function buildStreetProps(
   const benches: THREE.BufferGeometry[] = [];
   let placed = 0;
 
+  // Panche solo lungo le strade asfaltate, davanti a una casa e rivolte verso
+  // la carreggiata. Prima venivano messe a caso attorno agli edifici grandi:
+  // finivano nei campi, dietro le case o in mezzo alla strada.
+  const paved = osm.roads.filter((r) => r.paved && r.width >= 4.5);
+  // griglia dei tratti di strada: 2.193 case × ~30.000 punti sarebbe troppo
+  const CELL = 80;
+  const roadCells = new Map<string, { ax: number; az: number; bx: number; bz: number; w: number }[]>();
+  for (const road of paved) {
+    for (let i = 1; i < road.points.length; i++) {
+      const a = road.points[i - 1];
+      const b = road.points[i];
+      const seg = { ax: a.x, az: a.z, bx: b.x, bz: b.z, w: road.width };
+      for (let ix = Math.floor(Math.min(a.x, b.x) / CELL); ix <= Math.floor(Math.max(a.x, b.x) / CELL); ix++) {
+        for (let iz = Math.floor(Math.min(a.z, b.z) / CELL); iz <= Math.floor(Math.max(a.z, b.z) / CELL); iz++) {
+          const key = `${ix},${iz}`;
+          let list = roadCells.get(key);
+          if (!list) {
+            list = [];
+            roadCells.set(key, list);
+          }
+          list.push(seg);
+        }
+      }
+    }
+  }
+
   for (const b of buildings.all) {
-    if (placed >= 220) break;
-    if (b.area < 90) continue;
-    if (rng() > 0.42) continue;
+    if (placed >= 90) break;
+    if (b.area < 70) continue;
+    // non tutte le case hanno la panca davanti
+    if (rng() > 0.3) continue;
     const c = { x: (b.bounds.minX + b.bounds.maxX) / 2, z: (b.bounds.minZ + b.bounds.maxZ) / 2 };
-    const angle = rng() * Math.PI * 2;
-    const dist = Math.max(b.bounds.maxX - b.bounds.minX, b.bounds.maxZ - b.bounds.minZ) / 2 + 2.4;
-    const x = c.x + Math.cos(angle) * dist;
-    const z = c.z + Math.sin(angle) * dist;
-    if (heights.slopeAt(x, z) > 18) continue;
+    const bx = Math.floor(c.x / CELL);
+    const bz = Math.floor(c.z / CELL);
+    let best: { x: number; z: number; d: number; w: number; nx: number; nz: number } | null = null;
+    for (let ix = bx - 1; ix <= bx + 1; ix++) {
+      for (let iz = bz - 1; iz <= bz + 1; iz++) {
+        const list = roadCells.get(`${ix},${iz}`);
+        if (!list) continue;
+        for (const s of list) {
+          const d = distanceToSegment2(c.x, c.z, s.ax, s.az, s.bx, s.bz);
+          if (d < s.w / 2 + 2.6 || d > 13) continue;
+          if (best && d >= best.d) continue;
+          // piede della perpendicolare e normale che punta verso la casa
+          const dx = s.bx - s.ax;
+          const dz = s.bz - s.az;
+          const len2 = dx * dx + dz * dz || 1;
+          const t = clamp(((c.x - s.ax) * dx + (c.z - s.az) * dz) / len2, 0, 1);
+          const fx = s.ax + dx * t;
+          const fz = s.az + dz * t;
+          const nlen = Math.hypot(c.x - fx, c.z - fz) || 1;
+          best = { x: fx, z: fz, d, w: s.w, nx: (c.x - fx) / nlen, nz: (c.z - fz) / nlen };
+        }
+      }
+    }
+    if (!best) continue;
+
+    // 1,1 m oltre il bordo dell'asfalto, sul lato della casa
+    const x = best.x + best.nx * (best.w / 2 + 1.1);
+    const z = best.z + best.nz * (best.w / 2 + 1.1);
+    if (heights.slopeAt(x, z) > 14) continue;
+    // niente panche dentro un'altra casa
+    if (buildings.resolveCircle(x, z, 0.7).hit) continue;
     const y = heights.heightAt(x, z);
-    const rot = -angle;
+    // la seduta guarda la strada, lo schienale sta verso la casa
+    const ux = -best.nx;
+    const uz = -best.nz;
+    const rot = Math.atan2(ux, uz);
     // doghe della seduta + schienale, ferro battuto per le gambe
     const wood = new THREE.Color(0x8a5f37);
     const iron = new THREE.Color(0x2c3033);
@@ -410,13 +466,14 @@ export function buildStreetProps(
     benches.push(seat);
     const back = new THREE.BoxGeometry(1.55, 0.42, 0.06).toNonIndexed();
     back.rotateY(rot);
-    back.translate(x - Math.cos(rot) * 0.19, y + 0.68, z + Math.sin(rot) * 0.19);
+    back.translate(x - ux * 0.2, y + 0.68, z - uz * 0.2);
     setColor(back, wood);
     benches.push(back);
     for (const side of [-0.62, 0.62]) {
       const leg = new THREE.BoxGeometry(0.07, 0.45, 0.5).toNonIndexed();
       leg.rotateY(rot);
-      leg.translate(x + Math.cos(rot + Math.PI / 2) * side, y + 0.22, z + Math.sin(rot + Math.PI / 2) * side);
+      // le gambe stanno agli estremi della seduta, lungo l'asse lungo
+      leg.translate(x + Math.cos(rot) * side, y + 0.22, z - Math.sin(rot) * side);
       setColor(leg, iron);
       benches.push(leg);
     }

@@ -144,7 +144,19 @@ export class SatelliteBasemap {
     if (this.ctx) {
       this.ctx.fillStyle = '#2b3628';
       this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-      this.load(p0, p1);
+      // Prima il mosaico Sentinel locale: la mappa è pronta subito e anche
+      // offline. Se il file manca, si torna alle tile Esri in streaming.
+      const img = new Image();
+      img.decoding = 'async';
+      img.onload = () => {
+        this.ctx?.drawImage(img, 0, 0, this.canvas.width, this.canvas.height);
+        this.total = 1;
+        this.drawn = 1;
+        this.finished = true;
+        this.onUpdate?.();
+      };
+      img.onerror = () => this.load(p0, p1);
+      img.src = `${import.meta.env.BASE_URL}geo/world-imagery.jpg`;
     }
   }
 

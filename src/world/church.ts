@@ -138,22 +138,12 @@ export function buildChurch(
     envMapIntensity: 0.3,
   });
 
-  // tetto: clone delle tegole con repeat proprio, così non tocca quello delle case
+  // tetto: tegole condivise con le case (UV in unità di 2,7 m come le falde OSM)
   const tiles = pbr(renderer, 'rooftiles', { repeat: 2, normal: true, rough: true });
-  const roofMap = tiles.map?.clone();
-  const roofNormal = tiles.normalMap?.clone();
-  if (roofMap) {
-    roofMap.repeat.set(1, 1);
-    roofMap.needsUpdate = true;
-  }
-  if (roofNormal) {
-    roofNormal.repeat.set(1, 1);
-    roofNormal.needsUpdate = true;
-  }
   const roofMat = new THREE.MeshStandardMaterial({
-    map: roofMap ?? null,
-    normalMap: roofNormal ?? null,
-    roughnessMap: null,
+    map: tiles.map ?? null,
+    normalMap: tiles.normalMap ?? null,
+    roughnessMap: tiles.roughnessMap ?? null,
     color: 0xb06a4a,
     roughness: 0.88,
     metalness: 0,
@@ -214,7 +204,7 @@ export function buildChurch(
   // falde del tetto: due lastre inclinate che si incontrano sul colmo
   const slope = Math.atan2(RIDGE, NAVE_W / 2 + 0.4);
   const slopeLen = Math.hypot(NAVE_W / 2 + 0.9, RIDGE);
-  const roofGeo = scaleUv(new THREE.BoxGeometry(slopeLen, 0.22, NAVE_D + 1.2), slopeLen / 1.35, (NAVE_D + 1.2) / 1.35);
+  const roofGeo = scaleUv(new THREE.BoxGeometry(slopeLen, 0.22, NAVE_D + 1.2), slopeLen / 2.7, (NAVE_D + 1.2) / 2.7);
   add(roofGeo, roofMat, (NAVE_W / 2 + 0.25) / 2, WALL_H + RIDGE / 2, 0, 0, 0, -slope);
   add(roofGeo.clone(), roofMat, -(NAVE_W / 2 + 0.25) / 2, WALL_H + RIDGE / 2, 0, 0, 0, slope);
   add(new THREE.BoxGeometry(0.55, 0.3, NAVE_D + 1.3), roofMat, 0, WALL_H + RIDGE + 0.03, 0, 0, 0, Math.PI / 4);

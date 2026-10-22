@@ -4,7 +4,7 @@ import { pbr, waterNormals } from '../gfx/textures';
 import { registerScroll } from '../gfx/wind';
 import type { Heightfield } from '../geo/elevation';
 import { clamp, hashInt, type Pt } from '../geo/geo';
-import type { BuildingIndex, OsmData, RoadIndex } from '../geo/osm';
+import { CURB_HEIGHT, roadLift, type BuildingIndex, type OsmData, type RoadIndex } from '../geo/osm';
 
 interface RibbonArrays {
   positions: number[];
@@ -191,12 +191,17 @@ function pushRibbon(
     const px = -tz;
     const pz = tx;
     const half = width / 2;
-    const h = heights.heightAt(pts[i].x, pts[i].z) + lift;
     const n = heights.normalAt(pts[i].x, pts[i].z, 5);
     const nl = Math.hypot(n.x, n.y, n.z) || 1;
 
     for (const side of [-1, 1]) {
-      target.positions.push(pts[i].x + px * half * side, h, pts[i].z + pz * half * side);
+      // ogni bordo segue il terreno *sotto di sé*: con la quota unica del
+      // centrolinea, su un pendio trasversale il lato in salita sprofondava
+      // nell'asfalto e quello in discesa restava sospeso
+      const ex = pts[i].x + px * half * side;
+      const ez = pts[i].z + pz * half * side;
+      const h = heights.heightAt(ex, ez) + lift;
+      target.positions.push(ex, h, ez);
       target.normals.push(n.x / nl, n.y / nl, n.z / nl);
       target.colors.push(color.r * shade, color.g * shade, color.b * shade);
       // u attraversa la carreggiata, v scorre lungo la strada (~6 m per tile)
@@ -487,9 +492,9 @@ export function buildRoads(
     const isDirt = !road.paved;
     const target = isDirt ? dirt : asphalt;
     const base = isDirt ? dirtColor : asphaltColor;
-    const color = base.clone().multiplyScalar(0.9 + (hashInt(idx, 7) % 100) / 500);
-    // micro offset per evitare z-fighting negli incroci
-    const lift = (isDirt ? 0.12 : 0.2) + (idx % 7) * 0.004;
+    const color = base.clone().multiplyScalar(0.97 + (hashInt(idx, 7) % 60) / 1000);
+    // micro offset per evitare z-fighting negli incroci (condiviso con la fisica)
+    const lift = roadLift(idx, road.paved);
     pushRibbon(target, pts, road.width, lift, color, heights, 1);
     // tratteggio di mezzeria sulle carreggiate larghe
     if (!isDirt && road.width >= 5.4) {
@@ -497,11 +502,27 @@ export function buildRoads(
     }
 
     // Solo le strade asfaltate hanno marciapiede e cordolo: le sterrate no.
-    if (isDirt) return;
+    if (isDirt) {
+      // ...ma anche lo sterrato è un nastro rialzato di 12 cm: senza il bordo
+      // verticale, sul pendio si vede il vuoto sotto il manto
+      for (const side of [-1, 1]) {
+        pushCurbWall(
+          dirt,
+          offsetPolyline(pts, side * (road.width / 2)),
+          0,
+          lift,
+          -side,
+          color,
+          heights,
+          () => false,
+        );
+      }
+      return;
+    }
     const walkWidth = road.width >= 6 ? 1.8 : 1.45;
     // cordolo a 18 cm (altezza da marciapiede italiano): è lo scalino che si
     // sente sotto il piede e che stacca la pavimentazione dall'asfalto
-    const curbTop = lift + 0.18;
+    const curbTop = lift + CURB_HEIGHT;
     const walkLift = curbTop + 0.005;
     const blockedWalk = (x: number, z: number): boolean => (roadIndex ? roadIndex.isOnRoad(x, z, 0.4) : false);
     for (const side of [-1, 1]) {
@@ -514,9 +535,21 @@ export function buildRoads(
       pushCurbWall(
         pavement,
         offsetPolyline(pts, side * (road.width / 2 + 0.005)),
-        lift - 0.02,
-        0.18,
+        lift,
+        lift + CURB_HEIGHT,
         side,
+        curbColor,
+        heights,
+        blockedWalk,
+      );
+      // bordo esterno del marciapiede: senza questa faccia il nastro resta
+      // sospeso sopra il prato e si vede il vuoto sotto
+      pushCurbWall(
+        pavement,
+        offsetPolyline(pts, side * (road.width / 2 + walkWidth)),
+        0,
+        walkLift,
+        -side,
         curbColor,
         heights,
         blockedWalk,

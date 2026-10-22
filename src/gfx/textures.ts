@@ -74,6 +74,30 @@ export function pbrColor(renderer: THREE.WebGLRenderer, key: TextureKey): THREE.
   return texture(`${BASE}/${key}/color.jpg`, true, Math.min(8, renderer.capabilities.getMaxAnisotropy()));
 }
 
+/**
+ * Mappa colore con una ripetizione propria.
+ *
+ * Non si clona la texture condivisa: un clone con `needsUpdate` forzava
+ * l'upload prima che l'immagine fosse arrivata e la console si riempiva di
+ * "Texture marked for update but no image data found". Qui ogni ripetizione ha
+ * il suo caricamento (il file è lo stesso, quindi arriva dalla cache HTTP).
+ */
+const repeatedCache = new Map<string, THREE.Texture>();
+export function pbrColorRepeated(renderer: THREE.WebGLRenderer, key: TextureKey, repeat: number): THREE.Texture {
+  const url = `${BASE}/${key}/color.jpg`;
+  const cacheKey = `${url}@${repeat}`;
+  const cached = repeatedCache.get(cacheKey);
+  if (cached) return cached;
+  const tex = loader.load(url);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  tex.repeat.set(repeat, repeat);
+  repeatedCache.set(cacheKey, tex);
+  return tex;
+}
+
 export interface FoliageSet {
   map: THREE.Texture;
   normalMap: THREE.Texture;
@@ -105,10 +129,10 @@ export function waterNormals(renderer: THREE.WebGLRenderer, repeatX: number, rep
   const cached = cache.get(key);
   if (cached) return cached;
   const anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-  // clone condivide l'immagine caricata ma ha offset/repeat propri
-  const base = texture(`${BASE}/water/normals.jpg`, false, anisotropy);
-  const tex = base.clone();
-  tex.needsUpdate = true;
+  // un caricamento vero per ogni repeat, invece di clonare una texture che può
+  // non essere ancora arrivata: il clone con `needsUpdate` faceva comparire
+  // "Texture marked for update but no image data found" in console
+  const tex = loader.load(`${BASE}/water/normals.jpg`);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
   tex.colorSpace = THREE.NoColorSpace;

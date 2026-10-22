@@ -1,7 +1,13 @@
 import * as THREE from 'three';
-import { CHUNK_SIZE, worldToLatLon } from '../config';
+import { CHUNK_SIZE, WORLD, worldToLatLon } from '../config';
 import { mercatorPixel } from '../geo/geo';
 import { chunkOrigin } from './chunks';
+
+/**
+ * Mosaico Sentinel-2 cloudless dell'intero mondo (CC BY 4.0, EOX).
+ * Lo scarica `npm run geo:imagery` in `public/geo/world-imagery.jpg`.
+ */
+const BASE_IMAGERY_URL = `${import.meta.env.BASE_URL}geo/world-imagery.jpg`;
 
 export interface TileProvider {
   id: string;
@@ -24,14 +30,18 @@ const TILE = 256;
 
 /**
  * Zoom satellite in base alla distanza dal giocatore.
- * z18 ≈ 0,45 m/px: si leggono tetti, uliveti e muretti a secco.
- * z17 ≈ 0,9 m/px, z16 ≈ 1,8 m/px, z15 ≈ 3,5 m/px per l'orizzonte.
+ *
+ * z17 ≈ 0,9 m/px: si leggono tetti, uliveti e muretti a secco.
+ * z16 ≈ 1,8 m/px: è il fondo scala utile per i campi lontani.
+ *
+ * z18 non si usa: un chunk è largo 912 m e a z18 servirebbero ~100 tile e una
+ * canvas da 2432 px, che viene comunque tagliata a 2048. Il guadagno è minimo
+ * e lo streaming non riesce a texturizzare i chunk lontani (era il motivo per
+ * cui i campi all'orizzonte restavano verdi e sfocati).
  */
 export function zoomForDistance(distance: number): number {
-  if (distance <= 520) return 18;
-  if (distance <= 1500) return 17;
-  if (distance <= 2600) return 16;
-  return 15;
+  if (distance <= 900) return 17;
+  return 16;
 }
 
 /** Carica le tile come immagini (CORS ok per Esri). */
@@ -57,6 +67,8 @@ export class ImageryStreamer {
   private readonly inflight = new Map<string, Promise<THREE.Texture>>();
   private readonly anisotropy: number;
   private readonly baseZoom = 16;
+  /** mosaico Sentinel già decodificato dal browser (nessuna tile da rete) */
+  private baseImage: HTMLImageElement | null = null;
 
   constructor(
     readonly provider: TileProvider = ESRI_WORLD_IMAGERY,
@@ -64,6 +76,56 @@ export class ImageryStreamer {
     private readonly onTileError?: (err: Error) => void,
   ) {
     this.anisotropy = anisotropy;
+    const img = new Image();
+    img.decoding = 'async';
+    img.onload = () => {
+      this.baseImage = img;
+    };
+    img.src = BASE_IMAGERY_URL;
+  }
+
+  get hasBaseImage(): boolean {
+    return this.baseImage !== null;
+  }
+
+  /**
+   * Ritaglia dal mosaico Sentinel la porzione esatta di un chunk.
+   *
+   * È sincrono e locale: ogni chunk ha subito un'immagine vera (campi, boschi,
+   * paesi) anche a 3 km, senza aspettare le tile Esri. Le tile arrivano dopo e
+   * sostituiscono questo ritaglio con il dettaglio z17.
+   */
+  baseChunkTexture(cx: number, cz: number): THREE.Texture | null {
+    const img = this.baseImage;
+    if (!img) return null;
+    const x0 = chunkOrigin(cx);
+    const z0 = chunkOrigin(cz);
+    const sx = ((x0 + WORLD.halfWidth) / WORLD.width) * img.naturalWidth;
+    const sy = ((z0 + WORLD.halfHeight) / WORLD.height) * img.naturalHeight;
+    const sw = (CHUNK_SIZE / WORLD.width) * img.naturalWidth;
+    const sh = (CHUNK_SIZE / WORLD.height) * img.naturalHeight;
+
+    const size = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.filter = 'saturate(1.16) contrast(1.04)';
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, size, size);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.generateMipmaps = true;
+    texture.anisotropy = this.anisotropy;
+    texture.needsUpdate = true;
+    return texture;
   }
 
   async loadChunkTexture(cx: number, cz: number, zoom = this.baseZoom): Promise<THREE.Texture> {

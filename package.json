@@ -10,6 +10,7 @@
     "preview": "vite preview --host 127.0.0.1 --port 4173",
     "test": "vitest run",
     "geo": "node scripts/fetch-geodata.mjs",
+    "geo:imagery": "node scripts/fetch-world-imagery.mjs",
     "textures": "node scripts/fetch-textures.mjs",
     "smoke": "node scripts/smoke.mjs",
     "streets": "node scripts/check-street-imagery.mjs"

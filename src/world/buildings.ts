@@ -4,7 +4,7 @@ import type { Heightfield } from '../geo/elevation';
 import { hashInt, type Pt } from '../geo/geo';
 import type { Building, OsmData } from '../geo/osm';
 import { clamp } from '../geo/geo';
-import { pbr, pbrColor } from '../gfx/textures';
+import { pbr, pbrColorRepeated } from '../gfx/textures';
 import { planHipRoof, type HipRoofPlan, type Pt3 } from './roof';
 
 // Intonaci chiari: molti paesi molisani sono tinteggiati di bianco o crema.
@@ -360,7 +360,12 @@ function addWindow(
 
 function buildOne(b: Building, heights: Heightfield, seed: number): BuildingParts {
   const c = centroid(b.points);
-  const base = heights.heightAt(c.x, c.z) - 0.7;
+  // quota del terreno sotto tutta l'impronta: il muro parte dal punto più basso,
+  // così sul lato in discesa non resta il vuoto sotto la casa. Lo zoccolo in
+  // pietra copre il dislivello sul lato in salita.
+  let groundMin = heights.heightAt(c.x, c.z);
+  for (const p of b.points) groundMin = Math.min(groundMin, heights.heightAt(p.x, p.z));
+  const base = groundMin - 0.25;
   const shape = new THREE.Shape(b.points.map((p) => new THREE.Vector2(p.x, -p.z)));
   const wall = new THREE.ExtrudeGeometry(shape, { depth: b.height, bevelEnabled: false, steps: 1 });
   wall.rotateX(-Math.PI / 2);
@@ -483,14 +488,18 @@ function buildOne(b: Building, heights: Heightfield, seed: number): BuildingPart
     const doorH = Math.min(2.25, b.height - 0.7);
     const dx = edge.mx + edge.nx * 0.03;
     const dz = edge.mz + edge.nz * 0.03;
+    // il portone parte dal terreno *davanti a lui*, non dalla base più bassa:
+    // sul lato in salita la base era sotto il prato e la porta spariva
+    const doorGround = heights.heightAt(edge.mx, edge.mz);
+    const doorBottom = clamp(doorGround, base, base + b.height - doorH - 0.3);
     const jamb = 0.13;
     for (const side of [-1, 1] as const) {
       const px = dx + edge.ex * side * (doorW / 2 + jamb / 2);
       const pz = dz + edge.ez * side * (doorW / 2 + jamb / 2);
-      trim.push(solidBox(jamb, doorH + 0.2, 0.16, px, base + (doorH + 0.2) / 2, pz, stone, edge.angle));
+      trim.push(solidBox(jamb, doorH + 0.2, 0.16, px, doorBottom + (doorH + 0.2) / 2, pz, stone, edge.angle));
     }
     trim.push(
-      solidBox(doorW + jamb * 2, 0.16, 0.18, dx, base + doorH + 0.1, dz, stone, edge.angle),
+      solidBox(doorW + jamb * 2, 0.16, 0.18, dx, doorBottom + doorH + 0.1, dz, stone, edge.angle),
     );
     trim.push(
       solidBox(
@@ -498,7 +507,7 @@ function buildOne(b: Building, heights: Heightfield, seed: number): BuildingPart
         doorH,
         0.07,
         dx - edge.nx * 0.05,
-        base + doorH / 2,
+        doorBottom + doorH / 2,
         dz - edge.nz * 0.05,
         new THREE.Color(0x4a3323),
         edge.angle,
@@ -506,7 +515,16 @@ function buildOne(b: Building, heights: Heightfield, seed: number): BuildingPart
     );
     const threshold = new THREE.Color(0xb5ab99);
     trim.push(
-      solidBox(1.55, 0.14, 0.55, edge.mx + edge.nx * 0.22, base + 0.07, edge.mz + edge.nz * 0.22, threshold, edge.angle),
+      solidBox(
+        1.55,
+        0.14,
+        0.55,
+        edge.mx + edge.nx * 0.22,
+        doorBottom + 0.02,
+        edge.mz + edge.nz * 0.22,
+        threshold,
+        edge.angle,
+      ),
     );
   }
 
@@ -565,13 +583,18 @@ function buildOne(b: Building, heights: Heightfield, seed: number): BuildingPart
       const count = Math.max(1, Math.min(4, Math.floor(usable / 2.55)));
       const step = usable / count;
       for (let f = 0; f < floors; f++) {
-        // Il piano terra va alzato a 1,60–1,75 m: con la formula dei piani
-        // superiori il davanzale finiva a 1,09 m e la finestra veniva scartata,
-        // lasciando cieco tutto il pianterreno (era il difetto più visibile).
-        const wy = f === 0 ? base + Math.min(1.75, floorH * 0.52 + 0.25) : base + floorH * f + floorH * 0.56;
-        if (wy + winH / 2 > base + (f === 0 ? floorH : b.height) - 0.25) continue;
         for (let k = 0; k < count; k++) {
           const off = -usable / 2 + step * (k + 0.5);
+          // al piano terra la finestra parte dal terreno *lì*, non dalla base
+          // più bassa: sul lato in salita finiva mezza sotto il prato
+          const wx = side.mx + side.ex * off + side.nx * 0.02;
+          const wz = side.mz + side.ez * off + side.nz * 0.02;
+          const localGround = heights.heightAt(wx, wz);
+          const wy =
+            f === 0
+              ? localGround + 1.6
+              : base + floorH * f + floorH * 0.56;
+          if (wy + winH / 2 > base + (f === 0 ? floorH : b.height) - 0.25) continue;
           // il portone sta al centro della facciata nobile: niente finestra lì
           if (f === 0 && index === 0 && Math.abs(off) < 1.25) continue;
           // il balcone occupa il centro della facciata al piano intermedio
@@ -691,9 +714,7 @@ export function buildBuildings(
     bump: number,
   ): THREE.MeshStandardMaterial => {
     const set = pbr(renderer, key, { color: false, normal: true, rough: true, repeat });
-    const color = pbrColor(renderer, key).clone();
-    color.needsUpdate = true;
-    color.repeat.set(repeat, repeat);
+    const color = pbrColorRepeated(renderer, key, repeat);
     return new THREE.MeshStandardMaterial({
       vertexColors: true,
       map: color,

@@ -150,14 +150,18 @@ async function main() {
     const cdp = await connect(target);
 
     const consoleErrors = [];
+    const consoleWarnings = [];
     cdp.on('Runtime.consoleAPICalled', (p) => {
-      if (p.type === 'error') consoleErrors.push(p.args.map((a) => a.value ?? a.description).join(' '));
+      const text = p.args.map((a) => a.value ?? a.description).join(' ');
+      if (p.type === 'error') consoleErrors.push(text);
+      else if (p.type === 'warning') consoleWarnings.push(text);
     });
     cdp.on('Runtime.exceptionThrown', (p) => {
       consoleErrors.push(p.exceptionDetails.exception?.description ?? p.exceptionDetails.text);
     });
     cdp.on('Log.entryAdded', (p) => {
       if (p.entry.level === 'error') consoleErrors.push(p.entry.text);
+      else if (p.entry.level === 'warning') consoleWarnings.push(p.entry.text);
     });
 
     await cdp.send('Runtime.enable');
@@ -296,6 +300,16 @@ async function main() {
     log(`camminata con W: ${walked.toFixed(2)} m (mode=${walkDiag.mode})`);
     if (walkDiag.mode !== 'walk') throw new Error('modalità a piedi persa');
     if (walked < 1) throw new Error('il giocatore non si è mosso a piedi');
+
+    // Warning che nascondevano bug veri: texture caricate senza immagine,
+    // API deprecate di Three.js. Se ricompaiono, lo smoke deve fallire.
+    if (consoleErrors.length) throw new Error(`errori console: ${consoleErrors.slice(0, 4).join(' | ')}`);
+    const badWarnings = consoleWarnings.filter((w) =>
+      /Texture marked for update|THREE\.Clock|deprecated/i.test(w),
+    );
+    if (badWarnings.length) {
+      throw new Error(`warning console: ${badWarnings.slice(0, 4).join(' | ')}`);
+    }
 
     log('OK — nessun errore console, rendering e input funzionanti');
     exitCode = 0;

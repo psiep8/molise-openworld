@@ -40,8 +40,9 @@ describe('auto arcade', () => {
     const right = run(30, 1 / 60, flat, moving, { ...idle, steer: -1 });
     expect(left.yaw).toBeGreaterThan(0);
     expect(right.yaw).toBeLessThan(0);
-    // sterzando a sinistra la traiettoria piega a ovest (x negativo)
-    expect(left.x).toBeLessThan(-0.5);
+    // sterzando a sinistra la traiettoria piega a ovest (x negativo). Con lo
+    // sterzo addolcito la piega è più dolce di prima, ma il verso è quello.
+    expect(left.x).toBeLessThan(-0.3);
   });
 
   it('fuori strada la velocità massima è più bassa', () => {

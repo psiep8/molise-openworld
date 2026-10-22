@@ -156,7 +156,7 @@ export class Game {
   private readonly scene = new THREE.Scene();
   private readonly camera: THREE.PerspectiveCamera;
   private readonly stereoCamera: THREE.PerspectiveCamera;
-  private readonly clock = new THREE.Clock();
+  private readonly timer = new THREE.Timer();
   private readonly hud = new Hud();
   private readonly player = new Player();
   private readonly car = new Vehicle();
@@ -1838,7 +1838,7 @@ export class Game {
       this.hud.toast('WASD muoviti · Shift corri · F entra in auto · C cambia visuale · M mappa', 5200);
     }
 
-    this.clock.getDelta();
+    this.timer.update();
     this.requestPointerLock();
   }
 
@@ -1910,7 +1910,8 @@ export class Game {
     requestAnimationFrame(this.frame);
     // il tempo reale serve a misurare gli fps, quello limitato alla simulazione:
     // sotto i 20 fps il passo di fisica non deve superare i 50 ms (tunneling)
-    const rawDt = Math.min(0.5, this.clock.getDelta());
+    this.timer.update();
+    const rawDt = Math.min(0.5, this.timer.getDelta());
     const dt = Math.min(0.05, rawDt);
 
     this.fpsFrames++;
@@ -2012,7 +2013,7 @@ export class Game {
     }
 
     if (this.mode === 'walk') {
-      this.player.update(dt, move, this.heights, this.buildingIndex);
+      this.player.update(dt, move, this.heights, this.buildingIndex, this.roadIndex);
       this.player.position.x = clamp(this.player.position.x, -WORLD.halfWidth + 25, WORLD.halfWidth - 25);
       this.player.position.z = clamp(this.player.position.z, -WORLD.halfHeight + 25, WORLD.halfHeight - 25);
       this.updateWalkCamera(dt);

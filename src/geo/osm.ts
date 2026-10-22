@@ -1,6 +1,19 @@
 import { latLonToWorld } from '../config';
 import { boundsOf, distanceToSegment2, pointInPolygon, type Bounds, type Pt } from './geo';
 
+/**
+ * Quote dei piani stradali sopra il DEM, condivise da chi disegna le strade e
+ * da chi ci cammina sopra. Se cambiano qui cambiano ovunque.
+ */
+export const ROAD_LIFT = 0.2;
+export const DIRT_LIFT = 0.12;
+export const CURB_HEIGHT = 0.18;
+
+/** Micro-offset per strada: evita lo z-fighting dei nastri negli incroci. */
+export function roadLift(index: number, paved: boolean): number {
+  return (paved ? ROAD_LIFT : DIRT_LIFT) + (index % 7) * 0.004;
+}
+
 interface RawOsm {
   generatedAt: string;
   attribution: string;
@@ -118,6 +131,21 @@ function ringArea(points: Pt[]): number {
   return Math.abs(a / 2);
 }
 
+/**
+ * Altezza minima per classe di superficie.
+ *
+ * Il generatore dei dati, quando OSM non ha `height` né `building:levels`,
+ * assegna 2,8–4,2 m alle impronte sotto i 45 m²: nel gioco diventano case di un
+ * piano con il portone che sembra interrato. In un centro molisano una casa è
+ * di due o tre piani; i garage restano bassi.
+ */
+function minBuildingHeight(area: number, height: number): number {
+  if (area < 24) return Math.max(height, 3.4);
+  if (area < 70) return Math.max(height, 6.4);
+  if (area < 160) return Math.max(height, 7.6);
+  return Math.max(height, 8.6);
+}
+
 export async function loadOsm(base = './geo/'): Promise<OsmData> {
   const res = await fetch(`${base}osm.json`);
   if (!res.ok) throw new Error(`osm.json: HTTP ${res.status} (esegui "npm run geo")`);
@@ -137,7 +165,8 @@ export async function loadOsm(base = './geo/'): Promise<OsmData> {
 
   const buildings: Building[] = raw.buildings.map((b) => {
     const points = project(b.c);
-    return { height: b.h, points, bounds: boundsOf(points), area: ringArea(points) };
+    const area = ringArea(points);
+    return { height: minBuildingHeight(area, b.h), points, bounds: boundsOf(points), area };
   });
 
   const areas: Area[] = raw.areas.map((a) => {
@@ -170,17 +199,22 @@ export async function loadOsm(base = './geo/'): Promise<OsmData> {
 /** Indice spaziale delle strade: serve alla fisica (on/off-road) e allo spawn. */
 export class RoadIndex {
   private readonly cell = 140;
-  private readonly grid = new Map<number, { ax: number; az: number; bx: number; bz: number; w: number }[]>();
+  private readonly grid = new Map<
+    number,
+    { ax: number; az: number; bx: number; bz: number; w: number; lift: number; paved: boolean; walk: number; road: number }[]
+  >();
   private readonly roads: Road[];
 
   constructor(roads: Road[]) {
     this.roads = roads;
-    for (const road of roads) {
+    for (const [index, road] of roads.entries()) {
       const half = road.width / 2;
+      const lift = roadLift(index, road.paved);
+      const walk = road.paved ? (road.width >= 6 ? 1.8 : 1.45) : 0;
       for (let i = 1; i < road.points.length; i++) {
         const a = road.points[i - 1];
         const b = road.points[i];
-        const seg = { ax: a.x, az: a.z, bx: b.x, bz: b.z, w: half };
+        const seg = { ax: a.x, az: a.z, bx: b.x, bz: b.z, w: half, lift, paved: road.paved, walk, road: index };
         const minX = Math.min(a.x, b.x) - half;
         const maxX = Math.max(a.x, b.x) + half;
         const minZ = Math.min(a.z, b.z) - half;
@@ -204,8 +238,12 @@ export class RoadIndex {
     return (cx + 4096) * 8192 + (cz + 4096);
   }
 
-  /** true se il punto è su una strada (asfalto o sterrato), con un po' di tolleranza. */
-  isOnRoad(x: number, z: number, tolerance = 0.8): boolean {
+  /**
+   * true se il punto è su una strada (asfalto o sterrato), con un po' di
+   * tolleranza. `except` esclude una strada: serve ai marciapiedi, che non
+   * devono interrompersi sul bordo della propria carreggiata.
+   */
+  isOnRoad(x: number, z: number, tolerance = 0.8, except = -1): boolean {
     const cx = Math.floor(x / this.cell);
     const cz = Math.floor(z / this.cell);
     for (let ix = cx - 1; ix <= cx + 1; ix++) {
@@ -213,11 +251,62 @@ export class RoadIndex {
         const list = this.grid.get(this.key(ix, iz));
         if (!list) continue;
         for (const s of list) {
+          if (s.road === except) continue;
           if (distanceToSegment2(x, z, s.ax, s.az, s.bx, s.bz) <= s.w + tolerance) return true;
         }
       }
     }
     return false;
+  }
+
+  /**
+   * Dislivello del piano calpestabile rispetto al DEM: asfalto (0,20 m),
+   * marciapiede (asfalto + cordolo) oppure 0 sul prato.
+   *
+   * Giocatore e auto usano questa quota: prima il giocatore camminava 20 cm
+   * sotto il manto stradale e sembrava di affondare nella sabbia.
+   */
+  surfaceOffset(x: number, z: number): number {
+    const cx = Math.floor(x / this.cell);
+    const cz = Math.floor(z / this.cell);
+    let asphalt = -1;
+    let walk = -1;
+    let walkRoad = -1;
+    for (let ix = cx - 1; ix <= cx + 1; ix++) {
+      for (let iz = cz - 1; iz <= cz + 1; iz++) {
+        const list = this.grid.get(this.key(ix, iz));
+        if (!list) continue;
+        for (const s of list) {
+          const d = distanceToSegment2(x, z, s.ax, s.az, s.bx, s.bz);
+          if (d <= s.w) {
+            if (s.lift > asphalt) asphalt = s.lift;
+          } else if (s.paved && s.walk > 0 && d <= s.w + s.walk) {
+            const top = s.lift + CURB_HEIGHT;
+            if (top > walk) {
+              walk = top;
+              walkRoad = s.road;
+            }
+          }
+        }
+      }
+    }
+    // l'asfalto vince sul marciapiede: ai bordi degli incroci i due nastri si
+    // sovrappongono e il manto stradale è quello che si vede
+    if (asphalt >= 0) return asphalt;
+    if (walk < 0) return 0;
+    // il marciapiede si interrompe agli incroci: entro 40 cm dall'asfalto di
+    // un'altra strada non c'è pavimentazione, si cammina sul terreno
+    for (let ix = cx - 1; ix <= cx + 1; ix++) {
+      for (let iz = cz - 1; iz <= cz + 1; iz++) {
+        const list = this.grid.get(this.key(ix, iz));
+        if (!list) continue;
+        for (const s of list) {
+          if (s.road === walkRoad) continue;
+          if (distanceToSegment2(x, z, s.ax, s.az, s.bx, s.bz) <= s.w + 0.4) return 0;
+        }
+      }
+    }
+    return walk;
   }
 
   /** Punto stradale più vicino, per far comparire auto e giocatore in strada. */
