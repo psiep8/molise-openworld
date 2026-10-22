@@ -384,10 +384,10 @@ float wheelTracks(float u) {
   float centre = exp(-pow((vRoadUv.x - 0.5) / 0.14, 2.0));
   // macchie ogni 20-35 m: coordinate mondo, così non seguono la strada
   vec2 cell = floor(vRoadWorld.xz * 0.03);
-  float patch = fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453);
+  float blotch = fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453);
   diffuseColor.rgb *= mix(1.0, 0.78, tread);
   diffuseColor.rgb *= mix(1.0, 1.05, centre);
-  diffuseColor.rgb *= 0.92 + 0.16 * patch;
+  diffuseColor.rgb *= 0.92 + 0.16 * blotch;
   // bagnato: asfalto scuro, come dopo un temporale
   diffuseColor.rgb *= mix(1.0, 0.60, uRoadWet);
 }`,
@@ -402,7 +402,7 @@ float wheelTracks(float u) {
 }`,
       );
   };
-  material.customProgramCacheKey = () => 'road-wear-v1';
+  material.customProgramCacheKey = () => 'road-wear-v2';
 }
 
 /**
