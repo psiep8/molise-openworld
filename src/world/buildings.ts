@@ -12,6 +12,30 @@ import { planHipRoof, type HipRoofPlan, type Pt3 } from './roof';
 // finire sul marrone.
 const WALL_COLORS = [0xf3ecdd, 0xfaf5ea, 0xe9dfc9, 0xf5e8d4, 0xf1e6d2, 0xe6dac4, 0xefe3cd, 0xfdf8ee];
 /**
+ * Tinte per le facciate in pietra e in mattoni: la texture dà la grana e il
+ * colore di base, la tinta per edificio aggiunge solo calore o grigiore.
+ */
+const STONE_COLORS = [0xd9cdba, 0xcfc2ad, 0xe0d5c2, 0xc8bda9, 0xd4c9b6];
+const BRICK_COLORS = [0xd8bda4, 0xcdb198, 0xe0c6ae, 0xc6a98f];
+
+/**
+ * Famiglie di facciata. Il Molise vero alterna intonaco tinteggiato, pietra a
+ * vista nel centro storico e qualche casa in mattoni: senza questa varietà due
+ * case vicine sembrano lo stesso prefabbricato.
+ */
+type FacadeFamily = 'plaster' | 'plaster2' | 'stone' | 'brick';
+
+function facadeFamily(area: number, seed: number): FacadeFamily {
+  const h = hashInt(seed, 41) % 100;
+  // case piccole (centro storico) più spesso in pietra a vista
+  if (area < 130 && h < 52) return 'stone';
+  if (area < 130 && h < 60) return 'brick';
+  if (h < 44) return 'plaster';
+  if (h < 82) return 'plaster2';
+  if (h < 92) return 'stone';
+  return 'brick';
+}
+/**
  * Tinte chiare: il colore dei coppi arriva dalla texture CC0, qui si varia solo
  * la luminosità/calore per casa, senza scurire il laterizio.
  */
@@ -205,6 +229,8 @@ interface BuildingParts {
   trim: THREE.BufferGeometry[];
   /** vetri: materiale a parte, perché devono riflettere il cielo */
   glass: THREE.BufferGeometry[];
+  /** famiglia di facciata: decide texture e tinta del muro */
+  family: FacadeFamily;
 }
 
 interface EdgeInfo {
@@ -354,7 +380,9 @@ function buildOne(b: Building, heights: Heightfield, seed: number): BuildingPart
     roof.translate(0, roofTop, 0);
   }
 
-  const wallColor = new THREE.Color(WALL_COLORS[hashInt(seed, 3) % WALL_COLORS.length]);
+  const family = facadeFamily(b.area, seed);
+  const palette = family === 'stone' ? STONE_COLORS : family === 'brick' ? BRICK_COLORS : WALL_COLORS;
+  const wallColor = new THREE.Color(palette[hashInt(seed, 3) % palette.length]);
   const roofColor = new THREE.Color(ROOF_COLORS[hashInt(seed, 11) % ROOF_COLORS.length]);
   const shade = 0.92 + (hashInt(seed, 5) % 100) / 700;
   wallColor.multiplyScalar(shade);
@@ -585,7 +613,7 @@ function buildOne(b: Building, heights: Heightfield, seed: number): BuildingPart
     }
   }
 
-  return { wall, roof, base: plinthGeo, trim, glass };
+  return { wall, roof, base: plinthGeo, trim, glass, family };
 }
 
 /**
@@ -601,6 +629,12 @@ export function buildBuildings(
   const group = new THREE.Group();
   group.name = 'buildings';
   const walls: THREE.BufferGeometry[] = [];
+  const wallsByFamily: Record<FacadeFamily, THREE.BufferGeometry[]> = {
+    plaster: [],
+    plaster2: [],
+    stone: [],
+    brick: [],
+  };
   const roofs: THREE.BufferGeometry[] = [];
   const bases: THREE.BufferGeometry[] = [];
   const trims: THREE.BufferGeometry[] = [];
@@ -611,6 +645,7 @@ export function buildBuildings(
     try {
       const out = buildOne(b, heights, i * 31 + Math.round(b.height * 10));
       walls.push(out.wall);
+      wallsByFamily[out.family].push(out.wall);
       roofs.push(out.roof);
       bases.push(out.base);
       for (const t of out.trim) trims.push(t);
@@ -623,21 +658,40 @@ export function buildBuildings(
   // Intonaco vero al posto della texture con la finestra stampata: le finestre
   // ora sono geometria, il muro è solo muro (grana, crepe, macchie di umidità).
   const plaster = pbr(renderer, 'plaster', { color: false, repeat: 0.5 });
-  const plasterColor = pbrColor(renderer, 'plaster').clone();
-  plasterColor.needsUpdate = true;
-  plasterColor.repeat.set(0.5, 0.5);
   // Le UV delle falde sono già in unità di 2,7 m: repeat 2 → un tile ogni ~1,35 m
   const tiles = pbr(renderer, 'rooftiles', { repeat: 2, normal: true, rough: true });
-  const wallMat = new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    map: plasterColor,
-    normalMap: plaster.normalMap,
-    normalScale: new THREE.Vector2(0.75, 0.75),
-    roughnessMap: plaster.roughnessMap,
-    roughness: 1,
-    metalness: 0,
-    envMapIntensity: 0.4,
-  });
+
+  /**
+   * Materiale di facciata per famiglia: ognuno ha la sua grana PBR e la tinta
+   * per edificio arriva dal vertex color. `repeat` è alto perché le UV del muro
+   * sono in metri: 0,5 → un tile ogni 2 m.
+   */
+  const wallMaterial = (
+    key: 'plaster' | 'plaster2' | 'stonewall' | 'brick',
+    repeat: number,
+    bump: number,
+  ): THREE.MeshStandardMaterial => {
+    const set = pbr(renderer, key, { color: false, normal: true, rough: true, repeat });
+    const color = pbrColor(renderer, key).clone();
+    color.needsUpdate = true;
+    color.repeat.set(repeat, repeat);
+    return new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      map: color,
+      normalMap: set.normalMap,
+      normalScale: new THREE.Vector2(bump, bump),
+      roughnessMap: set.roughnessMap,
+      roughness: 1,
+      metalness: 0,
+      envMapIntensity: 0.4,
+    });
+  };
+  const wallMats: Record<FacadeFamily, THREE.MeshStandardMaterial> = {
+    plaster: wallMaterial('plaster', 0.5, 0.75),
+    plaster2: wallMaterial('plaster2', 0.5, 0.8),
+    stone: wallMaterial('stonewall', 0.75, 1.0),
+    brick: wallMaterial('brick', 0.9, 0.9),
+  };
   // Vetro: riflette il cielo, quindi materiale proprio (liscio e un filo metallico)
   const glassMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
@@ -665,14 +719,18 @@ export function buildBuildings(
     side: THREE.DoubleSide,
   });
 
-  if (walls.length) {
-    const merged = mergeGeometries(walls, false);
-    if (merged) {
-      const mesh = new THREE.Mesh(merged, wallMat);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      group.add(mesh);
-    }
+  // una mesh per famiglia di facciata: 4 draw call invece di 1, ma il paese
+  // smette di sembrare intonacato con lo stesso secchio
+  for (const family of Object.keys(wallsByFamily) as FacadeFamily[]) {
+    const parts = wallsByFamily[family];
+    if (!parts.length) continue;
+    const merged = mergeGeometries(parts, false);
+    if (!merged) continue;
+    const mesh = new THREE.Mesh(merged, wallMats[family]);
+    mesh.name = `walls-${family}`;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
   }
   if (roofs.length) {
     const merged = mergeGeometries(roofs, false);

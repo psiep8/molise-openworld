@@ -32,6 +32,10 @@ const ASSETS = {
   asphalt: 'asphalt_02',
   gravel: 'gravel_road',
   plaster: 'plastered_wall',
+  // famiglie di facciata: pietra locale, mattoni consumati, intonaco tinteggiato
+  stonewall: 'rustic_stone_wall',
+  brick: 'worn_brick_wall',
+  plaster2: 'painted_plaster_wall',
   rooftiles: 'clay_roof_tiles_02',
   grass: 'aerial_grass_rock',
   rock: 'rock_face',
