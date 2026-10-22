@@ -6,6 +6,7 @@ import { BuildingIndex, loadOsm, RoadIndex, type OsmData } from './geo/osm';
 import { ESRI_WORLD_IMAGERY, ImageryStreamer } from './world/imagery';
 import { Terrain, setCloudShadow } from './world/terrain';
 import { buildBuildings, setWindowGlow } from './world/buildings';
+import { buildChurch } from './world/church';
 import { buildDryStoneWalls } from './world/dry-stone';
 import { buildPowerLines } from './world/power-lines';
 import { buildRoads, buildWater } from './world/roads';
@@ -327,6 +328,14 @@ export class Game {
       this.scene.add(buildSigns(osm, heights, this.buildingIndex, this.renderer));
       this.scene.add(buildStreetProps(osm, heights, this.buildingIndex, this.renderer));
       this.scene.add(buildRoadDrainage(osm, heights));
+      // la chiesa cerca un posto libero attorno al centro del paese; l'impronta
+      // entra nell'indice prima di alberi, cespugli ed erba, così nessuno ci
+      // cresce dentro (e il giocatore non la attraversa)
+      const church = buildChurch(START, heights, this.roadIndex, this.buildingIndex, this.renderer);
+      if (church) {
+        this.scene.add(church.group);
+        this.buildingIndex.add(church.footprint);
+      }
       this.scene.add(buildDryStoneWalls(osm, heights, this.roadIndex, this.buildingIndex, this.renderer));
       this.scene.add(buildPowerLines(osm, heights, this.roadIndex, this.buildingIndex));
 

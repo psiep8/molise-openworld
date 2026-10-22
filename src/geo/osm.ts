@@ -242,19 +242,30 @@ export class BuildingIndex {
 
   constructor(buildings: Building[]) {
     this.all = buildings;
-    for (const b of buildings) {
-      for (let cx = Math.floor(b.bounds.minX / this.cell); cx <= Math.floor(b.bounds.maxX / this.cell); cx++) {
-        for (let cz = Math.floor(b.bounds.minZ / this.cell); cz <= Math.floor(b.bounds.maxZ / this.cell); cz++) {
-          const key = (cx + 4096) * 8192 + (cz + 4096);
-          let list = this.grid.get(key);
-          if (!list) {
-            list = [];
-            this.grid.set(key, list);
-          }
-          list.push(b);
+    for (const b of buildings) this.index(b);
+  }
+
+  private index(b: Building): void {
+    for (let cx = Math.floor(b.bounds.minX / this.cell); cx <= Math.floor(b.bounds.maxX / this.cell); cx++) {
+      for (let cz = Math.floor(b.bounds.minZ / this.cell); cz <= Math.floor(b.bounds.maxZ / this.cell); cz++) {
+        const key = (cx + 4096) * 8192 + (cz + 4096);
+        let list = this.grid.get(key);
+        if (!list) {
+          list = [];
+          this.grid.set(key, list);
         }
+        list.push(b);
       }
     }
+  }
+
+  /**
+   * Aggiunge un'impronta costruita fuori dai dati OSM (per ora la chiesa).
+   * Serve perché alberi, cespugli, erba e giocatore la trattino come una casa.
+   */
+  add(building: Building): void {
+    this.all.push(building);
+    this.index(building);
   }
 
   near(x: number, z: number): Building[] {

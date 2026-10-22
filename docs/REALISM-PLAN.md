@@ -350,12 +350,14 @@ registro vale quindi **fatto nel codice**, **da verificare a schermo**.
 | Targhe italiane vere: canvas con banda blu, sigla `CB` e numero deterministico per veicolo | fatto | `src/entities/vehicle.ts` (`plateTexture`, `plateNumber`) |
 | Pali della luce e fili in catenaria lungo le strade asfaltate | fatto | `src/world/power-lines.ts`; un `InstancedMesh` per i pali, un `LineSegments` per i fili |
 | Erba che sconfina sul bordo dell'asfalto, più secca e polverosa | fatto | `src/world/grass.ts` (`edge`, fascia di 40 cm fuori dal manto) |
+| Chiesa di paese con campanile: navata, tetto a falde, facciata con rosone e portale, cella campanaria, cuspide, croce e orologio | fatto nel codice | `src/world/church.ts`; cerca da sola un posto libero attorno a `START`, l'impronta entra in `BuildingIndex` (`add`) |
 
 Da verificare a schermo, in ordine di rischio: che l'usura dell'asfalto non
 sballi la luminosità di giorno; che i chiusini non affiorino sopra il manto nei
 punti dove il nastro è più alto; che i muretti a secco non invadano la carreggiata
 nelle curve strette; che i cespugli non restino sospesi sui pendii ripidi; che
-stelle e luna non si vedano ancora di giorno.
+stelle e luna non si vedano ancora di giorno; che la chiesa non sbatta contro
+una casa e che lo zoccolo copra il dislivello del terreno.
 
 > **Nota del 23/10/2026.** `npm run smoke` ha trovato un errore reale: nello
 > shader dell'usura una variabile si chiamava `patch`, parola riservata del
@@ -366,22 +368,25 @@ stelle e luna non si vedano ancora di giorno.
 
 ### Prossimi passi (in ordine)
 
-1. **Rattoppi e crepe sull'asfalto**: toppe di catrame più scure, crepe a
-   raggiera, rappezzi rettangolari con bordo netto. Si possono fare nello
-   stesso shader dell'usura, in coordinate mondo, senza nuove texture.
-2. **Look** (Fase 2): provare un tone mapping filmico, una LUT leggera, e
+1. **Look** (Fase 2): provare un tone mapping filmico, una LUT leggera, e
    valutare le shadow cascade solo se la qualità delle ombre lunghe non basta.
-3. **Veicoli** (Fase 1): resta il salto vero, cioè modelli GLB con licenza
+2. **Veicoli** (Fase 1): resta il salto vero, cioè modelli GLB con licenza
    compatibile (oggi non ce ne sono nel repo, la carrozzeria è procedurale).
    In alternativa: ruote con `LatheGeometry`, tergicristalli, cornici dei vetri.
-4. **Edifici** (Fase 6): interni finti dietro le finestre, chiesa e campanile
-   come edifici-simbolo al posto delle case generiche. Persiane e davanzali ci
-   sono già, su circa il 70% delle case.
-5. **Personaggio** (Fase 7): materiali pelle/capelli, fusione walk/run, IK dei
+3. **Edifici** (Fase 6): interni finti dietro le finestre. Persiane, davanzali
+   e la chiesa con il campanile ci sono già.
+4. **Personaggio** (Fase 7): materiali pelle/capelli, fusione walk/run, IK dei
    piedi sul terreno.
-6. **Alberi** (Fase 4): LOD vicino con rami veri, ceppaie, alberi caduti.
-7. **Orizzonte** (Fase 5): anello DEM 9–10 e nebbia esponenziale. Non fatto:
+5. **Alberi** (Fase 4): LOD vicino con rami veri, ceppaie, alberi caduti.
+6. **Orizzonte** (Fase 5): anello DEM 9–10 e nebbia esponenziale. Non fatto:
    la nebbia lineare attuale (3000–4600 m) copre già il bordo del terreno, e
    senza una verifica visiva il rischio di buchi o doppio terreno è alto.
+
+> **Nota sulla chiesa.** Nei dati veri di Palata il centro è troppo denso per
+> un edificio di 15 × 21 m: con l'ingombro completo libero da strade e case la
+> prima posizione utile cade a circa 120 m da `START` (verificato con un test
+> temporaneo sui dati `public/geo`). Non è un errore di posizionamento: è la
+> prima area libera. Se in futuro si vuole la chiesa sulla piazza, va tolta
+> qualche impronta OSM e ricostruito l'indice prima di piantare la vegetazione.
 
 > Aggiornare questa tabella e il registro a ogni blocco di lavoro completato, con la data.
