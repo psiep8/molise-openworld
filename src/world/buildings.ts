@@ -4,11 +4,13 @@ import type { Heightfield } from '../geo/elevation';
 import { hashInt, type Pt } from '../geo/geo';
 import type { Building, OsmData } from '../geo/osm';
 import { clamp } from '../geo/geo';
-import { pbr } from '../gfx/textures';
-import { facadeNormalTexture, facadeTexture } from './surface-textures';
+import { pbr, pbrColor } from '../gfx/textures';
 import { planHipRoof, type HipRoofPlan, type Pt3 } from './roof';
 
-const WALL_COLORS = [0xd9cbb1, 0xe7ddc6, 0xcdbb9a, 0xd8c3a4, 0xe3d6bb, 0xc2b197, 0xd2c2a8, 0xe9dfcc];
+// Intonaci chiari: molti paesi molisani sono tinteggiati di bianco o crema.
+// Con la texture d'intonaco moltiplicata sopra, tinte più scure andavano a
+// finire sul marrone.
+const WALL_COLORS = [0xf3ecdd, 0xfaf5ea, 0xe9dfc9, 0xf5e8d4, 0xf1e6d2, 0xe6dac4, 0xefe3cd, 0xfdf8ee];
 /**
  * Tinte chiare: il colore dei coppi arriva dalla texture CC0, qui si varia solo
  * la luminosità/calore per casa, senza scurire il laterizio.
@@ -201,6 +203,120 @@ interface BuildingParts {
   roof: THREE.BufferGeometry;
   base: THREE.BufferGeometry;
   trim: THREE.BufferGeometry[];
+  /** vetri: materiale a parte, perché devono riflettere il cielo */
+  glass: THREE.BufferGeometry[];
+}
+
+interface EdgeInfo {
+  a: Pt;
+  b: Pt;
+  len: number;
+  ex: number;
+  ez: number;
+  nx: number;
+  nz: number;
+  angle: number;
+  mx: number;
+  mz: number;
+}
+
+/** Tutti i lati dell'impronta, dal più lungo, con normale esterna. */
+function edgesOf(points: Pt[], center: Pt): EdgeInfo[] {
+  const edges: EdgeInfo[] = [];
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    const len = Math.hypot(b.x - a.x, b.z - a.z);
+    if (len < 1e-3) continue;
+    const ex = (b.x - a.x) / len;
+    const ez = (b.z - a.z) / len;
+    let nx = ez;
+    let nz = -ex;
+    const mx = (a.x + b.x) / 2;
+    const mz = (a.z + b.z) / 2;
+    if (nx * (mx - center.x) + nz * (mz - center.z) < 0) {
+      nx = -nx;
+      nz = -nz;
+    }
+    edges.push({ a, b, len, ex, ez, nx, nz, angle: Math.atan2(-ez, ex), mx, mz });
+  }
+  edges.sort((p, q) => q.len - p.len);
+  return edges;
+}
+
+/** Lato più lungo dell'impronta, con normale esterna: è la facciata nobile. */
+function longestEdge(points: Pt[], center: Pt): EdgeInfo | null {
+  return edgesOf(points, center)[0] ?? null;
+}
+
+/**
+ * Finestra in geometria: cornice in pietra a filo, vetro arretrato, davanzale a
+ * sporto e (a volte) le persiane aperte ai lati.
+ *
+ * Prima la finestra era **disegnata sulla texture dell'intonaco** e ripetuta a
+ * ogni 3,3 m su tutte le pareti: da lì veniva l'effetto "case di cartone", con
+ * vani tutti uguali, senza spessore e senza ombra. Qui ogni vano ha cornice,
+ * davanzale e vetro veri, tanto da leggere l'ombra che la cornice getta sul muro.
+ */
+function addWindow(
+  trim: THREE.BufferGeometry[],
+  glass: THREE.BufferGeometry[],
+  edge: EdgeInfo,
+  offset: number,
+  y: number,
+  w: number,
+  h: number,
+  frame: THREE.Color,
+  stone: THREE.Color,
+  shutters: THREE.Color | null,
+): void {
+  const cx = edge.mx + edge.ex * offset + edge.nx * 0.02;
+  const cz = edge.mz + edge.ez * offset + edge.nz * 0.02;
+  const f = 0.075;
+
+  // vetro: pannello scuro appena arretrato rispetto alla cornice
+  glass.push(solidBox(w, h, 0.025, cx, y, cz, new THREE.Color(0x243038), edge.angle));
+
+  // montanti e traversi
+  for (const side of [-1, 1] as const) {
+    trim.push(
+      solidBox(
+        f,
+        h + f * 2,
+        0.1,
+        cx + edge.ex * side * (w / 2 + f / 2),
+        y,
+        cz + edge.ez * side * (w / 2 + f / 2),
+        frame,
+        edge.angle,
+      ),
+    );
+  }
+  trim.push(solidBox(w + f * 2, f, 0.1, cx, y + h / 2 + f / 2, cz, frame, edge.angle));
+
+  // davanzale: sporge di 12 cm sul muro e getta l'ombra sotto il vano
+  trim.push(
+    solidBox(
+      w + 0.26,
+      0.085,
+      0.24,
+      cx + edge.nx * 0.07,
+      y - h / 2 - 0.042,
+      cz + edge.nz * 0.07,
+      stone,
+      edge.angle,
+    ),
+  );
+
+  if (shutters) {
+    // persiane aperte ai lati: pannelli appoggiati al muro, inclinati di 15°
+    const sw = w * 0.48;
+    for (const side of [-1, 1] as const) {
+      const px = cx + edge.ex * side * (w / 2 + sw / 2 + 0.02) + edge.nx * 0.035;
+      const pz = cz + edge.ez * side * (w / 2 + sw / 2 + 0.02) + edge.nz * 0.035;
+      trim.push(solidBox(sw, h, 0.035, px, y, pz, shutters, edge.angle + side * 0.12));
+    }
+  }
 }
 
 function buildOne(b: Building, heights: Heightfield, seed: number): BuildingParts {
@@ -262,11 +378,96 @@ function buildOne(b: Building, heights: Heightfield, seed: number): BuildingPart
   // decorazioni: cornicione, comignolo, pluviali, balcone
   // ---------------------------------------------------------------------------
   const trim: THREE.BufferGeometry[] = [];
+  const glass: THREE.BufferGeometry[] = [];
   const stone = new THREE.Color(0xe9e1cf).multiplyScalar(0.94 + (hashInt(seed, 7) % 60) / 500);
   const eaveY = base + b.height + 0.02;
 
   // cornicione sotto la gronda: 24 cm di aggetto, quello che disegna l'ombra
   trim.push(bandGeometry(b.points, c, 1.035, eaveY - 0.3, eaveY - 0.04, stone));
+
+  // -------------------------------------------------------------------------
+  // profondità vera della facciata
+  // -------------------------------------------------------------------------
+  const zinc = new THREE.Color(0x8e908d);
+
+  // fasce marcapiano: una per piano, a sporto di 1,4 cm. Sono le linee
+  // orizzontali che danno la scansione dei piani; con la sola normal map la
+  // facciata restava un foglio di carta.
+  const floors = Math.max(1, Math.round(b.height / 3.1));
+  const floorTrim = stone.clone().multiplyScalar(0.97);
+  for (let f = 1; f < floors; f++) {
+    const y = base + (b.height * f) / floors;
+    trim.push(bandGeometry(b.points, c, 1.014, y - 0.07, y + 0.07, floorTrim));
+  }
+
+  // cantonali: blocchi in pietra agli spigoli, quello che fa sembrare la casa
+  // murata e non stampata in un pezzo solo
+  if (b.area > 28 && b.points.length <= 10) {
+    const quoin = stone.clone().multiplyScalar(0.9);
+    const half = 0.15;
+    for (const p of b.points) {
+      const qx = c.x + (p.x - c.x) * 1.006;
+      const qz = c.z + (p.z - c.z) * 1.006;
+      trim.push(solidBox(half * 2, b.height * 0.995, half * 2, qx, base + b.height * 0.4975, qz, quoin));
+    }
+  }
+
+  // grondaia in zinco appesa al filo della gronda, su tutti i lati
+  const gutterY = eaveY + 0.01;
+  for (let i = 0; i < b.points.length; i++) {
+    const a = b.points[i];
+    const next = b.points[(i + 1) % b.points.length];
+    const len = Math.hypot(next.x - a.x, next.z - a.z);
+    if (len < 2) continue;
+    const ex = (next.x - a.x) / len;
+    const ez = (next.z - a.z) / len;
+    let nx = ez;
+    let nz = -ex;
+    const mx = (a.x + next.x) / 2;
+    const mz = (a.z + next.z) / 2;
+    if (nx * (mx - c.x) + nz * (mz - c.z) < 0) {
+      nx = -nx;
+      nz = -nz;
+    }
+    trim.push(
+      solidBox(len + 0.08, 0.1, 0.13, mx + nx * 0.075, gutterY, mz + nz * 0.075, zinc, Math.atan2(-ez, ex)),
+    );
+  }
+
+  // portone sulla facciata più lunga: stipiti, architrave, battente scuro e
+  // soglia in pietra che sporge sul marciapiede
+  const edge = longestEdge(b.points, c);
+  if (edge && b.area > 26 && b.height > 3.4) {
+    const doorW = 1.2;
+    const doorH = Math.min(2.25, b.height - 0.7);
+    const dx = edge.mx + edge.nx * 0.03;
+    const dz = edge.mz + edge.nz * 0.03;
+    const jamb = 0.13;
+    for (const side of [-1, 1] as const) {
+      const px = dx + edge.ex * side * (doorW / 2 + jamb / 2);
+      const pz = dz + edge.ez * side * (doorW / 2 + jamb / 2);
+      trim.push(solidBox(jamb, doorH + 0.2, 0.16, px, base + (doorH + 0.2) / 2, pz, stone, edge.angle));
+    }
+    trim.push(
+      solidBox(doorW + jamb * 2, 0.16, 0.18, dx, base + doorH + 0.1, dz, stone, edge.angle),
+    );
+    trim.push(
+      solidBox(
+        doorW,
+        doorH,
+        0.07,
+        dx - edge.nx * 0.05,
+        base + doorH / 2,
+        dz - edge.nz * 0.05,
+        new THREE.Color(0x4a3323),
+        edge.angle,
+      ),
+    );
+    const threshold = new THREE.Color(0xb5ab99);
+    trim.push(
+      solidBox(1.55, 0.14, 0.55, edge.mx + edge.nx * 0.22, base + 0.07, edge.mz + edge.nz * 0.22, threshold, edge.angle),
+    );
+  }
 
   const chimneyColor = wallColor.clone().multiplyScalar(0.98);
   if (hashInt(seed, 17) % 10 < 7) {
@@ -291,34 +492,79 @@ function buildOne(b: Building, heights: Heightfield, seed: number): BuildingPart
     }
     const pipeTop = eaveY - 0.35;
     const pipeBottom = base + 0.35;
-    const zinc = new THREE.Color(0x8e908d);
     for (const p of [left, right]) {
       trim.push(solidBox(0.1, pipeTop - pipeBottom, 0.1, p.x, (pipeTop + pipeBottom) / 2, p.z, zinc));
     }
   }
 
-  // balconi solo sulle case a due piani con facciata abbastanza lunga
-  if (b.area > 85 && b.height >= 6.2 && hashInt(seed, 37) % 3 < 2) {
-    let best: { a: Pt; b: Pt; len: number } | null = null;
-    for (let i = 0; i < b.points.length; i++) {
-      const a = b.points[i];
-      const p = b.points[(i + 1) % b.points.length];
-      const len = Math.hypot(p.x - a.x, p.z - a.z);
-      if (!best || len > best.len) best = { a, b: p, len };
-    }
-    if (best && best.len > 4) {
-      const ex = (best.b.x - best.a.x) / best.len;
-      const ez = (best.b.z - best.a.z) / best.len;
-      let nx = ez;
-      let nz = -ex;
-      const mx = (best.a.x + best.b.x) / 2;
-      const mz = (best.a.z + best.b.z) / 2;
-      if (nx * (mx - c.x) + nz * (mz - c.z) < 0) {
-        nx = -nx;
-        nz = -nz;
+  // ---------------------------------------------------------------------------
+  // finestre: vani veri, non disegnati nella texture
+  // ---------------------------------------------------------------------------
+  const hasBalcony = b.area > 85 && b.height >= 6.2 && hashInt(seed, 37) % 3 < 2;
+  if (b.area >= 20 && b.height >= 2.6 && b.points.length <= 14) {
+    const shutters = hashInt(seed, 41) % 10 < 7
+      ? new THREE.Color([0x4c5d49, 0x5a4635, 0x67706e, 0x3f4a3d][hashInt(seed, 43) % 4]!)
+      : null;
+    const frame = stone.clone().multiplyScalar(1.02);
+    const floors = Math.max(1, Math.round(b.height / 3.1));
+    const floorH = b.height / floors;
+    const winW = 0.95;
+    const winH = Math.min(1.4, floorH * 0.47);
+    const balconyY = base + b.height * 0.46;
+    // Prima si raccolgono tutti i vani possibili, poi se ne tengono al massimo
+    // MAX_WINDOWS distribuiti in modo uniforme: un tetto al numero senza
+    // selezione lasciava una facciata completamente cieca.
+    const MAX_WINDOWS = 16;
+    const candidates: { side: EdgeInfo; off: number; y: number }[] = [];
+    edgesOf(b.points, c).forEach((side, index) => {
+      if (index > 3) return;
+      const margin = 0.95;
+      const usable = side.len - margin * 2;
+      if (usable < 1.2) return;
+      const count = Math.max(1, Math.min(4, Math.floor(usable / 2.55)));
+      const step = usable / count;
+      for (let f = 0; f < floors; f++) {
+        // Il piano terra va alzato a 1,60–1,75 m: con la formula dei piani
+        // superiori il davanzale finiva a 1,09 m e la finestra veniva scartata,
+        // lasciando cieco tutto il pianterreno (era il difetto più visibile).
+        const wy = f === 0 ? base + Math.min(1.75, floorH * 0.52 + 0.25) : base + floorH * f + floorH * 0.56;
+        if (wy + winH / 2 > base + (f === 0 ? floorH : b.height) - 0.25) continue;
+        for (let k = 0; k < count; k++) {
+          const off = -usable / 2 + step * (k + 0.5);
+          // il portone sta al centro della facciata nobile: niente finestra lì
+          if (f === 0 && index === 0 && Math.abs(off) < 1.25) continue;
+          // il balcone occupa il centro della facciata al piano intermedio
+          if (
+            hasBalcony &&
+            index === 0 &&
+            Math.abs(wy - balconyY) < floorH * 0.55 &&
+            Math.abs(off) < side.len * 0.3
+          ) {
+            continue;
+          }
+          candidates.push({ side, off, y: wy });
+        }
       }
-      const angle = Math.atan2(-ez, ex);
-      const slabW = best.len * 0.55;
+    });
+    const take = Math.min(candidates.length, MAX_WINDOWS);
+    const stride = candidates.length > take ? candidates.length / take : 1;
+    for (let i = 0; i < take; i++) {
+      const pick = candidates[Math.floor(i * stride)]!;
+      addWindow(trim, glass, pick.side, pick.off, pick.y, winW, winH, frame, stone, shutters);
+    }
+  }
+
+  // balconi solo sulle case a due piani con facciata abbastanza lunga
+  if (hasBalcony) {
+    if (edge && edge.len > 4) {
+      const ex = edge.ex;
+      const ez = edge.ez;
+      const nx = edge.nx;
+      const nz = edge.nz;
+      const mx = edge.mx;
+      const mz = edge.mz;
+      const angle = edge.angle;
+      const slabW = edge.len * 0.55;
       const depth = 0.95;
       const y = base + b.height * 0.46;
       const px = mx + nx * (depth / 2 + 0.05);
@@ -339,7 +585,7 @@ function buildOne(b: Building, heights: Heightfield, seed: number): BuildingPart
     }
   }
 
-  return { wall, roof, base: plinthGeo, trim };
+  return { wall, roof, base: plinthGeo, trim, glass };
 }
 
 /**
@@ -358,6 +604,7 @@ export function buildBuildings(
   const roofs: THREE.BufferGeometry[] = [];
   const bases: THREE.BufferGeometry[] = [];
   const trims: THREE.BufferGeometry[] = [];
+  const glasses: THREE.BufferGeometry[] = [];
 
   osm.buildings.forEach((b, i) => {
     if (b.points.length < 3 || b.area < 6) return;
@@ -367,33 +614,36 @@ export function buildBuildings(
       roofs.push(out.roof);
       bases.push(out.base);
       for (const t of out.trim) trims.push(t);
+      for (const g of out.glass) glasses.push(g);
     } catch {
       // geometria degenere: la saltiamo
     }
   });
 
-  const facade = facadeTexture();
-  facade.repeat.set(0.3, 0.3);
-  // alza la prima fila di finestre di ~0,9 m dal suolo
-  facade.offset.set(0, -0.28);
-  // Normal delle finestre: stesso disegno e stesso transform della mappa colore,
-  // così il vano risulta incassato e il davanzale a sporto.
-  const facadeNormals = facadeNormalTexture();
-  facadeNormals.repeat.copy(facade.repeat);
-  facadeNormals.offset.copy(facade.offset);
-  // Grana dell'intonaco per rough/normal a distanza ravvicinata
+  // Intonaco vero al posto della texture con la finestra stampata: le finestre
+  // ora sono geometria, il muro è solo muro (grana, crepe, macchie di umidità).
   const plaster = pbr(renderer, 'plaster', { color: false, repeat: 0.5 });
+  const plasterColor = pbrColor(renderer, 'plaster').clone();
+  plasterColor.needsUpdate = true;
+  plasterColor.repeat.set(0.5, 0.5);
   // Le UV delle falde sono già in unità di 2,7 m: repeat 2 → un tile ogni ~1,35 m
   const tiles = pbr(renderer, 'rooftiles', { repeat: 2, normal: true, rough: true });
   const wallMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    map: facade,
-    normalMap: facadeNormals,
-    normalScale: new THREE.Vector2(1.1, 1.1),
+    map: plasterColor,
+    normalMap: plaster.normalMap,
+    normalScale: new THREE.Vector2(0.75, 0.75),
     roughnessMap: plaster.roughnessMap,
     roughness: 1,
     metalness: 0,
     envMapIntensity: 0.4,
+  });
+  // Vetro: riflette il cielo, quindi materiale proprio (liscio e un filo metallico)
+  const glassMat = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.12,
+    metalness: 0.35,
+    envMapIntensity: 1.15,
   });
   const roofMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
@@ -456,11 +706,22 @@ export function buildBuildings(
       group.add(mesh);
     }
   }
+  if (glasses.length) {
+    const merged = mergeGeometries(glasses, false);
+    if (merged) {
+      const mesh = new THREE.Mesh(merged, glassMat);
+      mesh.name = 'building-glass';
+      mesh.receiveShadow = true;
+      group.add(mesh);
+    }
+  }
 
   for (const g of walls) g.dispose();
   for (const g of roofs) g.dispose();
   for (const g of bases) g.dispose();
   for (const g of trims) g.dispose();
+  for (const g of glasses) g.dispose();
 
+  if (import.meta.env.DEV) console.debug(`[edifici] ${walls.length} case, ${glasses.length} vetri`);
   return { group, count: walls.length };
 }

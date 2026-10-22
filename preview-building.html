@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="it">
+  <head><meta charset="utf-8" /><title>Strada</title>
+  <style>html,body{margin:0;height:100%;background:#9fb4c4;overflow:hidden}canvas{display:block}</style></head>
+  <body>
+    <canvas id="c"></canvas>
+    <script type="module">
+      import * as THREE from 'three';
+      import { buildBuildings } from '/src/world/buildings.ts';
+
+      const W = innerWidth, H = innerHeight;
+      const canvas = document.getElementById('c');
+      const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+      renderer.setSize(W, H);
+      renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 0.9;
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFShadowMap;
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x9fb4c4);
+      scene.fog = new THREE.Fog(0xa8bcc9, 40, 160);
+      const camera = new THREE.PerspectiveCamera(60, W / H, 0.1, 300);
+      camera.position.set(0, 1.7, 12);
+      camera.lookAt(0, 1.5, -12);
+
+      const sun = new THREE.DirectionalLight(0xfff1d8, 3.1);
+      sun.position.set(-30, 34, 8);
+      sun.castShadow = false;
+      scene.add(sun, new THREE.HemisphereLight(0xbcd2e4, 0x6b6350, 0.85));
+
+      const ground = new THREE.Mesh(
+        new THREE.PlaneGeometry(160, 200),
+        new THREE.MeshStandardMaterial({ color: 0x6f7566, roughness: 1 }),
+      );
+      ground.rotation.x = -Math.PI / 2;
+      ground.receiveShadow = true;
+      scene.add(ground);
+
+      const rect = (cx, cz, w, d) => [
+        { x: cx - w / 2, z: cz - d / 2 },
+        { x: cx + w / 2, z: cz - d / 2 },
+        { x: cx + w / 2, z: cz + d / 2 },
+        { x: cx - w / 2, z: cz + d / 2 },
+      ];
+
+      const buildings = [];
+      let seed = 0;
+      for (let z = 10; z > -90; z -= 17) {
+        for (const side of [-1, 1]) {
+          seed++;
+          const w = 8 + (seed % 3);
+          const d = 7 + (seed % 2);
+          const h = seed % 4 === 0 ? 3.4 : seed % 3 === 0 ? 7.4 : 6.4;
+          const cx = side * (7 + (seed % 2) * 1.5);
+          buildings.push({
+            height: h,
+            points: rect(cx, z, w, d),
+            bounds: { minX: cx - w / 2, maxX: cx + w / 2, minZ: z - d / 2, maxZ: z + d / 2 },
+            area: w * d,
+          });
+        }
+      }
+
+      const osm = { buildings, roads: [], areas: [], places: [], waterways: [], stats: {}, generatedAt: '', attribution: '' };
+      const heights = { heightAt: () => 0, slopeAt: () => 0, normalAt: () => ({ x: 0, y: 1, z: 0 }) };
+      const built = buildBuildings(osm, heights, renderer);
+      scene.add(built.group);
+
+      renderer.setAnimationLoop(() => renderer.render(scene, camera));
+      window.__diag = { count: built.count };
+      window.__ready = true;
+    </script>
+  </body>
+</html>

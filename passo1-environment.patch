@@ -1,0 +1,193 @@
+diff --git a/package-lock.json b/package-lock.json
+index 06d4726..9eb7925 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -174,9 +174,6 @@
+         "arm64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -194,9 +191,6 @@
+         "arm64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -214,9 +208,6 @@
+         "ppc64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -234,9 +225,6 @@
+         "s390x"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -254,9 +242,6 @@
+         "x64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -274,9 +259,6 @@
+         "x64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -1033,9 +1015,6 @@
+         "arm64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MPL-2.0",
+       "optional": true,
+       "os": [
+@@ -1057,9 +1036,6 @@
+         "arm64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MPL-2.0",
+       "optional": true,
+       "os": [
+@@ -1081,9 +1057,6 @@
+         "x64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MPL-2.0",
+       "optional": true,
+       "os": [
+@@ -1105,9 +1078,6 @@
+         "x64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MPL-2.0",
+       "optional": true,
+       "os": [
+diff --git a/src/game.ts b/src/game.ts
+index 972898b..cadea38 100644
+--- a/src/game.ts
++++ b/src/game.ts
+@@ -1860,7 +1860,10 @@ export class Game {
+     if (this.running && this.loaded) this.update(dt);
+     else this.idle(dt);
+ 
+-    if (this.sky) this.sky.dome.position.copy(this.camera.position);
++    if (this.sky) {
++      this.sky.dome.position.copy(this.camera.position);
++      this.sky.updateEnvironment(this.renderer, this.scene);
++    }
+     if (this.stereo) this.renderStereo();
+     else if (this.post) this.post.render(dt);
+     else this.renderer.render(this.scene, this.camera);
+diff --git a/src/world/sky.ts b/src/world/sky.ts
+index 87f13be..a321d1f 100644
+--- a/src/world/sky.ts
++++ b/src/world/sky.ts
+@@ -30,6 +30,8 @@ export interface SkyRig {
+   setSun(elevationDeg: number, thetaDeg: number): void;
+   setSkyParams(params: Partial<SkyParams>): void;
+   setLighting(params: Partial<LightingParams>): void;
++  /** Genera la luce ambientale riflessa dal cielo (IBL). Costa poco: si auto-limita. */
++  updateEnvironment(renderer: THREE.WebGLRenderer, scene: THREE.Scene): void;
+ }
+ 
+ /** Pomeriggio molisano di default: sole non troppo basso, luce calda, ombre leggibili. */
+@@ -73,6 +75,17 @@ export function createSky(scene: THREE.Scene): SkyRig {
+   setSun(DEFAULT_SUN.elevation, DEFAULT_SUN.theta);
+   scene.add(sky);
+ 
++  // Seconda cupola, usata solo per fotografare il cielo in una cubemap PMREM.
++  const envScene = new THREE.Scene();
++  const envSky = new Sky();
++  envSky.scale.setScalar(90); // deve stare dentro il far (100) di PMREMGenerator
++  envSky.frustumCulled = false;
++  envScene.add(envSky);
++  let pmrem: THREE.PMREMGenerator | null = null;
++  let envTarget: THREE.WebGLRenderTarget | null = null;
++  const lastEnvSun = new THREE.Vector3(0, -1, 0);
++  let lastEnvTime = -Infinity;
++
+   const sunLight = new THREE.DirectionalLight(DEFAULT_LIGHTING.sunColor, DEFAULT_LIGHTING.sunIntensity);
+   sunLight.castShadow = true;
+   sunLight.shadow.mapSize.set(2048, 2048);
+@@ -133,5 +146,40 @@ export function createSky(scene: THREE.Scene): SkyRig {
+     if (params.moonIntensity !== undefined) moonLight.intensity = params.moonIntensity;
+   };
+ 
+-  return { sunLight, sunDirection, dome: sky, update, setShadowMapSize, setSun, setSkyParams, setLighting };
++  const updateEnvironment = (renderer: THREE.WebGLRenderer, scene: THREE.Scene): void => {
++    const now = performance.now();
++    const sunMoved = sunDirection.dot(lastEnvSun) < 0.9995;
++    // al massimo una volta al secondo, e solo se il sole si è mosso davvero
++    if (envTarget && (!sunMoved || now - lastEnvTime < 1000)) return;
++    lastEnvTime = now;
++    lastEnvSun.copy(sunDirection);
++
++    const src = (sky.material as THREE.ShaderMaterial).uniforms;
++    const dst = (envSky.material as THREE.ShaderMaterial).uniforms;
++    dst.turbidity.value = src.turbidity.value;
++    dst.rayleigh.value = src.rayleigh.value;
++    dst.mieCoefficient.value = src.mieCoefficient.value;
++    dst.mieDirectionalG.value = src.mieDirectionalG.value;
++    dst.sunPosition.value.copy(sunDirection);
++
++    pmrem ??= new THREE.PMREMGenerator(renderer);
++    envTarget?.dispose();
++    envTarget = pmrem.fromScene(envScene);
++    scene.environment = envTarget.texture;
++    // di notte il cielo non deve illuminare: l'intensità segue l'altezza del sole
++    const day = THREE.MathUtils.clamp((sunDirection.y + 0.05) / 0.4, 0, 1);
++    scene.environmentIntensity = 0.05 + 0.4 * day;
++  };
++
++  return {
++    sunLight,
++    sunDirection,
++    dome: sky,
++    update,
++    setShadowMapSize,
++    setSun,
++    setSkyParams,
++    setLighting,
++    updateEnvironment,
++  };
+ }

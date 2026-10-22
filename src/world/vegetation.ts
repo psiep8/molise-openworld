@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { TREES_MAX } from '../config';
+import { TREES_MAX, WORLD } from '../config';
 import type { Heightfield } from '../geo/elevation';
 import { mulberry32, pointInPolygon } from '../geo/geo';
 import type { BuildingIndex, OsmData, RoadIndex } from '../geo/osm';
@@ -33,10 +33,28 @@ export function buildVegetation(
   const rng = mulberry32(0x5eed);
   const placements: { x: number; y: number; z: number; s: number; rot: number; color: number }[] = [];
 
+  const tryPlace = (px: number, pz: number, minScale = 0.72, maxScale = 1.47, margin = 1.6): boolean => {
+    if (placements.length >= TREES_MAX) return false;
+    if (heights.slopeAt(px, pz) > 34) return false;
+    if (roads.isOnRoad(px, pz, margin)) return false;
+    if (buildings.resolveCircle(px, pz, 2.6).hit) return false;
+    placements.push({
+      x: px,
+      y: heights.heightAt(px, pz),
+      z: pz,
+      s: minScale + rng() * (maxScale - minScale),
+      rot: rng() * Math.PI * 2,
+      color: FOLIAGE_COLORS[Math.floor(rng() * FOLIAGE_COLORS.length)],
+    });
+    return true;
+  };
+
   for (const area of osm.areas) {
     if (!TREE_KINDS.has(area.kind)) continue;
     const b = area.bounds;
-    const step = area.kind === 'orchard' ? 18 : 25;
+    // boschi più fitti: con 25 m il crinale restava a chiazze e da lontano si
+    // vedeva il terreno nudo dove invece c'è il querceto
+    const step = area.kind === 'orchard' ? 16 : area.kind === 'park' ? 20 : 17;
     for (let z = b.minZ; z <= b.maxZ; z += step) {
       for (let x = b.minX; x <= b.maxX; x += step) {
         if (placements.length >= TREES_MAX) break;
@@ -44,17 +62,51 @@ export function buildVegetation(
         const pz = z + (rng() - 0.5) * step * 0.9;
         if (!pointInPolygon(px, pz, area.points)) continue;
         if (heights.slopeAt(px, pz) > 34) continue;
-        if (roads.isOnRoad(px, pz, 1.6)) continue;
-        if (buildings.near(px, pz).length > 0) continue;
-        placements.push({
-          x: px,
-          y: heights.heightAt(px, pz),
-          z: pz,
-          s: 0.72 + rng() * 0.75,
-          rot: rng() * Math.PI * 2,
-          color: FOLIAGE_COLORS[Math.floor(rng() * FOLIAGE_COLORS.length)],
-        });
+        tryPlace(px, pz);
       }
+    }
+  }
+
+  // Filari lungo le strade: in campagna ogni via ha i suoi alberi a bordo
+  // campo, ed è quello che dà profondità alla strada quando la si percorre.
+  for (const road of osm.roads) {
+    if (road.width < 3.4) continue;
+    let since = 0;
+    for (let i = 1; i < road.points.length; i++) {
+      const a = road.points[i - 1];
+      const b = road.points[i];
+      const seg = Math.hypot(b.x - a.x, b.z - a.z);
+      since += seg;
+      if (since < 34) continue;
+      since = 0;
+      if (rng() > 0.62) continue;
+      let tx = b.x - a.x;
+      let tz = b.z - a.z;
+      const len = Math.hypot(tx, tz) || 1;
+      tx /= len;
+      tz /= len;
+      const side = rng() < 0.5 ? 1 : -1;
+      const off = road.width / 2 + 4.2 + rng() * 5.5;
+      const px = b.x - tz * side * off;
+      const pz = b.z + tx * side * off;
+      tryPlace(px, pz, 0.8, 1.5, 2.2);
+    }
+  }
+
+  // Alberi sparsi nei campi e sui crinali: riempiono le distanze e rendono il
+  // paesaggio tridimensionale anche a 1-2 km, dove il DEM da solo è liscio.
+  const cell = 52;
+  for (let z = -WORLD.halfHeight; z < WORLD.halfHeight; z += cell) {
+    for (let x = -WORLD.halfWidth; x < WORLD.halfWidth; x += cell) {
+      const roll = rng();
+      if (roll > 0.34) continue;
+      const px = x + (rng() - 0.5) * cell;
+      const pz = z + (rng() - 0.5) * cell;
+      // sulle pendenze forti gli alberi si diradano, sui crinali restano
+      const slope = heights.slopeAt(px, pz);
+      if (slope > 33) continue;
+      if (slope > 24 && rng() > 0.4) continue;
+      tryPlace(px, pz, 0.75, 1.55, 2.4);
     }
   }
 

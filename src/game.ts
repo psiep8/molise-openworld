@@ -7,6 +7,7 @@ import { ESRI_WORLD_IMAGERY, ImageryStreamer } from './world/imagery';
 import { Terrain } from './world/terrain';
 import { buildBuildings } from './world/buildings';
 import { buildRoads, buildWater } from './world/roads';
+import { StreetLights, buildSigns, buildStreetProps } from './world/street-furniture';
 import { buildVegetation } from './world/vegetation';
 import { DEFAULT_LIGHTING, DEFAULT_SKY, DEFAULT_SUN, createSky, type SkyRig } from './world/sky';
 import { CloudLayer } from './world/clouds';
@@ -39,6 +40,8 @@ import {
   vehicleLabel,
 } from './sim/vehicle-catalog';
 import { Player, type MoveInput } from './entities/player';
+import { loadHumanAssets, type HumanAssets } from './entities/human-model';
+import { Pedestrians } from './world/pedestrians';
 import {
   BUILD_LABEL,
   HAIR_COLORS,
@@ -173,6 +176,8 @@ export class Game {
   private lastRouteOrigin: Pt | null = null;
   private lastRouteTime = 0;
   private garage: Property | null = loadProperty();
+  private humanAssets: HumanAssets | null = null;
+  private pedestrians: Pedestrians | null = null;
 
   // --- modalità vita: denaro solo virtuale, bisogni, orologio --------------
   private wallet: Wallet = createInitialWallet();
@@ -213,6 +218,8 @@ export class Game {
   private clouds!: CloudLayer;
   private precipitation!: Precipitation;
   private grass?: GrassField;
+  private streetLights?: StreetLights;
+  private nightFactor = 0;
   private roadsGroup?: THREE.Group;
   private lastWetness = -1;
   private realWeatherEnabled = false;
@@ -308,9 +315,15 @@ export class Game {
       this.roadGraph = buildRoadGraph(osm.roads);
       this.ensureHome();
       this.populateVehicles();
-      this.roadsGroup = buildRoads(osm, heights, this.renderer, this.roadIndex);
+      const streets = buildRoads(osm, heights, this.renderer, this.roadIndex, this.buildingIndex);
+      this.roadsGroup = streets.group;
       this.scene.add(this.roadsGroup);
+      this.streetLights = new StreetLights(streets.lamps, heights, this.renderer);
+      this.scene.add(this.streetLights.group);
       this.scene.add(buildWater(osm, heights, this.renderer));
+
+      this.scene.add(buildSigns(osm, heights, this.buildingIndex, this.renderer));
+      this.scene.add(buildStreetProps(osm, heights, this.buildingIndex, this.renderer));
 
       this.hud.setLoading(0.5, 'Costruisco le case…');
       await nextFrame();
@@ -327,6 +340,10 @@ export class Game {
       this.hud.setVehicleSpec(vehicleLabel(this.car.spec));
       this.buildPaintSwatches();
       this.syncSettingsControls();
+
+      this.hud.setLoading(0.7, 'Faccio scendere la gente in piazza…');
+      await nextFrame();
+      await this.loadCharacters();
 
       this.hud.setLoading(0.72, 'Alzo il cielo…');
       await nextFrame();
@@ -374,6 +391,29 @@ export class Game {
     }
   }
 
+  /**
+   * Carica i corpi umani e i pedoni. Se i modelli mancano o sono corrotti il
+   * gioco resta giocabile con il rig procedurale: il Molise non si ferma.
+   */
+  private async loadCharacters(): Promise<void> {
+    try {
+      const base = `${import.meta.env.BASE_URL}models/`;
+      this.humanAssets = await loadHumanAssets(base);
+      this.player.useHumanModel(this.humanAssets);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.errors.push(`personaggi: ${message}`);
+      console.warn('personaggi non caricati', err);
+    }
+  }
+
+  private spawnPedestrians(): void {
+    if (!this.humanAssets) return;
+    const count = this.qualityLevel === 'low' ? 6 : this.qualityLevel === 'medium' ? 10 : 18;
+    this.pedestrians = new Pedestrians(this.humanAssets, this.osm, this.heights, this.player.position, count);
+    this.scene.add(this.pedestrians.group);
+  }
+
   // -------------------------------------------------------------------------
   // setup
   // -------------------------------------------------------------------------
@@ -401,6 +441,7 @@ export class Game {
     this.car.reset(carPose.x, carPose.z, carPose.yaw, this.heights);
 
     this.terrain.update(this.player.position.x, this.player.position.z, VIEW_RADIUS, true);
+    this.spawnPedestrians();
     this.snapWalkCamera();
   }
 
@@ -1541,6 +1582,7 @@ export class Game {
 
     // fari accesi quando il sole è basso, strada bagnata con pioggia o neve
     const night = 1 - smoothstep(-3, 10, sun.elevation);
+    this.nightFactor = night;
     this.car.setLights(night);
     this.applyWetness(Math.max(rain, snow * 0.5));
   }
@@ -1955,6 +1997,7 @@ export class Game {
     }
 
     const focus = this.mode === 'walk' ? this.player.position : this.car.position;
+    this.pedestrians?.update(dt, focus);
     this.terrain.update(focus.x, focus.z, VIEW_RADIUS);
     this.terrain.tick();
     updateWind(dt);
@@ -1962,6 +2005,7 @@ export class Game {
     if (this.manualTime) this.applyManualAtmosphere(dt, focus);
     else if (this.realWeatherEnabled) this.applyWeatherVisuals(dt, focus);
     this.updateSky(focus);
+    this.streetLights?.update(this.camera.position, this.nightFactor);
 
     const moveSpeed =
       this.mode === 'drive' ? this.car.state.speed : Math.hypot(this.player.velocity.x, this.player.velocity.z);

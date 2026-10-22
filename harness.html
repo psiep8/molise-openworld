@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <title>Avatar harness</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #8fa6b8;
+        overflow: hidden;
+      }
+      canvas {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <script type="module">
+      import * as THREE from 'three';
+      import { Player } from '/src/entities/player.ts';
+      import { loadHumanAssets } from '/src/entities/human-model.ts';
+      import { DEFAULT_APPEARANCE } from '/src/entities/appearance.ts';
+
+      const canvas = document.getElementById('c');
+      const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 0.9;
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x9fb4c4);
+      const camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.05, 60);
+
+      const sun = new THREE.DirectionalLight(0xfff2d6, 3.1);
+      sun.position.set(3, 6, 4);
+      sun.castShadow = true;
+      sun.shadow.mapSize.set(1024, 1024);
+      sun.shadow.camera.left = -4;
+      sun.shadow.camera.right = 4;
+      sun.shadow.camera.top = 4;
+      sun.shadow.camera.bottom = -4;
+      scene.add(sun);
+      scene.add(new THREE.HemisphereLight(0xbcd2e4, 0x6b6350, 0.85));
+
+      const ground = new THREE.Mesh(
+        new THREE.CircleGeometry(6, 48),
+        new THREE.MeshStandardMaterial({ color: 0x7c8a63, roughness: 1 }),
+      );
+      ground.rotation.x = -Math.PI / 2;
+      ground.receiveShadow = true;
+      scene.add(ground);
+
+      const heights = {
+        heightAt: () => 0,
+        slopeAt: () => 0,
+        normalAt: () => ({ x: 0, y: 1, z: 0 }),
+      };
+      const buildings = { resolveCircle: (x, z) => ({ x, z, hit: false }) };
+
+      const variants = [
+        { ...DEFAULT_APPEARANCE, sex: 'donna', outfit: 'casual', hairStyle: 'coda', tone: 'classico', height: 1.7 },
+        { ...DEFAULT_APPEARANCE, sex: 'uomo', outfit: 'formale', hairStyle: 'corto', tone: 'classico', height: 1.8, beard: true },
+        { ...DEFAULT_APPEARANCE, sex: 'donna', outfit: 'elegante', hairStyle: 'lunghi', tone: 'scuro', height: 1.66 },
+      ];
+      const players = variants.map((look, i) => {
+        const p = new Player(look);
+        p.spawn(-1.1 + i * 1.1, 0, Math.PI, heights);
+        scene.add(p.avatar);
+        return p;
+      });
+
+      window.__players = players;
+      const params = new URLSearchParams(location.search);
+      const view = params.get('view') ?? 'full';
+      const clock = new THREE.Clock();
+      let ready = false;
+      let modelsLoaded = false;
+
+      // Gli avatar veri arrivano dai GLB: finché non sono pronti si vede il rig
+      // procedurale, poi ogni Player passa al corpo umano.
+      loadHumanAssets('/models/')
+        .then((assets) => {
+          for (const p of players) p.useHumanModel(assets);
+          modelsLoaded = true;
+        })
+        .catch((err) => console.warn('avatar GLB non caricati', err));
+
+      function frame() {
+        const dt = Math.min(0.05, clock.getDelta());
+        for (const p of players) {
+          p.update(dt, { forward: 0, strafe: 0, sprint: false, jump: false }, heights, buildings);
+        }
+        if (view === 'head') {
+          // volto del giocatore centrale: i corpi veri sono alti ~1,75 m
+          camera.position.set(0, 1.66, -1.15);
+          camera.lookAt(0, 1.56, 0);
+        } else {
+          camera.position.set(0.9, 1.35, 3.1);
+          camera.lookAt(0, 0.95, 0);
+        }
+        renderer.render(scene, camera);
+        if (!ready && modelsLoaded) {
+          ready = true;
+          window.__harnessReady = true;
+          window.__diag = {
+            children: scene.children.length,
+            w: renderer.domElement.width,
+            h: renderer.domElement.height,
+            framebuffer: renderer.getContext().drawingBufferWidth,
+            camera: [camera.position.x, camera.position.y, camera.position.z],
+            avatar: players.map((p) => [p.avatar.position.x, p.avatar.position.y, p.avatar.position.z]),
+          };
+          document.title = `ok ${window.__diag.w}x${window.__diag.h} figli=${window.__diag.children}`;
+        }
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    </script>
+  </body>
+</html>

@@ -28,12 +28,14 @@
 - **Colore carrozzeria**: dieci tinte, ricordate veicolo per veicolo; si cambiano dal menu o dal garage.
 - **Personaggio personalizzabile** (`P`): sesso, altezza 1,50–2,00 m, corporatura, carnagione, capelli (stile e colore), barba e outfit — casual, elegante, formale, tuta, campagna, sportivo, hippie — con tre varianti di tono. Il rig si ricostruisce al volo mantenendo posizione e animazioni.
 - **Stereo affiancato** (`Y`): due viewport con camere separate di 6,5 cm, per visori o visione incrociata.
-- **Erba a istanze** intorno al giocatore, con densità legata al preset grafico e rispetto di strade ed edifici.
-- **Personaggio con scheletro**: rig umanoide a 21 ossa, clip idle/camminata/corsa e due clip additive (salto e caduta) sommate alla camminata.
+- **Erba a istanze** intorno al giocatore: 82.000 ciuffi con lame sottili più 12.000 quad di **tappeto di base** che chiudono i buchi tra un ciuffo e l'altro (densità legata al preset, rispetto di strade ed edifici).
+- **Personaggio con scheletro**: rig umanoide a 21 ossa, clip idle/camminata/corsa e due clip additive (salto e caduta) sommate alla camminata. Testa a misura umana con zigomi, palpebre, occhi con iride e pupilla, capelli con attaccatura sulla fronte, colletto, cintura, polsini, bottoni, tasche e lacci; pelle e tessuto con normal map procedurali.
 - **Radar satellite reale** in minimappa e mappa grande, con strade OSM evidenziate sopra la foto aerea (`V` per passare alla mappa vettoriale).
-- **Strade** ricostruite da OpenStreetMap e drappeggiate sul rilievo (asfalto e sterrati, larghezze per tipo).
-- **Paesi** con edifici estrusi dalle impronte OSM, **tetti a falde** (padiglione) in laterizio, **facciate con finestre, persiane e davanzali**, altezze stimate o da tag.
-- **Boschi e uliveti** con alberi instanziati in modo deterministico (stesso seed → stesso paesaggio).
+- **Strade** ricostruite da OpenStreetMap e drappeggiate sul rilievo (asfalto e sterrati, larghezze per tipo), con curve **smussate in continuo** (`smoothPolyline`), tratteggio di mezzeria, **attraversamenti pedonali** con linea di arresto, marciapiedi larghi 1,45–1,8 m e **cordolo a 18 cm** con faccia verticale.
+- **Segnaletica e arredo urbano**: STOP, dare precedenza e limite 50 su palo zincato (facce disegnate su canvas, nessun asset), panche in legno e ferro.
+- **Illuminazione pubblica**: lampioni ogni ~32 m sulle strade asfaltate dei paesi, con braccio verso la carreggiata e vetro emissivo; di notte 7 luci puntuali seguono i lampioni più vicini alla camera.
+- **Paesi** con edifici estrusi dalle impronte OSM, **tetti a falde** (padiglione) in laterizio, **facciate con finestre, persiane e davanzali**, fasce marcapiano, cantonali d'angolo, grondaie e portoni con stipiti e soglia, altezze stimate o da tag.
+- **Boschi, uliveti e filari**: 14.000 alberi instanziati in modo deterministico (stesso seed → stesso paesaggio), con filari lungo le strade e alberi sparsi su campi e crinali per dare profondità alle distanze.
 - **Acqua**: torrenti e specchi d'acqua.
 - **Camminata** in prima/terza persona con collisioni contro gli edifici, corsa, salto.
 - **Guida simulata**: cambio automatico a 5 o 6 marce con strappo e kickdown, curva di coppia/potenza del motore vero, aderenza che limita la partenza (pattinamento), freni da 9–10 m/s², retromarcia inserita col freno, pendenza, off-road più lento e freno a mano. HUD con marcia e giri motore.
@@ -153,7 +155,12 @@ npm test          # proiezione, DEM, OSM, fisica auto, itinerari, tetti, sole e 
 npm run build     # typecheck + build di produzione
 npm run preview   # serve dist/ su :4173
 npm run smoke     # Chrome headless: carica, guida, cammina, itinerario, controlla il PNG
+
+node scripts/capture.mjs --out captures/x --quality high --hour 15   # scatti riproducibili del mondo
+node scripts/shot.mjs --url "http://127.0.0.1:5173/harness.html?view=head" --out captures/head.png --ready __harnessReady
 ```
+
+`harness.html` è una pagina di ispezione a parte: carica i GLB dei personaggi e mostra tre umani su un prato neutro, in figura intera o in primo piano (`?view=head`), utile per controllare corpi e animazioni senza caricare il mondo (che con SwiftShader richiede minuti).
 
 Lo smoke test apre Chrome headless via CDP, verifica l'assenza di errori in console, che l'auto si muova premendo `W`, che il giocatore cammini, e analizza lo screenshot (varianza e varietà di colore) per assicurarsi che il mondo sia davvero renderizzato. Salva `smoke/shot.png`.
 
@@ -180,11 +187,13 @@ src/
     precipitation.ts   pioggia e neve sintetiche intorno alla camera
     grass.ts           campo d'erba instanziato che segue il giocatore
     property.ts        casa/garage scelto sulle impronte OSM + segnalibro
+    pedestrians.ts     pedoni umani che camminano sui marciapiedi OSM
     sky.ts             cielo, sole, ombre
   environment/
     sun-clock.ts       sole per un'ora locale arbitraria + preset meteo
   entities/
-    player.ts          controller a piedi + rig animato (mixer, clip additive)
+    player.ts          controller a piedi; usa il corpo umano GLB (fallback: rig procedurale)
+    human-model.ts     corpi rigged, blend idle/camminata/corsa, istanze clonate
     appearance.ts      sesso, altezza, corporatura, carnagione, capelli, outfit
     vehicle.ts         veicoli procedurali dal catalogo + assetto e tinta
   sim/
@@ -219,14 +228,36 @@ scripts/
 - **Immagini stradali (opzionale)** — non ancora usate. `npm run streets` conta quante strade dei cinque comuni hanno una foto entro 50 m: interroga **Panoramax** (API pubblica, nessun account) e, se impostato `MAPILLARY_TOKEN` (gratuito, CC BY-SA 4.0), anche Mapillary. Al 21/10/2026 Panoramax non ha foto nel bbox: la copertura Mapillary è l'unica da verificare.
 - **Meteo** — Open-Meteo, dati CC BY 4.0, senza chiave API. Usato solo se attivi
   "Meteo reale"; il sole è calcolato in locale e non dipende dal servizio.
+- **Personaggi** — corpi e animazioni da [Ready Player Me Animation Library](https://github.com/readyplayerme/animation-library):
+  corpi di riferimento `Masculine_TPose` / `Feminine_TPose` e clip di motion capture
+  (idle, camminata, corsa). La licenza concede uso personale e commerciale **con avatar
+  Ready Player Me**, vieta di ridistribuire le animazioni come asset a sé stanti.
+  Dettagli in `public/models/ATTRIBUTION.md`.
 - **Codice** — MIT (vedi `LICENSE`).
 
 GTA è un marchio dei rispettivi proprietari. Questo progetto non è affiliato né approvato da Rockstar Games e non contiene materiale del gioco.
 
+## Cosa manca (onesto)
+
+- **Personaggi**: il corpo è umano vero (skin, texture, mocap), ma esistono **due soli
+  corpi base** — un uomo e una donna. Volti e vestiti sono dipinti nella texture, quindi
+  tutte le persone dello stesso sesso hanno la stessa faccia e lo stesso paio di jeans:
+  la varietà viene da altezza, corporatura e tinta. Per popolazioni diverse servono altri
+  avatar; le opzioni di carnagione/capelli/outfit nelle impostazioni non cambiano più il
+  modello (cambiano ancora sesso, altezza e corporatura).
+- **Alberi**: le chiome sono card di foglie, non volumi; da vicino si nota.
+- **Terreno da vicino**: la foto satellite resta piatta, il dettaglio è solo colore.
+- **Prestazioni**: 14.000 alberi × 3 mesh + 82.000 ciuffi + 12.000 quad di tappeto
+  pesano su GPU integrate; prima di alzare ancora i numeri serve un LOD per distanza.
+- **Pedoni**: ci sono (6–18 a seconda della qualità), ma camminano solo sui marciapiedi
+  delle strade asfaltate: niente attraversamenti, niente dialoghi, niente folla in piazza.
+- **Traffico**: non c'è; le altre auto in strada sono ancora un desiderio.
+
 ## Idee per il prossimo giro
 
-- traffico e pedoni con percorsi sulle strade OSM;
-- audio procedurale (motore, vento, passi);
+- altri corpi/volti (o una texture per capo) per rompere il clone dei pedoni;
+- LOD per alberi e ciuffi d'erba, così si può alzare la densità senza perdere fps;
+- traffico con percorsi sulle strade OSM;
 - collisioni auto più fini (OBB invece del cerchio);
 - cache delle tile su IndexedDB, per rigiocare offline dopo il primo giro;
 - dettaglio procedurale a terra (muretti a secco, staccionate, ulivi più vicini);

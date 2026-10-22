@@ -461,3 +461,146 @@ Buon lavoro. La cosa più importante: **il posto deve sembrare vero**.
 3. **Terreno ravvicinato**: la foto satellite resta piatta; il dettaglio è solo
    modulazione di colore.
 4. **Avatar**: è migliorato ma resta stilizzato; il prossimo passo è la skin mesh.
+
+---
+
+## 14. Passaggio del 22 ottobre 2026 (sera) — strade, arredo urbano, vegetazione, avatar
+
+### Strade: curve vere, segnaletica, cordoli
+
+- **Curve seghettate.** `roundCorners` spezzava solo i vertici secchi lasciando segmenti
+  dritti: sulle polilinee OSM ricampionate a 7 m restavano zig-zag. Aggiunta
+  `smoothPolyline(points, passes = 2, strength = 0.55)` (media pesata di Laplace, estremi
+  fissi) applicata **dopo** `roundCorners`: l'asfalto ora è un arco continuo con raggio
+  confrontabile col vero. I test di `roundCorners` restano validi (funzione invariata).
+- **Marciapiedi.** Larghezza 1,45 m (strade < 6 m) / 1,8 m, cordolo a **18 cm** con faccia
+  verticale (`pushCurbWall`). È lo scalino che si sente e che stacca la pavimentazione.
+- **Attraversamenti pedonali.** `pushZebra` + `pushStopLine`: ogni ~70 m, solo su tratti
+  dritti (coseno > 0,93) e solo dove ci sono edifici entro 26 m. 7 barre da 0,42 m.
+- **Segnaletica verticale** (`buildSigns`, nuovo `src/world/street-furniture.ts`):
+  STOP ottagonale, dare precedenza triangolare, limite 50 — facce disegnate su canvas
+  (nessun asset), palo zincato, un cartello ogni ~55 m nelle zone edificate, max 700.
+- **Arredo**: panche in legno/ferro vicino agli edifici grandi (`buildStreetProps`).
+
+### Lampioni della luce
+
+`StreetLights` (stesso modulo): palo affusolato 6,2 m con base, braccio inclinato verso
+la carreggiata, testa in ghisa + vetro emissivo. Un lampione ogni ~32 m sui due lati
+delle strade asfaltate dentro/attorno ai paesi (posizioni calcolate da `buildRoads`,
+che ora restituisce `{ group, lamps }`). Di notte un **pool di 7 `PointLight`** viene
+riassegnato ai lampioni più vicini alla camera: illuminazione pubblica senza 600 luci.
+Emissive del vetro 6,5 × notte, testa 0,55 × notte. `Game` passa `nightFactor` calcolato
+in `applyAtmosphere`.
+
+### Vegetazione: più alberi, filari, crinali
+
+- Cap `TREES_MAX` 7.000 → **14.000**; passo nei boschi 25 m → 17 m (uliveti 16, parchi 20).
+- **Filari lungo le strade**: un albero ogni ~34 m, offset 4,2–9,7 m dal bordo, lato casuale.
+- **Alberi sparsi** nei campi e sui crinali su griglia 52 m (probabilità 0,34, diradati su
+  pendenza > 24°): è quello che dà tridimensionalità alle distanze, dove il DEM è liscio.
+- Un solo helper `tryPlace` con gli scarti veri (pendenza, strada, edificio) per tutti e tre.
+
+### Erba: tappeto di base
+
+- Ciuffi 60.000 → **82.000**, quad più larghi (0,19 → 0,27 m), texture con 150 lame sottili
+  (prima 42 larghe) su canvas 256.
+- **Tappeto**: 12.000 quad orizzontali da 1,45 m con texture di macchie verdi a bordo
+  trasparente, orientati sulla normale del terreno. Riempiono i buchi tra i ciuffi,
+  che erano la causa dell'effetto "prato spelacchiato".
+- Ricostruzione ogni 18 m (era 16) per non pagare due rebuild troppo spesso.
+
+### Edifici: profondità vera
+
+- **Fasce marcapiano** a ogni piano (una ogni ~3,1 m), a sporto di 1,4 cm.
+- **Cantonali** in pietra agli spigoli (solo impronte ≤ 10 lati e area > 28 m²).
+- **Grondaia** in zinco lungo tutto il filo della gronda, lato per lato.
+- **Portone** sulla facciata più lunga: stipiti, architrave, battente in legno scuro
+  incassato di 5 cm, soglia in pietra che sporge di 22 cm sul marciapiede.
+- Helper `longestEdge()` condiviso con il balcone (prima il calcolo era duplicato).
+
+### Avatar: proporzioni e dettagli
+
+- **Testa** in un gruppo scalato 0,74: era larga 0,30 m (un quarto del corpo), ora ~0,23 m
+  con cranio, mandibola, zigomi, orecchie, naso con dorso e narici, labbra, palpebre.
+- **Occhi veri**: sclera + iride + pupilla (prima una sfera nera sola).
+- **Collo** corto e pieno (10 cm visibili, era 13 su un bastone), spalle 0,20/0,185,
+  deltoidi ridotti, torso a profilo a V.
+- **Capelli**: calotta sferica piena ma spostata indietro, così davanti resta dentro il
+  cranio e scopre la fronte (prima la semisfera copriva la faccia come un casco);
+  frangia alta e basette per il taglio corto, massa arrotondata per i lunghi.
+- **Vestiti**: cintura con fibbia, colletto ad anello (prima era un cartello davanti al
+  petto), pannello camicia + alette + cravatta, bottoni, polsini, tasche, lacci.
+- **Pelle e tessuto**: normal map procedurali (`src/gfx/detail-textures.ts`), pori a
+  0,22 di scala e trama di cotone a 0,45–0,55.
+
+### Verifiche
+
+- `npx tsc --noEmit` pulito, `npm test` **155/155**, `vite build` ok.
+- Cattura headless del mondo (`scripts/capture.mjs`, preset high, ora 15): lampioni,
+  cartello del limite, curve continue e case con fasce/gronda/portone visibili.
+- Avatar verificato a parte con `harness.html` + `scripts/shot.mjs` (1280×800, corpo e
+  primo piano): `captures/av-body2.png`, `captures/av-head2.png`.
+- **Nota onesta**: il capture del mondo con SwiftShader richiede minuti; l'ultima cattura
+  completa è precedente alle ultime rifiniture dell'avatar (che non toccano la scena).
+
+### Cosa resta debole
+
+1. **Avatar**: è un umanoide procedurale credibile da 3–5 m, non una persona vera da 1 m.
+   Per il salto servirebbe un GLB umanoide rigged CC0 (skin + texture) al posto delle mesh
+   primitive, mantenendo le clip attuali sullo stesso scheletro.
+2. **Alberi**: chioma a card, non volumi fogliari; a 20 m si nota.
+3. **Terreno ravvicinato**: la foto satellite resta piatta; il dettaglio è solo colore.
+4. **Prestazioni**: 14.000 alberi × 3 mesh + 82.000 ciuffi + 12.000 quad di tappeto sono
+   pesanti su GPU integrate; prima di alzare ancora i numeri serve un LOD per distanza.
+5. **Auto**: il tetto riflette il cielo e legge come una lastra chiara; abbassare
+   `envMapIntensity` della vernice o alzare la rugosità.
+## 15. Passaggio del 22 ottobre 2026 — personaggi umani veri e paese abitato
+
+Il punto di partenza era l'obiezione giusta: gli avatar erano **soldatini fatti di
+primitive**. Qualunque altro ritocco alla scena non avrebbe cambiato quella sensazione.
+Quindi il rig procedurale non è stato migliorato ancora: è stato sostituito.
+
+### Cosa è cambiato (causa, non sintomo)
+
+- **Corpi veri, non primitive.** `src/entities/human-model.ts` carica due corpi
+  Ready Player Me con skinning (58–60 ossa, ~15–20 k triangoli, pelle/volti/capelli/
+  vestiti su mappa): `public/models/uomo.glb` e `donna.glb`. Il rig procedurale resta
+  solo come fallback se i GLB non si caricano.
+- **Animazioni di motion capture, non sinusoidi.** Sei clip dalla Ready Player Me
+  Animation Library (`uomo-idle/walk/run`, `donna-idle/walk/run`), blend pesato fra
+  idle/camminata/corsa con `timeScale` legato alla velocità reale.
+- **Bind per nome d'osso** (`bindClip`): le clip sono scritte per la stessa riga, quindi
+  si sostituisce il nome dell'osso con quello dell'istanza clonata. La traccia di
+  posizione del bacino viene scartata: contiene root motion (e nelle clip femminili è in
+  un'unità diversa) e faceva scivolare il personaggio avanti da solo.
+- **Misura dell'altezza dallo scheletro, non dalla geometria.** `Box3.setFromObject` su
+  una SkinnedMesh legge il bounding box in spazio di bind: da lì uscivano personaggi alti
+  20 m o 20 cm. Si misura la span delle ossa e si aggiunge il 10% (cranio e piedi),
+  fattore ricavato confrontando la misura con un render ortografico.
+- **Pedoni** (`src/world/pedestrians.ts`): 6/10/18 a seconda del preset, camminano sui
+  marciapiedi (offset laterale di `width/2 + 1,15 m` dalle strade asfaltate), altezza dal
+  DEM, velocità 0,95–1,6 m/s, ogni tanto si fermano (4–15 s). Animazione solo entro 90 m,
+  riciclo oltre 175 m, visibilità fino a 210 m. Alla partenza vengono piazzati entro 90 m
+  dal giocatore: prima il più vicino stava a 85 m e il paese sembrava vuoto.
+
+### Verifiche
+
+- `tsc --noEmit` pulito, `npm test` **155/155**, `vite build` ok.
+- `harness.html` ora carica i GLB (`loadHumanAssets`) e mostra i corpi veri:
+  `captures/umani-volto.png` (volto), `captures/umani.png` (tre figure in cammino).
+- Partita reale con Chrome headless (`?autostart=walk&quality=medium`): terza persona,
+  `captures/peds4.png`; diagnostica runtime: 10 pedoni, il più vicino a 6,2 m.
+- Frame rate nel capture headless: 2 fps (SwiftShader): le catture servono a verificare la
+  scena, non le prestazioni.
+
+### Cosa resta debole (onesto)
+
+1. **Due soli corpi base** (un uomo, una donna): volti e vestiti sono dipinti nella
+   texture, quindi tutti gli uomini hanno la stessa faccia e gli stessi jeans. La varietà
+   viene da altezza, corporatura e tinta. Le opzioni carnagione/capelli/outfit nelle
+   impostazioni ora non cambiano il modello.
+2. **Logo sulle magliette** ("READY PLAYER ME") stampato nella texture: a 3 m si legge.
+   Per toglierlo serve una texture ritoccata o un capo separato.
+3. **Edifici**: le facciate sono ancora un unico intonaco chiaro con la finestra disegnata
+   nella texture, ripetuta. È il prossimo salto visivo, più del terreno.
+4. **Niente traffico, niente attraversamenti, niente folla in piazza.**

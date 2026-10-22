@@ -4,7 +4,7 @@ import { pbr, waterNormals } from '../gfx/textures';
 import { registerScroll } from '../gfx/wind';
 import type { Heightfield } from '../geo/elevation';
 import { clamp, hashInt, type Pt } from '../geo/geo';
-import type { OsmData, RoadIndex } from '../geo/osm';
+import type { BuildingIndex, OsmData, RoadIndex } from '../geo/osm';
 
 interface RibbonArrays {
   positions: number[];
@@ -69,6 +69,36 @@ export function roundCorners(points: Pt[], thresholdDeg = 22): Pt[] {
   }
   out.push(points[points.length - 1]);
   return out;
+}
+
+/**
+ * Smussamento vero delle curve (media pesata di Laplace, estremi fissi).
+ *
+ * `roundCorners` spezza solo i vertici secchi lasciando segmenti dritti tra
+ * loro: sulle strade OSM, ricampionate a 7 m, restano comunque zig-zag e
+ * controradius che a occhio si vedono come una spezzata. Due passate spostano
+ * ogni punto verso la media dei vicini: la polilinea diventa un arco continuo
+ * con raggio di curvatura confrontabile con quello vero (10-40 m).
+ *
+ * Gli estremi restano fermi per non staccare le strade dagli incroci.
+ */
+export function smoothPolyline(points: Pt[], passes = 2, strength = 0.55): Pt[] {
+  if (points.length < 3) return points.slice();
+  let current = points.slice();
+  for (let pass = 0; pass < passes; pass++) {
+    const next = current.slice();
+    for (let i = 1; i < current.length - 1; i++) {
+      const a = current[i - 1];
+      const b = current[i];
+      const c = current[i + 1];
+      next[i] = {
+        x: b.x + ((a.x + c.x) / 2 - b.x) * strength,
+        z: b.z + ((a.z + c.z) / 2 - b.z) * strength,
+      };
+    }
+    current = next;
+  }
+  return current;
 }
 
 /**
@@ -232,6 +262,63 @@ function pushCurbWall(
   }
 }
 
+/**
+ * Attraversamento pedonale: barre bianche trasversali alla carreggiata.
+ * `at` è il punto centrale, `tx/tz` il versante della strada.
+ */
+function pushZebra(
+  target: RibbonArrays,
+  at: Pt,
+  tx: number,
+  tz: number,
+  width: number,
+  lift: number,
+  color: THREE.Color,
+  heights: Heightfield,
+): void {
+  const px = -tz;
+  const pz = tx;
+  const bars = 7;
+  const barW = 0.42;
+  const gap = 0.46;
+  const span = bars * barW + (bars - 1) * gap;
+  const halfRoad = (width * 0.86) / 2;
+  for (let i = 0; i < bars; i++) {
+    const along = -span / 2 + i * (barW + gap) + barW / 2;
+    const cx = at.x + tx * along;
+    const cz = at.z + tz * along;
+    const line: Pt[] = [
+      { x: cx - px * halfRoad, z: cz - pz * halfRoad },
+      { x: cx + px * halfRoad, z: cz + pz * halfRoad },
+    ];
+    pushRibbon(target, line, 0.42, lift, color, heights, 1);
+  }
+}
+
+/**
+ * Linea di arresto prima dell'attraversamento: una banda piena sulla sola
+ * corsia di marcia (metà carreggiata, lato destro rispetto al verso).
+ */
+function pushStopLine(
+  target: RibbonArrays,
+  at: Pt,
+  tx: number,
+  tz: number,
+  width: number,
+  lift: number,
+  color: THREE.Color,
+  heights: Heightfield,
+): void {
+  const px = -tz;
+  const pz = tx;
+  const back = 1.35;
+  const line: Pt[] = [
+    { x: at.x - tx * back - px * (width * 0.04), z: at.z - tz * back - pz * (width * 0.04) },
+    { x: at.x - tx * back - px * (width * 0.46), z: at.z - tz * back - pz * (width * 0.46) },
+  ];
+  pushRibbon(target, line, 0.4, lift, color, heights, 1);
+}
+
 function toGeometry(a: RibbonArrays): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(a.positions, 3));
@@ -256,7 +343,8 @@ export function buildRoads(
   heights: Heightfield,
   renderer: THREE.WebGLRenderer,
   roadIndex?: RoadIndex,
-): THREE.Group {
+  buildings?: BuildingIndex,
+): { group: THREE.Group; lamps: { x: number; z: number; yaw: number }[] } {
   const group = new THREE.Group();
   group.name = 'roads';
   const asphalt = emptyRibbon();
@@ -268,10 +356,17 @@ export function buildRoads(
   const pavementColor = new THREE.Color(0x8b9294);
   const curbColor = new THREE.Color(0xb9bcbb);
   const markingColor = new THREE.Color(0xf4f2e8);
+  /** punti in cui piantare un lampione: bordo strada dentro/attorno al paese */
+  const lamps: { x: number; z: number; yaw: number }[] = [];
 
   osm.roads.forEach((road, idx) => {
-    // angoli smussati prima di drappeggiare: le cuspidi nei nastri si vedono
-    const pts = roundCorners(resample(road.points, road.paved ? 7 : 6), road.paved ? 24 : 30);
+    // angoli smussati, poi due passate di media pesata: senza lo smussamento
+    // vero l'asfalto resta una spezzata con cuspidi a ogni vertice OSM
+    const pts = smoothPolyline(
+      roundCorners(resample(road.points, road.paved ? 7 : 6), road.paved ? 24 : 30),
+      2,
+      0.55,
+    );
     const isDirt = !road.paved;
     const target = isDirt ? dirt : asphalt;
     const base = isDirt ? dirtColor : asphaltColor;
@@ -286,9 +381,10 @@ export function buildRoads(
 
     // Solo le strade asfaltate hanno marciapiede e cordolo: le sterrate no.
     if (isDirt) return;
-    const walkWidth = road.width >= 6 ? 1.5 : 1.2;
-    // marciapiede rialzato di 15 cm: è l'altezza vera del cordolo
-    const curbTop = lift + 0.15;
+    const walkWidth = road.width >= 6 ? 1.8 : 1.45;
+    // cordolo a 18 cm (altezza da marciapiede italiano): è lo scalino che si
+    // sente sotto il piede e che stacca la pavimentazione dall'asfalto
+    const curbTop = lift + 0.18;
     const walkLift = curbTop + 0.005;
     const blockedWalk = (x: number, z: number): boolean => (roadIndex ? roadIndex.isOnRoad(x, z, 0.4) : false);
     for (const side of [-1, 1]) {
@@ -302,12 +398,70 @@ export function buildRoads(
         pavement,
         offsetPolyline(pts, side * (road.width / 2 + 0.005)),
         lift - 0.02,
-        0.15,
+        0.18,
         side,
         curbColor,
         heights,
         blockedWalk,
       );
+    }
+
+    // attraversamenti pedonali e lampioni solo dove ci sono case a ridosso
+    if (!buildings) return;
+    let sinceCross = 0;
+    let sinceLamp = 0;
+    for (let i = 1; i < pts.length - 1; i++) {
+      const a = pts[i - 1];
+      const b = pts[i];
+      const seg = Math.hypot(b.x - a.x, b.z - a.z);
+      sinceCross += seg;
+      sinceLamp += seg;
+      const near = buildings.near(b.x, b.z);
+      let built = false;
+      for (const bd of near) {
+        if (
+          b.x > bd.bounds.minX - 26 &&
+          b.x < bd.bounds.maxX + 26 &&
+          b.z > bd.bounds.minZ - 26 &&
+          b.z < bd.bounds.maxZ + 26
+        ) {
+          built = true;
+          break;
+        }
+      }
+      if (!built) continue;
+      let tx = b.x - a.x;
+      let tz = b.z - a.z;
+      const tl = Math.hypot(tx, tz) || 1;
+      tx /= tl;
+      tz /= tl;
+
+      // un attraversamento ogni ~70 m, ma solo su tratti abbastanza dritti
+      if (sinceCross > 70 && i + 1 < pts.length) {
+        const c = pts[i + 1];
+        let ux = c.x - b.x;
+        let uz = c.z - b.z;
+        const ul = Math.hypot(ux, uz) || 1;
+        ux /= ul;
+        uz /= ul;
+        if (tx * ux + tz * uz > 0.93) {
+          pushZebra(markings, b, tx, tz, road.width, lift + 0.011, markingColor, heights);
+          pushStopLine(markings, b, tx, tz, road.width, lift + 0.011, markingColor, heights);
+          sinceCross = 0;
+        }
+      }
+      // lampioni ogni ~32 m: due file ai lati, quello che rende un paese un paese
+      if (sinceLamp > 32) {
+        const side = lamps.length % 2 === 0 ? 1 : -1;
+        const off = road.width / 2 + walkWidth + 0.35;
+        lamps.push({
+          x: b.x - tz * side * off,
+          z: b.z + tx * side * off,
+          // il braccio del lampione punta verso la carreggiata
+          yaw: Math.atan2(tz * side, -tx * side),
+        });
+        sinceLamp = 0;
+      }
     }
   });
 
@@ -388,7 +542,7 @@ export function buildRoads(
     mesh.receiveShadow = true;
     group.add(mesh);
   }
-  return group;
+  return { group, lamps };
 }
 
 /**
