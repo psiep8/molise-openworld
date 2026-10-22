@@ -143,15 +143,18 @@ function applyTerrainDetail(material: THREE.MeshStandardMaterial, renderer: THRE
         '#include <map_fragment>',
         `#include <map_fragment>
         float detailDist = length( vDetailWorld - cameraPosition );
-        float detailFade = 1.0 - smoothstep( 70.0, 240.0, detailDist );
+        float detailFade = 1.0 - smoothstep( 60.0, 210.0, detailDist );
         if ( detailFade > 0.001 ) {
           float slope = smoothstep( 0.62, 0.86, 1.0 - clamp( normalize( vDetailNormal ).y, 0.0, 1.0 ) );
+          // due scale: la grossa dà le macchie d'erba, la fine il pelo del prato
           vec3 g = texture2D( uDetailGrass, vDetailWorld.xz * 0.22 ).rgb;
+          vec3 fine = texture2D( uDetailGrass, vDetailWorld.xz * 1.35 ).rgb;
           vec3 r = texture2D( uDetailRock, vDetailWorld.xz * 0.16 ).rgb;
-          vec3 tex = mix( g, r, slope );
+          vec3 tex = mix( mix( g, fine, 0.4 ), r, slope );
           float lum = dot( tex, vec3( 0.299, 0.587, 0.114 ) );
-          float mod = 1.0 + ( lum - 0.38 ) * 0.9;
-          diffuseColor.rgb *= mix( 1.0, mod, 0.55 * detailFade );
+          float mod = 1.0 + ( lum - 0.34 ) * 1.3;
+          float nearFade = 1.0 - smoothstep( 10.0, 40.0, detailDist );
+          diffuseColor.rgb *= mix( 1.0, mod, ( 0.45 + 0.3 * nearFade ) * detailFade );
         }`,
       );
   };
@@ -344,7 +347,7 @@ export class Terrain {
 
     const normalMap = buildNormalMap(this.heightfield, cx, cz);
     const material = new THREE.MeshStandardMaterial({
-      color: 0x6d7a50,
+      color: 0x7d8b5c,
       roughness: 1,
       metalness: 0,
       normalMap,

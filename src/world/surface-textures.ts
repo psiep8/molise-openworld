@@ -205,6 +205,65 @@ export function facadeTexture(): THREE.CanvasTexture {
   );
 }
 
+/**
+ * Normali della facciata, sullo stesso disegno della mappa colore: bordo del
+ * vano finestra a becco, davanzale a sporto, persiane leggermente rilevate.
+ * È quello che dà profondità alle finestre senza aggiungere geometria.
+ *
+ * Il canale R segue la U (orizzontale del muro), il G la V (verticale): il
+ * davanzale guarda in su (G alto), l'architrave in giù.
+ */
+export function facadeNormalTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('canvas 2d non disponibile');
+  const flat = (r: number, g: number) => `rgb(${Math.round(r * 127.5 + 127.5)},${Math.round(g * 127.5 + 127.5)},255)`;
+  ctx.fillStyle = flat(0, 0);
+  ctx.fillRect(0, 0, 128, 128);
+
+  // becco del vano: i quattro lati si piegano verso l'interno
+  ctx.fillStyle = flat(-0.55, 0);
+  ctx.fillRect(34, 25, 3, 78);
+  ctx.fillStyle = flat(0.55, 0);
+  ctx.fillRect(91, 25, 3, 78);
+  ctx.fillStyle = flat(0, 0.55);
+  ctx.fillRect(34, 100, 60, 3);
+  ctx.fillStyle = flat(0, -0.55);
+  ctx.fillRect(34, 25, 60, 3);
+
+  // cornice in pietra sopra il vano e davanzale a sporto
+  ctx.fillStyle = flat(0, -0.7);
+  ctx.fillRect(32, 19, 64, 5);
+  ctx.fillStyle = flat(0, 0.15);
+  ctx.fillRect(32, 24, 64, 2);
+  ctx.fillStyle = flat(0, 0.85);
+  ctx.fillRect(29, 101, 70, 5);
+  ctx.fillStyle = flat(0, -0.5);
+  ctx.fillRect(29, 106, 70, 3);
+
+  // persiane: listelli rilevati
+  for (const x of [22, 82]) {
+    ctx.fillStyle = flat(0.25, 0);
+    ctx.fillRect(x, 26, 2, 76);
+    ctx.fillStyle = flat(-0.25, 0);
+    ctx.fillRect(x + 10, 26, 2, 76);
+  }
+  // traversa e montante del serramento
+  ctx.fillStyle = flat(0.3, 0);
+  ctx.fillRect(62, 31, 2, 66);
+  ctx.fillStyle = flat(0, 0.3);
+  ctx.fillRect(40, 62, 48, 2);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.anisotropy = 8;
+  texture.needsUpdate = true;
+  return texture;
+}
+
 /** Laterizio: file di coppi con giunti scuri. */
 export function roofTileTexture(): THREE.CanvasTexture {
   return makeTexture(

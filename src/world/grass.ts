@@ -6,12 +6,12 @@ import type { BuildingIndex, RoadIndex } from '../geo/osm';
 import { windTimeUniform } from '../gfx/wind';
 
 /** Raggio del tappeto d'erba intorno al giocatore (m). */
-const RADIUS = 46;
-const MAX_TUFTS = 26000;
+const RADIUS = 42;
+const MAX_TUFTS = 60000;
 /** Oltre questa distanza il campo viene ricostruito. */
 const REBUILD_DISTANCE = 16;
 /** Altezza del ciuffo in metri: la geometria base è alta 0,6. */
-const TUFT_HEIGHT = 0.22;
+const TUFT_HEIGHT = 0.17;
 
 /**
  * Erba a ciuffi.
@@ -40,7 +40,7 @@ export class GrassField {
     const uTime = windTimeUniform();
     this.material = new THREE.MeshStandardMaterial({
       map: this.bladeTexture,
-      alphaTest: 0.35,
+      alphaTest: 0.45,
       side: THREE.DoubleSide,
       roughness: 0.95,
       metalness: 0,
@@ -73,7 +73,7 @@ export class GrassField {
 
   /** Due quad incrociati, con la base a y = 0. */
   private static buildGeometry(): THREE.BufferGeometry {
-    const blade = new THREE.PlaneGeometry(0.55, TUFT_HEIGHT, 1, 1);
+    const blade = new THREE.PlaneGeometry(0.19, TUFT_HEIGHT, 1, 1);
     blade.translate(0, TUFT_HEIGHT / 2, 0);
     const crossed = blade.clone();
     crossed.rotateY(Math.PI / 2);
@@ -90,7 +90,7 @@ export class GrassField {
    * non pagare l'ordinamento dei 5000 ciuffi.
    */
   private static buildBladeTexture(): THREE.CanvasTexture {
-    const size = 128;
+    const size = 256;
     const canvas = document.createElement('canvas');
     canvas.width = size;
     canvas.height = size;
@@ -99,7 +99,7 @@ export class GrassField {
     ctx.clearRect(0, 0, size, size);
     const rng = mulberry32(0x9a55);
 
-    const blades = 42;
+    const blades = 96;
     for (let i = 0; i < blades; i++) {
       const baseX = 8 + rng() * (size - 16);
       const baseY = size - 2;
@@ -111,11 +111,12 @@ export class GrassField {
       const ctrlY = baseY - height * 0.55;
 
       // verde con variazione di luminosità e punta più chiara
-      const hue = 80 + rng() * 22;
-      const light = 22 + rng() * 18;
-      ctx.strokeStyle = `hsl(${hue.toFixed(0)} 38% ${light.toFixed(0)}%)`;
+      const hue = 78 + rng() * 26;
+      const light = 32 + rng() * 22;
+      ctx.strokeStyle = `hsl(${hue.toFixed(0)} 34% ${light.toFixed(0)}%)`;
       ctx.lineCap = 'round';
-      ctx.lineWidth = 1.2 + rng() * 1.4;
+      // lame sottili: con tratti spessi il ciuffo legge come una foglia, non erba
+      ctx.lineWidth = 0.9 + rng() * 1.1;
       ctx.beginPath();
       ctx.moveTo(baseX, baseY);
       ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY);
@@ -185,7 +186,7 @@ export class GrassField {
     const rng = mulberry32(Math.round(x * 31 + z * 17) | 1);
     const dummy = new THREE.Object3D();
     const color = new THREE.Color();
-    const palette = [0x74855a, 0x7d8f60, 0x6b7c52, 0x889a6a, 0x798a5c];
+    const palette = [0x8a9a68, 0x93a372, 0x7f9060, 0x9dab7c, 0x879669];
 
     const mesh = new THREE.InstancedMesh(this.geometry, this.material, target);
     mesh.castShadow = false;
@@ -201,7 +202,9 @@ export class GrassField {
       const px = x + Math.cos(angle) * radius;
       const pz = z + Math.sin(angle) * radius;
       if (heights.slopeAt(px, pz) > 30) continue;
-      if (roads.isOnRoad(px, pz, 1.1)) continue;
+      // lascia libero anche il marciapiede (1,5 m) e il cordolo: con 1,1 l'erba
+      // cresceva sopra la pavimentazione e la nascondeva
+      if (roads.isOnRoad(px, pz, 2.7)) continue;
       // `near()` restituisce tutto ciò che sta nella cella: in paese bocciava
       // ogni ciuffo e il prato restava a zero istanze. Qui serve il test vero.
       if (buildings.resolveCircle(px, pz, 0.35).hit) continue;
@@ -209,8 +212,8 @@ export class GrassField {
       const py = heights.heightAt(px, pz);
       dummy.position.set(px, py - 0.02, pz);
       dummy.rotation.set(0, rng() * Math.PI, 0);
-      const scale = 0.55 + rng() * 0.5;
-      dummy.scale.set(scale, scale * (0.8 + rng() * 0.65), scale);
+      const scale = 0.6 + rng() * 0.45;
+      dummy.scale.set(scale, scale * (0.8 + rng() * 0.6), scale);
       dummy.updateMatrix();
       mesh.setMatrixAt(placed, dummy.matrix);
       color.setHex(palette[Math.floor(rng() * palette.length)]).multiplyScalar(0.92 + rng() * 0.16);

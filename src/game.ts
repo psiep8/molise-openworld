@@ -141,6 +141,8 @@ const nextFrame = (): Promise<void> => new Promise((r) => requestAnimationFrame(
 
 /** Velocità media per stimare i tempi in auto: ~40 km/h sulle strade dei paesi. */
 const ROUTE_DRIVE_SPEED = 11.1;
+/** Esposizione diurna: tarata sui materiali chiari del paese (intonaco, coppi, asfalto). */
+const EXPOSURE_DAY = 0.72;
 
 export class Game {
   private readonly canvas: HTMLCanvasElement;
@@ -238,7 +240,9 @@ export class Game {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.88;
+    // 0,72: con l'esposizione precedente (0,88) le facciate chiare e l'asfalto
+    // finivano a ridosso del bianco e la scena sembrava lavata.
+    this.renderer.toneMappingExposure = EXPOSURE_DAY;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
 
@@ -1403,7 +1407,7 @@ export class Game {
     this.sky.setSun(DEFAULT_SUN.elevation, DEFAULT_SUN.theta);
     this.sky.setSkyParams(DEFAULT_SKY);
     this.sky.setLighting(DEFAULT_LIGHTING);
-    this.renderer.toneMappingExposure = 0.88;
+    this.renderer.toneMappingExposure = EXPOSURE_DAY;
     this.scene.fog = new THREE.Fog(0xccd8dd, 1100, 4200);
     this.scene.background = new THREE.Color(0xccd8dd);
     this.clouds?.setVisible(false);
@@ -1452,8 +1456,11 @@ export class Game {
       if (!mesh.isMesh) return;
       const material = mesh.material as THREE.MeshStandardMaterial | THREE.MeshStandardMaterial[];
       if (Array.isArray(material)) return;
+      // la tinta base dell'asfalto non va persa: la si conserva al primo passaggio
+      const store = material.userData as { baseColor?: THREE.Color };
+      store.baseColor ??= material.color.clone();
       material.roughness = THREE.MathUtils.lerp(0.92, 0.34, target);
-      material.color.setScalar(1 - 0.3 * target);
+      material.color.copy(store.baseColor).multiplyScalar(1 - 0.35 * target);
       material.needsUpdate = true;
     });
   }
@@ -1482,7 +1489,7 @@ export class Game {
     this.sunTint.lerp(this.tintB.setHex(0xcdd8e2), cloud * 0.7);
     const sunIntensity =
       Math.max(0, Math.sin(THREE.MathUtils.degToRad(Math.max(0, sun.elevation)))) *
-      3.4 *
+      3.0 *
       (1 - 0.7 * cloud) *
       (1 - 0.55 * (rain + snow));
 
@@ -1491,7 +1498,7 @@ export class Game {
       sunIntensity,
       hemiSky: day < 0.2 ? 0x263a58 : cloud > 0.5 ? 0xb2bcc4 : 0xa8c8ee,
       hemiGround: day < 0.2 ? 0x0d1218 : 0x63583f,
-      hemiIntensity: 0.12 + 0.4 * day + 0.12 * cloud,
+      hemiIntensity: 0.1 + 0.3 * day + 0.1 * cloud,
       ambientIntensity: 0.04 + 0.1 * day + 0.04 * cloud,
       moonIntensity: sun.elevation < 0 ? 0.4 : 0,
     });
@@ -1524,7 +1531,7 @@ export class Game {
       this.scene.fog.far = fogFar;
     }
     this.scene.background = this.fogColor;
-    this.renderer.toneMappingExposure = 0.88 - (1 - day) * 0.12 + cloud * 0.02;
+    this.renderer.toneMappingExposure = EXPOSURE_DAY - (1 - day) * 0.1 + cloud * 0.02;
 
     const windRad = THREE.MathUtils.degToRad(w.windDirection);
     const windX = -Math.sin(windRad) * w.windSpeed * 0.08;

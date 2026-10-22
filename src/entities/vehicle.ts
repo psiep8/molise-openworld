@@ -101,17 +101,21 @@ export class Vehicle {
     const halfLength = spec.length / 2;
     const halfWidth = spec.width / 2;
     const ride = spec.style === 'suv' ? 0.5 : spec.style === 'crossover' ? 0.46 : 0.4;
-    const bodyH = spec.height * 0.34;
-    const bodyY = ride + bodyH * 0.55;
+    // proporzioni: corpo alto (fiancata) + padiglione più basso, non una lastra
+    const bodyH = spec.height * 0.4;
+    const bodyY = ride + bodyH * 0.5;
+    const beltY = ride + bodyH;
 
     // Vernice da auto vera: metallizzato + clearcoat, ambiente riflesso
     const paint = this.material({
       color: loadPaintFor(spec.id, spec.paint),
-      roughness: 0.32,
-      metalness: 0.6,
-      clearcoat: 1,
-      clearcoatRoughness: 0.035,
-      envMapIntensity: 1.2,
+      // metallizzato sì, ma non a specchio: col cielo chiaro il cofano
+      // rifletteva il bianco e sembrava una lastra di alluminio
+      roughness: 0.38,
+      metalness: 0.35,
+      clearcoat: 0.55,
+      clearcoatRoughness: 0.14,
+      envMapIntensity: 0.9,
     });
     this.paintMat = paint;
     const trim = this.material({ color: spec.accent, roughness: 0.72, metalness: 0.25, clearcoat: 0.6, clearcoatRoughness: 0.25 });
@@ -120,12 +124,12 @@ export class Vehicle {
     // Vetro: trasparenza classica (la `transmission` fisica costa un pass extra
     // di scena e senza environment map risulta sporca).
     const glass = this.material({
-      color: 0x0d1a22,
-      roughness: 0.04,
-      metalness: 0.9,
+      color: 0x1d2a33,
+      roughness: 0.06,
+      metalness: 0.5,
       transparent: true,
-      opacity: 0.84,
-      envMapIntensity: 1.7,
+      opacity: 0.62,
+      envMapIntensity: 1.6,
     });
     const lamp = this.material({
       color: 0xfff3d0,
@@ -149,26 +153,52 @@ export class Vehicle {
     const rounded = (w: number, h: number, d: number, radius: number): RoundedBoxGeometry =>
       new RoundedBoxGeometry(w, h, d, 2, Math.min(radius, Math.min(w, h, d) * 0.45));
 
-    // scocca: volume arrotondato + spalla, non un cubo
-    this.mesh(this.bodyGroup, rounded(spec.width * 0.99, bodyH, spec.length * 0.97, 0.12), paint, 0, bodyY, 0);
-    this.mesh(this.bodyGroup, rounded(spec.width * 0.95, bodyH * 0.55, spec.length * 0.9, 0.08), paint, 0, bodyY + bodyH * 0.42, 0);
+    /**
+     * Prisma con il tetto più stretto e più corto della base: dà il parabrezza
+     * inclinato e il lunotto spiovente. Con un box dritto l'abitacolo sembrava
+     * una vetrina appoggiata sulla scocca.
+     */
+    const taper = (
+      w: number,
+      h: number,
+      d: number,
+      topW: number,
+      topD: number,
+      roofShift: number,
+    ): THREE.BufferGeometry => {
+      const g = new THREE.BoxGeometry(w, h, d, 1, 1, 1);
+      const pos = g.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < pos.count; i++) {
+        if (pos.getY(i) <= 0) continue;
+        pos.setX(i, pos.getX(i) * (topW / w));
+        pos.setZ(i, pos.getZ(i) * (topD / d) + roofShift);
+      }
+      pos.needsUpdate = true;
+      g.computeVertexNormals();
+      return g;
+    };
 
-    // cofano e baule: due volumi bassi che danno la scaletta della berlina
-    this.mesh(this.bodyGroup, rounded(spec.width * 0.9, bodyH * 0.5, spec.length * 0.26, 0.06), paint, 0, bodyY + bodyH * 0.34, -halfLength * 0.64);
-    this.mesh(this.bodyGroup, rounded(spec.width * 0.9, bodyH * 0.5, spec.length * 0.2, 0.06), paint, 0, bodyY + bodyH * 0.34, halfLength * 0.68);
+    // scocca: un volume unico alto, con il muso e la coda leggermente rastremati
+    this.mesh(this.bodyGroup, rounded(spec.width * 0.99, bodyH, spec.length * 0.97, 0.16), paint, 0, bodyY, 0);
 
     // minigonne e sottoscocca neri: la carrozzeria non "galleggia" più
-    this.mesh(this.bodyGroup, rounded(spec.width * 1.0, bodyH * 0.28, spec.length * 0.82, 0.05), plastic, 0, ride + bodyH * 0.12, 0);
+    this.mesh(this.bodyGroup, rounded(spec.width * 1.0, bodyH * 0.3, spec.length * 0.86, 0.05), plastic, 0, ride + bodyH * 0.1, 0);
 
-    // abitacolo: vetro arrotondato, montanti e tetto lo spezzano in superfici
-    const cabinLength = spec.length * (spec.roof === 'boxy' ? 0.56 : 0.48);
-    const cabinHeight = spec.height * (spec.roof === 'boxy' ? 0.36 : 0.31);
-    const cabinZ = spec.style === 'trike' ? 0.12 : 0.02;
+    // abitacolo: vetro rastremato verso il tetto, montanti sottili
+    const cabinLength = spec.length * (spec.roof === 'boxy' ? 0.62 : 0.56);
+    const cabinHeight = spec.height * 0.3;
+    const cabinZ = spec.style === 'trike' ? 0.12 : spec.length * (spec.roof === 'boxy' ? 0.05 : 0.03);
+
+    // niente pannelli separati su cofano e coda: la superficie superiore della
+    // scocca È il cofano. Con la lastra appoggiata sopra sembrava un cassone.
     const cabinX = wheelbaseOffset(spec) * 0.1;
-    const cabinY = bodyY + bodyH * 0.42 + cabinHeight * 0.5;
+    const cabinY = beltY + cabinHeight * 0.5;
+    const roofShift = cabinLength * 0.1;
+    const roofW = spec.width * 0.8;
+    const roofD = cabinLength * 0.66;
     this.mesh(
       this.bodyGroup,
-      rounded(spec.width * 0.88, cabinHeight, cabinLength, 0.14),
+      taper(spec.width * 0.94, cabinHeight, cabinLength, roofW, roofD, roofShift),
       glass,
       cabinX,
       cabinY,
@@ -176,38 +206,53 @@ export class Vehicle {
       false,
     );
 
-    const roofY = cabinY + cabinHeight / 2;
-    this.mesh(this.bodyGroup, rounded(spec.width * 0.82, 0.07, cabinLength * 0.95, 0.03), paint, cabinX, roofY, cabinZ);
+    const roofY = beltY + cabinHeight;
+    this.mesh(this.bodyGroup, rounded(roofW * 1.01, 0.1, roofD * 1.02, 0.04), paint, cabinX, roofY, cabinZ + roofShift);
+
+    // abitacolo vero: senza plancia e sedili il vetro sembrava un buco nero
+    const cabinMat = this.material({ color: 0x22262a, roughness: 0.85, metalness: 0.05 });
+    this.mesh(this.bodyGroup, rounded(spec.width * 0.8, 0.12, 0.26, 0.04), cabinMat, cabinX, beltY + 0.16, cabinZ - cabinLength * 0.38, false);
     for (const side of [-1, 1]) {
-      this.mesh(this.bodyGroup, rounded(0.07, cabinHeight * 1.02, 0.1, 0.02), paint, cabinX + side * spec.width * 0.42, cabinY, cabinZ - cabinLength * 0.42);
-      this.mesh(this.bodyGroup, rounded(0.07, cabinHeight * 1.02, 0.1, 0.02), paint, cabinX + side * spec.width * 0.42, cabinY, cabinZ + cabinLength * 0.42);
+      this.mesh(this.bodyGroup, rounded(0.42, 0.5, 0.5, 0.06), cabinMat, cabinX + side * spec.width * 0.22, beltY + 0.24, cabinZ - 0.02, false);
+      this.mesh(this.bodyGroup, rounded(0.4, 0.55, 0.09, 0.04), cabinMat, cabinX + side * spec.width * 0.22, beltY + 0.4, cabinZ + 0.22, false);
+    }
+    for (const side of [-1, 1]) {
+      // montanti anteriori e posteriori sul bordo del padiglione
+      this.mesh(this.bodyGroup, rounded(0.05, cabinHeight, 0.07, 0.02), paint, cabinX + side * roofW * 0.5, cabinY, cabinZ - roofD * 0.5 + roofShift * 0.6);
+      this.mesh(this.bodyGroup, rounded(0.05, cabinHeight, 0.07, 0.02), paint, cabinX + side * roofW * 0.5, cabinY, cabinZ + roofD * 0.5 + roofShift * 0.2);
+      // montante centrale sottile: spezza il vetro laterale in due finestrini
+      this.mesh(this.bodyGroup, rounded(0.045, cabinHeight * 0.95, 0.05, 0.015), paint, cabinX + side * roofW * 0.5, cabinY, cabinZ + roofShift * 0.3, false);
     }
 
-    // paraurti in plastica, calandra e targa
-    this.mesh(this.bodyGroup, rounded(spec.width * 1.0, bodyH * 0.42, 0.2, 0.06), plastic, 0, bodyY - bodyH * 0.32, -halfLength + 0.06);
-    this.mesh(this.bodyGroup, rounded(spec.width * 1.0, bodyH * 0.42, 0.2, 0.06), plastic, 0, bodyY - bodyH * 0.32, halfLength - 0.06);
-    this.mesh(this.bodyGroup, rounded(spec.width * 0.46, bodyH * 0.34, 0.05, 0.02), plastic, 0, bodyY + bodyH * 0.1, -halfLength + 0.03, false);
-    this.mesh(this.bodyGroup, new THREE.BoxGeometry(spec.width * 0.34, 0.02, 0.03), chrome, 0, bodyY + bodyH * 0.22, -halfLength + 0.05, false);
-    this.mesh(this.bodyGroup, new THREE.BoxGeometry(0.44, 0.11, 0.02), chrome, 0, bodyY - bodyH * 0.2, halfLength - 0.02, false);
+    // paraurti nel colore della carrozzeria con labbro nero sotto
+    this.mesh(this.bodyGroup, rounded(spec.width * 1.0, bodyH * 0.34, 0.16, 0.06), paint, 0, ride + bodyH * 0.28, -halfLength + 0.06);
+    this.mesh(this.bodyGroup, rounded(spec.width * 1.0, bodyH * 0.34, 0.16, 0.06), paint, 0, ride + bodyH * 0.28, halfLength - 0.06);
+    this.mesh(this.bodyGroup, rounded(spec.width * 0.96, bodyH * 0.16, 0.2, 0.04), plastic, 0, ride + bodyH * 0.08, -halfLength + 0.06, false);
+    this.mesh(this.bodyGroup, rounded(spec.width * 0.96, bodyH * 0.16, 0.2, 0.04), plastic, 0, ride + bodyH * 0.08, halfLength - 0.06, false);
+
+    // calandra: mascherina scura con barra cromata e targa
+    this.mesh(this.bodyGroup, rounded(spec.width * 0.5, bodyH * 0.26, 0.05, 0.02), plastic, 0, beltY - bodyH * 0.22, -halfLength + 0.03, false);
+    this.mesh(this.bodyGroup, new THREE.BoxGeometry(spec.width * 0.42, 0.022, 0.03), chrome, 0, beltY - bodyH * 0.16, -halfLength + 0.05, false);
+    this.mesh(this.bodyGroup, new THREE.BoxGeometry(0.44, 0.11, 0.02), chrome, 0, ride + bodyH * 0.3, halfLength - 0.01, false);
 
     // labbro anteriore e diffusore posteriore nel colore d'accento
-    this.mesh(this.bodyGroup, rounded(spec.width * 0.92, bodyH * 0.12, 0.06, 0.02), trim, 0, bodyY - bodyH * 0.5, -halfLength + 0.02, false);
-    this.mesh(this.bodyGroup, rounded(spec.width * 0.92, bodyH * 0.12, 0.06, 0.02), trim, 0, bodyY - bodyH * 0.5, halfLength - 0.02, false);
+    this.mesh(this.bodyGroup, rounded(spec.width * 0.9, bodyH * 0.1, 0.06, 0.02), trim, 0, ride + bodyH * 0.06, -halfLength + 0.02, false);
+    this.mesh(this.bodyGroup, rounded(spec.width * 0.9, bodyH * 0.1, 0.06, 0.02), trim, 0, ride + bodyH * 0.06, halfLength - 0.02, false);
 
     // fari affusolati, striscia LED, specchietti e maniglie
     for (const side of [-1, 1]) {
-      this.mesh(this.bodyGroup, rounded(0.32, 0.1, 0.07, 0.03), lamp, side * halfWidth * 0.56, bodyY + bodyH * 0.34, -halfLength + 0.04, false);
-      this.mesh(this.bodyGroup, new THREE.BoxGeometry(0.26, 0.02, 0.03), lamp, side * halfWidth * 0.56, bodyY + bodyH * 0.25, -halfLength + 0.03, false);
-      this.mesh(this.bodyGroup, rounded(0.3, 0.09, 0.06, 0.025), tail, side * halfWidth * 0.58, bodyY + bodyH * 0.32, halfLength - 0.04, false);
-      this.mesh(this.bodyGroup, rounded(0.12, 0.07, 0.06, 0.02), paint, side * (spec.width * 0.5 + 0.02), cabinY - 0.05, cabinZ - cabinLength * 0.4, false);
-      this.mesh(this.bodyGroup, new THREE.BoxGeometry(0.02, 0.03, 0.14), chrome, side * spec.width * 0.49, bodyY + bodyH * 0.15, cabinZ + 0.1, false);
+      this.mesh(this.bodyGroup, rounded(0.3, 0.11, 0.07, 0.03), lamp, side * halfWidth * 0.55, beltY - bodyH * 0.1, -halfLength + 0.04, false);
+      this.mesh(this.bodyGroup, new THREE.BoxGeometry(0.24, 0.018, 0.03), lamp, side * halfWidth * 0.55, beltY - bodyH * 0.03, -halfLength + 0.02, false);
+      this.mesh(this.bodyGroup, rounded(0.26, 0.12, 0.06, 0.025), tail, side * halfWidth * 0.58, beltY - bodyH * 0.12, halfLength - 0.03, false);
+      this.mesh(this.bodyGroup, rounded(0.12, 0.06, 0.05, 0.02), paint, side * (spec.width * 0.5 - 0.01), beltY + 0.03, cabinZ - cabinLength * 0.36, false);
+      this.mesh(this.bodyGroup, new THREE.BoxGeometry(0.02, 0.028, 0.12), chrome, side * spec.width * 0.49, beltY - bodyH * 0.42, cabinZ + 0.12, false);
     }
 
     // dettagli di carrozzeria
     if (spec.style === 'suv' || spec.style === 'crossover') {
-      const rails = roofY + 0.06;
+      const rails = roofY + 0.055;
       for (const side of [-1, 1]) {
-        this.mesh(this.bodyGroup, rounded(0.05, 0.05, cabinLength * 0.8, 0.02), chrome, cabinX + side * spec.width * 0.3, rails, cabinZ);
+        this.mesh(this.bodyGroup, rounded(0.05, 0.05, roofD * 0.9, 0.02), chrome, cabinX + side * roofW * 0.36, rails, cabinZ + roofShift);
       }
     }
     if (spec.style === 'trike') {
@@ -216,7 +261,7 @@ export class Vehicle {
 
     // ruote: toro per la gomma, disco e razze per il cerchio
     const rubber = this.material({ color: 0x121416, roughness: 0.95, metalness: 0.05, clearcoat: 0.25, clearcoatRoughness: 0.5 });
-    const hub = this.material({ color: 0xb9bec2, roughness: 0.28, metalness: 0.9, clearcoat: 0.8, clearcoatRoughness: 0.1, envMapIntensity: 1.3 });
+    const hub = this.material({ color: 0x8e9498, roughness: 0.36, metalness: 0.82, clearcoat: 0.6, clearcoatRoughness: 0.15, envMapIntensity: 1 });
 
     const frontZ = -spec.wheelbase / 2;
     const rearZ = spec.wheelbase / 2;
@@ -226,6 +271,18 @@ export class Vehicle {
     }
     for (const side of [-1, 1]) {
       this.wheelAt(side * spec.track * 0.5, spec.wheelRadius, rearZ, false, rubber, hub);
+    }
+
+    // passaruota: mezzo toro scuro che raccorda la ruota alla fiancata. Senza,
+    // le ruote sembrano appoggiate di fianco al corpo della macchina.
+    for (const z of [frontZ, rearZ]) {
+      const front = z === frontZ;
+      const sides = front && spec.wheelLayout === 'three' ? [0] : [-1, 1];
+      for (const side of sides) {
+        const arch = new THREE.TorusGeometry(spec.wheelRadius * 1.16, 0.05, 6, 18, Math.PI);
+        arch.rotateY(Math.PI / 2);
+        this.mesh(this.bodyGroup, arch, plastic, side * spec.width * 0.49, spec.wheelRadius, z, false);
+      }
     }
 
     // fari veri (due spot, niente ombre)

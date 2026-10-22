@@ -1,6 +1,6 @@
 # HANDOFF — Molise Open World
 
-> Documento di passaggio di consegne. Ultimo aggiornamento: **21 ottobre 2026**.
+> Documento di passaggio di consegne. Ultimo aggiornamento: **22 ottobre 2026**.
 > Leggilo per intero prima di toccare il codice: contiene stato, vincoli, comandi,
 > criteri di qualità e prossimi passi con criteri di accettazione.
 
@@ -36,15 +36,15 @@ Stack: TypeScript + Vite + Three.js (WebGL2), Vitest, nessun framework UI.
 | Terreno | ✅ | chunk 912 m, 96 segmenti, streaming raggio 3,1 km |
 | Satellite | ✅ | z18 ≤520 m, z17 ≤1,5 km, z16 ≤2,6 km, z15 oltre |
 | Normal map | ✅ | 128×128 per chunk, generata dal DEM |
-| Strade | ✅ aggiornato | nastri drappeggiati con PBR CC0 (asfalto/sterrato) + **marciapiedi e cordoli in cemento** solo sulle asfaltate, interrotti agli incroci |
-| Edifici | ✅ aggiornato | estrusione + **tetti a falde** (padiglione) + facciate con finestre, persiane e davanzali |
+| Strade | ✅ aggiornato | asfalto scuro con mezzeria tratteggiata; **marciapiede rialzato 15 cm con cordolo a faccia verticale**, interrotto agli incroci |
+| Edifici | ✅ aggiornato | estrusione + tetti a falde + **cornicione, comignolo, pluviali e balconi**; finestre incassate da normal map dedicata |
 | Vegetazione | ✅ aggiornato | tronchi con corteccia PBR, chiome a card fotografiche con `alphaMap`, vento nei vertici, max 7000 alberi |
-| Prati | ✅ nuovo | ciuffi istanziati con texture di lame su canvas (`alphaTest`) e vento, densità dai preset |
+| Prati | ✅ aggiornato | 60k ciuffi istanziati, lame sottili su canvas 256 (`alphaTest`), vento; marciapiedi e cordoli restano liberi |
 | Acqua | ✅ aggiornato | nastri torrenti + poligoni laghi con normali scorrevoli e materiale fisico (clearcoat) |
 | Meteo reale | ✅ nuovo | Open-Meteo + sole NOAA, cupola nuvole, pioggia/neve, switch in impostazioni |
 | Radar / mappa | ✅ | satellite Esri z17 + overlay OSM, mosaico z14 per mappa grande |
 | Itinerario | ✅ nuovo | click sulla mappa grande → A* sulla rete OSM, km e tempi, beacon 3D |
-| Post-processing | ✅ aggiornato | bloom + **SSAO** (high/ultra) + SMAA + OutputPass, disattivabile |
+| Post-processing | ✅ aggiornato | bloom con soglia 3,2 (non investe più il cielo) + SSAO + SMAA + OutputPass, disattivabile |
 | Qualità | ✅ nuovo | preset low/medium/high/ultra + resolution scaling adattivo |
 | Audio | ✅ nuovo | WebAudio procedurale: motore, rotolamento, vento, passi, uccelli |
 | Fisica auto | ✅ | modello bicycle puro, testato |
@@ -415,3 +415,49 @@ Poi:
 8. aggiorna questo handoff con data, commit, esito test e nuove priorità.
 
 Buon lavoro. La cosa più importante: **il posto deve sembrare vero**.
+
+---
+
+## 13. Passaggio del 22 ottobre 2026 — resa visiva
+
+### Cosa era rotto (causa, non sintomo)
+
+- **Velo bianco ai preset alti.** `UnrealBloomPass` aveva soglia 1.0: il cielo intero
+  entrava nel bloom e aggiungeva luce su tutta la scena. Ora soglia **3,2**, raggio 0,2,
+  intensità 0,045 (high) / 0,065 (ultra). Insieme: esposizione 0,88 → **0,72**,
+  `sunIntensity` 3,4 → 3,0, luce emisferica 0,4 → 0,3. Misura headless: luminanza media
+  **184 → 155** a ultra, varianza 2496 → 5370 (più contrasto, non più "lavato").
+- **Asfalto chiaro.** La texture CC0 è volutamente chiara (mostra la grana) e il
+  materiale era bianco: risultava cemento. Ora tinta 0x8b8f92; sterrato 0xb9a68a.
+- **Marciapiedi piatti.** Il nastro stava 3,5 cm sopra l'asfalto. Ora il piano è a
+  +15 cm con **faccia verticale del cordolo** (`pushCurbWall`), che è quello che fa
+  leggere il rialzo.
+- **Erba sopra i marciapiedi.** L'esclusione usava `isOnRoad(..., 1.1)`: ora 2,7 m.
+- **Ruote sotto l'asfalto / macchina a scatole.** Vedi commit precedenti; qui la
+  carrozzeria è stata rifatta: padiglione **rastremato** (parabrezza e lunotto inclinati),
+  passaruota a mezzo toro, interni (plancia, sedili), vetro meno nero, vernice meno
+  specchio (metalness 0,35, clearcoat 0,55).
+- **Avatar a cilindri.** Lati 6 → 14, torso e bacino a profilo di rivoluzione (lathe)
+  appiattito in z, braccia/gambe affusolate, testa con mandibola, orecchie, naso,
+  labbra e calotta capelli scalata come il cranio (prima il cuoio capelluto
+  attraversava i capelli e il bordo era seghettato).
+- **Case "scatole".** Oltre allo zoccolo: cornicione (fascia a sporto), comignolo con
+  cappello, pluviali ai vertici, balconi con ringhiera sulle case a due piani, e
+  **normal map della facciata** (vano finestra incassato, davanzale a sporto).
+
+### Verifiche eseguite
+
+- `npx tsc --noEmit` pulito, `npm test` **155/155**, `vite build` ok.
+- Catture headless riproducibili (`node scripts/capture.mjs --quality high|ultra`)
+  a ora fissa, confrontate a media: vedi numeri sopra.
+- Controllo a runtime nel browser condiviso: `window.__molise.ready`, `errors` vuoto.
+
+### Cosa resta da fare (in ordine)
+
+1. **Erba**: i ciuffi a 15–30 m leggono ancora come foglie; servono lame più fini e
+   minore contrasto con il terreno, oppure un tappeto di base verde sotto i ciuffi.
+2. **Facciate**: mancano cornici ai piani, gronde e profondità reale delle finestre
+   (oggi è tutta normal map).
+3. **Terreno ravvicinato**: la foto satellite resta piatta; il dettaglio è solo
+   modulazione di colore.
+4. **Avatar**: è migliorato ma resta stilizzato; il prossimo passo è la skin mesh.

@@ -25,13 +25,14 @@ export class PostPipeline {
     private readonly renderer: THREE.WebGLRenderer,
     private readonly scene: THREE.Scene,
     private readonly camera: THREE.PerspectiveCamera,
-    bloomStrength = 0.14,
+    bloomStrength = 0.06,
   ) {
     this.composer = new EffectComposer(renderer);
     this.composer.addPass(new RenderPass(scene, camera));
-    // threshold alto: il bloom deve accendersi solo sui riflessi del sole, non
-    // sul cielo (con soglia 1.0 il cielo intero diventava un velo bianco)
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), bloomStrength, 0.28, 2.2);
+    // threshold molto alto: il bloom deve accendersi solo sul disco solare e sui
+    // riflessi speculari, non sul cielo. Prima della correzione la scena ai
+    // preset alti era un velo bianco (luminanza media 184/255).
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), bloomStrength, 0.2, 3.2);
     this.composer.addPass(this.bloom);
 
     // SSAO: raggio in metri, distanze normalizzate; pochi campioni per restare leggero

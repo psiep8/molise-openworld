@@ -179,6 +179,59 @@ function pushRibbon(
   }
 }
 
+/**
+ * Faccia verticale del cordolo: quad dritti lungo il bordo del manto stradale.
+ * È questo pezzo che fa leggere il marciapiede come rialzato — senza, la
+ * pavimentazione resta un nastro piatto incollato all'asfalto.
+ * `outward` vale +1 quando il lato esterno è quello a offset positivo.
+ */
+function pushCurbWall(
+  target: RibbonArrays,
+  pts: Pt[],
+  yBottom: number,
+  yTop: number,
+  outward: number,
+  color: THREE.Color,
+  heights: Heightfield,
+  blocked: (x: number, z: number) => boolean,
+): void {
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    const mx = (a.x + b.x) / 2;
+    const mz = (a.z + b.z) / 2;
+    if (blocked(a.x, a.z) && blocked(b.x, b.z)) continue;
+    if (blocked(mx, mz)) continue;
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const len = Math.hypot(dx, dz);
+    if (len < 1e-3) continue;
+    // la faccia guarda verso la carreggiata, cioè contro il lato del marciapiede
+    const nx = (dz / len) * outward;
+    const nz = (-dx / len) * outward;
+    const ha = heights.heightAt(a.x, a.z);
+    const hb = heights.heightAt(b.x, b.z);
+    const base = target.positions.length / 3;
+    const quad: [Pt, number][] = [
+      [a, ha],
+      [a, ha],
+      [b, hb],
+      [b, hb],
+    ];
+    const tops = [yBottom, yTop, yBottom, yTop];
+    for (let k = 0; k < 4; k++) {
+      const [p, h] = quad[k];
+      target.positions.push(p.x, h + tops[k], p.z);
+      target.normals.push(nx, 0, nz);
+      target.colors.push(color.r, color.g, color.b);
+      target.uvs.push(k % 2 === 0 ? 0 : 1, tops[k]);
+    }
+    // verso delle facce coerente con la normale (altrimenti spariscono col culling)
+    if (outward > 0) target.indices.push(base, base + 2, base + 1, base + 1, base + 2, base + 3);
+    else target.indices.push(base, base + 1, base + 2, base + 1, base + 3, base + 2);
+  }
+}
+
 function toGeometry(a: RibbonArrays): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(a.positions, 3));
@@ -213,6 +266,7 @@ export function buildRoads(
   const asphaltColor = new THREE.Color(0xffffff);
   const dirtColor = new THREE.Color(0xf6efe6);
   const pavementColor = new THREE.Color(0x8b9294);
+  const curbColor = new THREE.Color(0xb9bcbb);
   const markingColor = new THREE.Color(0xf4f2e8);
 
   osm.roads.forEach((road, idx) => {
@@ -233,18 +287,26 @@ export function buildRoads(
     // Solo le strade asfaltate hanno marciapiede e cordolo: le sterrate no.
     if (isDirt) return;
     const walkWidth = road.width >= 6 ? 1.5 : 1.2;
-    const walkLift = lift + 0.035;
-    const curbLift = lift + 0.06;
+    // marciapiede rialzato di 15 cm: è l'altezza vera del cordolo
+    const curbTop = lift + 0.15;
+    const walkLift = curbTop + 0.005;
+    const blockedWalk = (x: number, z: number): boolean => (roadIndex ? roadIndex.isOnRoad(x, z, 0.4) : false);
     for (const side of [-1, 1]) {
       // marciapiede accostato al bordo carreggiata, interrotto agli incroci
       const walkLine = offsetPolyline(pts, side * (road.width / 2 + walkWidth / 2));
-      pushRuns(pavement, walkLine, walkWidth, walkLift, pavementColor, heights, (x, z) =>
-        roadIndex ? roadIndex.isOnRoad(x, z, 0.4) : false,
-      );
-      // cordolo: filo di cemento appena fuori dall'asfalto
-      const curbLine = offsetPolyline(pts, side * (road.width / 2 + 0.45));
-      pushRuns(pavement, curbLine, 0.25, curbLift, pavementColor, heights, (x, z) =>
-        roadIndex ? roadIndex.isOnRoad(x, z, 0.3) : false,
+      pushRuns(pavement, walkLine, walkWidth, walkLift, pavementColor, heights, blockedWalk);
+      // cordolo: fascia chiara in cima al rialzo, poi la faccia verticale
+      const curbLine = offsetPolyline(pts, side * (road.width / 2 + 0.14));
+      pushRuns(pavement, curbLine, 0.28, curbTop, curbColor, heights, blockedWalk);
+      pushCurbWall(
+        pavement,
+        offsetPolyline(pts, side * (road.width / 2 + 0.005)),
+        lift - 0.02,
+        0.15,
+        side,
+        curbColor,
+        heights,
+        blockedWalk,
       );
     }
   });
@@ -253,6 +315,9 @@ export function buildRoads(
   const asphaltPbr = pbr(renderer, 'asphalt', { repeat: 2, normal: true, rough: true });
   const dirtPbr = pbr(renderer, 'gravel', { repeat: 2, normal: true, rough: true });
   const asphaltMat = new THREE.MeshStandardMaterial({
+    // la texture CC0 è chiara (serve a mostrare la grana): la tinta scura la dà
+    // il materiale, altrimenti l'asfalto sembra cemento chiaro
+    color: 0x8b8f92,
     vertexColors: true,
     ...asphaltPbr,
     normalScale: new THREE.Vector2(0.9, 0.9),
@@ -265,6 +330,7 @@ export function buildRoads(
     polygonOffsetUnits: -2,
   });
   const dirtMat = new THREE.MeshStandardMaterial({
+    color: 0xb9a68a,
     vertexColors: true,
     ...dirtPbr,
     normalScale: new THREE.Vector2(1, 1),
