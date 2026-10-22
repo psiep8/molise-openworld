@@ -342,6 +342,10 @@ registro vale quindi **fatto nel codice**, **da verificare a schermo**.
 | Alberi per specie: ulivi negli uliveti (`orchard`), cipressi nei filari e sparsi nei boschi, latifoglie altrove | fatto | `src/world/vegetation.ts`; tre insiemi di istanze, vento condiviso anche per i cipressi |
 | Veicoli: battistrada come `bumpMap`, disco freno dietro le razze, terminale di scarico cromato | fatto | `src/entities/vehicle.ts` (`treadTexture`, `wheelAt`) |
 | Fanalini posteriori: più intensi in frenata, bianchi in retromarcia | fatto | `src/entities/vehicle.ts`, `update()` |
+| Finestre accese di notte in circa un terzo delle case, con emissività che segue l'ora | fatto | `src/world/buildings.ts` (`setWindowGlow`), chiamata da `applyAtmosphere` |
+| Muretti a secco lungo le strade di campagna, con tratti crollati | fatto | `src/world/dry-stone.ts`, un solo `InstancedMesh` con la texture `stonewall` |
+| Sottobosco: cespugli a card di foglie ai piedi degli alberi | fatto | `src/world/vegetation.ts` (`bushList`, `bushGeo`) |
+| Cielo notturno: 1700 stelle con magnitudine e temperatura, disco lunare con alone | fatto | `src/world/sky.ts` (`setNightSky`, `moonTexture`) |
 
 Da verificare a schermo, in ordine di rischio: che l'usura dell'asfalto non
 sballi la luminosità di giorno; che i chiusini non affiorino sopra il manto nei
