@@ -348,6 +348,8 @@ registro vale quindi **fatto nel codice**, **da verificare a schermo**.
 | Cielo notturno: 1700 stelle con magnitudine e temperatura, disco lunare con alone | fatto | `src/world/sky.ts` (`setNightSky`, `moonTexture`) |
 | Rattoppi di catrame rettangolari (celle 7 × 9 m) e crepe sottili, in coordinate mondo nello shader dell'asfalto | fatto | `applyRoadWear` in `src/world/roads.ts` (`roadHash`, `roadNoise`, `roadToppa`, `roadCrack`) |
 | Targhe italiane vere: canvas con banda blu, sigla `CB` e numero deterministico per veicolo | fatto | `src/entities/vehicle.ts` (`plateTexture`, `plateNumber`) |
+| Pali della luce e fili in catenaria lungo le strade asfaltate | fatto | `src/world/power-lines.ts`; un `InstancedMesh` per i pali, un `LineSegments` per i fili |
+| Erba che sconfina sul bordo dell'asfalto, più secca e polverosa | fatto | `src/world/grass.ts` (`edge`, fascia di 40 cm fuori dal manto) |
 
 Da verificare a schermo, in ordine di rischio: che l'usura dell'asfalto non
 sballi la luminosità di giorno; che i chiusini non affiorino sopra il manto nei
