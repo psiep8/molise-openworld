@@ -374,7 +374,29 @@ float wheelTracks(float u) {
   float a = (u - 0.30) / 0.085;
   float b = (u - 0.70) / 0.085;
   return clamp(exp(-a * a) + exp(-b * b), 0.0, 1.0);
-}`,
+}
+
+// hash e rumore di valore, per rattoppi e crepe in coordinate mondo
+float roadHash(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+
+float roadNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  float a = roadHash(i);
+  float b = roadHash(i + vec2(1.0, 0.0));
+  float c = roadHash(i + vec2(0.0, 1.0));
+  float d = roadHash(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+// calcolate in <map_fragment> e riusate in <roughnessmap_fragment>
+float roadToppa;
+float roadCrack;`,
       )
       .replace(
         '#include <map_fragment>',
@@ -388,6 +410,23 @@ float wheelTracks(float u) {
   diffuseColor.rgb *= mix(1.0, 0.78, tread);
   diffuseColor.rgb *= mix(1.0, 1.05, centre);
   diffuseColor.rgb *= 0.92 + 0.16 * blotch;
+
+  // rattoppi: in poche celle di 7 x 9 m c'e' una toppa rettangolare di
+  // catrame, col bordo dritto come quando la ruspa taglia l'asfalto
+  vec2 pgrid = vRoadWorld.xz / vec2(7.0, 9.0);
+  vec2 pid = floor(pgrid);
+  vec2 pf = fract(pgrid);
+  float ph = roadHash(pid);
+  vec2 plo = vec2(roadHash(pid + 1.7), roadHash(pid + 3.9)) * 0.55 + 0.12;
+  vec2 phi = plo + vec2(0.18 + roadHash(pid + 5.3) * 0.28, 0.16 + roadHash(pid + 7.1) * 0.26);
+  float pbox = step(plo.x, pf.x) * step(pf.x, phi.x) * step(plo.y, pf.y) * step(pf.y, phi.y);
+  roadToppa = step(ph, 0.16) * pbox;
+  diffuseColor.rgb *= mix(1.0, 0.74, roadToppa);
+
+  // crepe: dove il rumore attraversa lo 0,5 resta una linea sottile
+  float cr = abs(roadNoise(vRoadWorld.xz * 0.42) - 0.5);
+  roadCrack = (1.0 - smoothstep(0.0, 0.035, cr)) * 0.55;
+  diffuseColor.rgb *= 1.0 - roadCrack * 0.38;
   // bagnato: asfalto scuro, come dopo un temporale
   diffuseColor.rgb *= mix(1.0, 0.60, uRoadWet);
 }`,
@@ -398,11 +437,14 @@ float wheelTracks(float u) {
 {
   // le tracce sono lucide (gomma consumata), il bagnato lucida tutto
   roughnessFactor = clamp(roughnessFactor - 0.24 * wheelTracks(vRoadUv.x), 0.18, 1.0);
+  // il catrame della toppa e' piu' liscio, la crepe piu' ruvida
+  roughnessFactor = mix(roughnessFactor, 0.55, roadToppa * 0.45);
+  roughnessFactor = mix(roughnessFactor, 0.98, roadCrack * 0.5);
   roughnessFactor = mix(roughnessFactor, 0.12, uRoadWet);
 }`,
       );
   };
-  material.customProgramCacheKey = () => 'road-wear-v2';
+  material.customProgramCacheKey = () => 'road-wear-v3';
 }
 
 /**

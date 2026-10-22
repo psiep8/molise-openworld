@@ -349,17 +349,34 @@ registro vale quindi **fatto nel codice**, **da verificare a schermo**.
 
 Da verificare a schermo, in ordine di rischio: che l'usura dell'asfalto non
 sballi la luminosità di giorno; che i chiusini non affiorino sopra il manto nei
-punti dove il nastro è più alto; che il cono del cipresso non sembri troppo
-regolare da vicino.
+punti dove il nastro è più alto; che i muretti a secco non invadano la carreggiata
+nelle curve strette; che i cespugli non restino sospesi sui pendii ripidi; che
+stelle e luna non si vedano ancora di giorno.
+
+> **Nota del 23/10/2026.** `npm run smoke` ha trovato un errore reale: nello
+> shader dell'usura una variabile si chiamava `patch`, parola riservata del
+> linguaggio GLSL, e il programma non compilava affatto. Corretto in `a5c1a2d`
+> (rinominata `blotch`, cache key `road-wear-v2`). Da qui in avanti lo smoke
+> test va considerato parte della verifica minima: il build da solo non vede
+> gli errori di shader.
 
 ### Prossimi passi (in ordine)
 
-1. **Veicoli** (Fase 1): loader GLB con fallback procedurale, ruote con `LatheGeometry`, vetri, luci freno/retromarcia. Oggi sono l'unica area ancora "a scatole".
-2. **Strade** (Fase 3): usura a canali, rattoppi, tombini, bordo in ghiaia, bagnato con pioggia.
-3. **Alberi** (Fase 4): specie molisane e LOD vicino con rami veri.
-4. **Orizzonte** (Fase 5): anello DEM 9–10, nebbia esponenziale.
-5. **Edifici** (Fase 6): famiglie di facciata, persiane, interni finti, chiesa/campanile.
-6. **Personaggio** (Fase 7): materiali pelle/capelli, fusione walk/run, IK piedi.
-7. **Look** (Fase 2): LUT, prova tone mapping, CSM.
+1. **Rattoppi e crepe sull'asfalto**: toppe di catrame più scure, crepe a
+   raggiera, rappezzi rettangolari con bordo netto. Si possono fare nello
+   stesso shader dell'usura, in coordinate mondo, senza nuove texture.
+2. **Look** (Fase 2): provare un tone mapping filmico, una LUT leggera, e
+   valutare le shadow cascade solo se la qualità delle ombre lunghe non basta.
+3. **Veicoli** (Fase 1): resta il salto vero, cioè modelli GLB con licenza
+   compatibile (oggi non ce ne sono nel repo, la carrozzeria è procedurale).
+   In alternativa: ruote con `LatheGeometry`, tergicristalli e targa.
+4. **Edifici** (Fase 6): persiane, davanzali, interni finti dietro le finestre,
+   chiesa e campanile come edifici-simbolo al posto delle case generiche.
+5. **Personaggio** (Fase 7): materiali pelle/capelli, fusione walk/run, IK dei
+   piedi sul terreno.
+6. **Alberi** (Fase 4): LOD vicino con rami veri, ceppaie, alberi caduti.
+7. **Orizzonte** (Fase 5): anello DEM 9–10 e nebbia esponenziale. Non fatto:
+   la nebbia lineare attuale (3000–4600 m) copre già il bordo del terreno, e
+   senza una verifica visiva il rischio di buchi o doppio terreno è alto.
 
 > Aggiornare questa tabella e il registro a ogni blocco di lavoro completato, con la data.
