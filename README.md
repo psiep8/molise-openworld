@@ -7,6 +7,7 @@
 >
 > **Stato, comandi, limiti e prossimi passi:** [HANDOFF.md](HANDOFF.md) — il documento da leggere prima di riprendere il progetto su un'altra macchina.
 > **Specifica completa del simulatore:** [docs/MASTER_PROMPT.md](docs/MASTER_PROMPT.md), con lo stato di avanzamento punto per punto.
+> **Piano di realismo grafico (documento vivo):** [docs/REALISM-PLAN.md](docs/REALISM-PLAN.md) — cosa è fatto, cosa manca e in che ordine.
 
 **Area giocabile:** Palata · Montecilfone · Acquaviva Collecroce · Tavenna · Castelmauro (~14 × 12 km di campagna molisana)
 

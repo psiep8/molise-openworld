@@ -14,3 +14,6 @@ smoke/dbg
 *.log
 .probe
 debug-drive.mjs
+
+# catture di sviluppo (non versionate)
+captures/

@@ -604,3 +604,23 @@ Quindi il rig procedurale non è stato migliorato ancora: è stato sostituito.
 3. **Edifici**: le facciate sono ancora un unico intonaco chiaro con la finestra disegnata
    nella texture, ripetuta. È il prossimo salto visivo, più del terreno.
 4. **Niente traffico, niente attraversamenti, niente folla in piazza.**
+
+---
+
+## 16. Passaggio del 22 ottobre 2026 (notte) - piano di realismo nel repo
+
+Il brief ***Piano di realismo per lo sviluppo*** del proprietario ora vive nel repo:
+**`docs/REALISM-PLAN.md`**. Da adesso è il riferimento unico per l'ordine di
+lavoro sulla grafica.
+
+- Il documento contiene il brief integrale più una sezione **Registro di
+  avanzamento** con lo stato reale di ogni area (fatto / da verificare / da fare).
+- Va aggiornato a ogni blocco di lavoro: si scrive solo ciò che è stato visto
+  funzionare (`npm test`, `npm run build`, prova in browser).
+- Le fasi consigliate sono: 0 misure, 1 veicoli, 2 luce, 3 strade, 4 alberi,
+  5 orizzonte, 6 edifici, 7 personaggio, 8 ottimizzazione.
+- `captures/` è ora in `.gitignore` (sono scatti di lavoro, non asset).
+
+Verifiche di questo passaggio: `npm test` 155/155 in 14 file, `npm run build` ok.
+
+
