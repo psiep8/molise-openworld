@@ -262,17 +262,35 @@ export class Vehicle {
     }
 
     // ruote: toro per la gomma, disco e razze per il cerchio
-    const rubber = this.material({ color: 0x121416, roughness: 0.95, metalness: 0.05, clearcoat: 0.25, clearcoatRoughness: 0.5 });
+    const rubber = this.material({
+      color: 0x121416,
+      roughness: 0.95,
+      metalness: 0.05,
+      clearcoat: 0.25,
+      clearcoatRoughness: 0.5,
+      // battistrada: solchi veri, non una gomma liscia da modellino
+      bumpMap: treadTexture(),
+      bumpScale: 0.6,
+    });
     const hub = this.material({ color: 0x8e9498, roughness: 0.36, metalness: 0.82, clearcoat: 0.6, clearcoatRoughness: 0.15, envMapIntensity: 1 });
+    // disco freno: si vede attraverso le razze, è quello che fa "auto vera"
+    const discMat = this.material({ color: 0x6f7477, roughness: 0.45, metalness: 0.9, envMapIntensity: 0.8 });
 
     const frontZ = -spec.wheelbase / 2;
     const rearZ = spec.wheelbase / 2;
     const frontX = spec.wheelLayout === 'three' ? [0] : [-1, 1];
     for (const side of frontX) {
-      this.wheelAt(side * spec.track * 0.5, spec.wheelRadius, frontZ, true, rubber, hub);
+      this.wheelAt(side * spec.track * 0.5, spec.wheelRadius, frontZ, true, rubber, hub, discMat);
     }
     for (const side of [-1, 1]) {
-      this.wheelAt(side * spec.track * 0.5, spec.wheelRadius, rearZ, false, rubber, hub);
+      this.wheelAt(side * spec.track * 0.5, spec.wheelRadius, rearZ, false, rubber, hub, discMat);
+    }
+
+    // terminale di scarico: un tubo cromato sotto la coda
+    if (spec.style !== 'trike') {
+      const exhaust = new THREE.CylinderGeometry(0.042, 0.05, 0.16, 10);
+      exhaust.rotateX(Math.PI / 2);
+      this.mesh(this.bodyGroup, exhaust, chrome, halfWidth * 0.5, ride + bodyH * 0.08, halfLength - 0.02, false);
     }
 
     // passaruota: mezzo toro scuro che raccorda la ruota alla fiancata. Senza,
@@ -306,6 +324,7 @@ export class Vehicle {
     steerable: boolean,
     rubber: THREE.Material,
     hub: THREE.Material,
+    disc: THREE.Material,
   ): void {
     const radius = this.spec.wheelRadius;
     const width = 0.22;
@@ -324,6 +343,11 @@ export class Vehicle {
     const wall = new THREE.CylinderGeometry(radius * 0.78, radius * 0.78, width * 0.9, 20);
     wall.rotateZ(Math.PI / 2);
     wheel.add(new THREE.Mesh(this.track(wall), rubber));
+
+    // disco freno dietro il cerchio: si intravede tra le razze
+    const brake = new THREE.CylinderGeometry(radius * 0.62, radius * 0.62, 0.026, 18);
+    brake.rotateZ(Math.PI / 2);
+    wheel.add(new THREE.Mesh(this.track(brake), disc));
 
     const rim = new THREE.CylinderGeometry(radius * 0.5, radius * 0.5, width * 0.95, 18);
     rim.rotateZ(Math.PI / 2);
@@ -462,4 +486,41 @@ export class Vehicle {
 /** Piccolo offset per centrare l'abitacolo sui crossover più lunghi. */
 function wheelbaseOffset(spec: VehicleSpec): number {
   return spec.wheelbase - 2.5;
+}
+
+/**
+ * Battistrada: solchi trasversali su una spalla scura, usato come `bumpMap`
+ * della gomma. È un canvas di 64 px, generato una volta sola e condiviso da
+ * tutte le auto: senza, lo pneumatico sembra un copertone liscio da modellino.
+ */
+let treadCache: THREE.CanvasTexture | null = null;
+function treadTexture(): THREE.CanvasTexture {
+  if (treadCache) return treadCache;
+  const size = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.fillStyle = '#9a9a9a';
+    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = '#262626';
+    // due scanalature longitudinali + intagli obliqui, come un battistrada vero
+    ctx.fillRect(0, size * 0.22, size, size * 0.1);
+    ctx.fillRect(0, size * 0.68, size, size * 0.1);
+    for (let i = -size; i < size * 2; i += 14) {
+      ctx.save();
+      ctx.translate(i, 0);
+      ctx.rotate(0.35);
+      ctx.fillRect(0, 0, 5, size * 2);
+      ctx.restore();
+    }
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(4, 12);
+  tex.anisotropy = 4;
+  treadCache = tex;
+  return tex;
 }
