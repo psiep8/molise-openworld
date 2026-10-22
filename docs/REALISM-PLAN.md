@@ -383,10 +383,11 @@ una casa e che lo zoccolo copra il dislivello del terreno.
 
 ### 23 ottobre 2026 — priorità dell'utente
 
-Verificato con `npm test` (161/161) e `npm run build`; `npm run smoke` è
-passato sulla build precedente (11/11 chunk texturizzati, nessun errore e
-nessun warning in console). Il controllo a schermo resta da fare su GPU vera:
-qui il rendering gira su SwiftShader a ~2 fps.
+Verificato con `npm test` (161/161), `npm run build` e `npm run smoke` sulla
+build finale (`index-A5tfBz6X.js`): 9/9 chunk texturizzati, 1 chunk in dettaglio
+z17, nessun errore e nessun warning in console, guida e camminata funzionanti.
+Il controllo a schermo resta da fare su GPU vera: qui il rendering gira su
+SwiftShader a ~2 fps.
 
 | Voce | Stato | Note |
 | --- | --- | --- |
