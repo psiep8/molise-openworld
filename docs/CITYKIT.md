@@ -2,7 +2,8 @@
 
 Documento operativo per gli asset 3D esterni. Regola di fondo: **il mondo resta
 quello vero di Palata** (OSM + DEM); il kit serve a rendere credibili strade,
-marciapiedi, vegetazione, arredo urbano e veicoli, non a sostituire la geografia.
+marciapiedi, vegetazione, arredo urbano, veicoli e margini di campagna, non a
+sostituire la geografia.
 
 ---
 
@@ -12,8 +13,11 @@ Il catalogo del sito è stato censito per intero (2.288 asset, 937 nel tier free
 Quasi tutti sono **low-poly stilizzati** (City, Cozy Village, Metropolis, Vice
 Beach…): dentro un paese molisano fotorealistico si notano subito e farebbero
 peggio delle mesh procedurali. L'unico pack in **scala reale e PBR** è
-**Realistic City**, e il suo tier free contiene proprio i pezzi che oggi sono
-più deboli.
+**Realistic City**, e il suo tier free contiene i pezzi che oggi sono più deboli.
+
+**20 asset in uso**, in due gruppi.
+
+### 1.1 Realistic City (13 free, 12,4 MB)
 
 | Ruolo nel motore | Asset | Note |
 | --- | --- | --- |
@@ -29,14 +33,54 @@ più deboli.
 | `bench` | Realistic Bench 01 | panchina |
 | `bin` | Realistic Trash Bin 01 | cestino |
 | `car` | Realistic Car Sedan 01 | auto parcheggiate e traffico |
-| `boulder` | Realistic Rock Boulder 01 | massi per scarpate e muretti a secco |
+| `boulder` | Realistic Rock Boulder 01 | masso fotorealistico, usato con parsimonia |
 
-**Non** prendiamo (free ma incoerenti con il posto): brownstone, office tower,
-canal tile, subway entrance, sky dome. A Palata non esistono e il cielo attuale
-è già fisico.
+### 1.2 Scenery low-poly (7 free degli altri pack)
 
-Gli altri campi free del sito (nature, arredo, veicoli dei pack stilizzati) sono
-low-poly: non li usiamo per non abbassare la resa.
+Servono a riempire i vuoti che il terreno da solo non racconta. Sono oggetti
+piccoli, senza dettagli leggibili a 20 m: la sagoma è quella giusta e il costo è
+0,4–2k triangoli l'una, quindi non abbassano la resa.
+
+| Ruolo nel motore | Asset | Note |
+| --- | --- | --- |
+| `hedge` | Hedgerow Run | siepi lungo le strade di campagna |
+| `bush` | Bush Round 01 | rovi e cespugli ai bordi delle siepi |
+| `reed` | Cattail Reed Clump | canneti lungo i torrenti |
+| `rock` | Mossy Boulder | massi muschiosi sui pendii |
+| `rock` | Moraine Boulder | massi di morena |
+| `rock` | Railway Rock Cluster | pietraie basse |
+| `wreck` | Wrecked Car | relitto abbandonato fuori dal paese |
+
+Più modelli sullo stesso ruolo sono **varianti**: il motore ne sceglie una per
+istanza (`KitSpot.variant`), quindi tre tipi di masso restano una manciata di
+draw call.
+
+### 1.3 Cosa NON usiamo (e perché)
+
+- **Case e negozi low-poly** (`farmhouse`, `general-store`, `two-story-house`,
+  `ranch-house`, `deco-shopfront-row`…): le case di Palata hanno l'impronta OSM
+  vera. Sostituirle con mesh finite significa inventare un altro paese; accanto
+  alle facciate procedurali si vedrebbe subito lo stile diverso.
+- **Auto low-poly** (`family-sedan`, `paris-car-01`, `pastel-sedan`,
+  `white-sports-convertible`, `van-wav-ramp-01`): sono fatte per un low-poly, non
+  hanno parti separate (carrozzeria/vetri/fari) e il davanti non è verificabile
+  senza guardarle in gioco. La berlina fotorealistica resta l'unica auto in
+  sosta. Il relitto è l'eccezione: sta di traverso in un fosso, quindi non ha un
+  verso.
+- **Alberi low-poly** (`olive-tree`, `apple-tree`, `birch-tree`, `autumn-maple`,
+  `lineside-pine`…): le chiome attuali sono card fotografiche con alpha e vento;
+  un albero flat-shaded accanto si nota più di quanto aggiunga. `olive-tree` è
+  anche 22k triangoli.
+- **Tile di terreno/strada da 4 × 4 m**: i nastri OSM hanno UV metriche e
+  materiali PBR; una griglia a scacchiera si vedrebbe.
+- **Interni, ferrovia, bayou, nuvole, sky dome**: non c'è il posto (Palata non ha
+  ferrovia né bayou; il cielo è fisico, le nuvole sono procedurali).
+- **`realistic-brownstone-01`, office tower, canal, subway, sky dome**: free ma
+  incoerenti con il posto.
+
+I **130 GLB restanti** presenti in `public/citykit/` non entrano nel manifest e
+non vengono caricati: restano su disco se un giorno servono, senza costare né
+memoria video né draw call.
 
 ---
 
@@ -71,10 +115,10 @@ low-poly: non li usiamo per non abbassare la resa.
 
    ```bash
    npm run kit -- --list   # cosa è free nel pack (nessuna chiave)
-   npm run kit             # scarica i 13 asset + manifest + decodificatore Draco
+   npm run kit             # scarica i 20 asset + manifest + decodificatore Draco
    ```
 
-   Non vuoi usare una chiave? Scarica a mano i 13 file free dal sito (pulsante
+   Non vuoi usare una chiave? Scarica a mano i file free dal sito (pulsante
    **Download** su ogni asset, il file si chiama `<slug>.glb`), mettili in
    `public/citykit/` e indicizzali:
 
@@ -82,61 +126,76 @@ low-poly: non li usiamo per non abbassare la resa.
    npm run kit -- --index
    ```
 
-Lo script è idempotente: salta i file già presenti e corretti, riscarica con
-`--force`, e accetta `--only=slug,slug`. Una richiesta alla volta, come chiede
-la documentazione delle API (budget più stretto per i download).
+`--index` **non usa la rete**: legge i GLB che trova, tiene solo i 20 slug della
+lista curata, ricava triangoli/byte/sha256 dal file e riscrive manifest e
+NOTICE. Segnala i file assenti e quanti GLB restano fuori dal manifest, ma non
+fallisce per un file opzionale mancante. Lo script è idempotente: salta i file
+già presenti e corretti, riscarica con `--force`, accetta `--only=slug,slug`. Una
+richiesta alla volta, come chiede la documentazione delle API (budget più
+stretto per i download).
 
-### Lista per il download manuale
+### Lista per il download manuale (13 obbligatori)
 
-Tutti nel tier **free** del pack. Salvali in `public/citykit/` con il nome
-`<slug>.glb` (è il nome con cui il sito li scarica), in una cartella piatta.
+Tutti nel tier **free** del pack Realistic City. Salvali in `public/citykit/`
+con il nome `<slug>.glb` (è il nome con cui il sito li scarica), in una cartella
+piatta.
 
 | # | Ruolo | Asset | Slug / file | Byte |
 | --- | --- | --- | --- | --- |
-| 1 | strada | Realistic Road Straight 01 | [`realistic-road-straight-01`](https://threejsassets.com/assets/realistic-road-straight-01) | 1,050,660 |
-| 2 | incrocio | Realistic Road Intersection 01 | [`realistic-road-intersection-01`](https://threejsassets.com/assets/realistic-road-intersection-01) | 1,166,864 |
-| 3 | marciapiede | Realistic Sidewalk 01 | [`realistic-sidewalk-01`](https://threejsassets.com/assets/realistic-sidewalk-01) | 593,868 |
-| 4 | piazza | Realistic Plaza Paving 01 | [`realistic-plaza-paving-01`](https://threejsassets.com/assets/realistic-plaza-paving-01) | 4,036,796 |
-| 5 | albero strada | Realistic Street Tree 01 | [`realistic-street-tree-01`](https://threejsassets.com/assets/realistic-street-tree-01) | 1,078,972 |
-| 6 | albero parco | Realistic Park Tree 01 | [`realistic-park-tree-01`](https://threejsassets.com/assets/realistic-park-tree-01) | 955,140 |
-| 7 | lampione | Realistic Street Lamp 01 | [`realistic-street-lamp-01`](https://threejsassets.com/assets/realistic-street-lamp-01) | 174,040 |
-| 8 | semaforo | Realistic Traffic Light 01 | [`realistic-traffic-light-01`](https://threejsassets.com/assets/realistic-traffic-light-01) | 178,648 |
-| 9 | segnale | Realistic Street Sign 01 | [`realistic-street-sign-01`](https://threejsassets.com/assets/realistic-street-sign-01) | 531,588 |
-| 10 | panchina | Realistic Bench 01 | [`realistic-bench-01`](https://threejsassets.com/assets/realistic-bench-01) | 881,444 |
-| 11 | cestino | Realistic Trash Bin 01 | [`realistic-trash-bin-01`](https://threejsassets.com/assets/realistic-trash-bin-01) | 1,120,692 |
-| 12 | auto | Realistic Car Sedan 01 | [`realistic-car-sedan-01`](https://threejsassets.com/assets/realistic-car-sedan-01) | 718,416 |
-| 13 | masso | Realistic Rock Boulder 01 | [`realistic-rock-boulder-01`](https://threejsassets.com/assets/realistic-rock-boulder-01) | 509,252 |
+| 1 | strada | Realistic Road Straight 01 | [`realistic-road-straight-01`](https://threejsassets.com/assets/realistic-road-straight-01) | 1.050.660 |
+| 2 | incrocio | Realistic Road Intersection 01 | [`realistic-road-intersection-01`](https://threejsassets.com/assets/realistic-road-intersection-01) | 1.166.864 |
+| 3 | marciapiede | Realistic Sidewalk 01 | [`realistic-sidewalk-01`](https://threejsassets.com/assets/realistic-sidewalk-01) | 593.868 |
+| 4 | piazza | Realistic Plaza Paving 01 | [`realistic-plaza-paving-01`](https://threejsassets.com/assets/realistic-plaza-paving-01) | 4.036.796 |
+| 5 | albero strada | Realistic Street Tree 01 | [`realistic-street-tree-01`](https://threejsassets.com/assets/realistic-street-tree-01) | 1.078.972 |
+| 6 | albero parco | Realistic Park Tree 01 | [`realistic-park-tree-01`](https://threejsassets.com/assets/realistic-park-tree-01) | 955.140 |
+| 7 | lampione | Realistic Street Lamp 01 | [`realistic-street-lamp-01`](https://threejsassets.com/assets/realistic-street-lamp-01) | 174.040 |
+| 8 | semaforo | Realistic Traffic Light 01 | [`realistic-traffic-light-01`](https://threejsassets.com/assets/realistic-traffic-light-01) | 178.648 |
+| 9 | segnale | Realistic Street Sign 01 | [`realistic-street-sign-01`](https://threejsassets.com/assets/realistic-street-sign-01) | 531.588 |
+| 10 | panchina | Realistic Bench 01 | [`realistic-bench-01`](https://threejsassets.com/assets/realistic-bench-01) | 881.444 |
+| 11 | cestino | Realistic Trash Bin 01 | [`realistic-trash-bin-01`](https://threejsassets.com/assets/realistic-trash-bin-01) | 1.120.692 |
+| 12 | auto | Realistic Car Sedan 01 | [`realistic-car-sedan-01`](https://threejsassets.com/assets/realistic-car-sedan-01) | 718.416 |
+| 13 | masso | Realistic Rock Boulder 01 | [`realistic-rock-boulder-01`](https://threejsassets.com/assets/realistic-rock-boulder-01) | 509.252 |
 
-Totale **12,4 MB**. `--index` controlla che ogni file esista e sia un GLB, e
-avvisa se manca o ha un nome diverso.
+### Scenery (7 opzionali, ma senza loro metà dell'effetto svanisce)
+
+| Ruolo | Asset | Slug / file |
+| --- | --- | --- |
+| siepe | Hedgerow Run | [`hedgerow-run`](https://threejsassets.com/assets/hedgerow-run) |
+| rovo | Bush Round 01 | [`bush-round-01`](https://threejsassets.com/assets/bush-round-01) |
+| canneto | Cattail Reed Clump | [`cattail-reed-clump`](https://threejsassets.com/assets/cattail-reed-clump) |
+| masso | Mossy Boulder | [`mossy-boulder`](https://threejsassets.com/assets/mossy-boulder) |
+| masso | Moraine Boulder | [`moraine-boulder`](https://threejsassets.com/assets/moraine-boulder) |
+| pietraia | Railway Rock Cluster | [`railway-rock-cluster`](https://threejsassets.com/assets/railway-rock-cluster) |
+| relitto | Wrecked Car | [`wrecked-car`](https://threejsassets.com/assets/wrecked-car) |
 
 Output:
 
 ```
 public/citykit/
-  manifest.json        # ruolo, categoria, triangoli, byte, sha256, licenza
+  manifest.json        # ruolo, nome, categoria, triangoli, byte, sha256, licenza
   NOTICE.md            # provenienza + tabella asset
-  realistic-*.glb      # 13 modelli
+  *.glb                # 20 modelli indicizzati (e gli altri, ignorati)
 public/draco/          # decodificatore Draco copiato da node_modules/three
 ```
 
 Il manifest è il contratto col motore: il codice cerca i **ruoli**, non i nomi
-dei file.
+dei file, e un ruolo può avere più varianti.
 
 ---
 
 ## 4. Come il motore li usa (integrazione)
 
-Attenzione a un dettaglio che il sito non dichiara per questo pack: i GLB hanno
-il **pivot al centro del bounding box**, non a terra. `src/world/citykit.ts` li
-normalizza al caricamento (base a y = 0, centro in x/z) e cuoce la trasformazione
-nella geometria, così le istanze hanno solo posizione e rotazione.
+Attenzione a un dettaglio che il sito non dichiara: i GLB hanno il **pivot al
+centro del bounding box**, non a terra. `src/world/citykit.ts` li normalizza al
+caricamento (base a y = 0, centro in x/z) e cuoce la trasformazione nella
+geometria, così le istanze hanno solo posizione e rotazione. I modelli low-poly
+sono anche più piccoli del vero: le scale sono decise a mano per ruolo.
 
 - **Strade e marciapiedi** (`src/world/roads.ts`): le tile non si incollano alle
   curve OSM. Si prendono i materiali PBR (`asphalt_slab`, `footway_flags`,
   `granite_kerb`) e si applicano ai nastri drappeggiati: UV in metri, repeat
   0,55 × 0,5 (asfalto 12 m, lastre 3 × 12 m) e vertex color bianco per non
-  scurire due volte. Marciapiede e cordolo sono ora due mesh/materiali separati.
+  scurire due volte. Marciapiede e cordolo sono due mesh/materiali separati.
   La bagnatura del meteo resta attiva (`userData.roadWet`) con uno shader
   dedicato al materiale del kit.
 - **Panchine e cestini** (`src/world/street-furniture.ts`): le panchine del kit
@@ -146,15 +205,27 @@ nella geometria, così le istanze hanno solo posizione e rotazione.
   ~26 m sul marciapiede dentro il paese, auto ogni ~28 m sulla fascia di sosta,
   nel senso di marcia, solo su strade larghe; tetti 0/10/22/32 alberi e
   4/10/18/24 auto secondo il preset. Tutto deterministico e limitato a Palata.
-- **Non piazzati di proposito**: semaforo, segnale, lampione, masso, piazza,
-  incrocio. Sono scaricati e pronti, ma un semaforo in un paese senza semafori
-  o un lampione urbano da 8 m al posto delle lanterne da 6,2 m romperebbe la
-  coerenza. Si attivano quando c'è un posto vero che li giustifica.
+- **Siepi** (`city-props.ts`): solo su strade asfaltate strette (3,2–6,4 m) e
+  fuori dal paese, perché i muretti a secco occupano già le sterrate. Tratti di
+  25–65 m intervallati da varchi, a 2,6–3,8 m dal bordo, con un rovo ogni ~6
+  segmenti verso il campo. Tetti 48/120/220/340.
+- **Canneti**: lungo i 96 torrenti OSM, un ciuffo ogni ~7 m con probabilità
+  0,42, a 1,8–4,4 m dall'asse. Tetti 24/70/130/190.
+- **Pietre**: griglia di 46 m entro 2,4 km da casa, solo su pendii 9°–42°,
+  fuori da strade ed edifici. Tre varianti low-poly più il masso fotorealistico
+  (1 su 8, max 2/4/8/10). Tetti 24/64/120/170 pietre.
+- **Relitto**: uno solo, su una strada di campagna tra 520 e 1700 m da casa,
+  di traverso nel fosso. È l'unico modello low-poly "di strada": non ha un verso
+  e quindi non si nota lo stile.
+- **Non piazzati di proposito**: semaforo, segnale, lampione, piazza, incrocio,
+  alberi da parco. Sono scaricati e pronti, ma un semaforo in un paese senza
+  semafori o un lampione urbano da 8 m al posto delle lanterne da 6,2 m
+  romperebbe la coerenza. Si attivano quando c'è un posto vero che li giustifica.
 
 Tutto è additivo: se `public/citykit/manifest.json` manca (macchina nuova,
 licenza non accettata, rete assente) il motore usa le mesh procedurali e non
-cambia nulla. Diagnostica: `window.__molise.kit` = `{ assets, trees, cars }` o
-`null`.
+cambia nulla. Diagnostica: `window.__molise.kit` =
+`{ assets, trees, cars, hedges, bushes, reeds, rocks, wrecks }` o `null`.
 
 ### Personalizzare macchine, alberi e cartelli
 
@@ -169,6 +240,9 @@ cambia nulla. Diagnostica: `window.__molise.kit` = `{ assets, trees, cars }` o
   dare precedenza e limite 50 italiani si sostituisce la mappa della faccia con
   i canvas di `signTexture()` (già in `street-furniture.ts`, nessun asset).
   Operazione da fare quando si attiva il segnale del kit.
+- **Siepi, rovi, canneti**: scala e rotazione casuali per istanza; le varianti
+  extra si aggiungono con nuovi slug/ruoli in `SCENERY`
+  (`scripts/fetch-citykit.mjs`) senza toccare il codice.
 - **Targhe, fari, vetri**: sono parti separate (`..._plateW`, `..._lensClear`,
   `..._glass`), quindi si possono scurire, spegnere o cambiare senza toccare la
   carrozzeria.
@@ -180,11 +254,14 @@ cambia nulla. Diagnostica: `window.__molise.kit` = `{ assets, trees, cars }` o
 | Passo | Stato |
 | --- | --- |
 | Censimento catalogo (2.288 asset, 937 free) | ✅ fatto |
-| Script di acquisizione + manifest + licenza | ✅ fatto, `--list` e `--index` verificati |
+| Script di acquisizione + manifest + licenza | ✅ fatto, `--list`, `--index` e download verificati |
 | Download dei 13 GLB + manifest | ✅ fatto (13/13, indicizzati) |
-| Loader runtime (Draco, pivot, istanze) | ✅ scritto, `tsc` pulito |
+| Loader runtime (Draco, pivot, varianti, istanze) | ✅ fatto, `tsc` pulito |
 | Strade, marciapiedi, panchine, cestini, alberi, auto | ✅ integrati nel codice |
+| Siepi, rovi, canneti, pietre, relitto | ✅ integrati nel codice |
 | Verifica visiva e fps | ⏳ **non eseguita** (richiesta di salto test/browser) |
 
 Niente ✅ dove non c'è una prova: il codice compila e i test precedenti erano
-verdi, ma la resa a schermo e il costo in fps vanno guardati in gioco.
+verdi, ma la resa a schermo e il costo in fps vanno guardati in gioco (in
+particolare la scala del relitto e dei massi, e le siepi che non devono entrare
+nelle case).

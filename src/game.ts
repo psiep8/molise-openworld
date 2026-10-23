@@ -227,7 +227,15 @@ export class Game {
   private grass?: GrassField;
   private streetLights?: StreetLights;
   private kit: CityKit | null = null;
-  private cityProps: { trees: number; cars: number } = { trees: 0, cars: 0 };
+  private cityProps: {
+    trees: number;
+    cars: number;
+    hedges: number;
+    bushes: number;
+    reeds: number;
+    rocks: number;
+    wrecks: number;
+  } = { trees: 0, cars: 0, hedges: 0, bushes: 0, reeds: 0, rocks: 0, wrecks: 0 };
   private nightFactor = 0;
   private roadsGroup?: THREE.Group;
   private lastWetness = -1;
@@ -368,7 +376,15 @@ export class Game {
       if (this.kit) {
         const city = buildCityProps(osm, heights, this.roadIndex, this.buildingIndex, this.kit, this.qualityLevel);
         this.scene.add(city.group);
-        this.cityProps = { trees: city.trees, cars: city.cars };
+        this.cityProps = {
+          trees: city.trees,
+          cars: city.cars,
+          hedges: city.hedges,
+          bushes: city.bushes,
+          reeds: city.reeds,
+          rocks: city.rocks,
+          wrecks: city.wrecks,
+        };
       }
       this.grass = new GrassField();
       this.scene.add(this.grass.group);

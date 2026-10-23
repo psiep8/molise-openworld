@@ -2,7 +2,7 @@
 
 > Documento autosufficiente: contiene contesto, stato, comandi, vincoli di licenza
 > e cosa resta da prendere da <https://threejsassets.com>. Ultimo aggiornamento:
-> **23 ottobre 2026**, commit `f96cfe4` su `main`.
+> **23 ottobre 2026**, dopo il passaggio sul paesaggio di campagna.
 > Progetto: `molise-openworld` (Palata, Molise) — TypeScript + Vite + Three.js.
 
 ---
@@ -11,17 +11,20 @@
 
 1. Il gioco è una ricostruzione di **Palata (CB) e paesi vicini** da OSM + DEM.
    Il mondo resta geografico: **non** si sostituisce con un kit a griglia.
-2. Sono stati presi **13 asset free** del pack **Realistic City** (fotorealistico,
-   scala reale). Sono già integrati: asfalto, marciapiedi, panchine, cestini,
-   alberi di strada, auto in sosta.
+2. Sono in uso **20 asset free**: i **13 del pack Realistic City** (fotorealistico,
+   scala reale) più **7 low-poly** degli altri pack per siepi, rovi, canneti,
+   pietre e un relitto. Sono già integrati: asfalto, marciapiedi, panchine,
+   cestini, alberi di strada, auto in sosta e margine di campagna.
 3. I GLB **non sono nel repository** (licenza free: uso sì, ridistribuzione no).
    Vanno rigenerati o copiati in `public/citykit/` sulla macchina nuova.
-4. Restano **5 asset free non presi** (fuori contesto) e **7 presi ma non
-   piazzati**. Il pack completo ha **137 asset premium** ($99): la lista
-   prioritaria è al §6.
+   In `public/citykit/` ce ne sono **150**: 130 non sono nella lista curata e il
+   motore non li carica.
+4. Restano **5 asset free non presi** (fuori contesto) e **6 presi ma non
+   piazzati** (semaforo, segnale, lampione, piazza, incrocio, alberi da parco).
+   Il pack completo ha **137 asset premium** ($99): la lista prioritaria è al §6.
 5. **Verifica visiva e fps non sono state eseguite.** Il codice compila
-   (`tsc` pulito), i test erano 171/171 e la build verde prima delle ultime due
-   modifiche. La resa a schermo è da guardare.
+   (`tsc` pulito); test e build non sono stati rilanciati dopo l'ultimo
+   passaggio. La resa a schermo è da guardare.
 
 ---
 
@@ -36,7 +39,8 @@
 - Comandi: `npm ci`, `npm run dev` (:5173), `npm run build`, `npm test`,
   `npm run preview` (:4173), `npm run smoke` (Chrome headless, richiede preview).
 - Diagnostica runtime: `window.__molise` (ready, fps, errors, quality, …) e
-  `window.__molise.kit = { assets, trees, cars } | null`.
+  `window.__molise.kit = { assets, trees, cars, hedges, bushes, reeds, rocks,
+  wrecks } | null`.
 
 ---
 
@@ -44,7 +48,8 @@
 
 Pack: **Realistic City** (`https://threejsassets.com/packs/realistic-city`),
 tier **free**. Al 23/10/2026 il pack ha **155 asset, 18 free**; ne abbiamo presi
-**13** (12,4 MB totali).
+**13** (12,4 MB). A questi si aggiungono **7 modelli low-poly** degli altri pack
+free (circa 120 KB) per il margine di campagna.
 
 | Ruolo nel motore | Slug | Triangoli | Uso |
 | --- | --- | --- | --- |
@@ -60,7 +65,25 @@ tier **free**. Al 23/10/2026 il pack ha **155 asset, 18 free**; ne abbiamo presi
 | `bench` | `realistic-bench-01` | 21.252 | panchine al posto delle scatole |
 | `bin` | `realistic-trash-bin-01` | 22.522 | cestini ogni 3 panchine |
 | `car` | `realistic-car-sedan-01` | 65.454 | berline in sosta |
-| `boulder` | `realistic-rock-boulder-01` | 24.864 | preso, **non usato** |
+| `boulder` | `realistic-rock-boulder-01` | 24.864 | pochi massi sui pendii |
+
+### Scenery low-poly (7 free degli altri pack)
+
+Oggetti piccoli e senza dettagli leggibili a 20 m; la sagoma è quella giusta e
+costano 0,4–2k triangoli l'una.
+
+| Ruolo | Slug | Triangoli | Uso |
+| --- | --- | --- | --- |
+| `hedge` | `hedgerow-run` | 1.912 | siepi lungo le strade di campagna |
+| `bush` | `bush-round-01` | 360 | rovi ai bordi delle siepi |
+| `reed` | `cattail-reed-clump` | 420 | canneti lungo i torrenti |
+| `rock` | `mossy-boulder` | 388 | massi muschiosi |
+| `rock` | `moraine-boulder` | 880 | massi di morena |
+| `rock` | `railway-rock-cluster` | 620 | pietraie basse |
+| `wreck` | `wrecked-car` | 11.930 | un relitto in un fosso |
+
+I tre massi sono **varianti dello stesso ruolo** (`KitSpot.variant`); non sono
+tre ruoli diversi. Nel manifest un ruolo può quindi comparire più volte.
 
 **Perché questi e non il pack "City"** (quello linkato all'inizio): City è
 low-poly moderno, griglia 4 m, palazzi vetrati al 70% dell'altezza reale. In un
@@ -87,7 +110,15 @@ a `WANTED` in `scripts/fetch-citykit.mjs`.
 Censimento del catalogo pubblico: **2.288 asset, 937 free**. Oltre a Realistic
 City sono **tutti low-poly stilizzati** (City 23 free, Cozy Village 17,
 Suburban Neighborhood 44, Metropolis 19, Vice Beach 38, Railway 105, ecc.).
-Non li usiamo: abbasserebbero la resa di un mondo fotorealistico.
+Ne usiamo solo 7, e solo per oggetti dove lo stile non si legge (siepe, canneto,
+rovo, masso, relitto). **Case, negozi, auto e alberi low-poly restano fuori**:
+le case di Palata devono restare le impronte OSM, le auto non hanno parti
+separate e il davanti non è verificabile, le chiome attuali sono card
+fotografiche con vento. Dettaglio e motivazioni in `docs/CITYKIT.md` §1.3.
+
+In `public/citykit/` il proprietario ha messo **150 GLB**: i 130 che non sono
+nella lista curata restano su disco ma non entrano nel manifest, quindi non
+consumano memoria video né draw call.
 
 ---
 
@@ -118,8 +149,11 @@ metterli in `public/citykit/` e lanciare:
 npm run kit -- --index
 ```
 
-Controlla che ogni file esista e sia un GLB, scrive `manifest.json`, `NOTICE.md`
-e copia il decodificatore Draco da `node_modules/three` in `public/draco/`.
+**Non usa la rete**: legge i GLB presenti, tiene solo i 20 slug della lista
+curata, ricava triangoli/byte/sha256 dal file, scrive `manifest.json`,
+`NOTICE.md` e copia il decodificatore Draco da `node_modules/three` in
+`public/draco/`. Segnala i file assenti e quanti GLB restano fuori, senza
+fallire per un file opzionale mancante.
 
 ### Opzione C — copia privata (senza riscaricare)
 
@@ -131,13 +165,14 @@ sono file dell'asset pack, non opere del progetto. La cartella `public/citykit/`
 ### Verifica rapida
 
 ```
-ls public/citykit/*.glb | wc -l     # 13
 ls public/draco                     # draco_decoder.js/.wasm, draco_wasm_wrapper.js
-node -e "console.log(require('./public/citykit/manifest.json').assets.length)"  # 13
+node -e "console.log(require('./public/citykit/manifest.json').assets.length)"  # 20
+npm run kit -- --index             # riscrive il manifest dai file presenti
 ```
 
 Poi `npm run dev` e in console: `window.__molise.kit` deve valere
-`{ assets: 13, trees: >0, cars: >0 }`; `window.__molise.errors` vuoto.
+`{ assets: 20, trees: >0, cars: >0, hedges: >0, rocks: >0 }`;
+`window.__molise.errors` vuoto.
 
 ---
 
@@ -146,7 +181,7 @@ Poi `npm run dev` e in console: `window.__molise.kit` deve valere
 | File | Cosa fa |
 | --- | --- |
 | `src/world/citykit.ts` | loader GLB+Draco, normalizzazione pivot, parti, istanze, materiali |
-| `src/world/city-props.ts` | alberi di strada e auto in sosta lungo OSM |
+| `src/world/city-props.ts` | alberi e auto in paese, siepi/rovi/canneti/pietre/relitto in campagna |
 | `src/world/roads.ts` | materiali kit su asfalto, lastre, cordolo; split marciapiede/cordolo |
 | `src/world/street-furniture.ts` | panchine e cestini kit al posto del fallback |
 | `src/game.ts` | carica il kit in parallelo alla mappa, lo passa ai builder, diagnostica |
@@ -174,11 +209,17 @@ Dettagli che fanno perdere tempo se non si sanno:
   texture viene scurita due volte.
 - **Bagnatura meteo**: `CityKit.material(..., { wet: true })` aggiunge
   `userData.roadWet` e uno shader che legge quel valore (`game.ts` lo aggiorna).
+- **Ruoli con varianti**: `CityKit.variants(role)`; `instances()` raggruppa le
+  istanze per variante. I ruoli nuovi sono `hedge`, `bush`, `reed`, `rock`,
+  `wreck`.
 - **Tetti per preset**: panchine 6/12/24/32 (`street-furniture.ts`), alberi
-  0/10/22/32 e auto 4/10/18/24 (`city-props.ts`). Sono modelli da 21k–65k
-  triangoli: non vanno piazzati come i procedurali.
-- **Costo attuale stimato**: ~0,4 Mtri (low) → ~3,2 Mtri (ultra) di arredo kit.
-  Da misurare in gioco.
+  0/10/22/32 e auto 4/10/18/24, siepi 48/120/220/340, rovi 30/80/150/220,
+  canneti 24/70/130/190, pietre 24/64/120/170 (`city-props.ts`). Sono modelli da
+  21k–65k triangoli: non vanno piazzati come i procedurali.
+- **Ombre**: siepi, rovi e canneti non le proiettano (centinaia di migliaia di
+  triangoli, ombra invisibile); pietre e relitto sì.
+- **Costo attuale stimato**: ~0,55 Mtri (low) → ~3,9 Mtri (ultra) di arredo kit,
+  comprese le siepi. Da misurare in gioco.
 - **Collisioni**: le auto in sosta **non** sono solide (l'indice collisioni è
   solo edifici). Se si vuole, aggiungere impronte a `BuildingIndex`.
 
@@ -200,16 +241,19 @@ Dettagli che fanno perdere tempo se non si sanno:
    non piazzarlo.
 5. **Lampione kit** (8,11 m): se si sostituisce quello procedurale (6,2 m) va
    rifatto il calcolo del pool di `PointLight` in `StreetLights`.
-6. **Massi**: `realistic-rock-boulder-01` su scarpate e muretti a secco.
-7. **Alberi da parco**: 110k triangoli l'uno; solo pochi e con LOD, oppure
+6. **Alberi da parco**: 110k triangoli l'uno; solo pochi e con LOD, oppure
    lasciarli fuori.
-8. **LOD** per alberi e auto se gli fps calano: mesh piena vicino, billboard o
+7. **LOD** per alberi e auto se gli fps calano: mesh piena vicino, billboard o
    scatola oltre ~120 m.
-9. **Incrocio**: il materiale di `road-junction` può servire per le zone di
+8. **Incrocio**: il materiale di `road-junction` può servire per le zone di
    giunzione, ma oggi i nastri si sovrappongono con `roadLift`.
-10. **Veicolo del giocatore**: resta procedurale (22 modelli in
-    `src/sim/vehicle-catalog.ts`). Il kit fornisce una sola berlina: usarla solo
-    per la sosta, non per sostituire il catalogo.
+9. **Veicolo del giocatore**: resta procedurale (22 modelli in
+   `src/sim/vehicle-catalog.ts`). Il kit fornisce una sola berlina: usarla solo
+   per la sosta, non per sostituire il catalogo.
+10. **Nuovi prop da tarare in gioco** (nessuna verifica visiva fatta): scala del
+    relitto (1,45–1,57) e dei massi (0,8–1,7), siepi che non entrino nei muri,
+    canneti alla quota giusta rispetto all'acqua. I parametri sono in cima a
+    `city-props.ts` (tetti e raggi) e nelle funzioni di piazzamento.
 
 ---
 
@@ -297,14 +341,15 @@ comprare il pack: le mesh finite non si adattano alle impronte OSM.
 
 | Verifica | Esito |
 | --- | --- |
-| `npx tsc --noEmit` | ✅ pulito dopo l'ultima modifica |
-| `npm test` (171 test, 18 file) | ✅ verde **prima** delle ultime due modifiche |
-| `npm run build` | ✅ verde **prima** delle ultime due modifiche |
-| `npm run kit -- --list` / `--index` / chiave errata | ✅ verificati |
+| `npx tsc --noEmit` | ✅ pulito dopo l'ultimo passaggio |
+| `npm test` (171 test, 18 file) | ✅ verde **prima** del passaggio sul paesaggio |
+| `npm run build` | ✅ verde **prima** del passaggio sul paesaggio |
+| `npm run kit -- --list` / `--index` / chiave errata | ✅ verificati; `--index` ora è offline e ha indicizzato 20/20 |
 | Browser, screenshot, smoke, fps | ❌ **non eseguiti** (richiesta esplicita del proprietario) |
 
-Le due modifiche non ricompilate con test/build sono: tetto panchine per preset
-e rientro auto di 1,15 m dal bordo. Solo `tsc`.
+Dopo l'ultimo passaggio (ruoli con varianti, siepi, canneti, pietre, relitto) è
+stato eseguito **solo `tsc`**, come chiesto: «nessun test, nessun run dev». Le
+nuove posizioni non sono mai state viste a schermo.
 
 ---
 
@@ -320,14 +365,15 @@ npm run dev                  # http://127.0.0.1:5173/?autostart=walk&quality=med
 In console:
 
 ```js
-window.__molise.kit      // { assets: 13, trees: N, cars: N }
+window.__molise.kit      // { assets: 20, trees, cars, hedges, bushes, reeds, rocks, wrecks }
 window.__molise.errors   // deve essere []
 ```
 
 Poi guardare, in ordine: asfalto e cordolo a distanza ravvicinata, auto in sosta
 (ruote a terra, dentro l'asfalto), alberi sul marciapiede, panchine e cestini
-allineati, fps con `G` su high/ultra. Se qualcosa è fuori posto, i parametri da
-toccare sono in `city-props.ts` (distanze, offset, tetti) e
+allineati, siepi fuori dal paese, canneti lungo i torrenti, massi sui pendii,
+relitto nel fosso, fps con `G` su high/ultra. Se qualcosa è fuori posto, i
+parametri da toccare sono in `city-props.ts` (distanze, offset, tetti) e
 `street-furniture.ts` (tetto panchine).
 
 Buon lavoro. La regola del progetto resta una: **il posto deve sembrare vero**.

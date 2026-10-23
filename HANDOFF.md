@@ -1,6 +1,6 @@
 # HANDOFF — Molise Open World
 
-> Documento di passaggio di consegne. Ultimo aggiornamento: **22 ottobre 2026**.
+> Documento di passaggio di consegne. Ultimo aggiornamento: **23 ottobre 2026**.
 > Leggilo per intero prima di toccare il codice: contiene stato, vincoli, comandi,
 > criteri di qualità e prossimi passi con criteri di accettazione.
 
@@ -685,3 +685,47 @@ stiano sul marciapiede e che il piano stradale non sia slittato.
 - Nuovo test `tests/imagery.test.ts`.
 - Stato: test satellite e tsc verdi. Smoke non eseguito (interrotto su richiesta). Browser: il dev server è registrato nel pannello, verifica visiva da fare.
 - Ancora da fare della priorità 1: patch, ortofoto locale, debug imagery, dettaglio pitch OSM.
+
+## 23/10 — Kit: siepi, canneti, pietre e un relitto in campagna
+
+Il proprietario ha messo in `public/citykit/` **150 GLB** presi dai pack free di
+threejsassets. Non si usano tutti: il mondo resta geografico e le case di Palata
+restano le impronte OSM, quindi case, negozi, auto e alberi low-poly sono fuori
+(vedi `docs/CITYKIT.md` §1.3 per il motivo, uno per uno). Il kit curato passa da
+13 a **20 asset**: ai 13 Realistic City si aggiungono 7 modelli low-poly per
+quello che mancava davvero, cioè il margine di campagna.
+
+### Cosa è cambiato
+
+- **Indicizzazione offline.** `npm run kit -- --index` non chiama più l'API: legge
+  i GLB presenti, tiene solo i 20 slug della lista curata, ricava triangoli,
+  byte e sha256 dal file. Così si indicizza anche materiale di pack diversi e
+  funziona senza rete. I 130 file restanti non entrano nel manifest e non
+  vengono caricati (zero costo in RAM video e draw call).
+- **Ruoli con varianti.** `CityKit` ora tiene una lista per ruolo: tre massi
+  diversi sono tre varianti di `rock`, scelte per istanza con
+  `KitSpot.variant`; una sola chiamata a `instances()` raggruppa per variante.
+  I ruoli nuovi sono `hedge`, `bush`, `reed`, `rock`, `wreck`.
+- **Siepi** (`city-props.ts`): solo su asfaltate strette e fuori dal paese,
+  perché i muretti a secco occupano già le sterrate. Tratti di 25–65 m con
+  varchi, a 2,6–3,8 m dal bordo, un rovo ogni ~6 segmenti verso il campo.
+- **Canneti** lungo i 96 torrenti OSM, **pietre** su pendii 9°–42° (con il masso
+  fotorealistico usato 1 volta su 8), **un relitto** in un fosso tra 520 e
+  1700 m da casa. Tetti per preset: siepi 48/120/220/340, rovi 30/80/150/220,
+  canneti 24/70/130/190, pietre 24/64/120/170.
+- Siepi, rovi e canneti non proiettano ombre (centinaia di migliaia di
+  triangoli, ombra invisibile); pietre e relitto sì.
+- Diagnostica: `window.__molise.kit` = `{ assets, trees, cars, hedges, bushes,
+  reeds, rocks, wrecks }`.
+
+### Verifiche
+
+- `npx tsc --noEmit` ✅ pulito. `npm run kit -- --index` ✅ 20/20 indicizzati,
+  130 file segnalati come non usati.
+- **`npm test`, build, browser, screenshot e fps NON eseguiti** su richiesta del
+  proprietario ("nessun test, nessun run dev"). Da guardare in gioco: scala del
+  relitto e dei massi, siepi che non entrano nelle case, canneti che non
+  galleggiano sopra l'acqua.
+- I GLB restano fuori dal repo (licenza Free Commercial): il commit contiene
+  codice, manifest **non** incluso, script e documenti. Su una macchina nuova si
+  copia `public/citykit/` + `public/draco/` e si lancia `npm run kit -- --index`.

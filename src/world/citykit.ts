@@ -3,13 +3,21 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 /**
- * City kit (threejsassets.com, pack Realistic City, tier free).
+ * City kit (threejsassets.com).
  *
- * I GLB arrivano in scala reale ma con il **pivot al centro del bounding box**:
- * senza normalizzazione mezza panchina starebbe sotto terra. Qui ogni modello
- * viene riportato con la base a y = 0 e il centro in x/z, poi le mesh vengono
- * "appiattite" in parti (geometria + materiale) per poterle istanziare: una
- * panchina è 5 parti, una macchina 16, ma 40 panchine restano 5 draw call.
+ * Il nucleo è il pack **Realistic City** (tier free): strada, marciapiede,
+ * panchina, lampione, alberi, berlina. Ai ruoli "da paese" si aggiungono
+ * modelli low-poly presi dagli altri pack gratuiti del sito per quello che al
+ * Realistic City manca: siepi, canneti, rovi, massi di campagna, un relitto.
+ * Sono sagome piccole e senza dettagli leggibili a 20 m, quindi non abbassano
+ * la resa, e costano 0,4–2k triangoli l'una.
+ *
+ * I GLB arrivano in scala reale (i low-poly a volte no) ma con il **pivot al
+ * centro del bounding box**: senza normalizzazione mezza panchina starebbe sotto
+ * terra. Qui ogni modello viene riportato con la base a y = 0 e il centro in
+ * x/z, poi le mesh vengono "appiattite" in parti (geometria + materiale) per
+ * poterle istanziare: una panchina è 5 parti, una macchina 16, ma 40 panchine
+ * restano 5 draw call.
  *
  * I file non sono nel repository (licenza Free Commercial, vietata la
  * ridistribuzione): se `public/citykit/manifest.json` manca, `loadCityKit`
@@ -29,7 +37,15 @@ export type KitRole =
   | 'bench'
   | 'bin'
   | 'car'
-  | 'boulder';
+  | 'boulder'
+  /* vegetazione e pietre di campagna: modelli low-poly, ma a queste scale
+   * (siepi, canneti, rovi, massi) la differenza di stile non si legge e la
+   * sagoma è quella giusta */
+  | 'hedge'
+  | 'bush'
+  | 'reed'
+  | 'rock'
+  | 'wreck';
 
 export interface KitSpot {
   x: number;
@@ -40,6 +56,8 @@ export interface KitSpot {
   scale?: number;
   /** tinta della vernice (solo `car`): moltiplica la texture della carrozzeria */
   color?: number;
+  /** indice della variante quando il ruolo ne ha più di una (massi, ecc.) */
+  variant?: number;
 }
 
 export interface KitPart {
@@ -104,14 +122,21 @@ function applyWetness(material: THREE.MeshStandardMaterial): void {
 }
 
 export class CityKit {
-  readonly assets = new Map<KitRole, KitAsset>();
+  /** Un ruolo può avere più modelli intercambiabili (tre massi, ecc.). */
+  readonly assets = new Map<KitRole, KitAsset[]>();
 
   constructor(assets: KitAsset[]) {
-    for (const asset of assets) this.assets.set(asset.role, asset);
+    for (const asset of assets) {
+      const list = this.assets.get(asset.role);
+      if (list) list.push(asset);
+      else this.assets.set(asset.role, [asset]);
+    }
   }
 
   get count(): number {
-    return this.assets.size;
+    let total = 0;
+    for (const list of this.assets.values()) total += list.length;
+    return total;
   }
 
   get roles(): KitRole[] {
@@ -119,20 +144,25 @@ export class CityKit {
   }
 
   has(role: KitRole): boolean {
-    return this.assets.has(role);
+    return (this.assets.get(role)?.length ?? 0) > 0;
+  }
+
+  /** Tutti i modelli del ruolo, nell'ordine del manifest. */
+  variants(role: KitRole): KitAsset[] {
+    return this.assets.get(role) ?? [];
   }
 
   asset(role: KitRole): KitAsset | undefined {
-    return this.assets.get(role);
+    return this.assets.get(role)?.[0];
   }
 
   part(role: KitRole, partName: string): KitPart | undefined {
-    return this.assets.get(role)?.parts.find((p) => p.name === partName);
+    return this.asset(role)?.parts.find((p) => p.name === partName);
   }
 
   /** Dimensioni reali già normalizzate (per decidere distanze e ingombri). */
   size(role: KitRole): THREE.Vector3 | null {
-    const asset = this.assets.get(role);
+    const asset = this.asset(role);
     return asset ? asset.size.clone() : null;
   }
 
@@ -182,41 +212,49 @@ export class CityKit {
   ): THREE.Group {
     const group = new THREE.Group();
     group.name = `kit-${role}`;
-    const asset = this.assets.get(role);
-    if (!asset || spots.length === 0) return group;
+    const assets = this.variants(role);
+    if (assets.length === 0 || spots.length === 0) return group;
 
     const dummy = new THREE.Object3D();
     const tint = new THREE.Color();
-    for (const part of asset.parts) {
-      const painted = opts.tintPaint === true && PAINT_PART.test(part.name);
-      const material = painted && part.tintable ? part.tintable : part.material;
-      const mesh = new THREE.InstancedMesh(part.geometry, material, spots.length);
-      mesh.name = `${role}-${part.name}`;
-      mesh.frustumCulled = false;
-      mesh.castShadow = opts.castShadow ?? part.castShadow;
-      mesh.receiveShadow = opts.receiveShadow ?? true;
-      for (let i = 0; i < spots.length; i++) {
-        const spot = spots[i];
-        dummy.position.set(spot.x, spot.y, spot.z);
-        dummy.rotation.set(0, spot.yaw, 0);
-        dummy.scale.setScalar(spot.scale ?? 1);
-        dummy.updateMatrix();
-        mesh.setMatrixAt(i, dummy.matrix);
-        if (painted && spot.color !== undefined) {
-          tint.setHex(spot.color);
-          mesh.setColorAt(i, tint);
+    for (let variant = 0; variant < assets.length; variant++) {
+      const asset = assets[variant];
+      // con un solo modello si usa tutto; con più varianti ognuna prende le sue
+      // istanze (le altre restano fuori, così i massi non si sovrappongono)
+      const own = assets.length === 1 ? spots : spots.filter((spot) => (spot.variant ?? 0) === variant);
+      if (own.length === 0) continue;
+      for (const part of asset.parts) {
+        const painted = opts.tintPaint === true && PAINT_PART.test(part.name);
+        const material = painted && part.tintable ? part.tintable : part.material;
+        const mesh = new THREE.InstancedMesh(part.geometry, material, own.length);
+        mesh.name = `${role}-${part.name}`;
+        mesh.frustumCulled = false;
+        mesh.castShadow = opts.castShadow ?? part.castShadow;
+        mesh.receiveShadow = opts.receiveShadow ?? true;
+        for (let i = 0; i < own.length; i++) {
+          const spot = own[i];
+          dummy.position.set(spot.x, spot.y, spot.z);
+          dummy.rotation.set(0, spot.yaw, 0);
+          dummy.scale.setScalar(spot.scale ?? 1);
+          dummy.updateMatrix();
+          mesh.setMatrixAt(i, dummy.matrix);
+          if (painted && spot.color !== undefined) {
+            tint.setHex(spot.color);
+            mesh.setColorAt(i, tint);
+          }
         }
+        mesh.instanceMatrix.needsUpdate = true;
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+        group.add(mesh);
       }
-      mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      group.add(mesh);
     }
     return group;
   }
 
   /** Clone singolo (targhette, oggetti unici): geometrie e materiali condivisi. */
   create(role: KitRole, spot: KitSpot): THREE.Object3D | null {
-    const asset = this.assets.get(role);
+    const list = this.variants(role);
+    const asset = list[Math.min(spot.variant ?? 0, list.length - 1)];
     if (!asset) return null;
     const object = asset.template.clone(true);
     object.position.set(spot.x, spot.y, spot.z);
@@ -227,13 +265,13 @@ export class CityKit {
 
   /** Materiali emissivi (lampioni, fari) da accendere di notte. */
   glowMaterials(role: KitRole, pattern = /(led|lens|emit)/i): THREE.MeshStandardMaterial[] {
-    const asset = this.assets.get(role);
-    if (!asset) return [];
     const seen = new Set<THREE.MeshStandardMaterial>();
-    for (const part of asset.parts) {
-      if (!pattern.test(part.name)) continue;
-      const material = part.material;
-      if (material.emissive && material.emissive.getHex() !== 0) seen.add(material);
+    for (const asset of this.variants(role)) {
+      for (const part of asset.parts) {
+        if (!pattern.test(part.name)) continue;
+        const material = part.material;
+        if (material.emissive && material.emissive.getHex() !== 0) seen.add(material);
+      }
     }
     return [...seen];
   }

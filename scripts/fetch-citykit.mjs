@@ -15,15 +15,15 @@
  *   #    THREEJSASSETS_KEY=tja_live_xxxxxxxx
  *   npm run kit                 # scarica gli asset mancanti + manifest
  *   npm run kit -- --list       # elenca i free del pack (nessuna chiave)
- *   npm run kit -- --index      # indicizza GLB scaricati a mano dal sito
+ *   npm run kit -- --index      # indicizza i GLB già in public/citykit/ (senza rete)
  *   npm run kit -- --force      # riscarica tutto
- *   npm run kit -- --only=realistic-sidewalk-01,realistic-car-sedan-01
+ *   npm run kit -- --only=realistic-sidewalk-01,hedgerow-run
  *
  * Cosa NON facciamo: nessun download di massa del catalogo (la licenza vieta
  * mirror/bulk-export). La lista è quella che il motore usa davvero.
  */
 import { createHash } from 'node:crypto';
-import { copyFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 
@@ -34,9 +34,10 @@ const DRACO_SRC = path.resolve('node_modules/three/examples/jsm/libs/draco/gltf'
 const DRACO_DST = path.resolve('public/draco');
 
 /**
- * Lista curata: solo gli asset fotorealistici free che hanno un senso in un
- * paese molisano. Restano fuori brownstone, skyscraper, canale e metropolitana
- * perché non esistono a Palata e romperebbero la coerenza del mondo.
+ * Lista curata del **Realistic City** (tier free): gli asset fotorealistici in
+ * scala reale che hanno un senso in un paese molisano. Restano fuori brownstone,
+ * skyscraper, canale e metropolitana perché non esistono a Palata e
+ * romperebbero la coerenza del mondo.
  *
  * `role` è il contratto col motore (`src/world/citykit.ts`): il codice cerca il
  * ruolo, non il nome del file.
@@ -57,6 +58,26 @@ const WANTED = [
   { slug: 'realistic-rock-boulder-01', role: 'boulder', note: 'massi per scarpate e muretti a secco' },
 ];
 
+/**
+ * Seconda lista: modelli **low-poly** degli altri pack gratuiti, presi solo per
+ * quello che al Realistic City manca. Sono oggetti piccoli e senza dettagli
+ * leggibili da vicino (siepe, canneto, rovo, masso, relitto): la sagoma è
+ * quella giusta e il costo è 0,4–2k triangoli l'una, quindi non spostano la resa
+ * e non pesano. Niente case o auto: lì lo stile low-poly si vedrebbe, e le case
+ * di Palata devono restare quelle vere di OSM.
+ */
+const SCENERY = [
+  { slug: 'hedgerow-run', role: 'hedge', name: 'Hedgerow Run', note: 'siepi lungo le strade di campagna' },
+  { slug: 'bush-round-01', role: 'bush', name: 'Bush Round 01', note: 'rovi e cespugli ai bordi delle siepi' },
+  { slug: 'cattail-reed-clump', role: 'reed', name: 'Cattail Reed Clump', note: 'canneti lungo i torrenti' },
+  { slug: 'mossy-boulder', role: 'rock', name: 'Mossy Boulder', note: 'massi muschiosi sui pendii' },
+  { slug: 'moraine-boulder', role: 'rock', name: 'Moraine Boulder', note: 'massi di morena' },
+  { slug: 'railway-rock-cluster', role: 'rock', name: 'Railway Rock Cluster', note: 'pietraie basse' },
+  { slug: 'wrecked-car', role: 'wreck', name: 'Wrecked Car', note: 'relitto abbandonato fuori paese' },
+];
+
+const CURATED = [...WANTED, ...SCENERY];
+
 const args = process.argv.slice(2);
 const has = (flag) => args.includes(flag);
 const value = (name) => {
@@ -66,8 +87,8 @@ const value = (name) => {
 
 const force = has('--force');
 const listOnly = has('--list');
-// `--index` serve a chi preferisce scaricare i 13 free a mano dal sito (senza
-// chiave API): mette i .glb in public/citykit/ e questo modo scrive il manifest.
+// `--index` serve a chi scarica i free a mano dal sito (senza chiave API):
+// mette i .glb in public/citykit/ e questo modo scrive il manifest senza rete.
 const indexOnly = has('--index');
 const only = (value('only') ?? '')
   .split(',')
@@ -110,6 +131,13 @@ function human(bytes) {
   return `${Math.round(bytes / 1024)} KB`;
 }
 
+function humanize(slug) {
+  return slug
+    .split('-')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
 async function readJson(file) {
   try {
     return JSON.parse(await readFile(file, 'utf8'));
@@ -118,10 +146,43 @@ async function readJson(file) {
   }
 }
 
+/**
+ * Metadati letti dal GLB stesso, senza dipendenze e senza rete: magic `glTF`,
+ * chunk JSON, somma degli indici delle primitive triangolari. Serve per
+ * indicizzare anche gli asset che non stanno nel catalogo di un singolo pack.
+ */
+function glbInfo(buffer) {
+  if (buffer.length < 20 || buffer.subarray(0, 4).toString('ascii') !== 'glTF') return null;
+  let json;
+  try {
+    const jsonLen = buffer.readUInt32LE(12);
+    json = JSON.parse(buffer.subarray(20, 20 + jsonLen).toString('utf8'));
+  } catch {
+    return null;
+  }
+  let triangles = 0;
+  for (const mesh of json.meshes ?? []) {
+    for (const primitive of mesh.primitives ?? []) {
+      if ((primitive.mode ?? 4) !== 4) continue;
+      const accessor =
+        primitive.indices !== undefined
+          ? json.accessors?.[primitive.indices]
+          : json.accessors?.[primitive.attributes?.POSITION];
+      if (accessor?.count) triangles += accessor.count / 3;
+    }
+  }
+  return {
+    triangles: Math.round(triangles),
+    meshes: (json.meshes ?? []).length,
+    materials: (json.materials ?? []).length,
+    images: (json.images ?? []).length,
+  };
+}
+
 async function listFree() {
   const pack = (await api(`/catalog/packs/${PACK}`)).data;
   const free = pack.assets.filter((a) => a.tier === 'free');
-  const wanted = new Set(WANTED.map((w) => w.slug));
+  const wanted = new Set(CURATED.map((w) => w.slug));
   console.log(`\n${pack.name} — ${free.length} asset nel tier free (${pack.assets.length} totali)\n`);
   for (const a of free) {
     const mark = wanted.has(a.slug) ? '✓' : ' ';
@@ -131,7 +192,10 @@ async function listFree() {
   if (missing.length) {
     console.log(`\n⚠ nel catalogo non risultano più free: ${missing.map((m) => m.slug).join(', ')}`);
   }
-  console.log(`\n${WANTED.length} selezionati per il gioco. Nessun file toccato (--list).\n`);
+  console.log(
+    `\n${WANTED.length} asset del pack + ${SCENERY.length} modelli low-poly degli altri pack.` +
+      `\nNessun file toccato (--list).\n`,
+  );
 }
 
 async function copyDecoders() {
@@ -150,8 +214,8 @@ async function sha256(buffer) {
   return createHash('sha256').update(buffer).digest('hex');
 }
 
-async function writeOutputs(manifest, catalog) {
-  manifest.sort((a, b) => a.role.localeCompare(b.role));
+async function writeOutputs(manifest) {
+  manifest.sort((a, b) => a.role.localeCompare(b.role) || a.slug.localeCompare(b.slug));
 
   await writeFile(
     path.join(OUT_DIR, 'manifest.json'),
@@ -159,8 +223,8 @@ async function writeOutputs(manifest, catalog) {
       {
         version: 1,
         source: 'https://threejsassets.com',
-        pack: PACK,
-        packUrl: catalog.url,
+        pack: `${PACK} + low-poly free packs`,
+        packUrl: 'https://threejsassets.com/packs',
         license: 'Free Commercial License (threejsassets.com)',
         licenseUrl: 'https://threejsassets.com/license#free-asset-license',
         note: 'File NON ridistribuibili: restano fuori dal repository. Rigenerabili con `npm run kit`.',
@@ -177,21 +241,22 @@ async function writeOutputs(manifest, catalog) {
     [
       '# City kit — provenienza e licenza',
       '',
-      'Modelli 3D dal pack **Realistic City** di <https://threejsassets.com>, tier free.',
+      'Modelli 3D da <https://threejsassets.com>: pack **Realistic City** (tier free)',
+      'per strade, arredo urbano e veicoli, più modelli **low-poly** degli altri pack',
+      'gratuiti per siepi, canneti, rovi, massi e relitti.',
       '',
       '- Licenza: **Free Commercial License** — uso in prodotti, anche commerciali, senza obbligo di attribuzione.',
       '- Vietata la ridistribuzione dei file: questa cartella è in `.gitignore` e **non** va pubblicata',
       '  come asset pack, mirror o dataset.',
-      '- Rigenerazione: `npm run kit` (richiede `THREEJSASSETS_KEY` in `.env.local`).',
+      '- Rigenerazione: `npm run kit` (richiede `THREEJSASSETS_KEY` in `.env.local`) oppure',
+      '  `npm run kit -- --index` sui file scaricati a mano.',
       '- Catalogo usato: `public/citykit/manifest.json`.',
       '',
       '## Asset',
       '',
       '| Ruolo | Asset | Triangoli |',
       '| --- | --- | --- |',
-      ...manifest
-        .filter((a) => a.role)
-        .map((a) => `| ${a.role} | [${a.name}](${a.url}) | ${a.triangles} |`),
+      ...manifest.map((a) => `| ${a.role} | [${a.name}](${a.url}) | ${a.triangles} |`),
       '',
       'Licenza completa: <https://threejsassets.com/license>.',
       '',
@@ -201,61 +266,70 @@ async function writeOutputs(manifest, catalog) {
   await copyDecoders();
 }
 
+/**
+ * Indicizzazione offline: guarda cosa c'è in `public/citykit/`, tiene solo i
+ * GLB della lista curata, ne legge i metadati dal file e riscrive manifest e
+ * NOTICE. Non serve né rete né chiave: è il percorso di chi scarica a mano.
+ */
 async function indexManual() {
-  const catalog = (await api(`/catalog/packs/${PACK}`)).data;
-  const bySlug = new Map(catalog.assets.map((a) => [a.slug, a]));
   await mkdir(OUT_DIR, { recursive: true });
+  const previous = (await readJson(path.join(OUT_DIR, 'manifest.json')))?.assets ?? [];
+  const previousBySlug = new Map(previous.map((a) => [a.slug, a]));
+
+  let files = [];
+  try {
+    files = (await readdir(OUT_DIR)).filter((name) => name.endsWith('.glb')).sort();
+  } catch {
+    /* cartella vuota */
+  }
+  const present = new Map(files.map((name) => [name.slice(0, -4), name]));
   const manifest = [];
   const missing = [];
 
-  for (const want of WANTED) {
-    const meta = bySlug.get(want.slug);
-    const file = path.join(OUT_DIR, `${want.slug}.glb`);
-    let info;
-    try {
-      info = await stat(file);
-    } catch {
+  for (const want of CURATED) {
+    const file = present.get(want.slug);
+    if (!file) {
       missing.push(want.slug);
       continue;
     }
-    if (!meta) {
-      missing.push(`${want.slug} (non in catalogo)`);
-      continue;
-    }
-    const buffer = await readFile(file);
-    if (buffer.subarray(0, 4).toString('ascii') !== 'glTF') {
+    const buffer = await readFile(path.join(OUT_DIR, file));
+    const info = glbInfo(buffer);
+    if (!info) {
       missing.push(`${want.slug} (non è un GLB)`);
       continue;
     }
+    const prev = previousBySlug.get(want.slug);
     manifest.push({
       slug: want.slug,
-      name: meta.name,
+      name: want.name ?? prev?.name ?? humanize(want.slug),
       role: want.role,
       note: want.note,
-      category: meta.category,
-      triangles: meta.triangles,
-      bytes: info.size,
+      category: prev?.category ?? 'scenery',
+      triangles: info.triangles || prev?.triangles || 0,
+      bytes: buffer.length,
       sha256: await sha256(buffer),
-      version: meta.version,
-      url: meta.url,
+      version: prev?.version ?? null,
+      url: prev?.url ?? `https://threejsassets.com/assets/${want.slug}`,
     });
-    console.log(`  ✓ ${want.slug.padEnd(34)} ${human(info.size)}`);
+    console.log(`  ✓ ${want.slug.padEnd(34)} ${String(info.triangles).padStart(7)} tri  ${human(buffer.length).padStart(9)}`);
   }
 
   if (!manifest.length) {
     console.error(
-      `\nNessun GLB in public/citykit/.\nScarica i 13 asset free da ${catalog.url} ` +
+      `\nNessun GLB in public/citykit/.\nScarica gli asset free da https://threejsassets.com ` +
         `(pulsante Download, file <slug>.glb) e rilancia: npm run kit -- --index\n`,
     );
     process.exitCode = 1;
     return;
   }
 
-  await writeOutputs(manifest, catalog);
-  console.log(`\nIndicizzati ${manifest.length}/${WANTED.length} asset.`);
-  if (missing.length) console.log(`Mancano: ${missing.join(', ')}`);
+  await writeOutputs(manifest);
+  console.log(`\nIndicizzati ${manifest.length}/${CURATED.length} asset del kit.`);
+  if (missing.length) console.log(`File assenti (restano fuori dal manifest): ${missing.join(', ')}`);
+  const curatedFiles = new Set(CURATED.map((w) => `${w.slug}.glb`));
+  const unused = files.filter((name) => !curatedFiles.has(name));
+  if (unused.length) console.log(`${unused.length} altri GLB in public/citykit/ non sono usati dal motore.`);
   console.log('Riavvia `npm run dev`: il motore carica il kit quando trova il manifest.\n');
-  if (missing.length) process.exitCode = 1;
 }
 
 async function main() {
@@ -285,6 +359,7 @@ async function main() {
         '  4. rilancia: npm run kit',
         '',
         `  Vuoi solo vedere cosa c'è nel tier free?  npm run kit -- --list`,
+        `  Hai già i file?                            npm run kit -- --index`,
         '',
       ].join('\n'),
     );
@@ -305,7 +380,7 @@ async function main() {
   const previous = (await readJson(path.join(OUT_DIR, 'manifest.json')))?.assets ?? [];
   const previousBySlug = new Map(previous.map((a) => [a.slug, a]));
 
-  const selected = WANTED.filter((w) => (only.length ? only.includes(w.slug) : true));
+  const selected = CURATED.filter((w) => (only.length ? only.includes(w.slug) : true));
   const manifest = [];
   let downloaded = 0;
   let skipped = 0;
@@ -313,22 +388,19 @@ async function main() {
 
   for (const want of selected) {
     const meta = bySlug.get(want.slug);
-    if (!meta) {
-      failed.push(`${want.slug}: non presente nel catalogo`);
-      continue;
-    }
-    if (meta.tier !== 'free') {
+    if (meta && meta.tier !== 'free') {
       failed.push(`${want.slug}: nel frattempo è diventato premium, salto`);
       continue;
     }
 
     const file = path.join(OUT_DIR, `${want.slug}.glb`);
     const prev = previousBySlug.get(want.slug);
-    if (!force && prev && prev.bytes === meta.file_size_bytes) {
+    const expected = meta?.file_size_bytes ?? prev?.bytes;
+    if (!force && prev && expected) {
       try {
         const info = await stat(file);
-        if (info.size === meta.file_size_bytes) {
-          manifest.push(prev);
+        if (info.size === expected) {
+          manifest.push({ ...prev, role: want.role, note: want.note });
           skipped++;
           continue;
         }
@@ -348,8 +420,8 @@ async function main() {
         throw new Error(`${res.status} ${err?.code ?? res.statusText}${err?.message ? ` — ${err.message}` : ''}`);
       }
       const buffer = Buffer.from(await res.arrayBuffer());
-      const magic = buffer.subarray(0, 4).toString('ascii');
-      if (magic !== 'glTF') throw new Error(`non è un GLB (magic "${magic}")`);
+      const info = glbInfo(buffer);
+      if (!info) throw new Error('non è un GLB valido');
       if (buffer.length < 1024) throw new Error(`file sospetto: ${buffer.length} byte`);
 
       const part = `${file}.part`;
@@ -358,15 +430,15 @@ async function main() {
 
       manifest.push({
         slug: want.slug,
-        name: meta.name,
+        name: meta?.name ?? want.name ?? prev?.name ?? humanize(want.slug),
         role: want.role,
         note: want.note,
-        category: meta.category,
-        triangles: meta.triangles,
+        category: meta?.category ?? prev?.category ?? 'scenery',
+        triangles: info.triangles || meta?.triangles || prev?.triangles || 0,
         bytes: buffer.length,
         sha256: await sha256(buffer),
-        version: meta.version,
-        url: meta.url,
+        version: meta?.version ?? prev?.version ?? null,
+        url: meta?.url ?? `https://threejsassets.com/assets/${want.slug}`,
       });
       downloaded++;
       console.log(human(buffer.length));
@@ -387,7 +459,7 @@ async function main() {
     if (!manifest.some((a) => a.slug === prev.slug)) manifest.push(prev);
   }
 
-  await writeOutputs(manifest, catalog);
+  await writeOutputs(manifest);
 
   console.log(
     `\nScaricati ${downloaded}, già presenti ${skipped}${failed.length ? `, falliti ${failed.length}` : ''}.` +
