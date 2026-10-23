@@ -29,7 +29,7 @@ peggio delle mesh procedurali. L'unico pack in **scala reale e PBR** è
 | `tree-park` | Realistic Park Tree 01 | alberi da parco e bosco |
 | `lamp` | Realistic Street Lamp 01 | lampione stradale |
 | `traffic-light` | Realistic Traffic Light 01 | semaforo |
-| `sign` | Realistic Street Sign 01 | segnaletica verticale |
+| `sign` | Realistic Street Sign 01 | palo zincato per i nostri STOP/precedenza/50 |
 | `bench` | Realistic Bench 01 | panchina |
 | `bin` | Realistic Trash Bin 01 | cestino |
 | `car` | Realistic Car Sedan 01 | auto parcheggiate e traffico |
@@ -250,9 +250,14 @@ sono anche più piccoli del vero: le scale sono decise a mano per ruolo.
 - **Relitto**: uno solo, su una strada di campagna tra 520 e 1700 m da casa,
   di traverso nel fosso. È l'unico modello low-poly "di strada": non ha un verso
   e quindi non si nota lo stile.
-- **Non piazzati di proposito**: semaforo, segnale, lampione, incrocio, alberi
-  da parco. Sono scaricati e pronti, ma un semaforo in un paese senza semafori
-  o un lampione urbano da 8 m al posto delle lanterne da 6,2 m romperebbe la
+- **Segnali** (`buildSigns`): il palo zincato è la parte `ss_galv` del kit,
+  alto 2,95 m; la faccia resta disegnata su canvas perché le forme italiane
+  sono ottagono STOP, triangolo "dare precedenza" (punta in basso) e disco 50,
+  non la piastra rettangolare dell'asset. Con il kit il cartello sta a 2,52 m,
+  sul marciapiede rialzato; senza kit resta il palo procedurale da 2,1 m.
+- **Non piazzati di proposito**: semaforo, lampione, incrocio, alberi da parco.
+  Sono scaricati e pronti, ma un semaforo in un paese senza semafori o un
+  lampione urbano da 8 m al posto delle lanterne da 6,2 m romperebbe la
   coerenza. Il materiale della piazza invece si usa, per il sagrato.
 
 Tutto è additivo: se `public/citykit/manifest.json` manca (macchina nuova,
@@ -295,6 +300,7 @@ cambia nulla. Diagnostica: `window.__molise.kit` =
 | Siepi, rovi, canneti, pietre, relitto | ✅ integrati nel codice |
 | Piazza davanti alla chiesa | ✅ integrata nel codice |
 | Targhe con i nomi delle vie | ✅ integrate nel codice |
+| Segnali su palo del kit, facce italiane | ✅ integrato nel codice |
 | Auto low-poly in sosta | ✅ integrate (davanti a +Z verificato sui GLB) |
 | Verifica visiva e fps | ⏳ **non eseguita** (richiesta di salto test/browser) |
 

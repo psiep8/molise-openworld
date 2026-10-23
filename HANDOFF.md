@@ -733,9 +733,9 @@ quello che mancava davvero, cioè il margine di campagna.
 ## 23/10 — Piazza, targhe delle vie e auto low-poly
 
 Continuazione dello stesso passaggio. Il kit curato passa da 20 a **24 asset**
-(13 Realistic City + 7 scenery + 4 berline low-poly) e il paese guadagna tre
-cose che prima mancavano: un sagrato lastricato, i nomi delle strade e varietà
-nelle auto in sosta.
+(13 Realistic City + 7 scenery + 4 berline low-poly) e il paese guadagna
+quattro cose che prima mancavano: un sagrato lastricato, i nomi delle strade,
+varietà nelle auto in sosta e i segnali sul palo zincato vero.
 
 ### Cosa è cambiato
 
@@ -754,6 +754,13 @@ nelle auto in sosta.
   berlina fotorealistica, senza ipotesi. Scala ricalcolata sulla lunghezza vera
   (4,3 m); il 45% delle auto oltre 150 m da casa è low-poly, vicino allo spawn
   resta solo la fotorealistica.
+- **Segnali** (`buildSigns`): il palo è la parte `ss_galv` del cartello del kit
+  (2,95 m), la faccia resta il canvas italiano perché le forme vere sono
+  ottagono STOP, triangolo "dare precedenza" e disco 50. Corretto anche il
+  triangolo della precedenza, che prima puntava in alto: ora punta in basso e
+  il bordo rosso è disegnato dentro la sagoma. Faccia a 2,52 m, base sul piano
+  del marciapiede (asfalto rialzato + cordolo, 38,5 cm sopra il DEM); senza kit
+  resta il palo procedurale da 2,1 m.
 - Diagnostica: `window.__molise.kit` aggiunge `piazzas` (1 se il sagrato è stato
   costruito, 0 se non c'era spazio).
 
@@ -763,4 +770,5 @@ nelle auto in sosta.
   126 GLB non usati.
 - **`npm test`, build, browser, screenshot e fps NON eseguiti** su richiesta del
   proprietario. Da guardare in gioco: piazza che si appoggia ai gradini, targhe
-  leggibili e non dentro i muri, auto low-poly con il muso nel verso giusto.
+  leggibili e non dentro i muri, auto low-poly con il muso nel verso giusto,
+  altezza dei segnali sul palo del kit.

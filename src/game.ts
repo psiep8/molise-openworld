@@ -370,7 +370,7 @@ export class Game {
       this.scene.add(this.streetLights.group);
       this.scene.add(buildWater(osm, heights, this.renderer));
 
-      this.scene.add(buildSigns(osm, heights, this.buildingIndex, this.renderer));
+      this.scene.add(buildSigns(osm, heights, this.buildingIndex, this.renderer, this.kit));
       this.scene.add(buildStreetNames(osm, heights, this.buildingIndex));
       this.scene.add(buildStreetProps(osm, heights, this.buildingIndex, this.renderer, this.kit, this.qualityLevel));
       this.scene.add(buildRoadDrainage(osm, heights));

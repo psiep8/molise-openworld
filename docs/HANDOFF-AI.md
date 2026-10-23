@@ -20,8 +20,9 @@
    Vanno rigenerati o copiati in `public/citykit/` sulla macchina nuova.
    In `public/citykit/` ce ne sono **150**: 126 non sono nella lista curata e il
    motore non li carica.
-4. Restano **5 asset free non presi** (fuori contesto) e **5 presi ma non
-   piazzati** (semaforo, segnale, lampione, incrocio, alberi da parco).
+4. Restano **5 asset free non presi** (fuori contesto) e **4 presi ma non
+   piazzati** (semaforo, lampione, incrocio, alberi da parco). Il segnale del
+   kit ora è in uso come palo dei cartelli STOP/precedenza/50.
    Il pack completo ha **137 asset premium** ($99): la lista prioritaria è al §6.
 5. **Verifica visiva e fps non sono state eseguite.** Il codice compila
    (`tsc` pulito); test e build non sono stati rilanciati dopo l'ultimo
@@ -62,7 +63,7 @@ pack free (circa 370 KB) per il margine di campagna e quattro berline.
 | `tree-park` | `realistic-park-tree-01` | 110.236 | preso, **non usato** (troppo pesante) |
 | `lamp` | `realistic-street-lamp-01` | 20.654 | preso, **non usato** |
 | `traffic-light` | `realistic-traffic-light-01` | 26.068 | preso, **non usato** |
-| `sign` | `realistic-street-sign-01` | 28.120 | preso, **non usato** |
+| `sign` | `realistic-street-sign-01` | 28.120 | palo `ss_galv` per STOP/precedenza/50 |
 | `bench` | `realistic-bench-01` | 21.252 | panchine al posto delle scatole |
 | `bin` | `realistic-trash-bin-01` | 22.522 | cestini ogni 3 panchine |
 | `car` | `realistic-car-sedan-01` | 65.454 | berline in sosta |
@@ -228,6 +229,12 @@ Dettagli che fanno perdere tempo se non si sanno:
 - **Ruoli con varianti**: `CityKit.variants(role)`; `instances()` raggruppa le
   istanze per variante. I ruoli nuovi sono `hedge`, `bush`, `reed`, `rock`,
   `wreck`, `car-lowpoly`.
+- **Segnali**: `buildSigns` usa il palo `ss_galv` del kit (2,95 m) e le facce
+  canvas procedurali (ottagono STOP, triangolo dare precedenza con la punta in
+  basso, disco 50) a 2,52 m, con la base sul piano del marciapiede (asfalto +
+  cordolo, 38,5 cm sopra il DEM). La piastra
+  rettangolare dell'asset non si usa: le forme italiane sono un'altra cosa.
+  Senza kit resta il palo procedurale da 2,1 m.
 - **Piazza**: `buildChurchPiazza` sta in `piazza.ts`, usa `plaza/paving` e
   `sidewalk/granite_kerb`, e torna un `PavedArea` che `game.ts` passa a
   `buildVegetation` e a `new GrassField(...)`; senza area l'erba ci cresce sopra.
@@ -250,28 +257,25 @@ Dettagli che fanno perdere tempo se non si sanno:
 1. **Verifica visiva e fps** con `npm run dev` / `capture.mjs`, preset medium e
    high. Controllare: auto a filo asfalto (y = DEM + `roadLift`), alberi dentro
    il marciapiede, nessun buco tra asfalto e cordolo, materiali non slittati.
-2. **Segnale**: sostituire la faccia rettangolare con i canvas di
-   `signTexture()` (STOP, precedenza, 50) e usare il palo del kit; altrimenti
-   restano i segnali procedurali (già corretti).
-3. **Semaforo**: solo se si trova un incrocio vero che lo giustifica; altrimenti
+2. **Semaforo**: solo se si trova un incrocio vero che lo giustifica; altrimenti
    non piazzarlo.
-4. **Lampione kit** (8,11 m): se si sostituisce quello procedurale (6,2 m) va
+3. **Lampione kit** (8,11 m): se si sostituisce quello procedurale (6,2 m) va
    rifatto il calcolo del pool di `PointLight` in `StreetLights`.
-5. **Alberi da parco**: 110k triangoli l'uno; solo pochi e con LOD, oppure
+4. **Alberi da parco**: 110k triangoli l'uno; solo pochi e con LOD, oppure
    lasciarli fuori.
-6. **LOD** per alberi e auto se gli fps calano: mesh piena vicino, billboard o
+5. **LOD** per alberi e auto se gli fps calano: mesh piena vicino, billboard o
    scatola oltre ~120 m.
-7. **Incrocio**: il materiale di `road-junction` può servire per le zone di
+6. **Incrocio**: il materiale di `road-junction` può servire per le zone di
    giunzione, ma oggi i nastri si sovrappongono con `roadLift`.
-8. **Veicolo del giocatore**: resta procedurale (22 modelli in
+7. **Veicolo del giocatore**: resta procedurale (22 modelli in
    `src/sim/vehicle-catalog.ts`). Il kit fornisce una sola berlina: usarla solo
    per la sosta, non per sostituire il catalogo.
-9. **Nuovi prop da tarare in gioco** (nessuna verifica visiva fatta): scala del
-   relitto (1,45–1,57) e dei massi (0,8–1,7), siepi che non entrino nei muri,
-   canneti alla quota giusta rispetto all'acqua, piazza che si appoggia ai
-   gradini della chiesa, targhe leggibili e non dentro i muri. I parametri sono
-   in cima a `city-props.ts` (tetti e raggi), in `piazza.ts` (dimensioni) e in
-   `buildStreetNames`.
+8. **Nuovi prop da tarare in gioco** (nessuna verifica visiva fatta): altezza dei
+   segnali sul palo del kit, scala del relitto (1,45–1,57) e dei massi
+   (0,8–1,7), siepi che non entrino nei muri, canneti alla quota giusta rispetto
+   all'acqua, piazza che si appoggia ai gradini della chiesa, targhe leggibili e
+   non dentro i muri. I parametri sono in cima a `city-props.ts` (tetti e
+   raggi), in `piazza.ts` (dimensioni) e in `buildSigns`/`buildStreetNames`.
 
 ---
 
@@ -363,6 +367,7 @@ comprare il pack: le mesh finite non si adattano alle impronte OSM.
 | `npm test` (171 test, 18 file) | ✅ verde **prima** del passaggio sul paesaggio |
 | `npm run build` | ✅ verde **prima** del passaggio sul paesaggio |
 | `npm run kit -- --list` / `--index` / chiave errata | ✅ verificati; `--index` è offline e ha indicizzato 24/24 |
+| Segnali su palo kit + facce italiane | ✅ codice, `tsc` pulito |
 | Browser, screenshot, smoke, fps | ❌ **non eseguiti** (richiesta esplicita del proprietario) |
 
 Dopo l'ultimo passaggio (ruoli con varianti, siepi, canneti, pietre, relitto,
@@ -390,11 +395,12 @@ window.__molise.errors   // deve essere []
 
 Poi guardare, in ordine: asfalto e cordolo a distanza ravvicinata, auto in sosta
 (ruote a terra, dentro l'asfalto, muso nel verso di marcia), alberi sul
-marciapiede, panchine e cestini allineati, piazza davanti alla chiesa appoggiata
-ai gradini, targhe delle vie leggibili, siepi fuori dal paese, canneti lungo i
-torrenti, massi sui pendii, relitto nel fosso, fps con `G` su high/ultra. Se
-qualcosa è fuori posto, i parametri da toccare sono in `city-props.ts`
-(distanze, offset, tetti), `piazza.ts` (dimensioni) e `street-furniture.ts`
-(tetto panchine, targhe).
+marciapiede, panchine e cestini allineati, segnali STOP/precedenza/50 sul palo
+del kit, piazza davanti alla chiesa appoggiata ai gradini, targhe delle vie
+leggibili, siepi fuori dal paese, canneti lungo i torrenti, massi sui pendii,
+relitto nel fosso, fps con `G` su high/ultra. Se qualcosa è fuori posto, i
+parametri da toccare sono in `city-props.ts` (distanze, offset, tetti),
+`piazza.ts` (dimensioni) e `street-furniture.ts` (tetto panchine, segnali,
+targhe).
 
 Buon lavoro. La regola del progetto resta una: **il posto deve sembrare vero**.

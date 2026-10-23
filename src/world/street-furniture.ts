@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Heightfield } from '../geo/elevation';
 import { clamp, distanceToSegment2, mulberry32, type Pt } from '../geo/geo';
-import type { BuildingIndex, OsmData } from '../geo/osm';
+import { CURB_HEIGHT, ROAD_LIFT, type BuildingIndex, type OsmData } from '../geo/osm';
 import { pbr } from '../gfx/textures';
 import type { CityKit } from './citykit';
 import type { QualityLevel } from '../gfx/quality';
@@ -184,6 +184,7 @@ export function buildSigns(
   heights: Heightfield,
   buildings: BuildingIndex,
   _renderer: THREE.WebGLRenderer,
+  kit?: CityKit | null,
 ): THREE.Group {
   const group = new THREE.Group();
   group.name = 'road-signs';
@@ -236,11 +237,32 @@ export function buildSigns(
 
   if (placements.length === 0) return group;
 
-  const poleMat = new THREE.MeshStandardMaterial({ color: 0x9aa2a6, roughness: 0.45, metalness: 0.6 });
-  const poleGeo = new THREE.CylinderGeometry(0.035, 0.04, 2.1, 8);
-  poleGeo.translate(0, 1.05, 0);
+  // Palo del kit quando c'è: è il palo zincato vero di `realistic-street-sign-01`
+  // (2,95 m, con attacco per la piastra). La faccia resta la nostra, perché le
+  // forme italiane sono ottagono/triangolo/disco, non la piastra rettangolare
+  // dell'asset. Senza kit resta il palo cilindrico procedurale.
+  const signPole = kit?.part('sign', 'ss_galv');
+  const poleMat = signPole?.material ?? new THREE.MeshStandardMaterial({
+    color: 0x9aa2a6,
+    roughness: 0.45,
+    metalness: 0.6,
+  });
+  let poleGeo: THREE.BufferGeometry;
+  if (signPole) {
+    poleGeo = signPole.geometry;
+  } else {
+    const procedural = new THREE.CylinderGeometry(0.035, 0.04, 2.1, 8);
+    procedural.translate(0, 1.05, 0);
+    poleGeo = procedural;
+  }
+  // quota della faccia e distanza dal palo (la piastra del kit sta a +Z)
+  const faceY = signPole ? 2.52 : 1.98;
+  const faceZ = signPole ? 0.075 : 0.055;
+  // i cartelli stanno sul marciapiede: asfalto rialzato + cordolo
+  const baseLift = ROAD_LIFT + CURB_HEIGHT + 0.005;
   const poles = new THREE.InstancedMesh(poleGeo, poleMat, placements.length);
   poles.castShadow = true;
+  poles.receiveShadow = true;
   const dummy = new THREE.Object3D();
 
   const textures: Record<SignKind, THREE.CanvasTexture> = {
@@ -249,12 +271,10 @@ export function buildSigns(
     speed: signTexture('speed'),
   };
   const geometries: Record<SignKind, THREE.BufferGeometry> = {
-    stop: new THREE.CircleGeometry(0.38, 8),
-    yield: new THREE.CircleGeometry(0.42, 3),
-    speed: new THREE.CircleGeometry(0.31, 24),
+    stop: faceGeometry('stop'),
+    yield: faceGeometry('yield'),
+    speed: faceGeometry('speed'),
   };
-  geometries.stop.rotateZ(Math.PI / 8);
-  geometries.yield.rotateZ(Math.PI / 2);
   const counts: Record<SignKind, number> = { stop: 0, yield: 0, speed: 0 };
   for (const p of placements) counts[p.kind]++;
 
@@ -285,14 +305,15 @@ export function buildSigns(
   const cursor: Record<SignKind, number> = { stop: 0, yield: 0, speed: 0 };
 
   placements.forEach((p, i) => {
-    const y = heights.heightAt(p.x, p.z);
+    const y = heights.heightAt(p.x, p.z) + baseLift;
     dummy.position.set(p.x, y, p.z);
     dummy.rotation.set(0, 0, 0);
+    dummy.scale.setScalar(1);
     dummy.updateMatrix();
     poles.setMatrixAt(i, dummy.matrix);
 
-    // il disco sta 2 m da terra, leggermente inclinato verso la strada
-    dummy.position.set(p.x, y + 1.95, p.z);
+    // la faccia sta davanti al palo, all'altezza della piastra del kit
+    dummy.position.set(p.x + Math.sin(p.yaw) * faceZ, y + faceY, p.z + Math.cos(p.yaw) * faceZ);
     dummy.rotation.set(0, p.yaw, 0);
     dummy.updateMatrix();
     const mesh = meshes[p.kind];
@@ -312,6 +333,66 @@ export function buildSigns(
   return group;
 }
 
+/**
+ * Geometria della faccia, con le UV calcolate **dopo** l'orientamento.
+ *
+ * Ruotare una `CircleGeometry` con `rotateZ` sposta i vertici ma non le UV:
+ * la scritta STOP finiva inclinata di 22,5° e il triangolo della precedenza
+ * mostrava l'immagine ruotata. Qui posizioni e UV nascono insieme, quindi il
+ * disegno del canvas cade esattamente sulla sagoma.
+ */
+function faceGeometry(kind: SignKind): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  const push = (x: number, y: number, u: number, v: number): number => {
+    const i = positions.length / 3;
+    positions.push(x, y, 0);
+    uvs.push(u, v);
+    return i;
+  };
+
+  if (kind === 'yield') {
+    // triangolo equilatero, punta in basso, con le UV dei tre vertici
+    const r = 0.46;
+    const bottom = push(0, -r, 0.5, 0);
+    const right = push(r * 0.866, r * 0.5, 0.5 + 0.866 / 2, 0.75);
+    const left = push(-r * 0.866, r * 0.5, 0.5 - 0.866 / 2, 0.75);
+    indices.push(bottom, right, left);
+  } else if (kind === 'stop') {
+    // ottagono con il lato piatto in alto, come il cartello vero
+    const r = 0.38;
+    const center = push(0, 0, 0.5, 0.5);
+    const ring: number[] = [];
+    for (let i = 0; i < 8; i++) {
+      const a = Math.PI / 8 + (i / 8) * Math.PI * 2;
+      const x = Math.cos(a) * r;
+      const y = Math.sin(a) * r;
+      ring.push(push(x, y, 0.5 + Math.cos(a) / 2, 0.5 + Math.sin(a) / 2));
+    }
+    for (let i = 0; i < 8; i++) indices.push(center, ring[i]!, ring[(i + 1) % 8]!);
+  } else {
+    // disco: 24 spicchi
+    const r = 0.31;
+    const center = push(0, 0, 0.5, 0.5);
+    const ring: number[] = [];
+    for (let i = 0; i < 24; i++) {
+      const a = (i / 24) * Math.PI * 2;
+      const x = Math.cos(a) * r;
+      const y = Math.sin(a) * r;
+      ring.push(push(x, y, 0.5 + Math.cos(a) / 2, 0.5 + Math.sin(a) / 2));
+    }
+    for (let i = 0; i < 24; i++) indices.push(center, ring[i]!, ring[(i + 1) % 24]!);
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
 /** Faccia del cartello disegnata su canvas: nessun asset esterno. */
 function signTexture(kind: SignKind): THREE.CanvasTexture {
   const size = 256;
@@ -328,7 +409,7 @@ function signTexture(kind: SignKind): THREE.CanvasTexture {
     ctx.beginPath();
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
-      const r = size * 0.48;
+      const r = size * 0.5;
       const x = c + Math.cos(a) * r;
       const y = c + Math.sin(a) * r;
       if (i === 0) ctx.moveTo(x, y);
@@ -336,8 +417,19 @@ function signTexture(kind: SignKind): THREE.CanvasTexture {
     }
     ctx.closePath();
     ctx.fill();
+    // bordo bianco disegnato dentro la sagoma, se no lo taglia la geometria
     ctx.strokeStyle = '#f4f1ea';
-    ctx.lineWidth = size * 0.05;
+    ctx.lineWidth = size * 0.035;
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+      const r = size * 0.47;
+      const x = c + Math.cos(a) * r;
+      const y = c + Math.sin(a) * r;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
     ctx.stroke();
     ctx.fillStyle = '#f7f4ee';
     ctx.font = `bold ${size * 0.27}px Arial, Helvetica, sans-serif`;
@@ -345,16 +437,24 @@ function signTexture(kind: SignKind): THREE.CanvasTexture {
     ctx.textBaseline = 'middle';
     ctx.fillText('STOP', c, c + size * 0.01);
   } else if (kind === 'yield') {
-    ctx.fillStyle = '#f4f1ea';
+    // dare precedenza italiano: triangolo bianco con bordo rosso, punta in
+    // basso. Il bordo è disegnato *dentro* la sagoma: la geometria è il
+    // triangolo esatto delle UV, quindi uno stroke centrato sul bordo
+    // verrebbe tagliato a metà.
+    ctx.fillStyle = '#b81f26';
     ctx.beginPath();
-    ctx.moveTo(c, size * 0.07);
-    ctx.lineTo(size * 0.94, size * 0.86);
-    ctx.lineTo(size * 0.06, size * 0.86);
+    ctx.moveTo(c, size * 1.02);
+    ctx.lineTo(-size * 0.02, size * 0.24);
+    ctx.lineTo(size * 1.02, size * 0.24);
     ctx.closePath();
     ctx.fill();
-    ctx.strokeStyle = '#b81f26';
-    ctx.lineWidth = size * 0.12;
-    ctx.stroke();
+    ctx.fillStyle = '#f4f1ea';
+    ctx.beginPath();
+    ctx.moveTo(c, size * 0.88);
+    ctx.lineTo(size * 0.13, size * 0.32);
+    ctx.lineTo(size * 0.87, size * 0.32);
+    ctx.closePath();
+    ctx.fill();
   } else {
     ctx.fillStyle = '#f6f3ec';
     ctx.beginPath();
@@ -462,7 +562,8 @@ export function buildStreetNames(
   const dummy = new THREE.Object3D();
 
   placed.forEach((p, i) => {
-    const y = heights.heightAt(p.x, p.z);
+    // il palo è piantato nel marciapiede rialzato, non nel terreno sotto
+    const y = heights.heightAt(p.x, p.z) + ROAD_LIFT + CURB_HEIGHT + 0.005;
     dummy.position.set(p.x, y, p.z);
     dummy.rotation.set(0, 0, 0);
     dummy.scale.setScalar(1);
