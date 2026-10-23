@@ -668,6 +668,10 @@ Non piazzati di proposito: semaforo, segnale, lampione, masso, piazza, incrocio
 (scaricati, ma fuori contesto o da tarare). Il veicolo del giocatore resta
 procedurale: il kit fornisce solo la berlina da sosta.
 
+Per un'altra AI o un'altra macchina: **`docs/HANDOFF-AI.md`** contiene contesto,
+comandi, vincoli di licenza, cosa manca da prendere da threejsassets e il primo
+giro di verifica. È autosufficiente, non serve questa conversazione.
+
 Verifiche di questo passaggio: `npx tsc --noEmit` ✅, `npm test` **171/171** ✅ in
 18 file, `npm run build` ✅, `--list` e `--index` ✅, chiave non valida → errore
 leggibile ed exit 1 ✅. **Verifica visiva/fps non eseguita**: su richiesta, il
