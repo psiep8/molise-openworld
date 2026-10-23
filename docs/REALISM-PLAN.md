@@ -411,6 +411,14 @@ segue il DEM, ma il DEM è a 10 m: sotto questa soglia non si può inventare.
 > test va considerato parte della verifica minima: il build da solo non vede
 > gli errori di shader.
 
+### 23 ottobre 2026 — sessione notturna (satellite e debug)
+
+- Satellite: `zoomForDistance` torna a z18 entro 500 m, z17 fino a 3200 m, z16 oltre (commit `95fafd2`, test `tests/imagery.test.ts`).
+- Debug: `?imagery=debug` mostra nel titolo chunk, texture e chunk z17+ (commit `e8c66e6`).
+- `npm test` 163/163 e `npm run build` verdi.
+- **Smoke NON superato.** Su questa macchina lo smoke ha riportato 4 errori `ERR_NETWORK_CHANGED` in console (il gioco carica 46/46 chunk texturizzati) e in un run successivo è andato in timeout a 2 fps (SwiftShader). Non è un esito verde: va rilanciato su una macchina con GPU e rete stabile.
+- Non fatta la segnaletica e gli incroci (priorità 5 residua): richiede verifica visiva.
+
 ### Prossimi passi (in ordine)
 
 1. **Verifica a schermo delle priorità del 23/10** (paesaggio, edifici, strade,
