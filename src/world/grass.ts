@@ -5,6 +5,7 @@ import { mulberry32 } from '../geo/geo';
 import type { BuildingIndex, RoadIndex } from '../geo/osm';
 import { windTimeUniform } from '../gfx/wind';
 import { GroundMask } from './ground-mask';
+import type { PavedArea } from './paved';
 
 /** Raggio del tappeto d'erba intorno al giocatore (m). */
 const RADIUS = 40;
@@ -72,7 +73,7 @@ export class GrassField {
   /** Ricostruzione in corso, spezzata sui frame. */
   private job: GrassJob | null = null;
 
-  constructor() {
+  constructor(private readonly paved: readonly PavedArea[] = []) {
     this.geometry = GrassField.buildGeometry();
     this.bladeTexture = GrassField.buildBladeTexture();
 
@@ -234,7 +235,7 @@ export class GrassField {
 
     // una sola rasterizzazione di strade/edifici/pendio: le 480.000 query
     // per rifiuto casuale diventano una lookup su array
-    this.mask.build(x, z, heights, roads, buildings, 2.7, 0.5);
+    this.mask.build(x, z, heights, roads, buildings, 2.7, 0.5, this.paved);
     const n = this.mask.n;
     let valid = 0;
     for (let j = 0; j < n; j++) {

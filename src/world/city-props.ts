@@ -31,6 +31,8 @@ const BOULDER_LIMIT: Record<QualityLevel, number> = { low: 2, medium: 4, high: 8
 const TREE_RADIUS = 760;
 const CAR_RADIUS = 560;
 const SCENERY_RADIUS = 2400;
+/** Lunghezza a cui si portano le auto low-poly prima di parcheggiarle. */
+const LOW_CAR_LENGTH = 4.3;
 
 /** Tinte plausibili per una berlina in un paese: niente colori da showroom. */
 const CAR_COLORS = [
@@ -69,6 +71,8 @@ export function buildCityProps(
   const carLimit = CAR_LIMIT[quality];
   const treeSpots: KitSpot[] = [];
   const carSpots: (KitSpot & { color: number })[] = [];
+  const lowCarSpots: KitSpot[] = [];
+  const lowCars = kit.variants('car-lowpoly');
   const hedgeSpots: KitSpot[] = [];
   const bushSpots: KitSpot[] = [];
   const reedSpots: KitSpot[] = [];
@@ -136,9 +140,10 @@ export function buildCityProps(
         }
       }
 
-      if (carSpots.length < carLimit && sinceCar >= 28) {
+      if (carSpots.length + lowCarSpots.length < carLimit && sinceCar >= 28) {
         sinceCar = 0;
-        if (Math.hypot(b.x - START.x, b.z - START.z) > CAR_RADIUS) continue;
+        const fromHome = Math.hypot(b.x - START.x, b.z - START.z);
+        if (fromHome > CAR_RADIUS) continue;
         // senso di marcia scelto per strada: la sosta sta sulla destra
         const forward = ((roadIndex + Math.floor(i / 12)) % 2 === 0 ? 1 : -1) as 1 | -1;
         const fx = tx * forward;
@@ -148,7 +153,7 @@ export function buildCityProps(
         const x = b.x + fz * (road.width / 2 - 1.15);
         const z = b.z - fx * (road.width / 2 - 1.15);
         if (
-          Math.hypot(x - START.x, z - START.z) < 9 ||
+          fromHome < 9 ||
           roads.isOnRoad(x, z, 0.5, roadIndex) ||
           buildings.hitsCircle(x, z, 1.3) ||
           heights.slopeAt(x, z) > 9 ||
@@ -156,13 +161,26 @@ export function buildCityProps(
         ) {
           continue;
         }
-        carSpots.push({
-          x,
-          y: heights.heightAt(x, z) + roadLift(roadIndex, true),
-          z,
-          yaw: Math.atan2(fx, fz),
-          color: CAR_COLORS[Math.floor(rng() * CAR_COLORS.length)],
-        });
+        const y = heights.heightAt(x, z) + roadLift(roadIndex, true);
+        const yaw = Math.atan2(fx, fz);
+        // Le berline low-poly hanno il davanti a +Z (verificato sui fari rossi
+        // del modello, che stanno a -Z), quindi si parcheggiano nello stesso
+        // verso della fotorealistica. Lontano da casa si alternano, così il
+        // parcheggio non è un monoblocco; vicino allo spawn resta solo quella
+        // del kit fotorealistico, che a 3 m regge il confronto.
+        if (lowCars.length > 0 && fromHome > 150 && rng() < 0.45) {
+          const variant = Math.floor(rng() * lowCars.length);
+          const length = lowCars[variant].size.z || 3;
+          lowCarSpots.push({ x, y, z, yaw, scale: LOW_CAR_LENGTH / length, variant });
+        } else {
+          carSpots.push({
+            x,
+            y,
+            z,
+            yaw,
+            color: CAR_COLORS[Math.floor(rng() * CAR_COLORS.length)],
+          });
+        }
       }
     }
   }
@@ -367,6 +385,9 @@ export function buildCityProps(
   if (carSpots.length && kit.has('car')) {
     group.add(kit.instances('car', carSpots, { castShadow: true, receiveShadow: true, tintPaint: true }));
   }
+  if (lowCarSpots.length && lowCars.length) {
+    group.add(kit.instances('car-lowpoly', lowCarSpots, { castShadow: true, receiveShadow: true }));
+  }
   // siepi, rovi e canneti non proiettano ombre: sono centinaia di migliaia di
   // triangoli e l'ombra di una siepe a bordo strada non si nota
   if (hedgeSpots.length && kit.has('hedge')) {
@@ -391,7 +412,7 @@ export function buildCityProps(
   return {
     group,
     trees: treeSpots.length,
-    cars: carSpots.length,
+    cars: carSpots.length + lowCarSpots.length,
     hedges: hedgeSpots.length,
     bushes: bushSpots.length,
     reeds: reedSpots.length,

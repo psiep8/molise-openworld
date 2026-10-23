@@ -729,3 +729,38 @@ quello che mancava davvero, cioè il margine di campagna.
 - I GLB restano fuori dal repo (licenza Free Commercial): il commit contiene
   codice, manifest **non** incluso, script e documenti. Su una macchina nuova si
   copia `public/citykit/` + `public/draco/` e si lancia `npm run kit -- --index`.
+
+## 23/10 — Piazza, targhe delle vie e auto low-poly
+
+Continuazione dello stesso passaggio. Il kit curato passa da 20 a **24 asset**
+(13 Realistic City + 7 scenery + 4 berline low-poly) e il paese guadagna tre
+cose che prima mancavano: un sagrato lastricato, i nomi delle strade e varietà
+nelle auto in sosta.
+
+### Cosa è cambiato
+
+- **Piazza davanti alla chiesa** (`src/world/piazza.ts`): 16 × 12 m (si restringe
+  a 13 × 10 o 10 × 8, o non si costruisce, se c'è una strada o un pendio forte),
+  drappeggiata sul DEM con UV metriche e materiale `plaza/paving`; cordolo in
+  granito sui lati aperti, due panchine. L'impronta va in `paved.ts` e da lì a
+  erba e vegetazione, così non ci crescono sopra; **non** entra nelle collisioni.
+  Senza kit non esiste: non c'è un fallback procedurale.
+- **Targhe con il nome della via** (`buildStreetNames`): nome OSM su targa bianca
+  con bordo blu disegnata su canvas, palo a bordo marciapiede, una per strada
+  costruita (max 2 omonime a 900 m), max 60. Funziona anche senza kit.
+- **Auto low-poly** (`car-lowpoly`, 4 varianti): il muso è a **+Z** — verificato
+  decodificando i GLB con il decodificatore Draco di three e leggendo i colori:
+  i fari rossi stanno a −Z. Quindi si parcheggiano con lo stesso yaw della
+  berlina fotorealistica, senza ipotesi. Scala ricalcolata sulla lunghezza vera
+  (4,3 m); il 45% delle auto oltre 150 m da casa è low-poly, vicino allo spawn
+  resta solo la fotorealistica.
+- Diagnostica: `window.__molise.kit` aggiunge `piazzas` (1 se il sagrato è stato
+  costruito, 0 se non c'era spazio).
+
+### Verifiche
+
+- `npx tsc --noEmit` ✅ pulito. `npm run kit -- --index` ✅ 24/24 indicizzati,
+  126 GLB non usati.
+- **`npm test`, build, browser, screenshot e fps NON eseguiti** su richiesta del
+  proprietario. Da guardare in gioco: piazza che si appoggia ai gradini, targhe
+  leggibili e non dentro i muri, auto low-poly con il muso nel verso giusto.

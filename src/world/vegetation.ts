@@ -6,6 +6,7 @@ import { mulberry32, pointInPolygon } from '../geo/geo';
 import type { BuildingIndex, OsmData, RoadIndex } from '../geo/osm';
 import { foliageSet, pbr } from '../gfx/textures';
 import { windTimeUniform } from '../gfx/wind';
+import { insidePaved, type PavedArea } from './paved';
 
 const TREE_KINDS = new Set(['wood', 'forest', 'scrub', 'orchard', 'park']);
 const FOLIAGE_COLORS = [0x8ba86a, 0x9cb477, 0xa8bd82, 0x7f9a5f, 0xb2c48e];
@@ -35,6 +36,7 @@ export function buildVegetation(
   roads: RoadIndex,
   buildings: BuildingIndex,
   renderer: THREE.WebGLRenderer,
+  paved: readonly PavedArea[] = [],
 ): { group: THREE.Group; count: number } {
   const rng = mulberry32(0x5eed);
   const placements: { x: number; y: number; z: number; s: number; rot: number; color: number; kind: TreeKind }[] = [];
@@ -51,6 +53,7 @@ export function buildVegetation(
     if (heights.slopeAt(px, pz) > 34) return false;
     if (roads.isOnRoad(px, pz, margin)) return false;
     if (buildings.hitsCircle(px, pz, 2.6)) return false;
+    if (insidePaved(px, pz, paved)) return false;
     const palette = kind === 'olive' ? OLIVE_COLORS : kind === 'cypress' ? CYPRESS_COLORS : FOLIAGE_COLORS;
     placements.push({
       x: px,

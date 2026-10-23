@@ -37,6 +37,8 @@ export type KitRole =
   | 'bench'
   | 'bin'
   | 'car'
+  /** berline low-poly: più varianti, tutte con il davanti a +Z */
+  | 'car-lowpoly'
   | 'boulder'
   /* vegetazione e pietre di campagna: modelli low-poly, ma a queste scale
    * (siepi, canneti, rovi, massi) la differenza di stile non si legge e la

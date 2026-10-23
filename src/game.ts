@@ -10,7 +10,15 @@ import { buildChurch } from './world/church';
 import { buildDryStoneWalls } from './world/dry-stone';
 import { buildPowerLines } from './world/power-lines';
 import { buildRoads, buildWater } from './world/roads';
-import { StreetLights, buildRoadDrainage, buildSigns, buildStreetProps } from './world/street-furniture';
+import {
+  StreetLights,
+  buildRoadDrainage,
+  buildSigns,
+  buildStreetNames,
+  buildStreetProps,
+} from './world/street-furniture';
+import { buildChurchPiazza } from './world/piazza';
+import type { PavedArea } from './world/paved';
 import { buildVegetation } from './world/vegetation';
 import { buildCityProps } from './world/city-props';
 import { loadCityKit, type CityKit } from './world/citykit';
@@ -135,7 +143,17 @@ export interface Diagnostics {
   clock: { day: number; minutes: number; label: string };
   venue: string | null;
   /** asset del city kit caricati e arredo piazzato (null se il kit manca) */
-  kit: { assets: number; trees: number; cars: number } | null;
+  kit: {
+    assets: number;
+    trees: number;
+    cars: number;
+    hedges: number;
+    bushes: number;
+    reeds: number;
+    rocks: number;
+    wrecks: number;
+    piazzas: number;
+  } | null;
   errorCount: number;
   weather: {
     enabled: boolean;
@@ -236,6 +254,8 @@ export class Game {
     rocks: number;
     wrecks: number;
   } = { trees: 0, cars: 0, hedges: 0, bushes: 0, reeds: 0, rocks: 0, wrecks: 0 };
+  /** Sagrati lastricati: erba e alberi devono starne fuori. */
+  private readonly pavedAreas: PavedArea[] = [];
   private nightFactor = 0;
   private roadsGroup?: THREE.Group;
   private lastWetness = -1;
@@ -351,6 +371,7 @@ export class Game {
       this.scene.add(buildWater(osm, heights, this.renderer));
 
       this.scene.add(buildSigns(osm, heights, this.buildingIndex, this.renderer));
+      this.scene.add(buildStreetNames(osm, heights, this.buildingIndex));
       this.scene.add(buildStreetProps(osm, heights, this.buildingIndex, this.renderer, this.kit, this.qualityLevel));
       this.scene.add(buildRoadDrainage(osm, heights));
       // la chiesa cerca un posto libero attorno al centro del paese; l'impronta
@@ -359,6 +380,15 @@ export class Game {
       const church = buildChurch(START, heights, this.roadIndex, this.buildingIndex, this.renderer);
       if (church) {
         this.scene.add(church.group);
+        // il sagrato si costruisce prima di registrare l'impronta della chiesa:
+        // così il controllo «non sopra un edificio» non trova la chiesa stessa
+        if (this.kit) {
+          const piazza = buildChurchPiazza(church, heights, this.roadIndex, this.buildingIndex, this.kit);
+          if (piazza) {
+            this.scene.add(piazza.group);
+            this.pavedAreas.push(piazza.area);
+          }
+        }
         this.buildingIndex.add(church.footprint);
       }
       this.scene.add(buildDryStoneWalls(osm, heights, this.roadIndex, this.buildingIndex, this.renderer));
@@ -370,7 +400,9 @@ export class Game {
 
       this.hud.setLoading(0.64, 'Pianto alberi e uliveti…');
       await nextFrame();
-      this.scene.add(buildVegetation(osm, heights, this.roadIndex, this.buildingIndex, this.renderer).group);
+      this.scene.add(
+        buildVegetation(osm, heights, this.roadIndex, this.buildingIndex, this.renderer, this.pavedAreas).group,
+      );
       // alberi di strada e auto in sosta del kit: solo dentro il paese e con un
       // tetto di istanze deciso dal preset (sono modelli fotorealistici, pesanti)
       if (this.kit) {
@@ -386,7 +418,7 @@ export class Game {
           wrecks: city.wrecks,
         };
       }
-      this.grass = new GrassField();
+      this.grass = new GrassField(this.pavedAreas);
       this.scene.add(this.grass.group);
 
       this.car.setSpec(getVehicle(loadVehicleId()));
@@ -2303,7 +2335,9 @@ export class Game {
       needs: { hunger: Math.round(this.needs.hunger), energy: Math.round(this.needs.energy), fun: Math.round(this.needs.fun) },
       clock: { day: this.gameDay, minutes: Math.floor(this.gameMinutes), label: formatGameClock(this.gameMinutes) },
       venue: this.venueOpen?.name ?? null,
-      kit: this.kit ? { assets: this.kit.count, ...this.cityProps } : null,
+      kit: this.kit
+        ? { assets: this.kit.count, ...this.cityProps, piazzas: this.pavedAreas.length }
+        : null,
       errorCount: this.errors.length,
       weather: this.realWeatherEnabled
         ? {

@@ -1,6 +1,7 @@
 import { distanceToSegment2, pointInPolygon } from '../geo/geo';
 import type { Heightfield } from '../geo/elevation';
 import type { BuildingIndex, RoadIndex } from '../geo/osm';
+import { insidePaved, pavedBounds, type PavedArea } from './paved';
 
 /**
  * Maschera locale del terreno per la vegetazione.
@@ -49,6 +50,7 @@ export class GroundMask {
     buildings: BuildingIndex,
     roadTolerance: number,
     buildingRadius: number,
+    paved: readonly PavedArea[] = [],
   ): void {
     const n = this.n;
     const ox = cx - this.radius;
@@ -106,6 +108,22 @@ export class GroundMask {
         }
       }
     });
+
+    // piazza e sagrato: lastre battute, l'erba non ci cresce sopra
+    for (const area of paved) {
+      const pb = pavedBounds(area);
+      const i0 = Math.max(0, Math.floor((pb.minX - ox) / CELL));
+      const i1 = Math.min(n - 1, Math.floor((pb.maxX - ox) / CELL));
+      const j0 = Math.max(0, Math.floor((pb.minZ - oz) / CELL));
+      const j1 = Math.min(n - 1, Math.floor((pb.maxZ - oz) / CELL));
+      for (let j = j0; j <= j1; j++) {
+        const pz = oz + (j + 0.5) * CELL;
+        for (let i = i0; i <= i1; i++) {
+          const px = ox + (i + 0.5) * CELL;
+          if (insidePaved(px, pz, [area])) blocked[j * n + i] = 1;
+        }
+      }
+    }
 
     // edifici: stessa regola di `hitsCircle`, ma testata solo sulle celle
     // dell'impronta invece di rifare la ricerca spaziale per ogni cella

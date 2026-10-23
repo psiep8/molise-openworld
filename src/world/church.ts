@@ -8,6 +8,8 @@ export interface Church {
   group: THREE.Group;
   /** Impronta da registrare in `BuildingIndex`, così alberi e giocatore la evitano. */
   footprint: Building;
+  /** Posizione e quota del sagrato: serve alla piazza (`piazza.ts`). */
+  spot: { x: number; z: number; yaw: number; floor: number };
 }
 
 /** Misure in metri, ricavate da una chiesa di paese molisana. */
@@ -291,6 +293,7 @@ export function buildChurch(
 
   return {
     group,
+    spot: { x, z, yaw, floor },
     footprint: {
       height: TOWER_H + BELL_H + CAP_H,
       points,

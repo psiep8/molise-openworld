@@ -377,6 +377,156 @@ function signTexture(kind: SignKind): THREE.CanvasTexture {
   return texture;
 }
 
+/**
+ * Targhe con il nome della via, dai nomi OSM.
+ *
+ * In un paese italiano il nome della strada è una targa bianca, bordo blu,
+ * lettere nere, montata su un palo o sul muro. Qui sta sul palo a bordo
+ * marciapiede, all'inizio del tratto costruito, una volta per nome e con
+ * almeno 900 m tra due targhe omonime (Via Roma esiste in ogni paese).
+ *
+ * Il nome è disegnato su canvas: nessun asset esterno e funziona anche senza
+ * kit. Se il nome OSM è vuoto o è solo un numero civico, la targa non si mette.
+ */
+export function buildStreetNames(
+  osm: OsmData,
+  heights: Heightfield,
+  buildings: BuildingIndex,
+): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'street-names';
+  const rng = mulberry32(0x6e21);
+  const placed: { x: number; z: number; yaw: number; name: string }[] = [];
+  const byName = new Map<string, { x: number; z: number }[]>();
+  const MAX = 60;
+
+  for (const road of osm.roads) {
+    if (placed.length >= MAX) break;
+    const name = road.name.trim();
+    if (!road.paved || road.width < 3.4 || name.length < 3) continue;
+    if (!/[a-zà-ù]/i.test(name)) continue;
+    const seen = byName.get(name) ?? [];
+    if (seen.length >= 2) continue;
+
+    for (let i = 1; i < road.points.length; i++) {
+      const a = road.points[i - 1];
+      const b = road.points[i];
+      const seg = Math.hypot(b.x - a.x, b.z - a.z);
+      if (seg < 1e-3) continue;
+      // solo dentro il costruito: in campagna una targa col nome della via
+      // provinciale non esiste
+      let built = false;
+      for (const bd of buildings.near(b.x, b.z)) {
+        if (
+          b.x > bd.bounds.minX - 30 &&
+          b.x < bd.bounds.maxX + 30 &&
+          b.z > bd.bounds.minZ - 30 &&
+          b.z < bd.bounds.maxZ + 30
+        ) {
+          built = true;
+          break;
+        }
+      }
+      if (!built) continue;
+
+      const tx = (b.x - a.x) / seg;
+      const tz = (b.z - a.z) / seg;
+      const side = rng() < 0.5 ? 1 : -1;
+      // 1,05 m oltre il ciglio: sul marciapiede, non in carreggiata
+      const x = b.x - tz * side * (road.width / 2 + 1.05);
+      const z = b.z + tx * side * (road.width / 2 + 1.05);
+      if (heights.slopeAt(x, z) > 16) continue;
+      if (buildings.hitsCircle(x, z, 0.6)) continue;
+      if (seen.some((s) => Math.hypot(s.x - x, s.z - z) < 900)) break;
+
+      // la faccia guarda la strada
+      const yaw = Math.atan2(tz * side, -tx * side);
+      placed.push({ x, z, yaw, name });
+      seen.push({ x, z });
+      byName.set(name, seen);
+      break;
+    }
+  }
+
+  if (placed.length === 0) return group;
+
+  const poleMat = new THREE.MeshStandardMaterial({ color: 0x8f979c, roughness: 0.5, metalness: 0.55 });
+  const poleGeo = new THREE.CylinderGeometry(0.032, 0.038, 2.55, 8);
+  poleGeo.translate(0, 1.275, 0);
+  const poles = new THREE.InstancedMesh(poleGeo, poleMat, placed.length);
+  poles.castShadow = true;
+  const backMat = new THREE.MeshStandardMaterial({ color: 0x7c8186, roughness: 0.55, metalness: 0.4 });
+  const backGeo = new THREE.BoxGeometry(1.26, 0.34, 0.03);
+  const backs = new THREE.InstancedMesh(backGeo, backMat, placed.length);
+  const plateGeo = new THREE.PlaneGeometry(1.2, 0.3);
+  const dummy = new THREE.Object3D();
+
+  placed.forEach((p, i) => {
+    const y = heights.heightAt(p.x, p.z);
+    dummy.position.set(p.x, y, p.z);
+    dummy.rotation.set(0, 0, 0);
+    dummy.scale.setScalar(1);
+    dummy.updateMatrix();
+    poles.setMatrixAt(i, dummy.matrix);
+
+    // normale della faccia, per staccare la targa dal palo
+    const nx = Math.sin(p.yaw);
+    const nz = Math.cos(p.yaw);
+    dummy.position.set(p.x + nx * 0.035, y + 2.4, p.z + nz * 0.035);
+    dummy.rotation.set(0, p.yaw, 0);
+    dummy.updateMatrix();
+    backs.setMatrixAt(i, dummy.matrix);
+
+    const plate = new THREE.Mesh(
+      plateGeo,
+      new THREE.MeshStandardMaterial({
+        map: streetNameTexture(p.name),
+        roughness: 0.62,
+        metalness: 0.05,
+        envMapIntensity: 0.5,
+      }),
+    );
+    plate.position.set(p.x + nx * 0.055, y + 2.4, p.z + nz * 0.055);
+    plate.rotation.y = p.yaw;
+    plate.castShadow = true;
+    group.add(plate);
+  });
+  poles.instanceMatrix.needsUpdate = true;
+  backs.instanceMatrix.needsUpdate = true;
+  group.add(poles, backs);
+  return group;
+}
+
+/** Targa bianca, bordo blu, nome della via: canvas 384 × 96. */
+function streetNameTexture(name: string): THREE.CanvasTexture {
+  const w = 384;
+  const h = 96;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('canvas 2d non disponibile');
+  ctx.fillStyle = '#f4f1e8';
+  ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = '#1f3d6b';
+  ctx.lineWidth = 7;
+  ctx.strokeRect(5, 5, w - 10, h - 10);
+  ctx.fillStyle = '#161616';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const label = name.toLocaleUpperCase('it-IT');
+  let size = 38;
+  do {
+    ctx.font = `bold ${size}px Arial Narrow, Arial, Helvetica, sans-serif`;
+    size -= 2;
+  } while (ctx.measureText(label).width > w - 40 && size > 16);
+  ctx.fillText(label, w / 2, h / 2 + 2);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
+}
+
 /** Panche e cestini nelle piazze: arredo minimo ma rompe il vuoto dei marciapiedi. */
 export function buildStreetProps(
   osm: OsmData,

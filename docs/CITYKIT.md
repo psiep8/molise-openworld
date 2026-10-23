@@ -15,7 +15,7 @@ Beach…): dentro un paese molisano fotorealistico si notano subito e farebbero
 peggio delle mesh procedurali. L'unico pack in **scala reale e PBR** è
 **Realistic City**, e il suo tier free contiene i pezzi che oggi sono più deboli.
 
-**20 asset in uso**, in due gruppi.
+**24 asset in uso**, in tre gruppi.
 
 ### 1.1 Realistic City (13 free, 12,4 MB)
 
@@ -55,18 +55,32 @@ Più modelli sullo stesso ruolo sono **varianti**: il motore ne sceglie una per
 istanza (`KitSpot.variant`), quindi tre tipi di masso restano una manciata di
 draw call.
 
-### 1.3 Cosa NON usiamo (e perché)
+### 1.3 Auto low-poly (4 free degli altri pack)
+
+Alternano le berline in sosta lontano dallo spawn. Il davanti è stato verificato
+decodificando i GLB: i fari rossi stanno a **−Z**, quindi il muso è a **+Z**,
+come la berlina del kit e come il codice di parcheggio già presume. Sono un solo
+ruolo (`car-lowpoly`) con quattro varianti; la scala è ricalcolata sulla
+lunghezza reale (4,3 m) perché i modelli sono più corti del vero.
+
+| Ruolo | Asset | Triangoli |
+| --- | --- | --- |
+| `car-lowpoly` | Paris Car 01 | 38.575 |
+| `car-lowpoly` | Family Sedan | 2.424 |
+| `car-lowpoly` | Pastel Sedan | 7.144 |
+| `car-lowpoly` | White Sports Convertible | 6.904 |
+
+Vicino a casa (150 m) resta solo la berlina fotorealistica: è lì che la si
+guarda da vicino. Oltre, il 45% delle auto in sosta è low-poly.
+
+### 1.4 Cosa NON usiamo (e perché)
 
 - **Case e negozi low-poly** (`farmhouse`, `general-store`, `two-story-house`,
   `ranch-house`, `deco-shopfront-row`…): le case di Palata hanno l'impronta OSM
   vera. Sostituirle con mesh finite significa inventare un altro paese; accanto
   alle facciate procedurali si vedrebbe subito lo stile diverso.
-- **Auto low-poly** (`family-sedan`, `paris-car-01`, `pastel-sedan`,
-  `white-sports-convertible`, `van-wav-ramp-01`): sono fatte per un low-poly, non
-  hanno parti separate (carrozzeria/vetri/fari) e il davanti non è verificabile
-  senza guardarle in gioco. La berlina fotorealistica resta l'unica auto in
-  sosta. Il relitto è l'eccezione: sta di traverso in un fosso, quindi non ha un
-  verso.
+- **Furgone** (`van-wav-ramp-01`) e **snowcat**: il primo ha proporzioni da
+  mezzo con rampa, il secondo non esiste in Molise. Restano fuori.
 - **Alberi low-poly** (`olive-tree`, `apple-tree`, `birch-tree`, `autumn-maple`,
   `lineside-pine`…): le chiome attuali sono card fotografiche con alpha e vento;
   un albero flat-shaded accanto si nota più di quanto aggiunga. `olive-tree` è
@@ -78,7 +92,7 @@ draw call.
 - **`realistic-brownstone-01`, office tower, canal, subway, sky dome**: free ma
   incoerenti con il posto.
 
-I **130 GLB restanti** presenti in `public/citykit/` non entrano nel manifest e
+I **126 GLB restanti** presenti in `public/citykit/` non entrano nel manifest e
 non vengono caricati: restano su disco se un giorno servono, senza costare né
 memoria video né draw call.
 
@@ -96,7 +110,9 @@ memoria video né draw call.
   repository, esattamente come le texture CC0 da 28 MB.
 - La chiave API è personale: non va committata né condivisa. `.env.local` è già
   ignorato da git.
-- Senza kit il gioco resta completo: tutto il codice ha un fallback procedurale.
+- Senza kit il gioco resta completo: strade, arredo e vegetazione hanno un
+  fallback procedurale. Fanno eccezione la piazza e le targhe del kit: senza GLB
+  non compaiono (le targhe delle vie sono procedurali e restano).
 
 ---
 
@@ -115,7 +131,7 @@ memoria video né draw call.
 
    ```bash
    npm run kit -- --list   # cosa è free nel pack (nessuna chiave)
-   npm run kit             # scarica i 20 asset + manifest + decodificatore Draco
+   npm run kit             # scarica i 24 asset + manifest + decodificatore Draco
    ```
 
    Non vuoi usare una chiave? Scarica a mano i file free dal sito (pulsante
@@ -156,7 +172,7 @@ piatta.
 | 12 | auto | Realistic Car Sedan 01 | [`realistic-car-sedan-01`](https://threejsassets.com/assets/realistic-car-sedan-01) | 718.416 |
 | 13 | masso | Realistic Rock Boulder 01 | [`realistic-rock-boulder-01`](https://threejsassets.com/assets/realistic-rock-boulder-01) | 509.252 |
 
-### Scenery (7 opzionali, ma senza loro metà dell'effetto svanisce)
+### Scenery e auto (11 opzionali, ma senza loro metà dell'effetto svanisce)
 
 | Ruolo | Asset | Slug / file |
 | --- | --- | --- |
@@ -167,6 +183,10 @@ piatta.
 | masso | Moraine Boulder | [`moraine-boulder`](https://threejsassets.com/assets/moraine-boulder) |
 | pietraia | Railway Rock Cluster | [`railway-rock-cluster`](https://threejsassets.com/assets/railway-rock-cluster) |
 | relitto | Wrecked Car | [`wrecked-car`](https://threejsassets.com/assets/wrecked-car) |
+| auto | Paris Car 01 | [`paris-car-01`](https://threejsassets.com/assets/paris-car-01) |
+| auto | Family Sedan | [`family-sedan`](https://threejsassets.com/assets/family-sedan) |
+| auto | Pastel Sedan | [`pastel-sedan`](https://threejsassets.com/assets/pastel-sedan) |
+| auto | White Sports Convertible | [`white-sports-convertible`](https://threejsassets.com/assets/white-sports-convertible) |
 
 Output:
 
@@ -174,7 +194,7 @@ Output:
 public/citykit/
   manifest.json        # ruolo, nome, categoria, triangoli, byte, sha256, licenza
   NOTICE.md            # provenienza + tabella asset
-  *.glb                # 20 modelli indicizzati (e gli altri, ignorati)
+  *.glb                # 24 modelli indicizzati (e gli altri, ignorati)
 public/draco/          # decodificatore Draco copiato da node_modules/three
 ```
 
@@ -204,7 +224,20 @@ sono anche più piccoli del vero: le scale sono decise a mano per ruolo.
 - **Alberi di strada e auto in sosta** (`src/world/city-props.ts`): alberi ogni
   ~26 m sul marciapiede dentro il paese, auto ogni ~28 m sulla fascia di sosta,
   nel senso di marcia, solo su strade larghe; tetti 0/10/22/32 alberi e
-  4/10/18/24 auto secondo il preset. Tutto deterministico e limitato a Palata.
+  4/10/18/24 auto secondo il preset. Oltre 150 m da casa il 45% delle auto è
+  low-poly (4 varianti, scala 4,3 m), sempre con il muso a +Z. Tutto
+  deterministico e limitato a Palata.
+- **Piazza** (`src/world/piazza.ts`): davanti alla facciata della chiesa, 16 × 12
+  m (si restringe a 13 × 10 o 10 × 8 se c'è una strada o un pendio forte, e non
+  si costruisce se non c'è spazio). È un piano drappeggiato sul DEM con UV
+  metriche (una mattonata ogni 12 m) e il materiale `plaza/paving`; cordolo in
+  `granite_kerb` sui lati aperti, due panchine ai lati. La sua impronta entra in
+  `paved.ts`, così erba e alberi non ci crescono sopra, ma non nelle collisioni:
+  si cammina sul sagrato.
+- **Targhe con il nome della via** (`street-furniture.ts`): dai nomi OSM, una per
+  strada costruita (max 2 omonime a 900 m di distanza), su palo a bordo
+  marciapiede, targa bianca con bordo blu disegnata su canvas. Max 60, nessun
+  asset esterno.
 - **Siepi** (`city-props.ts`): solo su strade asfaltate strette (3,2–6,4 m) e
   fuori dal paese, perché i muretti a secco occupano già le sterrate. Tratti di
   25–65 m intervallati da varchi, a 2,6–3,8 m dal bordo, con un rovo ogni ~6
@@ -217,15 +250,16 @@ sono anche più piccoli del vero: le scale sono decise a mano per ruolo.
 - **Relitto**: uno solo, su una strada di campagna tra 520 e 1700 m da casa,
   di traverso nel fosso. È l'unico modello low-poly "di strada": non ha un verso
   e quindi non si nota lo stile.
-- **Non piazzati di proposito**: semaforo, segnale, lampione, piazza, incrocio,
-  alberi da parco. Sono scaricati e pronti, ma un semaforo in un paese senza
-  semafori o un lampione urbano da 8 m al posto delle lanterne da 6,2 m
-  romperebbe la coerenza. Si attivano quando c'è un posto vero che li giustifica.
+- **Non piazzati di proposito**: semaforo, segnale, lampione, incrocio, alberi
+  da parco. Sono scaricati e pronti, ma un semaforo in un paese senza semafori
+  o un lampione urbano da 8 m al posto delle lanterne da 6,2 m romperebbe la
+  coerenza. Il materiale della piazza invece si usa, per il sagrato.
 
 Tutto è additivo: se `public/citykit/manifest.json` manca (macchina nuova,
 licenza non accettata, rete assente) il motore usa le mesh procedurali e non
 cambia nulla. Diagnostica: `window.__molise.kit` =
-`{ assets, trees, cars, hedges, bushes, reeds, rocks, wrecks }` o `null`.
+`{ assets, trees, cars, hedges, bushes, reeds, rocks, wrecks, piazzas }` o
+`null`.
 
 ### Personalizzare macchine, alberi e cartelli
 
@@ -259,9 +293,12 @@ cambia nulla. Diagnostica: `window.__molise.kit` =
 | Loader runtime (Draco, pivot, varianti, istanze) | ✅ fatto, `tsc` pulito |
 | Strade, marciapiedi, panchine, cestini, alberi, auto | ✅ integrati nel codice |
 | Siepi, rovi, canneti, pietre, relitto | ✅ integrati nel codice |
+| Piazza davanti alla chiesa | ✅ integrata nel codice |
+| Targhe con i nomi delle vie | ✅ integrate nel codice |
+| Auto low-poly in sosta | ✅ integrate (davanti a +Z verificato sui GLB) |
 | Verifica visiva e fps | ⏳ **non eseguita** (richiesta di salto test/browser) |
 
 Niente ✅ dove non c'è una prova: il codice compila e i test precedenti erano
 verdi, ma la resa a schermo e il costo in fps vanno guardati in gioco (in
-particolare la scala del relitto e dei massi, e le siepi che non devono entrare
-nelle case).
+particolare la scala del relitto e dei massi, le siepi che non devono entrare
+nelle case, e la piazza che deve appoggiarsi ai gradini della chiesa).

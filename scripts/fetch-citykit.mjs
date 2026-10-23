@@ -76,7 +76,19 @@ const SCENERY = [
   { slug: 'wrecked-car', role: 'wreck', name: 'Wrecked Car', note: 'relitto abbandonato fuori paese' },
 ];
 
-const CURATED = [...WANTED, ...SCENERY];
+/**
+ * Berline low-poly per alternare le auto in sosta: il davanti è a +Z (i fari
+ * rossi stanno a -Z), quindi si usano con lo stesso yaw della berlina del kit
+ * Realistic City. Sono varianti di un solo ruolo (`car-lowpoly`).
+ */
+const LOWPOLY_CARS = [
+  { slug: 'paris-car-01', role: 'car-lowpoly', name: 'Paris Car 01', note: 'utilitaria low-poly in sosta' },
+  { slug: 'family-sedan', role: 'car-lowpoly', name: 'Family Sedan', note: 'berlina low-poly in sosta' },
+  { slug: 'pastel-sedan', role: 'car-lowpoly', name: 'Pastel Sedan', note: 'berlina low-poly in sosta' },
+  { slug: 'white-sports-convertible', role: 'car-lowpoly', name: 'White Sports Convertible', note: 'due posti low-poly in sosta' },
+];
+
+const CURATED = [...WANTED, ...SCENERY, ...LOWPOLY_CARS];
 
 const args = process.argv.slice(2);
 const has = (flag) => args.includes(flag);
@@ -193,7 +205,7 @@ async function listFree() {
     console.log(`\n⚠ nel catalogo non risultano più free: ${missing.map((m) => m.slug).join(', ')}`);
   }
   console.log(
-    `\n${WANTED.length} asset del pack + ${SCENERY.length} modelli low-poly degli altri pack.` +
+    `\n${WANTED.length} asset del pack + ${SCENERY.length + LOWPOLY_CARS.length} modelli low-poly degli altri pack.` +
       `\nNessun file toccato (--list).\n`,
   );
 }
