@@ -359,6 +359,21 @@ registro vale quindi **fatto nel codice**, **da verificare a schermo**.
 | Asfalto bagnato guidato dal meteo: scurisce e lucida (roughness → 0,12) con la pioggia | fatto | uniform `uRoadWet`; `applyWetness` in `src/game.ts` lo pilota insieme alle altre superfici |
 | Chiusini in ghisa al centro corsia e caditoie a filo cordolo, lungo tutte le strade asfaltate | fatto | `buildRoadDrainage` in `src/world/street-furniture.ts`; due `InstancedMesh`, texture a cerchi concentrici |
 | Famiglie di facciata: intonaco chiaro, intonaco tinteggiato, pietra a vista, mattoni; una mesh per famiglia | fatto | `src/world/buildings.ts` (`facadeFamily`, `wallMats`), tinte dedicate in `STONE_COLORS`/`BRICK_COLORS` |
+
+### 23 ottobre 2026 — notte, sessione autonoma (satellite, erba)
+
+| Voce | Stato | Note |
+| --- | --- | --- |
+| Zoom satellite: z18 entro 500 m, z17 fino a 3200 m, z16 oltre | fatto | `zoomForDistance` in `src/world/imagery.ts`, test in `tests/imagery.test.ts`; commit `95fafd2` |
+| Titolo di debug con chunk caricati / texturizzati / a z17+ (`?imagery=debug`) | fatto | commit `e8c66e6` |
+| Erba: ciuffi più corti sul ciglio, pieni da 6 m in poi nei campi | fatto | `distanceFromRoad` in `src/geo/osm.ts`, uso in `src/world/grass.ts`; test in `tests/osm.test.ts`; commit `7bad2c0` |
+| Smoke test `npm run smoke` | **non superato** | 4 errori `ERR_NETWORK_CHANGED` nel primo run; run successivi bloccati/timeout con SwiftShader (~2 fps) |
+
+Da verificare a schermo: il bordo dell'erba lungo le strade e la nitidezza z17/z18
+a Palata. Non ancora fatti: marciapiedi con cordolo (il codice ha già cordolo e
+interruzioni agli incroci), strisce e stop solo agli incroci reali, pali della luce
+con pozze di luce, selettore meteo, luce del giorno. Il `sunIntensity` attuale
+(`applyAtmosphere`, fattore 3,0) è da rivedere solo a schermo.
 | Texture PBR CC0 nuove: `stonewall` (rustic_stone_wall), `brick` (worn_brick_wall), `plaster2` (painted_plaster_wall) | fatto | `scripts/fetch-textures.mjs` + `public/textures/ATTRIBUTION.md` |
 | Ombre delle nuvole sul terreno: rumore largo che scorre col vento, pilotato dalla copertura nuvolosa diurna | fatto | `setCloudShadow` in `src/world/terrain.ts`, chiamata da `applyAtmosphere` |
 | Alberi per specie: ulivi negli uliveti (`orchard`), cipressi nei filari e sparsi nei boschi, latifoglie altrove | fatto | `src/world/vegetation.ts`; tre insiemi di istanze, vento condiviso anche per i cipressi |
