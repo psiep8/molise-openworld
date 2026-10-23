@@ -31,16 +31,15 @@ const TILE = 256;
 /**
  * Zoom satellite in base alla distanza dal giocatore.
  *
- * z17 ≈ 0,9 m/px: si leggono tetti, uliveti e muretti a secco.
- * z16 ≈ 1,8 m/px: è il fondo scala utile per i campi lontani.
+ * z18 ≈ 0,45 m/px: campo da calcio e campo da tennis si leggono (vicino).
+ * z17 ≈ 0,9 m/px: tetti, uliveti e muretti a secco (medio raggio).
+ * z16 ≈ 1,8 m/px: fondo scala per i campi lontani.
  *
- * z18 non si usa: un chunk è largo 912 m e a z18 servirebbero ~100 tile e una
- * canvas da 2432 px, che viene comunque tagliata a 2048. Il guadagno è minimo
- * e lo streaming non riesce a texturizzare i chunk lontani (era il motivo per
- * cui i campi all'orizzonte restavano verdi e sfocati).
+ * Il tetto reale lo impone il preset (`maxSatelliteZoom` in gfx/quality.ts).
  */
 export function zoomForDistance(distance: number): number {
-  if (distance <= 900) return 17;
+  if (distance <= 500) return 18;
+  if (distance <= 3200) return 17;
   return 16;
 }
 

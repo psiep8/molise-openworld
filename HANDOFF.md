@@ -624,3 +624,10 @@ lavoro sulla grafica.
 Verifiche di questo passaggio: `npm test` 155/155 in 14 file, `npm run build` ok.
 
 
+
+## 23/10 — Satellite: zoom ripristinato
+
+- `zoomForDistance` in `src/world/imagery.ts`: z18 entro 500 m, z17 fino a 3200 m, z16 oltre. Il tetto reale resta `maxSatelliteZoom` del preset.
+- Nuovo test `tests/imagery.test.ts`.
+- Stato: test satellite e tsc verdi. Smoke non eseguito (interrotto su richiesta). Browser: il dev server è registrato nel pannello, verifica visiva da fare.
+- Ancora da fare della priorità 1: patch, ortofoto locale, debug imagery, dettaglio pitch OSM.
