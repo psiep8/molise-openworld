@@ -394,10 +394,12 @@ export class Game {
       this.hud.hideLoading();
       this.loaded = true;
 
-      const autostart = new URLSearchParams(window.location.search).get('autostart');
+      const params = new URLSearchParams(window.location.search);
+      const autostart = params.get('autostart');
       if (autostart === 'walk' || autostart === 'drive') {
         this.start(autostart);
       }
+      if (params.get('imagery') === 'debug') this.startImageryDebug();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.errors.push(message);
@@ -1809,6 +1811,15 @@ export class Game {
   // -------------------------------------------------------------------------
   // stato di gioco
   // -------------------------------------------------------------------------
+  /** Diagnostica satellite: con ?imagery=debug mostra nel titolo quanti chunk hanno texture e quanti sono a z17+. */
+  private startImageryDebug(): void {
+    window.setInterval(() => {
+      const t = this.terrain;
+      if (!t) return;
+      document.title = `Molise · chunk ${t.loadedChunks} · texture ${t.texturedChunks} · z17+ ${t.detailedChunks}`;
+    }, 1000);
+  }
+
   start(mode: Mode): void {
     if (this.running) return;
     if (!this.loaded) {
