@@ -12,6 +12,8 @@ import { buildPowerLines } from './world/power-lines';
 import { buildRoads, buildWater } from './world/roads';
 import { StreetLights, buildRoadDrainage, buildSigns, buildStreetProps } from './world/street-furniture';
 import { buildVegetation } from './world/vegetation';
+import { buildCityProps } from './world/city-props';
+import { loadCityKit, type CityKit } from './world/citykit';
 import { DEFAULT_LIGHTING, DEFAULT_SKY, DEFAULT_SUN, createSky, type SkyRig } from './world/sky';
 import { CloudLayer } from './world/clouds';
 import { Precipitation } from './world/precipitation';
@@ -132,6 +134,8 @@ export interface Diagnostics {
   needs: { hunger: number; energy: number; fun: number };
   clock: { day: number; minutes: number; label: string };
   venue: string | null;
+  /** asset del city kit caricati e arredo piazzato (null se il kit manca) */
+  kit: { assets: number; trees: number; cars: number } | null;
   errorCount: number;
   weather: {
     enabled: boolean;
@@ -222,6 +226,8 @@ export class Game {
   private precipitation!: Precipitation;
   private grass?: GrassField;
   private streetLights?: StreetLights;
+  private kit: CityKit | null = null;
+  private cityProps: { trees: number; cars: number } = { trees: 0, cars: 0 };
   private nightFactor = 0;
   private roadsGroup?: THREE.Group;
   private lastWetness = -1;
@@ -307,9 +313,20 @@ export class Game {
     try {
       const base = `${import.meta.env.BASE_URL}geo/`;
       this.hud.setLoading(0.03, 'Leggo la mappa del Molise…');
-      const [heights, osm] = await Promise.all([loadHeightfield(base), loadOsm(base)]);
+      // il kit si carica in parallelo alla mappa: se i file mancano (licenza non
+      // scaricata, macchina nuova) il gioco parte lo stesso con le mesh procedurali
+      const kitPromise = loadCityKit(
+        `${import.meta.env.BASE_URL}citykit/`,
+        `${import.meta.env.BASE_URL}draco/`,
+        this.renderer.capabilities.getMaxAnisotropy(),
+      ).catch((error) => {
+        console.warn('city kit non caricato', error);
+        return null;
+      });
+      const [heights, osm, kit] = await Promise.all([loadHeightfield(base), loadOsm(base), kitPromise]);
       this.heights = heights;
       this.osm = osm;
+      this.kit = kit;
       this.hud.setLoading(0.32, 'Disegno strade, torrenti e paesi…');
       await nextFrame();
 
@@ -318,7 +335,7 @@ export class Game {
       this.roadGraph = buildRoadGraph(osm.roads);
       this.ensureHome();
       this.populateVehicles();
-      const streets = buildRoads(osm, heights, this.renderer, this.roadIndex, this.buildingIndex);
+      const streets = buildRoads(osm, heights, this.renderer, this.roadIndex, this.buildingIndex, this.kit);
       this.roadsGroup = streets.group;
       this.scene.add(this.roadsGroup);
       this.streetLights = new StreetLights(streets.lamps, heights, this.renderer);
@@ -326,7 +343,7 @@ export class Game {
       this.scene.add(buildWater(osm, heights, this.renderer));
 
       this.scene.add(buildSigns(osm, heights, this.buildingIndex, this.renderer));
-      this.scene.add(buildStreetProps(osm, heights, this.buildingIndex, this.renderer));
+      this.scene.add(buildStreetProps(osm, heights, this.buildingIndex, this.renderer, this.kit, this.qualityLevel));
       this.scene.add(buildRoadDrainage(osm, heights));
       // la chiesa cerca un posto libero attorno al centro del paese; l'impronta
       // entra nell'indice prima di alberi, cespugli ed erba, così nessuno ci
@@ -346,6 +363,13 @@ export class Game {
       this.hud.setLoading(0.64, 'Pianto alberi e uliveti…');
       await nextFrame();
       this.scene.add(buildVegetation(osm, heights, this.roadIndex, this.buildingIndex, this.renderer).group);
+      // alberi di strada e auto in sosta del kit: solo dentro il paese e con un
+      // tetto di istanze deciso dal preset (sono modelli fotorealistici, pesanti)
+      if (this.kit) {
+        const city = buildCityProps(osm, heights, this.roadIndex, this.buildingIndex, this.kit, this.qualityLevel);
+        this.scene.add(city.group);
+        this.cityProps = { trees: city.trees, cars: city.cars };
+      }
       this.grass = new GrassField();
       this.scene.add(this.grass.group);
 
@@ -2263,6 +2287,7 @@ export class Game {
       needs: { hunger: Math.round(this.needs.hunger), energy: Math.round(this.needs.energy), fun: Math.round(this.needs.fun) },
       clock: { day: this.gameDay, minutes: Math.floor(this.gameMinutes), label: formatGameClock(this.gameMinutes) },
       venue: this.venueOpen?.name ?? null,
+      kit: this.kit ? { assets: this.kit.count, ...this.cityProps } : null,
       errorCount: this.errors.length,
       weather: this.realWeatherEnabled
         ? {

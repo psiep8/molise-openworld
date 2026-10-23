@@ -627,6 +627,54 @@ Verifiche di questo passaggio: `npm test` 155/155 in 14 file, `npm run build` ok
 
 
 
+## 23/10 — City kit threejsassets: pipeline pronta, asset in attesa
+
+Il proprietario ha chiesto di portare nel gioco gli asset free di
+<https://threejsassets.com> per rendere credibili strade, marciapiedi,
+vegetazione e veicoli. Censimento del catalogo pubblico: **2.288 asset, 937 nel
+tier free**, quasi tutti low-poly stilizzati; l'unico pack fotorealistico in
+scala reale è **Realistic City**, con **18 asset free**, 13 dei quali utili a
+Palata. Dettagli e tabella ruoli: `docs/CITYKIT.md`.
+
+Fatto:
+
+- `scripts/fetch-citykit.mjs` + `npm run kit`: scarica i 13 GLB con l'API keyed
+  ufficiale (`THREEJSASSETS_KEY` in `.env.local`), una richiesta alla volta,
+  verifica il magic `glTF`, calcola sha256 e scrive
+  `public/citykit/manifest.json` + `NOTICE.md`. Copia anche il decodificatore
+  Draco da `node_modules/three` in `public/draco/`.
+- `--list` (catalogo, senza chiave) e `--index` (GLB scaricati a mano) verificati.
+- `public/citykit/` e `public/draco/` in `.gitignore`: la Free Commercial License
+  consente l'uso nei prodotti ma **vieta la ridistribuzione dei file**, quindi
+  niente GLB nel repo (stessa regola delle texture CC0 da 28 MB).
+
+Fatto dopo il download dei 13 GLB (23/10, 13/13 indicizzati):
+
+- `src/world/citykit.ts`: loader Draco, **normalizzazione del pivot** (i GLB del
+  pack hanno il pivot al centro del bounding box, non a terra), parti
+  geometria+materiale e istanziazione con tinta per istanza.
+- `src/world/roads.ts`: materiali PBR del kit su asfalto (`asphalt_slab`),
+  lastre del marciapiede (`footway_flags`) e granito del cordolo
+  (`granite_kerb`), con marciapiede e cordolo separati in due mesh. UV in metri,
+  repeat 0,55 × 0,5; vertex color bianco; bagnatura meteo mantenuta.
+- `src/world/street-furniture.ts`: panchine e cestini reali al posto delle
+  scatole, con tetto per preset (21k triangoli l'una).
+- `src/world/city-props.ts`: alberi di strada ogni ~26 m sul marciapiede e
+  berline in sosta ogni ~28 m nel senso di marcia, tinte da una palette; solo
+  dentro Palata e con tetti 0/10/22/32 alberi e 4/10/18/24 auto per preset.
+- Diagnostica: `window.__molise.kit = { assets, trees, cars }`.
+
+Non piazzati di proposito: semaforo, segnale, lampione, masso, piazza, incrocio
+(scaricati, ma fuori contesto o da tarare). Il veicolo del giocatore resta
+procedurale: il kit fornisce solo la berlina da sosta.
+
+Verifiche di questo passaggio: `npx tsc --noEmit` ✅, `npm test` **171/171** ✅ in
+18 file, `npm run build` ✅, `--list` e `--index` ✅, chiave non valida → errore
+leggibile ed exit 1 ✅. **Verifica visiva/fps non eseguita**: su richiesta, il
+proprietario ha chiesto di non lanciare test/browser. Da fare in gioco:
+controllare che le auto non affondino (y = quota DEM + roadLift), che gli alberi
+stiano sul marciapiede e che il piano stradale non sia slittato.
+
 ## 23/10 — Satellite: zoom ripristinato
 
 - `zoomForDistance` in `src/world/imagery.ts`: z18 entro 500 m, z17 fino a 3200 m, z16 oltre. Il tetto reale resta `maxSatelliteZoom` del preset.

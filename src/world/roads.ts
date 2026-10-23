@@ -5,6 +5,7 @@ import { registerScroll } from '../gfx/wind';
 import type { Heightfield } from '../geo/elevation';
 import { clamp, hashInt, type Pt } from '../geo/geo';
 import { CURB_HEIGHT, roadLift, type BuildingIndex, type OsmData, type RoadIndex } from '../geo/osm';
+import type { CityKit } from './citykit';
 
 interface RibbonArrays {
   positions: number[];
@@ -474,17 +475,27 @@ export function buildRoads(
   renderer: THREE.WebGLRenderer,
   roadIndex?: RoadIndex,
   buildings?: BuildingIndex,
+  kit?: CityKit | null,
 ): { group: THREE.Group; lamps: { x: number; z: number; yaw: number }[] } {
   const group = new THREE.Group();
   group.name = 'roads';
   const asphalt = emptyRibbon();
   const dirt = emptyRibbon();
-  const pavement = emptyRibbon();
+  // marciapiede e cordolo separati: il kit ha una texture per le lastre e una
+  // per il granito del cordolo, e vanno dosate con repeat diversi
+  const walkway = emptyRibbon();
+  const kerb = emptyRibbon();
   const markings = emptyRibbon();
   const asphaltColor = new THREE.Color(0xffffff);
   const dirtColor = new THREE.Color(0xf6efe6);
-  const pavementColor = new THREE.Color(0x9c9a92);
-  const curbColor = new THREE.Color(0xd9d6cc);
+  const kitWalkMat = kit?.material('sidewalk', 'footway_flags', { repeat: [0.55, 0.5], white: true }) ?? null;
+  const kitKerbMat = kit?.material('sidewalk', 'granite_kerb', { repeat: [1, 2], white: true }) ?? null;
+  const kitAsphaltMat =
+    kit?.material('road-surface', 'asphalt_slab', { repeat: [0.55, 0.5], white: true, wet: true }) ?? null;
+  // con le texture del kit il colore per vertice deve restare bianco: la tinta
+  // arriva dalla foto, non da un secondo colore moltiplicato sopra
+  const pavementColor = new THREE.Color(kitWalkMat ? 0xffffff : 0x9c9a92);
+  const curbColor = new THREE.Color(kitKerbMat ? 0xffffff : 0xd9d6cc);
   const markingColor = new THREE.Color(0xf4f2e8);
   /** punti in cui piantare un lampione: bordo strada dentro/attorno al paese */
   const lamps: { x: number; z: number; yaw: number }[] = [];
@@ -539,10 +550,10 @@ export function buildRoads(
     for (const side of [-1, 1]) {
       // cordolo: fascia chiara in cima al rialzo, sempre continua lungo il bordo
       const curbLine = offsetPolyline(pts, side * (road.width / 2 + curbWidth / 2));
-      pushRibbon(pavement, curbLine, curbWidth, curbTop, curbColor, heights, 1);
+      pushRibbon(kerb, curbLine, curbWidth, curbTop, curbColor, heights, 1);
       // faccia verticale del cordolo, a filo dell'asfalto
       pushCurbWall(
-        pavement,
+        kerb,
         offsetPolyline(pts, side * (road.width / 2 + 0.005)),
         lift,
         lift + CURB_HEIGHT,
@@ -553,10 +564,10 @@ export function buildRoads(
       );
       // marciapiede accostato al cordolo, interrotto solo agli incroci veri
       const walkLine = offsetPolyline(pts, side * (road.width / 2 + curbWidth + walkWidth / 2));
-      pushRuns(pavement, walkLine, walkWidth, walkLift, pavementColor, heights, blockedWalk);
+      pushRuns(walkway, walkLine, walkWidth, walkLift, pavementColor, heights, blockedWalk);
       // bordo esterno del marciapiede: chiude il nastro sul lato verso il prato
       pushCurbWall(
-        pavement,
+        kerb,
         offsetPolyline(pts, side * (road.width / 2 + curbWidth + walkWidth)),
         0,
         walkLift,
@@ -629,7 +640,17 @@ export function buildRoads(
   // un tile ogni ~3 m: le UV dei nastri scorrono già in metri (6 m per tile)
   const asphaltPbr = pbr(renderer, 'asphalt', { repeat: 2, normal: true, rough: true });
   const dirtPbr = pbr(renderer, 'gravel', { repeat: 2, normal: true, rough: true });
-  const asphaltMat = new THREE.MeshStandardMaterial({
+  if (kitAsphaltMat) {
+    kitAsphaltMat.vertexColors = true;
+    kitAsphaltMat.side = THREE.DoubleSide;
+    kitAsphaltMat.envMapIntensity = 0.55;
+    kitAsphaltMat.polygonOffset = true;
+    kitAsphaltMat.polygonOffsetFactor = -2;
+    kitAsphaltMat.polygonOffsetUnits = -2;
+    kitAsphaltMat.normalScale = new THREE.Vector2(0.85, 0.85);
+    kitAsphaltMat.needsUpdate = true;
+  }
+  const asphaltMat = kitAsphaltMat ?? new THREE.MeshStandardMaterial({
     // la texture CC0 è chiara (serve a mostrare la grana): la tinta scura la dà
     // il materiale, altrimenti l'asfalto sembra cemento chiaro
     color: 0x8b8f92,
@@ -644,7 +665,7 @@ export function buildRoads(
     polygonOffsetFactor: -2,
     polygonOffsetUnits: -2,
   });
-  applyRoadWear(asphaltMat);
+  if (!kitAsphaltMat) applyRoadWear(asphaltMat);
   const dirtMat = new THREE.MeshStandardMaterial({
     color: 0xb9a68a,
     vertexColors: true,
@@ -659,18 +680,37 @@ export function buildRoads(
   });
   // marciapiedi e cordoli in cemento: tinta quasi bianca, colore dalla texture
   const concretePbr = pbr(renderer, 'concrete', { repeat: 2, normal: true, rough: true });
-  const pavementMat = new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    ...concretePbr,
-    normalScale: new THREE.Vector2(0.7, 0.7),
-    roughness: 1,
-    metalness: 0,
-    envMapIntensity: 0.45,
-    side: THREE.DoubleSide,
-    polygonOffset: true,
-    polygonOffsetFactor: -3,
-    polygonOffsetUnits: -3,
-  });
+  const fallbackPavement = (): THREE.MeshStandardMaterial =>
+    new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      ...concretePbr,
+      normalScale: new THREE.Vector2(0.7, 0.7),
+      roughness: 1,
+      metalness: 0,
+      envMapIntensity: 0.45,
+      side: THREE.DoubleSide,
+      polygonOffset: true,
+      polygonOffsetFactor: -3,
+      polygonOffsetUnits: -3,
+    });
+  const pavementMat = kitWalkMat ?? fallbackPavement();
+  const kerbMat = kitKerbMat ?? fallbackPavement();
+  if (kitWalkMat) {
+    kitWalkMat.vertexColors = true;
+    kitWalkMat.side = THREE.DoubleSide;
+    kitWalkMat.polygonOffset = true;
+    kitWalkMat.polygonOffsetFactor = -3;
+    kitWalkMat.polygonOffsetUnits = -3;
+    kitWalkMat.needsUpdate = true;
+  }
+  if (kitKerbMat) {
+    kitKerbMat.vertexColors = true;
+    kitKerbMat.side = THREE.DoubleSide;
+    kitKerbMat.polygonOffset = true;
+    kitKerbMat.polygonOffsetFactor = -3;
+    kitKerbMat.polygonOffsetUnits = -3;
+    kitKerbMat.needsUpdate = true;
+  }
 
   if (asphalt.indices.length) {
     const mesh = new THREE.Mesh(toGeometry(asphalt), asphaltMat);
@@ -684,9 +724,15 @@ export function buildRoads(
     mesh.receiveShadow = true;
     group.add(mesh);
   }
-  if (pavement.indices.length) {
-    const mesh = new THREE.Mesh(toGeometry(pavement), pavementMat);
+  if (walkway.indices.length) {
+    const mesh = new THREE.Mesh(toGeometry(walkway), pavementMat);
     mesh.name = 'sidewalks';
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+  if (kerb.indices.length) {
+    const mesh = new THREE.Mesh(toGeometry(kerb), kerbMat);
+    mesh.name = 'curbs';
     mesh.receiveShadow = true;
     group.add(mesh);
   }

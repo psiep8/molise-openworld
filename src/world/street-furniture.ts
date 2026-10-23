@@ -4,6 +4,8 @@ import type { Heightfield } from '../geo/elevation';
 import { clamp, distanceToSegment2, mulberry32, type Pt } from '../geo/geo';
 import type { BuildingIndex, OsmData } from '../geo/osm';
 import { pbr } from '../gfx/textures';
+import type { CityKit } from './citykit';
+import type { QualityLevel } from '../gfx/quality';
 
 /** Punto di impianto di un lampione: `yaw` punta il braccio verso la strada. */
 export interface LampSpot {
@@ -381,11 +383,13 @@ export function buildStreetProps(
   heights: Heightfield,
   buildings: BuildingIndex,
   renderer: THREE.WebGLRenderer,
+  kit?: CityKit | null,
+  quality: QualityLevel = 'high',
 ): THREE.Group {
   const group = new THREE.Group();
   group.name = 'street-props';
   const rng = mulberry32(0x2b71);
-  const benches: THREE.BufferGeometry[] = [];
+  const benches: { x: number; y: number; z: number; rot: number }[] = [];
   let placed = 0;
 
   // Panche solo lungo le strade asfaltate, davanti a una casa e rivolte verso
@@ -456,33 +460,68 @@ export function buildStreetProps(
     const ux = -best.nx;
     const uz = -best.nz;
     const rot = Math.atan2(ux, uz);
-    // doghe della seduta + schienale, ferro battuto per le gambe
-    const wood = new THREE.Color(0x8a5f37);
-    const iron = new THREE.Color(0x2c3033);
-    const seat = new THREE.BoxGeometry(1.55, 0.07, 0.46).toNonIndexed();
-    seat.rotateY(rot);
-    seat.translate(x, y + 0.45, z);
-    setColor(seat, wood);
-    benches.push(seat);
-    const back = new THREE.BoxGeometry(1.55, 0.42, 0.06).toNonIndexed();
-    back.rotateY(rot);
-    back.translate(x - ux * 0.2, y + 0.68, z - uz * 0.2);
-    setColor(back, wood);
-    benches.push(back);
-    for (const side of [-0.62, 0.62]) {
-      const leg = new THREE.BoxGeometry(0.07, 0.45, 0.5).toNonIndexed();
-      leg.rotateY(rot);
-      // le gambe stanno agli estremi della seduta, lungo l'asse lungo
-      leg.translate(x + Math.cos(rot) * side, y + 0.22, z - Math.sin(rot) * side);
-      setColor(leg, iron);
-      benches.push(leg);
-    }
+    benches.push({ x, y, z, rot });
     placed++;
   }
 
   if (benches.length === 0) return group;
-  const merged = mergeGeometries(benches, false);
-  for (const g of benches) g.dispose();
+
+  // Con il kit: panchine reali (doghe, ghisa, vite) e cestini accanto a una
+  // panchina su tre. Restano istanziati, quindi il costo è per parte, non per
+  // panchina.
+  if (kit?.has('bench')) {
+    // panchina del kit: 21k triangoli l'una. Il tetto per preset evita che un
+    // paese con 90 case diventi 1,9 milioni di triangoli solo di panchine.
+    const limit: Record<QualityLevel, number> = { low: 6, medium: 12, high: 24, ultra: 32 };
+    const visible = benches.slice(0, limit[quality]);
+    group.add(
+      kit.instances(
+        'bench',
+        visible.map((b) => ({ x: b.x, y: b.y, z: b.z, yaw: b.rot })),
+        { castShadow: true },
+      ),
+    );
+    if (kit.has('bin')) {
+      const bins = visible
+        .filter((_, i) => i % 3 === 0)
+        .map((b) => {
+          const x = b.x + Math.cos(b.rot) * 1.15;
+          const z = b.z - Math.sin(b.rot) * 1.15;
+          return { x, y: heights.heightAt(x, z), z, yaw: b.rot };
+        })
+        .filter((b) => !buildings.hitsCircle(b.x, b.z, 0.55) && heights.slopeAt(b.x, b.z) <= 14);
+      if (bins.length) group.add(kit.instances('bin', bins, { castShadow: true }));
+    }
+    return group;
+  }
+
+  // Fallback procedurale (kit assente): doghe a scatole e ferro per le gambe.
+  const wood = new THREE.Color(0x8a5f37);
+  const iron = new THREE.Color(0x2c3033);
+  const parts: THREE.BufferGeometry[] = [];
+  for (const b of benches) {
+    const ux = Math.sin(b.rot);
+    const uz = Math.cos(b.rot);
+    const seat = new THREE.BoxGeometry(1.55, 0.07, 0.46).toNonIndexed();
+    seat.rotateY(b.rot);
+    seat.translate(b.x, b.y + 0.45, b.z);
+    setColor(seat, wood);
+    parts.push(seat);
+    const back = new THREE.BoxGeometry(1.55, 0.42, 0.06).toNonIndexed();
+    back.rotateY(b.rot);
+    back.translate(b.x - ux * 0.2, b.y + 0.68, b.z - uz * 0.2);
+    setColor(back, wood);
+    parts.push(back);
+    for (const side of [-0.62, 0.62]) {
+      const leg = new THREE.BoxGeometry(0.07, 0.45, 0.5).toNonIndexed();
+      leg.rotateY(b.rot);
+      leg.translate(b.x + Math.cos(b.rot) * side, b.y + 0.22, b.z - Math.sin(b.rot) * side);
+      setColor(leg, iron);
+      parts.push(leg);
+    }
+  }
+  const merged = mergeGeometries(parts, false);
+  for (const g of parts) g.dispose();
   if (!merged) return group;
   const mat = new THREE.MeshStandardMaterial({
     vertexColors: true,

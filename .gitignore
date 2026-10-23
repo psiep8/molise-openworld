@@ -17,3 +17,8 @@ debug-drive.mjs
 
 # catture di sviluppo (non versionate)
 captures/
+
+# city kit threejsassets: licenza Free Commercial, vietata la ridistribuzione
+# dei file → restano fuori dal repo, si rigenerano con `npm run kit`
+public/citykit/
+public/draco/
