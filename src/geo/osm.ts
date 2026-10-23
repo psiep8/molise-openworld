@@ -196,17 +196,40 @@ export async function loadOsm(base = './geo/'): Promise<OsmData> {
   };
 }
 
+/**
+ * Segmento stradale indicizzato.
+ *
+ * L'AABB è già gonfiato della semilarghezza: le query possono scartare un
+ * segmento con quattro confronti prima di calcolare la distanza vera. In un
+ * centro storico la griglia contiene centinaia di segmenti per cella e questo
+ * scarto è la differenza fra 6 secondi e 40 ms di ricostruzione dell'erba.
+ */
+interface RoadSegment {
+  id: number;
+  ax: number;
+  az: number;
+  bx: number;
+  bz: number;
+  w: number;
+  lift: number;
+  paved: boolean;
+  walk: number;
+  road: number;
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
 /** Indice spaziale delle strade: serve alla fisica (on/off-road) e allo spawn. */
 export class RoadIndex {
   private readonly cell = 140;
-  private readonly grid = new Map<
-    number,
-    { ax: number; az: number; bx: number; bz: number; w: number; lift: number; paved: boolean; walk: number; road: number }[]
-  >();
+  private readonly grid = new Map<number, RoadSegment[]>();
   private readonly roads: Road[];
 
   constructor(roads: Road[]) {
     this.roads = roads;
+    let nextId = 0;
     for (const [index, road] of roads.entries()) {
       const half = road.width / 2;
       const lift = roadLift(index, road.paved);
@@ -214,11 +237,26 @@ export class RoadIndex {
       for (let i = 1; i < road.points.length; i++) {
         const a = road.points[i - 1];
         const b = road.points[i];
-        const seg = { ax: a.x, az: a.z, bx: b.x, bz: b.z, w: half, lift, paved: road.paved, walk, road: index };
         const minX = Math.min(a.x, b.x) - half;
         const maxX = Math.max(a.x, b.x) + half;
         const minZ = Math.min(a.z, b.z) - half;
         const maxZ = Math.max(a.z, b.z) + half;
+        const seg: RoadSegment = {
+          id: nextId++,
+          ax: a.x,
+          az: a.z,
+          bx: b.x,
+          bz: b.z,
+          w: half,
+          lift,
+          paved: road.paved,
+          walk,
+          road: index,
+          minX,
+          maxX,
+          minZ,
+          maxZ,
+        };
         for (let cx = Math.floor(minX / this.cell); cx <= Math.floor(maxX / this.cell); cx++) {
           for (let cz = Math.floor(minZ / this.cell); cz <= Math.floor(maxZ / this.cell); cz++) {
             const key = this.key(cx, cz);
@@ -232,6 +270,86 @@ export class RoadIndex {
         }
       }
     }
+  }
+
+  /**
+   * Visita una volta sola i segmenti che possono stare entro `radius` dal
+   * punto. La griglia duplica i segmenti su più celle, quindi il `Set` evita
+   * di contarli (e campionarli) due volte.
+   */
+  forEachSegmentNear(
+    x: number,
+    z: number,
+    radius: number,
+    visit: (segment: RoadSegment) => void,
+  ): void {
+    const seen = new Set<number>();
+    const cx0 = Math.floor((x - radius) / this.cell);
+    const cx1 = Math.floor((x + radius) / this.cell);
+    const cz0 = Math.floor((z - radius) / this.cell);
+    const cz1 = Math.floor((z + radius) / this.cell);
+    for (let cx = cx0; cx <= cx1; cx++) {
+      for (let cz = cz0; cz <= cz1; cz++) {
+        const list = this.grid.get(this.key(cx, cz));
+        if (!list) continue;
+        for (const s of list) {
+          if (seen.has(s.id)) continue;
+          seen.add(s.id);
+          if (
+            s.maxX < x - radius ||
+            s.minX > x + radius ||
+            s.maxZ < z - radius ||
+            s.minZ > z + radius
+          ) {
+            continue;
+          }
+          visit(s);
+        }
+      }
+    }
+  }
+
+  /**
+   * Campiona i due cigli delle strade entro `radius`, a passo `spacing`.
+   *
+   * L'erba di bordo veniva prima cercata per rifiuto casuale nel disco: la
+   * fascia utile è larga meno di mezzo metro, quindi servivano ~190.000
+   * tentativi per 4.200 ciuffi. Qui il costo è proporzionale ai metri di
+   * strada, non all'area del disco.
+   */
+  forEachRoadEdge(
+    x: number,
+    z: number,
+    radius: number,
+    spacing: number,
+    visit: (px: number, pz: number) => void,
+  ): void {
+    const r2 = radius * radius;
+    const offset = 0.18;
+    this.forEachSegmentNear(x, z, radius + 2, (s) => {
+      const dx = s.bx - s.ax;
+      const dz = s.bz - s.az;
+      const len = Math.hypot(dx, dz);
+      if (len < 1e-3) return;
+      // normale al segmento: il ciglio sta a ±(semilarghezza + 18 cm)
+      const nx = -dz / len;
+      const nz = dx / len;
+      const steps = Math.max(1, Math.ceil(len / spacing));
+      const side = s.w + offset;
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const px = s.ax + dx * t;
+        const pz = s.az + dz * t;
+        for (let k = -1; k <= 1; k += 2) {
+          const ex = px + nx * side * k;
+          const ez = pz + nz * side * k;
+          const ddx = ex - x;
+          const ddz = ez - z;
+          if (ddx * ddx + ddz * ddz > r2) continue;
+          visit(ex, ez);
+        }
+      }
+    });
   }
 
   private key(cx: number, cz: number): number {
@@ -252,6 +370,15 @@ export class RoadIndex {
         if (!list) continue;
         for (const s of list) {
           if (s.road === except) continue;
+          // scarto sull'AABB prima della distanza vera (che è molto più cara)
+          if (
+            x < s.minX - tolerance ||
+            x > s.maxX + tolerance ||
+            z < s.minZ - tolerance ||
+            z > s.maxZ + tolerance
+          ) {
+            continue;
+          }
           if (distanceToSegment2(x, z, s.ax, s.az, s.bx, s.bz) <= s.w + tolerance) return true;
         }
       }
@@ -272,6 +399,18 @@ export class RoadIndex {
         const list = this.grid.get(this.key(ix, iz));
         if (!list) continue;
         for (const s of list) {
+          // `best` è la distanza dal ciglio, non dal segmento: l'AABB va
+          // allargato di best + semilarghezza, altrimenti si scarta una strada
+          // che potrebbe ancora migliorare il risultato.
+          const reach = best + s.w;
+          if (
+            x < s.minX - reach ||
+            x > s.maxX + reach ||
+            z < s.minZ - reach ||
+            z > s.maxZ + reach
+          ) {
+            continue;
+          }
           const d = distanceToSegment2(x, z, s.ax, s.az, s.bx, s.bz) - s.w;
           if (d < best) best = d;
         }
@@ -298,6 +437,14 @@ export class RoadIndex {
         const list = this.grid.get(this.key(ix, iz));
         if (!list) continue;
         for (const s of list) {
+          if (
+            x < s.minX - s.walk ||
+            x > s.maxX + s.walk ||
+            z < s.minZ - s.walk ||
+            z > s.maxZ + s.walk
+          ) {
+            continue;
+          }
           const d = distanceToSegment2(x, z, s.ax, s.az, s.bx, s.bz);
           if (d <= s.w) {
             if (s.lift > asphalt) asphalt = s.lift;
@@ -323,6 +470,7 @@ export class RoadIndex {
         if (!list) continue;
         for (const s of list) {
           if (s.road === walkRoad) continue;
+          if (x < s.minX - 0.4 || x > s.maxX + 0.4 || z < s.minZ - 0.4 || z > s.maxZ + 0.4) continue;
           if (distanceToSegment2(x, z, s.ax, s.az, s.bx, s.bz) <= s.w + 0.4) return 0;
         }
       }
@@ -389,6 +537,41 @@ export class BuildingIndex {
       }
     }
     return out;
+  }
+
+  /**
+   * true se il cerchio tocca un edificio.
+   *
+   * Variante senza allocazioni di `resolveCircle`: la ricostruzione dell'erba
+   * la chiama centinaia di migliaia di volte e `near()` creava un array (con
+   * spread) a ogni tentativo. Qui si esce al primo edificio colpito.
+   */
+  hitsCircle(x: number, z: number, radius: number): boolean {
+    const cx = Math.floor(x / this.cell);
+    const cz = Math.floor(z / this.cell);
+    for (let ix = cx - 1; ix <= cx + 1; ix++) {
+      for (let iz = cz - 1; iz <= cz + 1; iz++) {
+        const list = this.grid.get((ix + 4096) * 8192 + (iz + 4096));
+        if (!list) continue;
+        for (const b of list) {
+          if (
+            x < b.bounds.minX - radius ||
+            x > b.bounds.maxX + radius ||
+            z < b.bounds.minZ - radius ||
+            z > b.bounds.maxZ + radius
+          ) {
+            continue;
+          }
+          if (pointInPolygon(x, z, b.points)) return true;
+          for (let i = 0, j = b.points.length - 1; i < b.points.length; j = i++) {
+            const a = b.points[i]!;
+            const c = b.points[j]!;
+            if (distanceToSegment2(x, z, c.x, c.z, a.x, a.z) < radius) return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 
   /**

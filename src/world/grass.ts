@@ -4,16 +4,46 @@ import type { Heightfield } from '../geo/elevation';
 import { mulberry32 } from '../geo/geo';
 import type { BuildingIndex, RoadIndex } from '../geo/osm';
 import { windTimeUniform } from '../gfx/wind';
+import { GroundMask } from './ground-mask';
 
 /** Raggio del tappeto d'erba intorno al giocatore (m). */
 const RADIUS = 40;
 const MAX_TUFTS = 82000;
-/** Ciuffi bassi che chiudono i buchi tra le lame alte (tappeto di base). */
-const CARPET = 0;
 /** Oltre questa distanza il campo viene ricostruito. */
 const REBUILD_DISTANCE = 18;
 /** Altezza del ciuffo in metri: la geometria base è alta 0,6. */
 const TUFT_HEIGHT = 0.17;
+
+/**
+ * Lavoro di ricostruzione spezzato sui frame.
+ *
+ * La maschera e le due `InstancedMesh` si preparano subito; matrici e colori
+ * vengono riempiti a piccoli blocchi, così il picco non arriva mai al loop di
+ * rendering. `phase` separa i ciuffi principali dal ciglio stradale.
+ */
+interface GrassJob {
+  x: number;
+  z: number;
+  density: number;
+  target: number;
+  edgeTarget: number;
+  rng: () => number;
+  mesh: THREE.InstancedMesh;
+  edgeMesh: THREE.InstancedMesh;
+  dummy: THREE.Object3D;
+  color: THREE.Color;
+  palette: number[];
+  valid: number;
+  perCell: number;
+  acc: number;
+  cursor: number;
+  placed: number;
+  edges: number;
+  phase: 'tufts' | 'edges';
+  heights: Heightfield;
+  roads: RoadIndex;
+  buildings: BuildingIndex;
+}
 
 /**
  * Erba a ciuffi.
@@ -31,35 +61,20 @@ export class GrassField {
   private readonly material: THREE.MeshStandardMaterial;
   private readonly bladeTexture: THREE.CanvasTexture;
   private mesh: THREE.InstancedMesh | null = null;
-  private carpet: THREE.InstancedMesh | null = null;
   private edge: THREE.InstancedMesh | null = null;
-  private readonly carpetGeometry: THREE.BufferGeometry;
-  private readonly carpetMaterial: THREE.MeshStandardMaterial;
-  private readonly carpetTexture: THREE.CanvasTexture;
   private originX = Number.NaN;
   private originZ = Number.NaN;
   private density = -1;
+  /** Maschera strada/edificio/pendio riusata a ogni ricostruzione. */
+  private readonly mask = new GroundMask(RADIUS);
+  /** Celle della maschera libere: riempite a ogni rebuild senza allocare. */
+  private readonly validCells = new Uint32Array(this.mask.n * this.mask.n);
+  /** Ricostruzione in corso, spezzata sui frame. */
+  private job: GrassJob | null = null;
 
   constructor() {
     this.geometry = GrassField.buildGeometry();
     this.bladeTexture = GrassField.buildBladeTexture();
-
-    // tappeto: quad orizzontali con macchie d'erba e bordo trasparente. Senza,
-    // tra un ciuffo e l'altro si vede il terreno (o la foto satellite) e il
-    // prato sembra un campo rasato a chiazze.
-    this.carpetGeometry = new THREE.PlaneGeometry(1.45, 1.45, 1, 1).rotateX(-Math.PI / 2);
-    this.carpetTexture = GrassField.buildCarpetTexture();
-    this.carpetMaterial = new THREE.MeshStandardMaterial({
-      map: this.carpetTexture,
-      alphaTest: 0.28,
-      side: THREE.DoubleSide,
-      roughness: 0.98,
-      metalness: 0,
-      envMapIntensity: 0.4,
-      polygonOffset: true,
-      polygonOffsetFactor: -1,
-      polygonOffsetUnits: -1,
-    });
 
     const uTime = windTimeUniform();
     this.material = new THREE.MeshStandardMaterial({
@@ -169,49 +184,6 @@ export class GrassField {
     return texture;
   }
 
-  /**
-   * Tappeto di base: macchie di erba fitta con bordo che sfuma nel trasparente.
-   * Il bordo morbido evita che i quad si leggano come piastrelle.
-   */
-  private static buildCarpetTexture(): THREE.CanvasTexture {
-    const size = 256;
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('canvas 2d non disponibile');
-    ctx.clearRect(0, 0, size, size);
-    const rng = mulberry32(0x77c1);
-    for (let i = 0; i < 220; i++) {
-      const x = rng() * size;
-      const y = rng() * size;
-      const r = 10 + rng() * 26;
-      const g = 74 + rng() * 44;
-      const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
-      grad.addColorStop(0, `rgba(${(g * 0.62).toFixed(0)}, ${g.toFixed(0)}, ${(g * 0.45).toFixed(0)}, 0.95)`);
-      grad.addColorStop(0.65, `rgba(${(g * 0.58).toFixed(0)}, ${(g * 0.94).toFixed(0)}, ${(g * 0.42).toFixed(0)}, 0.8)`);
-      grad.addColorStop(1, 'rgba(60, 84, 40, 0)');
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    // svuota i bordi: il quad deve fondersi col vicino, non avere un contorno
-    const edge = ctx.createRadialGradient(size / 2, size / 2, size * 0.3, size / 2, size / 2, size * 0.52);
-    edge.addColorStop(0, 'rgba(0,0,0,0)');
-    edge.addColorStop(1, 'rgba(0,0,0,1)');
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.fillStyle = edge;
-    ctx.fillRect(0, 0, size, size);
-    ctx.globalCompositeOperation = 'source-over';
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.anisotropy = 4;
-    texture.needsUpdate = true;
-    return texture;
-  }
-
   /** `density` 0…1 (dal preset grafico). Ricostruisce solo se serve. */
   update(
     x: number,
@@ -223,18 +195,32 @@ export class GrassField {
   ): void {
     const d = Math.max(0, Math.min(1, density));
     if (d <= 0.01) {
+      if (this.job) this.cancelJob();
       if (this.mesh) this.mesh.visible = false;
-      if (this.carpet) this.carpet.visible = false;
+      if (this.edge) this.edge.visible = false;
       return;
     }
+    if (this.mesh) this.mesh.visible = true;
+    if (this.edge) this.edge.visible = true;
+
     const moved = Math.hypot(x - this.originX, z - this.originZ);
-    if (!this.mesh || moved > REBUILD_DISTANCE || Math.abs(d - this.density) > 0.1) {
-      this.rebuild(x, z, heights, roads, buildings, d);
+    if (this.job) {
+      const stale =
+        Math.abs(d - this.job.density) > 0.1 ||
+        Math.hypot(x - this.job.x, z - this.job.z) > REBUILD_DISTANCE * 1.5;
+      if (stale) this.cancelJob();
     }
+    if (!this.job && (!this.mesh || moved > REBUILD_DISTANCE || Math.abs(d - this.density) > 0.1)) {
+      this.startJob(x, z, heights, roads, buildings, d);
+    }
+    // La costruzione è spezzata su più frame: il picco da ~40 ms (matrici e
+    // colori di 82.000 istanze) diventa un budget di 4 ms per frame. Il campo
+    // vecchio resta visibile finché il nuovo non è pronto.
+    if (this.job) this.stepJob(4);
     this.group.position.set(0, 0, 0);
   }
 
-  private rebuild(
+  private startJob(
     x: number,
     z: number,
     heights: Heightfield,
@@ -246,163 +232,169 @@ export class GrassField {
     this.originZ = z;
     this.density = density;
 
-    if (this.mesh) {
-      this.group.remove(this.mesh);
-      this.mesh.dispose();
-      this.mesh = null;
-    }
-    if (this.carpet) {
-      this.group.remove(this.carpet);
-      this.carpet.dispose();
-      this.carpet = null;
-    }
-    if (this.edge) {
-      this.group.remove(this.edge);
-      this.edge.dispose();
-      this.edge = null;
+    // una sola rasterizzazione di strade/edifici/pendio: le 480.000 query
+    // per rifiuto casuale diventano una lookup su array
+    this.mask.build(x, z, heights, roads, buildings, 2.7, 0.5);
+    const n = this.mask.n;
+    let valid = 0;
+    for (let j = 0; j < n; j++) {
+      for (let i = 0; i < n; i++) {
+        if (!this.mask.isBlocked(i, j)) this.validCells[valid++] = j * n + i;
+      }
     }
 
     const target = Math.round(MAX_TUFTS * density);
-    const rng = mulberry32(Math.round(x * 31 + z * 17) | 1);
-    const dummy = new THREE.Object3D();
-    const color = new THREE.Color();
-    const palette = [0x8a9a68, 0x93a372, 0x7f9060, 0x9dab7c, 0x879669];
-
     const mesh = new THREE.InstancedMesh(this.geometry, this.material, target);
     mesh.castShadow = false;
     mesh.receiveShadow = false;
     mesh.frustumCulled = false;
 
-    let placed = 0;
-    let guard = 0;
-    while (placed < target && guard < target * 6) {
-      guard++;
-      const angle = rng() * Math.PI * 2;
-      const radius = Math.sqrt(rng()) * RADIUS;
-      const px = x + Math.cos(angle) * radius;
-      const pz = z + Math.sin(angle) * radius;
-      if (heights.slopeAt(px, pz) > 30) continue;
-      // lascia libero anche il marciapiede (1,5 m) e il cordolo: con 1,1 l'erba
-      // cresceva sopra la pavimentazione e la nascondeva
-      if (roads.isOnRoad(px, pz, 2.7)) continue;
-      // `near()` restituisce tutto ciò che sta nella cella: in paese bocciava
-      // ogni ciuffo e il prato restava a zero istanze. Qui serve il test vero.
-      if (buildings.resolveCircle(px, pz, 0.35).hit) continue;
-
-      const py = heights.heightAt(px, pz);
-      dummy.position.set(px, py - 0.02, pz);
-      dummy.rotation.set(0, rng() * Math.PI, 0);
-      // lungo le strade l'erba resta corta e si allunga verso i campi: sul
-      // ciglio (2,7 m) è al 55%, da 6 m in poi è piena
-      const roadDist = roads.distanceFromRoad(px, pz);
-      const verge = 0.55 + 0.45 * Math.min(1, Math.max(0, (roadDist - 2.7) / 3.3));
-      const scale = (0.6 + rng() * 0.45) * verge;
-      dummy.scale.set(scale, scale * (0.8 + rng() * 0.6), scale);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(placed, dummy.matrix);
-      color.setHex(palette[Math.floor(rng() * palette.length)]).multiplyScalar(0.92 + rng() * 0.16);
-      mesh.setColorAt(placed, color);
-      placed++;
-    }
-
-    mesh.count = placed;
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    this.mesh = mesh;
-    this.group.add(mesh);
-
-    // tappeto: stessa distribuzione, stessi scarti, ma appoggiato al pendio
-    const carpetTarget = Math.round(CARPET * density);
-    const carpet = new THREE.InstancedMesh(this.carpetGeometry, this.carpetMaterial, carpetTarget);
-    carpet.castShadow = false;
-    carpet.receiveShadow = true;
-    carpet.frustumCulled = false;
-    const up = new THREE.Vector3(0, 1, 0);
-    const normal = new THREE.Vector3();
-    const tint = [0x77894f, 0x6f814a, 0x7d8f57, 0x697c46, 0x839457];
-    let carpets = 0;
-    let guardCarpet = 0;
-    while (carpets < carpetTarget && guardCarpet < carpetTarget * 6) {
-      guardCarpet++;
-      const angle = rng() * Math.PI * 2;
-      const radius = Math.sqrt(rng()) * RADIUS;
-      const px = x + Math.cos(angle) * radius;
-      const pz = z + Math.sin(angle) * radius;
-      if (heights.slopeAt(px, pz) > 30) continue;
-      if (roads.isOnRoad(px, pz, 2.7)) continue;
-      if (buildings.resolveCircle(px, pz, 0.35).hit) continue;
-      const py = heights.heightAt(px, pz);
-      const n = heights.normalAt(px, pz, 2.5);
-      normal.set(n.x, n.y, n.z);
-      if (normal.lengthSq() < 1e-6) normal.copy(up);
-      dummy.position.set(px, py + 0.012, pz);
-      dummy.quaternion.setFromUnitVectors(up, normal.normalize());
-      dummy.rotateY(rng() * Math.PI * 2);
-      const scale = 0.75 + rng() * 0.6;
-      dummy.scale.set(scale, 1, scale);
-      dummy.updateMatrix();
-      carpet.setMatrixAt(carpets, dummy.matrix);
-      color.setHex(tint[Math.floor(rng() * tint.length)]).multiplyScalar(0.9 + rng() * 0.2);
-      carpet.setColorAt(carpets, color);
-      carpets++;
-    }
-    carpet.count = carpets;
-    carpet.instanceMatrix.needsUpdate = true;
-    if (carpet.instanceColor) carpet.instanceColor.needsUpdate = true;
-    this.carpet = carpet;
-    this.group.add(carpet);
-
-    // erba che sconfina sull'asfalto: una fascia di 40 cm sul bordo della
-    // carreggiata. È quello che rende vivo il ciglio, invece del taglio netto
-    // fra asfalto e prato che sembra un decalcomania.
     const edgeTarget = Math.round(4200 * density);
     const edgeMesh = new THREE.InstancedMesh(this.geometry, this.material, edgeTarget);
     edgeMesh.castShadow = false;
     edgeMesh.receiveShadow = false;
     edgeMesh.frustumCulled = false;
-    let edges = 0;
-    let guardEdge = 0;
-    while (edges < edgeTarget && guardEdge < edgeTarget * 45) {
-      guardEdge++;
-      const angle = rng() * Math.PI * 2;
-      const radius = Math.sqrt(rng()) * RADIUS;
-      const px = x + Math.cos(angle) * radius;
-      const pz = z + Math.sin(angle) * radius;
-      // solo la fascia appena fuori dal manto: dentro l'asfalto non cresce
-      if (!roads.isOnRoad(px, pz, 0.42)) continue;
-      if (roads.isOnRoad(px, pz, -0.06)) continue;
-      if (heights.slopeAt(px, pz) > 30) continue;
-      if (buildings.resolveCircle(px, pz, 0.3).hit) continue;
-      const py = heights.heightAt(px, pz);
-      dummy.position.set(px, py - 0.02, pz);
-      dummy.rotation.set(0, rng() * Math.PI, 0);
-      const scale = 0.55 + rng() * 0.4;
-      dummy.scale.set(scale, scale * (0.9 + rng() * 0.5), scale);
-      dummy.updateMatrix();
-      edgeMesh.setMatrixAt(edges, dummy.matrix);
-      // erba di bordo più secca e polverosa: è quella che prende lo sporco
-      color.setHex(edges % 3 === 0 ? 0x9b9a6b : palette[Math.floor(rng() * palette.length)]!);
-      color.multiplyScalar(0.9 + rng() * 0.18);
-      edgeMesh.setColorAt(edges, color);
-      edges++;
+
+    this.job = {
+      x,
+      z,
+      density,
+      target,
+      edgeTarget,
+      rng: mulberry32(Math.round(x * 31 + z * 17) | 1),
+      mesh,
+      edgeMesh,
+      dummy: new THREE.Object3D(),
+      color: new THREE.Color(),
+      palette: [0x8a9a68, 0x93a372, 0x7f9060, 0x9dab7c, 0x879669],
+      valid,
+      perCell: valid > 0 ? target / valid : 0,
+      acc: 0,
+      cursor: 0,
+      placed: 0,
+      edges: 0,
+      phase: 'tufts',
+      heights,
+      roads,
+      buildings,
+    };
+  }
+
+  private stepJob(budgetMs: number): void {
+    const job = this.job;
+    if (!job) return;
+    const t0 = performance.now();
+    const n = this.mask.n;
+    const cell = this.mask.cellSize;
+
+    if (job.phase === 'tufts') {
+      while (job.cursor < job.valid && job.placed < job.target) {
+        const idx = this.validCells[job.cursor++]!;
+        job.acc += job.perCell;
+        let count = Math.floor(job.acc);
+        job.acc -= count;
+        if (count <= 0) continue;
+        if (count > job.target - job.placed) count = job.target - job.placed;
+        const i = idx % n;
+        const j = (idx - i) / n;
+        const baseX = this.mask.originX + i * cell;
+        const baseZ = this.mask.originZ + j * cell;
+        // lungo le strade l'erba resta corta e si allunga verso i campi: sul
+        // ciglio (2,7 m) è al 55%, da 6 m in poi è piena
+        const roadDist = this.mask.roadDistance(i, j);
+        const verge = 0.55 + 0.45 * Math.min(1, Math.max(0, (roadDist - 2.7) / 3.3));
+        for (let k = 0; k < count; k++) {
+          const px = baseX + job.rng() * cell;
+          const pz = baseZ + job.rng() * cell;
+          const py = this.mask.heightAt(px, pz);
+          job.dummy.position.set(px, py - 0.02, pz);
+          job.dummy.rotation.set(0, job.rng() * Math.PI, 0);
+          const scale = (0.6 + job.rng() * 0.45) * verge;
+          job.dummy.scale.set(scale, scale * (0.8 + job.rng() * 0.6), scale);
+          job.dummy.updateMatrix();
+          job.mesh.setMatrixAt(job.placed, job.dummy.matrix);
+          job.color
+            .setHex(job.palette[Math.floor(job.rng() * job.palette.length)]!)
+            .multiplyScalar(0.92 + job.rng() * 0.16);
+          job.mesh.setColorAt(job.placed, job.color);
+          job.placed++;
+        }
+        if ((job.cursor & 63) === 0 && performance.now() - t0 > budgetMs) return;
+      }
+      job.phase = 'edges';
+      this.buildEdges(job);
     }
-    edgeMesh.count = edges;
-    edgeMesh.instanceMatrix.needsUpdate = true;
-    if (edgeMesh.instanceColor) edgeMesh.instanceColor.needsUpdate = true;
-    this.edge = edgeMesh;
-    this.group.add(edgeMesh);
+
+    this.commitJob(job);
+  }
+
+  /** Erba che sconfina sull'asfalto: una fascia di ~30 cm sul ciglio. */
+  private buildEdges(job: GrassJob): void {
+    if (job.edgeTarget <= 0) return;
+    // campionamento diretto dei cigli: costo proporzionale ai metri di
+    // strada, non a 190.000 tentativi casuali nel disco
+    job.roads.forEachRoadEdge(job.x, job.z, RADIUS, 0.28, (ex, ez) => {
+      if (job.edges >= job.edgeTarget) return;
+      const px = ex + (job.rng() - 0.5) * 0.22;
+      const pz = ez + (job.rng() - 0.5) * 0.22;
+      // dentro un'altra carreggiata (incrocio) l'erba non cresce
+      if (job.roads.isOnRoad(px, pz, -0.06)) return;
+      if (job.buildings.hitsCircle(px, pz, 0.3)) return;
+      if (job.heights.slopeAt(px, pz) > 30) return;
+      const py = job.heights.heightAt(px, pz);
+      job.dummy.position.set(px, py - 0.02, pz);
+      job.dummy.rotation.set(0, job.rng() * Math.PI, 0);
+      const scale = 0.55 + job.rng() * 0.4;
+      job.dummy.scale.set(scale, scale * (0.9 + job.rng() * 0.5), scale);
+      job.dummy.updateMatrix();
+      job.edgeMesh.setMatrixAt(job.edges, job.dummy.matrix);
+      // erba di bordo più secca e polverosa: è quella che prende lo sporco
+      job.color.setHex(
+        job.edges % 3 === 0 ? 0x9b9a6b : job.palette[Math.floor(job.rng() * job.palette.length)]!,
+      );
+      job.color.multiplyScalar(0.9 + job.rng() * 0.18);
+      job.edgeMesh.setColorAt(job.edges, job.color);
+      job.edges++;
+    });
+  }
+
+  private commitJob(job: GrassJob): void {
+    job.mesh.count = job.placed;
+    job.mesh.instanceMatrix.needsUpdate = true;
+    if (job.mesh.instanceColor) job.mesh.instanceColor.needsUpdate = true;
+    job.edgeMesh.count = job.edges;
+    job.edgeMesh.instanceMatrix.needsUpdate = true;
+    if (job.edgeMesh.instanceColor) job.edgeMesh.instanceColor.needsUpdate = true;
+
+    if (this.mesh) {
+      this.group.remove(this.mesh);
+      this.mesh.dispose();
+    }
+    if (this.edge) {
+      this.group.remove(this.edge);
+      this.edge.dispose();
+    }
+    this.mesh = job.mesh;
+    this.edge = job.edgeMesh;
+    this.group.add(job.mesh);
+    this.group.add(job.edgeMesh);
+    this.job = null;
+  }
+
+  private cancelJob(): void {
+    const job = this.job;
+    if (!job) return;
+    job.mesh.dispose();
+    job.edgeMesh.dispose();
+    this.job = null;
   }
 
   dispose(): void {
+    if (this.job) this.cancelJob();
     if (this.mesh) {
       this.group.remove(this.mesh);
       this.mesh.dispose();
       this.mesh = null;
-    }
-    if (this.carpet) {
-      this.group.remove(this.carpet);
-      this.carpet.dispose();
-      this.carpet = null;
     }
     if (this.edge) {
       this.group.remove(this.edge);
@@ -412,8 +404,5 @@ export class GrassField {
     this.geometry.dispose();
     this.material.dispose();
     this.bladeTexture.dispose();
-    this.carpetGeometry.dispose();
-    this.carpetMaterial.dispose();
-    this.carpetTexture.dispose();
   }
 }

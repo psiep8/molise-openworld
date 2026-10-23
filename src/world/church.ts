@@ -58,7 +58,7 @@ function isClear(
       const wx = x + lx * cos + lz * sin;
       const wz = z - lx * sin + lz * cos;
       if (roads.isOnRoad(wx, wz, 1.6)) return false;
-      if (buildings.resolveCircle(wx, wz, 1.6).hit) return false;
+      if (buildings.hitsCircle(wx, wz, 1.6)) return false;
     }
   }
   return true;

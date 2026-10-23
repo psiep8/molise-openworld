@@ -59,7 +59,7 @@ export function buildDryStoneWalls(
         const x = a.x + tx * s + px * offset * side;
         const z = a.z + tz * s + pz * offset * side;
         if (roads.isOnRoad(x, z, 1.4)) continue;
-        if (buildings.resolveCircle(x, z, 1.2).hit) continue;
+        if (buildings.hitsCircle(x, z, 1.2)) continue;
         if (heights.slopeAt(x, z) > 26) continue;
 
         const y = heights.heightAt(x, z);

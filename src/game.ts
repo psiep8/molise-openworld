@@ -426,7 +426,14 @@ export class Game {
   private spawnPedestrians(): void {
     if (!this.humanAssets) return;
     const count = this.qualityLevel === 'low' ? 6 : this.qualityLevel === 'medium' ? 10 : 18;
-    this.pedestrians = new Pedestrians(this.humanAssets, this.osm, this.heights, this.player.position, count);
+    this.pedestrians = new Pedestrians(
+      this.humanAssets,
+      this.osm,
+      this.heights,
+      this.roadIndex,
+      this.player.position,
+      count,
+    );
     this.scene.add(this.pedestrians.group);
   }
 
@@ -2057,19 +2064,20 @@ export class Game {
     if (now - this.lastTick > 110) {
       this.lastTick = now;
       this.updateHud(focus.x, focus.z);
-    }      if (now - this.lastHud > 100 && this.map) {
-        this.lastHud = now;
-        const yaw = this.mode === 'walk' ? this.player.yaw : this.car.state.yaw;
-        this.map.drawMinimap(
-          document.getElementById('minimap') as HTMLCanvasElement,
-          { x: focus.x, z: focus.z, yaw },
-          this.mode === 'walk' ? { x: this.car.state.x, z: this.car.state.z } : undefined,
-          this.route?.points,
-          this.garage,
-          VENUES,
-        );
-        if (this.hud.mapVisible) this.drawBigMap();
-      }
+    }
+    if (now - this.lastHud > 100 && this.map) {
+      this.lastHud = now;
+      const yaw = this.mode === 'walk' ? this.player.yaw : this.car.state.yaw;
+      this.map.drawMinimap(
+        document.getElementById('minimap') as HTMLCanvasElement,
+        { x: focus.x, z: focus.z, yaw },
+        this.mode === 'walk' ? { x: this.car.state.x, z: this.car.state.z } : undefined,
+        this.route?.points,
+        this.garage,
+        VENUES,
+      );
+      if (this.hud.mapVisible) this.drawBigMap();
+    }
 
     // se ci si allontana dalla partenza, l'itinerario si ricalcola
     if (this.routeDestination && this.lastRouteOrigin) {

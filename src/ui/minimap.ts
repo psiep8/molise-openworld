@@ -91,6 +91,9 @@ export class MapRenderer {
   radar = true;
   /** Chiamata quando arrivano nuove tile: il gioco ridisegna le mappe. */
   onUpdate?: () => void;
+  /** Base statica della mappa grande (satellite + strade), riusata a ogni frame. */
+  private bigBase: HTMLCanvasElement | null = null;
+  private bigBaseKey = '';
 
   constructor(osm: OsmData, provider: TileProvider = ESRI_WORLD_IMAGERY) {
     this.roads = packRoads(osm);
@@ -98,7 +101,11 @@ export class MapRenderer {
     this.mapScale = (1600 - this.mapPad * 2) / WORLD.width;
     this.buildStatic();
     this.satTiles = new SatelliteTiles(provider, () => this.onUpdate?.());
-    this.satMap = new SatelliteBasemap(provider, () => this.onUpdate?.());
+    // solo il mosaico grande invalida la base: le tile del radar non c'entrano
+    this.satMap = new SatelliteBasemap(provider, () => {
+      this.invalidateBigMap();
+      this.onUpdate?.();
+    });
   }
 
   private buildStatic(): void {
@@ -452,6 +459,11 @@ export class MapRenderer {
     ctx.stroke();
   }
 
+  /** Da chiamare quando cambiano le tile satellite: la base va rigenerata. */
+  invalidateBigMap(): void {
+    this.bigBaseKey = '';
+  }
+
   /** Mappa grande: satellite + overlay vettoriale, o mappa vettoriale notturna. */
   drawBigMap(
     canvas: HTMLCanvasElement,
@@ -472,45 +484,60 @@ export class MapRenderer {
       canvas.width = Math.floor(cw * dpr);
       canvas.height = Math.floor(ch * dpr);
     }
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#0c1210';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (cw < 2 || ch < 2) return;
 
     const { dx, dy, s } = this.placementFor(canvas, map);
     const placement = { dx, dy, s };
-
     const useSat = this.radar && this.satMap.ready;
-    if (useSat) {
-      ctx.drawImage(
-        this.satMap.canvas,
-        dx + this.mapPad * s,
-        dy + this.mapPad * s,
-        WORLD.width * this.mapScale * s,
-        WORLD.height * this.mapScale * s,
-      );
-      // leggera velatura per rendere leggibili strade e nomi
-      ctx.fillStyle = 'rgba(10, 16, 12, 0.18)';
-      ctx.fillRect(dx, dy, map.width * s, map.height * s);
-    } else {
-      ctx.drawImage(map, dx, dy, map.width * s, map.height * s);
+
+    // La base (satellite + 1090 strade) è invariante: ridisegnarla a 10 Hz
+    // costava decine di millisecondi a ogni frame con la mappa aperta. Qui
+    // viene rasterizzata una volta sola e poi copiata; sopra si muovono solo
+    // i marker, l'itinerario e il giocatore.
+    const key = `${canvas.width}x${canvas.height}:${useSat ? 1 : 0}`;
+    if (key !== this.bigBaseKey || !this.bigBase) {
+      const base = this.bigBase ?? document.createElement('canvas');
+      base.width = canvas.width;
+      base.height = canvas.height;
+      const bctx = base.getContext('2d');
+      if (!bctx) return;
+      bctx.setTransform(1, 0, 0, 1, 0, 0);
+      bctx.fillStyle = '#0c1210';
+      bctx.fillRect(0, 0, base.width, base.height);
+      if (useSat) {
+        bctx.drawImage(
+          this.satMap.canvas,
+          dx + this.mapPad * s,
+          dy + this.mapPad * s,
+          WORLD.width * this.mapScale * s,
+          WORLD.height * this.mapScale * s,
+        );
+        // leggera velatura per rendere leggibili strade e nomi
+        bctx.fillStyle = 'rgba(10, 16, 12, 0.18)';
+        bctx.fillRect(dx, dy, map.width * s, map.height * s);
+        bctx.lineCap = 'round';
+        bctx.lineJoin = 'round';
+        for (const r of this.roads) {
+          const a = this.toStaticScreen(r.pts[0], r.pts[1], placement);
+          bctx.beginPath();
+          bctx.moveTo(a.x, a.y);
+          for (let i = 2; i < r.pts.length; i += 2) {
+            const p = this.toStaticScreen(r.pts[i], r.pts[i + 1], placement);
+            bctx.lineTo(p.x, p.y);
+          }
+          bctx.lineWidth = Math.max(0.8 * dpr, r.width * this.mapScale * s * 0.9);
+          bctx.strokeStyle = r.paved ? 'rgba(255, 246, 220, 0.75)' : 'rgba(224, 199, 152, 0.45)';
+          bctx.stroke();
+        }
+      } else {
+        bctx.drawImage(map, dx, dy, map.width * s, map.height * s);
+      }
+      this.bigBase = base;
+      this.bigBaseKey = key;
     }
 
-    if (useSat) {
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      for (const r of this.roads) {
-        const a = this.toStaticScreen(r.pts[0], r.pts[1], placement);
-        ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        for (let i = 2; i < r.pts.length; i += 2) {
-          const p = this.toStaticScreen(r.pts[i], r.pts[i + 1], placement);
-          ctx.lineTo(p.x, p.y);
-        }
-        ctx.lineWidth = Math.max(0.8 * dpr, r.width * this.mapScale * s * 0.9);
-        ctx.strokeStyle = r.paved ? 'rgba(255, 246, 220, 0.75)' : 'rgba(224, 199, 152, 0.45)';
-        ctx.stroke();
-      }
-    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(this.bigBase, 0, 0);
 
     if (route && route.length > 1) {
       const project = (x: number, z: number): { x: number; y: number } => this.toStaticScreen(x, z, placement);

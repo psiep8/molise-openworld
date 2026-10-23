@@ -50,7 +50,7 @@ export function buildVegetation(
     if (placements.length >= TREES_MAX) return false;
     if (heights.slopeAt(px, pz) > 34) return false;
     if (roads.isOnRoad(px, pz, margin)) return false;
-    if (buildings.resolveCircle(px, pz, 2.6).hit) return false;
+    if (buildings.hitsCircle(px, pz, 2.6)) return false;
     const palette = kind === 'olive' ? OLIVE_COLORS : kind === 'cypress' ? CYPRESS_COLORS : FOLIAGE_COLORS;
     placements.push({
       x: px,
@@ -233,7 +233,7 @@ export function buildVegetation(
     const x = p.x + Math.cos(a) * d;
     const z = p.z + Math.sin(a) * d;
     if (roads.isOnRoad(x, z, 1.3)) continue;
-    if (buildings.resolveCircle(x, z, 1.1).hit) continue;
+    if (buildings.hitsCircle(x, z, 1.1)) continue;
     if (heights.slopeAt(x, z) > 30) continue;
     bushList.push({
       x,

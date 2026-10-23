@@ -55,7 +55,7 @@ Il salto da "Minecraft" è già avvenuto su terreno, strade, edifici e vegetazio
 
 | Area | Cosa c'è ora | Cosa manca |
 | --- | --- | --- |
-| Terreno | Chunk da 912 m, DEM a 10 m, mosaico Sentinel-2 locale per ogni chunk, tile Esri z17/z16 a distanza progressiva, normal map dal rilievo, dettaglio erba/roccia in coordinate mondo | Orizzonte oltre i ~3 km, dettaglio calibrato sul tipo di suolo |
+| Terreno | Chunk da 912 m, DEM a 10 m, mosaico Sentinel-2 locale per ogni chunk, tile Esri z18/z17/z16 a distanza progressiva, normal map dal rilievo, dettaglio erba/roccia in coordinate mondo | Orizzonte oltre i ~3 km, dettaglio calibrato sul tipo di suolo |
 | Strade | Asfalto PBR (Poly Haven `asphalt_02`), mezzeria, marciapiedi e cordoli, angoli smussati | Usura, rattoppi, tombini, segnaletica orizzontale completa, bagnato realistico |
 | Edifici | Estrusioni OSM, tetti a falde, cornicioni, comignoli, pluviali, balconi, finestre con cornice/davanzale/vetro | Varietà di facciate, interni finti nelle finestre di notte, edifici-simbolo modellati |
 | Alberi | Tronchi con corteccia PBR, chiome a card fotografiche con vento, max 7000 | Modelli 3D veri da vicino, specie diverse (ulivo, quercia, cipresso) |
@@ -410,7 +410,7 @@ SwiftShader a ~2 fps.
 
 | Voce | Stato | Note |
 | --- | --- | --- |
-| Paesaggio lontano definito | fatto nel codice | `public/geo/world-imagery.jpg`: mosaico **Sentinel-2 cloudless 2025** (CC BY 4.0, EOX) dell'intero bbox, ritagliato per chunk in `ImageryStreamer.baseChunkTexture`. Ogni chunk ha subito un'immagine vera; le tile Esri z17 (≤ 900 m) e z16 (oltre) affinano il dettaglio. Prima i chunk lontani restavano verdi perché lo streaming non faceva in tempo. |
+| Paesaggio lontano definito | fatto nel codice | `public/geo/world-imagery.jpg`: mosaico **Sentinel-2 cloudless 2025** (CC BY 4.0, EOX) dell'intero bbox, ritagliato per chunk in `ImageryStreamer.baseChunkTexture`. Ogni chunk ha subito un'immagine vera; le tile Esri z18 (≤ 500 m), z17 (fino a 3200 m) e z16 (oltre) affinano il dettaglio. Prima i chunk lontani restavano verdi perché lo streaming non faceva in tempo. |
 | Edifici troppo bassi | fatto nel codice | `minBuildingHeight` in `src/geo/osm.ts`: ≥ 3,4 m sotto 24 m² (garage), ≥ 6,4 m sotto 70 m², ≥ 7,6 m sotto 160 m², ≥ 8,6 m sopra. |
 | Edifici in salita bucati sotto | fatto nel codice | la base è il punto **più basso** dell'impronta (`buildOne`); lo zoccolo in pietra copre il dislivello sul lato in salita, niente vuoto a valle. |
 | Porte interrate | fatto nel codice | il portone parte dalla quota del terreno davanti a lui, non dalla base; le finestre del piano terra sono campionate sul punto della facciata. |
@@ -437,6 +437,36 @@ segue il DEM, ma il DEM è a 10 m: sotto questa soglia non si può inventare.
 - `npm test` 163/163 e `npm run build` verdi.
 - **Smoke NON superato.** Su questa macchina lo smoke ha riportato 4 errori `ERR_NETWORK_CHANGED` in console (il gioco carica 46/46 chunk texturizzati) e in un run successivo è andato in timeout a 2 fps (SwiftShader). Non è un esito verde: va rilanciato su una macchina con GPU e rete stabile.
 - Non fatta la segnaletica e gli incroci (priorità 5 residua): richiede verifica visiva.
+
+### 23 ottobre 2026 — audit prestazioni (erba e mappa)
+
+- **Erba: ricostruzione da ~6,7 s a ~40 ms, spezzata su più frame.** Il campo
+  veniva riempito per rifiuto casuale nel disco da 40 m: in centro a Palata
+  l'accettazione era ~17%, cioè ~480.000 query spaziali per 82.000 ciuffi.
+  Misurato con un benchmark Node sui dati reali (`heights.bin`, `osm.json`):
+  6,7 s per la sola parte CPU. Ora `src/world/ground-mask.ts` rasterizza una
+  volta sola strade, edifici e pendenza su una griglia da 0,5 m; i ciuffi sono
+  distribuiti per cella (stratificati) e le matrici vengono scritte con un
+  budget di 4 ms per frame. L'erba di bordo usa `RoadIndex.forEachRoadEdge`
+  (campionamento dei cigli) invece di ~190.000 tentativi: da ~1,4 s a ~5 ms.
+- **Query spaziali**: `RoadIndex` ha un AABB per segmento e `BuildingIndex.hitsCircle`
+  senza allocazioni; `resolveCircle` resta per la fisica. Ne beneficiano anche
+  alberi, cespugli, muretti e arredi.
+- **Mappa grande**: satellite + 1.090 strade erano ridisegnati a 10 Hz con la
+  mappa aperta. La base ora è in un canvas fuori schermo, invalidato solo quando
+  arrivano nuove tile; sopra si ridisegnano i marker.
+- **Pedoni**: quota da `RoadIndex.surfaceOffset` (marciapiede, asfalto o
+  terreno) invece di `ROAD_LIFT + CURB_HEIGHT` fisso; agli incroci non restano
+  più sospesi.
+- **Verifica**: `npx tsc --noEmit` e `npm test` verdi (171 test, 6 nuovi su
+  maschera e cigli); `npm run build` verde. `npm run smoke` ha raggiunto
+  `ready:true, running:true`, 46/46 chunk texturizzati, `tileErrors: 0`,
+  `errorCount: 0`; il processo si è bloccato dopo lo screenshot (problema noto
+  della macchina SwiftShader, non del gioco), quindi **non** è un esito smoke
+  completo.
+- **Da verificare a schermo**: densità dell'erba dopo la stratificazione,
+  continuità del ciglio e fluidità in auto (il budget da 4 ms non dovrebbe
+  vedersi, ma va confermato su GPU vera).
 
 ### Prossimi passi (in ordine)
 

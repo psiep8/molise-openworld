@@ -34,7 +34,7 @@ Stack: TypeScript + Vite + Three.js (WebGL2), Vitest, nessun framework UI.
 | Dati OSM | ✅ completi | 1.090 strade, 2.193 edifici, 1.337 aree, 96 corsi d'acqua |
 | DEM | ✅ | griglia 10 m, `heights.bin` Int16 in decimetri |
 | Terreno | ✅ | chunk 912 m, 96 segmenti, streaming raggio 3,1 km |
-| Satellite | ✅ | mosaico Sentinel-2 locale per ogni chunk; tile Esri z17 ≤900 m, z16 oltre |
+| Satellite | ✅ | mosaico Sentinel-2 locale per ogni chunk; tile Esri z18 ≤500 m, z17 fino a 3200 m, z16 oltre |
 | Normal map | ✅ | 128×128 per chunk, generata dal DEM |
 | Strade | ✅ aggiornato | asfalto scuro con mezzeria tratteggiata; **marciapiede rialzato 18 cm con cordolo a faccia verticale**, interrotto agli incroci |
 | Edifici | ✅ aggiornato | estrusione + tetti a falde + **cornicione, comignolo, pluviali e balconi**; finestre incassate da normal map dedicata |
@@ -175,6 +175,8 @@ src/
     buildings.ts         estrusione edifici, falde del tetto, materiali, UV facciata
     roof.ts              geometria pura del tetto a padiglione (con test sui dati OSM)
     vegetation.ts        alberi instanziati deterministici
+    grass.ts             campo d'erba instanziato, ricostruzione a budget di frame
+    ground-mask.ts       maschera locale strada/edificio/pendio per la vegetazione
     sky.ts               Sky + sole/ombre/nebbia
     surface-textures.ts  asfalto, sterrato, intonaco, coppi (canvas)
     weather.ts           meteo Open-Meteo, sole NOAA, auto-refresh 10 min

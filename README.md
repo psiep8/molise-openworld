@@ -16,7 +16,7 @@
 ## Cosa c'è dentro
 
 - **Casa base: Palata.** Il gioco parte dal centro del paese e la mappa segna Palata come "casa".
-- **Terreno 3D** a chunk (912 m) con DEM a 10 m, **mosaico Sentinel-2 dell'intera area come base immediata** per ogni chunk, tile Esri z17 vicino e z16 lontano per il dettaglio, e normal map ricavata dal rilievo.
+- **Terreno 3D** a chunk (912 m) con DEM a 10 m, **mosaico Sentinel-2 dell'intera area come base immediata** per ogni chunk, tile Esri z18 entro 500 m, z17 fino a 3200 m e z16 oltre per il dettaglio, e normal map ricavata dal rilievo.
 - **Meteo reale opzionale** (`P` → interruttore): condizioni attuali, nuvole, pioggia/neve e **sole alla posizione e ora vere**, con alba/tramonto del giorno. Aggiornamento ogni 10 minuti, fallback al pomeriggio fisso se lo spegni.
 - **Ora del giorno manuale** (`P` → slider 0–24): alba, mezzogiorno, tramonto e notte, con preset meteo sereno/nuvoloso/pioggia/neve/nebbia. Strada bagnata e fari si accendono da soli quando il sole scende.
 - **Ventidue veicoli procedurali** (`P` → Veicolo, oppure `B` per cambiarli al volo): i nove già presenti (Panda vecchia e nuova, Punto, Renegade, tre ruote, 500X, Captur, C3, Junior) più i tredici richiesti (Cupra Formentor, Alfa Romeo Tonale, Audi Q3, BMW X1, Mercedes-Benz GLA, Dacia Sandero, Toyota Yaris, Kia Picanto, Ford Fiesta, Nissan Qashqai, Fiat 500, Fiat 600, Peugeot 3008). Ognuno ha ingombri, passo, raggio ruota e **prestazioni reali** della versione rappresentata: cilindrata, potenza, coppia, 0-100 e velocità massima vengono dalle schede tecniche (vedi `docs/VEHICLE_DATA.md`). Le **sagome sono procedurali originali**, non modelli ufficiali dei marchi.
@@ -64,8 +64,9 @@ L'obiettivo è semplice: girare per Palata e dintorni e riconoscere i posti. Non
 DEM Terrarium, tag OSM) e su come renderli credibili in un motore proprio.
 
 - **Foto aeree progressive.** Ogni chunk parte dal **mosaico Sentinel-2 locale** (CC BY 4.0)
-  e chiede poi il dettaglio giusto per la distanza: z17 sotto i 900 m (tetti, uliveti,
-  muretti), z16 oltre. Avvicinandosi, il chunk viene **riaffinato** senza essere ricostruito.
+  e chiede poi il dettaglio giusto per la distanza: z18 entro 500 m (tetti, uliveti,
+  muretti), z17 fino a 3200 m, z16 oltre. Avvicinandosi, il chunk viene **riaffinato**
+  senza essere ricostruito.
 - **Rilievo che si vede.** Le normal map sono generate dal DEM (128×128 per chunk): anche
   dove la mesh è più grossolana del dato, il sole radente fa emergere crinali e fossi.
 - **Luce e foschia.** Sole a 27°, ombre morbide, esposizione ACES più alta e nebbia
@@ -180,7 +181,7 @@ src/
   world/
     chunks.ts          griglia dei chunk
     imagery.ts         streaming tile satellite -> texture per chunk (zoom progressivo)
-    terrain.ts         mesh del terreno + LOD texture (z16/z17)
+    terrain.ts         mesh del terreno + LOD texture (z16/z17/z18)
     roads.ts           nastri stradali drappeggiati + acqua
     buildings.ts       estrusione edifici + falde del tetto + UV delle facciate
     roof.ts            geometria pura del tetto a padiglione (testata)

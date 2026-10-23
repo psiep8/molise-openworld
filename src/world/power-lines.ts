@@ -91,7 +91,7 @@ export function buildPowerLines(
         const y = heights.heightAt(x, z);
         const blocked =
           roads.isOnRoad(x, z, 1.5) ||
-          buildings.resolveCircle(x, z, 1.5).hit ||
+          buildings.hitsCircle(x, z, 1.5) ||
           heights.slopeAt(x, z) > 27;
         if (!blocked) {
           const pole = { x, y, z, yaw };

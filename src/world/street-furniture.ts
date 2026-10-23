@@ -450,7 +450,7 @@ export function buildStreetProps(
     const z = best.z + best.nz * (best.w / 2 + 1.1);
     if (heights.slopeAt(x, z) > 14) continue;
     // niente panche dentro un'altra casa
-    if (buildings.resolveCircle(x, z, 0.7).hit) continue;
+    if (buildings.hitsCircle(x, z, 0.7)) continue;
     const y = heights.heightAt(x, z);
     // la seduta guarda la strada, lo schienale sta verso la casa
     const ux = -best.nx;

@@ -57,6 +57,14 @@ describe('indice edifici', () => {
     expect(res.hit).toBe(true);
     expect(res.x).toBeGreaterThanOrEqual(10.55);
   });
+
+  it('hitsCircle risponde come resolveCircle senza spostare il punto', () => {
+    const index = new BuildingIndex([building(0, 0)]);
+    expect(index.hitsCircle(5, 5, 0.5)).toBe(true);
+    expect(index.hitsCircle(10.3, 5, 0.6)).toBe(true);
+    expect(index.hitsCircle(10.7, 5, 0.6)).toBe(false);
+    expect(index.hitsCircle(100, 100, 0.5)).toBe(false);
+  });
 });
 
 describe('incroci per strisce e stop', () => {
@@ -113,6 +121,23 @@ describe('indice strade', () => {
     expect(near).not.toBeNull();
     expect(near?.road.type).toBe('residential');
     expect(Math.abs(near!.z)).toBeLessThan(0.001);
+  });
+
+  it('campiona i cigli a passo costante, senza tentativi casuali', () => {
+    const only = new RoadIndex([
+      road('residential', [
+        { x: -50, z: 0 },
+        { x: 50, z: 0 },
+      ]),
+    ]);
+    const pts: { x: number; z: number }[] = [];
+    only.forEachRoadEdge(0, 0, 40, 1, (x, z) => pts.push({ x, z }));
+    expect(pts.length).toBeGreaterThan(150);
+    for (const p of pts) {
+      // larghezza 5,2 → semilarghezza 2,6 + 0,18 di ciglio
+      expect(Math.abs(Math.abs(p.z) - 2.78)).toBeLessThan(1e-6);
+      expect(Math.abs(p.x)).toBeLessThanOrEqual(40);
+    }
   });
 });
 
