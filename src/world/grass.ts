@@ -292,7 +292,11 @@ export class GrassField {
       const py = heights.heightAt(px, pz);
       dummy.position.set(px, py - 0.02, pz);
       dummy.rotation.set(0, rng() * Math.PI, 0);
-      const scale = 0.6 + rng() * 0.45;
+      // lungo le strade l'erba resta corta e si allunga verso i campi: sul
+      // ciglio (2,7 m) è al 55%, da 6 m in poi è piena
+      const roadDist = roads.distanceFromRoad(px, pz);
+      const verge = 0.55 + 0.45 * Math.min(1, Math.max(0, (roadDist - 2.7) / 3.3));
+      const scale = (0.6 + rng() * 0.45) * verge;
       dummy.scale.set(scale, scale * (0.8 + rng() * 0.6), scale);
       dummy.updateMatrix();
       mesh.setMatrixAt(placed, dummy.matrix);

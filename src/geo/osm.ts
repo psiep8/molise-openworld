@@ -260,6 +260,27 @@ export class RoadIndex {
   }
 
   /**
+   * Distanza (m) dal ciglio della strada più vicina: 0 sul ciglio, negativa
+   * dentro la carreggiata, `Infinity` se non ci sono strade vicine.
+   */
+  distanceFromRoad(x: number, z: number): number {
+    const cx = Math.floor(x / this.cell);
+    const cz = Math.floor(z / this.cell);
+    let best = Infinity;
+    for (let ix = cx - 1; ix <= cx + 1; ix++) {
+      for (let iz = cz - 1; iz <= cz + 1; iz++) {
+        const list = this.grid.get(this.key(ix, iz));
+        if (!list) continue;
+        for (const s of list) {
+          const d = distanceToSegment2(x, z, s.ax, s.az, s.bx, s.bz) - s.w;
+          if (d < best) best = d;
+        }
+      }
+    }
+    return best;
+  }
+
+  /**
    * Dislivello del piano calpestabile rispetto al DEM: asfalto (0,20 m),
    * marciapiede (asfalto + cordolo) oppure 0 sul prato.
    *

@@ -80,6 +80,12 @@ describe('indice strade', () => {
     expect(index.isOnRoad(40, 40, 0.2)).toBe(false);
   });
 
+  it('misura la distanza dal ciglio: negativa in carreggiata, positiva fuori', () => {
+    expect(index.distanceFromRoad(0, 0)).toBeLessThan(0);
+    expect(index.distanceFromRoad(40, 40)).toBeGreaterThan(30);
+    expect(index.distanceFromRoad(5000, 5000)).toBe(Infinity);
+  });
+
   it('trova la strada asfaltata più vicina', () => {
     const near = index.nearest(20, 10);
     expect(near).not.toBeNull();
