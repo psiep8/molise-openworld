@@ -369,6 +369,10 @@ registro vale quindi **fatto nel codice**, **da verificare a schermo**.
 | Erba: ciuffi più corti sul ciglio, pieni da 6 m in poi nei campi | fatto | `distanceFromRoad` in `src/geo/osm.ts`, uso in `src/world/grass.ts`; test in `tests/osm.test.ts`; commit `7bad2c0` |
 | Smoke test `npm run smoke` | **non superato** | 4 errori `ERR_NETWORK_CHANGED` nel primo run; run successivi bloccati/timeout con SwiftShader (~2 fps) |
 
+Verificato nel codice ma non a schermo: selettore meteo già presente e coperto da
+`tests/sun-clock.test.ts`. Nessuna modifica ai pali della luce né alla luce del
+giorno senza vederli.
+
 Da verificare a schermo: il bordo dell'erba lungo le strade e la nitidezza z17/z18
 a Palata. Non ancora fatti: marciapiedi con cordolo (il codice ha già cordolo e
 interruzioni agli incroci), strisce e stop solo agli incroci reali, pali della luce
