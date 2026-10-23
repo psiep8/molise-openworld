@@ -158,6 +158,15 @@ export class CityKit {
     return this.assets.get(role)?.[0];
   }
 
+  /** Modello per slug (es. `family-sedan`), a prescindere dal ruolo. */
+  bySlug(slug: string): KitAsset | undefined {
+    for (const list of this.assets.values()) {
+      const asset = list.find((entry) => entry.slug === slug);
+      if (asset) return asset;
+    }
+    return undefined;
+  }
+
   part(role: KitRole, partName: string): KitPart | undefined {
     return this.asset(role)?.parts.find((p) => p.name === partName);
   }

@@ -45,13 +45,28 @@ import {
 import {
   PAINT_CHOICES,
   VEHICLES,
+  allVehicles,
+  clearImportedVehicles,
   getVehicle,
+  importedCount,
   loadPaintFor,
   loadVehicleId,
+  registerVehicle,
   savePaintFor,
   saveVehicleId,
   vehicleLabel,
 } from './sim/vehicle-catalog';
+import {
+  MAX_IMPORTED_CARS,
+  buildGarageScene,
+  clearGarageRecords,
+  loadGarageCars,
+  readCarFile,
+  readGarageRecord,
+  saveGarageRecord,
+  type GarageRecord,
+  type LoadedCar,
+} from './garage';
 import { Player, type MoveInput } from './entities/player';
 import { loadHumanAssets, type HumanAssets } from './entities/human-model';
 import { Pedestrians } from './world/pedestrians';
@@ -245,6 +260,8 @@ export class Game {
   private grass?: GrassField;
   private streetLights?: StreetLights;
   private kit: CityKit | null = null;
+  /** Auto importate: id dello spec -> scena già normalizzata. */
+  private readonly customCars = new Map<string, THREE.Object3D>();
   private cityProps: {
     trees: number;
     cars: number;
@@ -257,6 +274,7 @@ export class Game {
   /** Sagrati lastricati: erba e alberi devono starne fuori. */
   private readonly pavedAreas: PavedArea[] = [];
   private nightFactor = 0;
+  private lastEnvironment: THREE.Texture | null = null;
   private roadsGroup?: THREE.Group;
   private lastWetness = -1;
   private realWeatherEnabled = false;
@@ -355,7 +373,11 @@ export class Game {
       this.heights = heights;
       this.osm = osm;
       this.kit = kit;
-      this.hud.setLoading(0.32, 'Disegno strade, torrenti e paesi…');
+      this.car.setKit(kit);
+      this.hud.setLoading(0.32, 'Apro il garage delle auto importate…');
+      await nextFrame();
+      await this.loadCustomCars();
+      this.hud.setLoading(0.34, 'Disegno strade, torrenti e paesi…');
       await nextFrame();
 
       this.roadIndex = new RoadIndex(osm.roads);
@@ -421,7 +443,8 @@ export class Game {
       this.grass = new GrassField(this.pavedAreas);
       this.scene.add(this.grass.group);
 
-      this.car.setSpec(getVehicle(loadVehicleId()));
+      const initial = getVehicle(loadVehicleId());
+      this.car.setSpec(initial, this.customCars.get(initial.id) ?? null);
       this.hud.setVehicleName(this.car.spec.name);
       this.hud.setVehicleSpec(vehicleLabel(this.car.spec));
       this.buildPaintSwatches();
@@ -554,18 +577,128 @@ export class Game {
     }
   }
 
-  /** Riempie la select del veicolo con tutto il catalogo (preesistenti + nuovi). */
+  /** Riempie la select del veicolo con il catalogo e le auto importate. */
   private populateVehicles(): void {
     this.fillSelect(
       'vehicle-select',
-      VEHICLES.map((v) => [v.id, v.name] as const),
+      allVehicles().map((v) => [v.id, v.id.startsWith('custom-') ? `★ ${v.name}` : v.name] as const),
     );
     const select = document.getElementById('vehicle-select') as HTMLSelectElement | null;
     if (select) select.value = this.car.spec.id;
+    this.updateGarageCopy();
+  }
+
+  private updateGarageCopy(): void {
     const copy = document.getElementById('vehicle-count-copy');
     if (copy) {
-      copy.textContent = `${VEHICLES.length} modelli disponibili: quelli già presenti nel progetto e i 13 richiesti. Ognuno ha ingombri e parametri di guida propri.`;
+      const imported = importedCount();
+      copy.textContent =
+        `${VEHICLES.length} modelli di serie${imported ? ` + ${imported} importate` : ''}: ` +
+        'ingombri e parametri di guida propri. Le auto importate usano i materiali del GLB e non si tinteggiano.';
     }
+    const status = document.getElementById('car-import-status');
+    if (status) {
+      const imported = importedCount();
+      status.textContent =
+        imported === 0
+          ? 'Nessuna auto importata: scegli un GLB qui o trascinalo sulla finestra.'
+          : `${imported} auto nel garage del browser (max ${MAX_IMPORTED_CARS}).`;
+    }
+    // ruotare il muso ha senso solo per le auto importate
+    const flip = document.getElementById('btn-car-flip') as HTMLButtonElement | null;
+    if (flip) flip.hidden = !this.car.spec.id.startsWith('custom-');
+  }
+
+  /** Legge dal browser le auto importate e le registra nel catalogo. */
+  private async loadCustomCars(): Promise<void> {
+    let cars: LoadedCar[] = [];
+    try {
+      cars = await loadGarageCars();
+    } catch (error) {
+      console.warn('garage: auto importate non disponibili', error);
+      return;
+    }
+    for (const car of cars) {
+      registerVehicle(car.record.spec);
+      this.customCars.set(car.record.id, car.scene);
+    }
+  }
+
+  /** Importa uno o più GLB (file picker o drag & drop) e li rende guidabili. */
+  private async importCars(files: File[]): Promise<void> {
+    const models = files.filter((file) => /\.glb$/i.test(file.name));
+    if (models.length === 0) {
+      this.hud.toast('Serve un file .glb esportato da Smooth Voxels', 3000);
+      return;
+    }
+    if (importedCount() >= MAX_IMPORTED_CARS) {
+      this.hud.toast(`Garage pieno: massimo ${MAX_IMPORTED_CARS} auto importate`, 3200);
+      return;
+    }
+
+    let last: string | null = null;
+    let failed = 0;
+    for (const file of models) {
+      if (importedCount() >= MAX_IMPORTED_CARS) break;
+      try {
+        const car = await readCarFile(file);
+        registerVehicle(car.record.spec);
+        this.customCars.set(car.record.id, car.scene);
+        const saved = await saveGarageRecord(car.record);
+        if (!saved) this.hud.toast('Auto caricata, ma il browser non ha permesso di salvarla', 3600);
+        last = car.record.spec.id;
+      } catch (error) {
+        console.warn(`garage: ${file.name} non importata`, error);
+        failed++;
+      }
+    }
+
+    this.populateVehicles();
+    if (last) this.selectVehicle(last);
+    if (last) this.hud.toast(`Auto importata: ${this.car.spec.name}`, 3000);
+    if (failed) this.hud.toast(`${failed} file non leggibili: esporta in GLB`, 3600);
+  }
+
+  /**
+   * Ruota di 180° l'auto importata corrente: serve quando il GLB è stato
+   * esportato con il muso dal lato sbagliato. La scelta resta nella scheda
+   * del browser, quindi vale anche al riavvio.
+   */
+  private async flipImportedCar(): Promise<void> {
+    const id = this.car.spec.id;
+    const record = await readGarageRecord(id);
+    if (!record) {
+      this.hud.toast('Auto non trovata nel browser: importala di nuovo', 3200);
+      return;
+    }
+    const next: GarageRecord = { ...record, flip: !record.flip };
+    await saveGarageRecord(next);
+    try {
+      const scene = await buildGarageScene(next);
+      this.customCars.set(id, scene);
+      this.car.setSpec(next.spec, null);
+      this.car.setSpec(next.spec, scene);
+      this.hud.toast(next.flip ? `Muso ruotato: ${next.name} guarda avanti` : `Muso ripristinato: ${next.name}`, 3200);
+    } catch (error) {
+      console.warn('garage: muso non ruotabile', error);
+      this.hud.toast('Non riesco a rileggere il modello', 3200);
+    }
+  }
+
+  /** Svuota il garage del browser (i file su disco non si toccano). */
+  private async clearImportedCars(): Promise<void> {
+    const total = importedCount();
+    if (total === 0) {
+      this.hud.toast('Nessuna auto importata da eliminare', 2400);
+      return;
+    }
+    if (!window.confirm(`Eliminare le ${total} auto importate dal browser?`)) return;
+    await clearGarageRecords();
+    clearImportedVehicles();
+    this.customCars.clear();
+    this.populateVehicles();
+    this.selectVehicle(VEHICLES[0].id);
+    this.hud.toast('Garage importato svuotato', 2400);
   }
 
   /** Cerca il punto più vicino su una strada asfaltata, con l'orientamento della carreggiata. */
@@ -635,6 +768,28 @@ export class Game {
     });
     const vehicleSelect = document.getElementById('vehicle-select') as HTMLSelectElement | null;
     vehicleSelect?.addEventListener('change', () => this.selectVehicle(vehicleSelect.value));
+
+    const carImport = document.getElementById('car-import') as HTMLInputElement | null;
+    carImport?.addEventListener('change', () => {
+      const files = Array.from(carImport.files ?? []);
+      carImport.value = '';
+      void this.importCars(files);
+    });
+    document.getElementById('btn-car-clear')?.addEventListener('click', () => void this.clearImportedCars());
+    document.getElementById('btn-car-flip')?.addEventListener('click', () => void this.flipImportedCar());
+    // trascinare un GLB sulla finestra lo importa anche senza aprire il menu
+    window.addEventListener('dragover', (event) => {
+      const transfer = event.dataTransfer;
+      if (!transfer || !Array.from(transfer.types).includes('Files')) return;
+      event.preventDefault();
+      transfer.dropEffect = 'copy';
+    });
+    window.addEventListener('drop', (event) => {
+      const files = Array.from(event.dataTransfer?.files ?? []);
+      if (!files.some((file) => /\.glb$/i.test(file.name))) return;
+      event.preventDefault();
+      void this.importCars(files);
+    });
 
     this.setupAppearanceUi();
     this.buildPaintSwatches();
@@ -716,6 +871,14 @@ export class Game {
     const host = document.getElementById('paint-swatches');
     if (!host) return;
     host.textContent = '';
+    if (!this.car.paintable) {
+      const note = document.createElement('small');
+      note.className = 'settings-hint';
+      note.textContent =
+        'Questa carrozzeria usa i materiali del GLB: il colore si cambia nell\'editor, non da qui.';
+      host.append(note);
+      return;
+    }
     // se la tinta di fabbrica non è in palette, la si aggiunge come "Di fabbrica"
     const factory = this.car.spec.paint;
     const choices = PAINT_CHOICES.some((p) => p.color === factory)
@@ -746,6 +909,10 @@ export class Game {
   }
 
   private setPaint(color: number): void {
+    if (!this.car.paintable) {
+      this.hud.toast('Carrozzeria GLB: il colore si imposta nel modello', 2600);
+      return;
+    }
     this.car.setPaint(color);
     savePaintFor(this.car.spec.id, color);
     this.syncPaintSwatches();
@@ -866,6 +1033,7 @@ export class Game {
 
     this.hud.setVehicleSpec(vehicleLabel(this.car.spec));
     this.syncPaintSwatches();
+    this.updateGarageCopy();
     this.hud.setGarageStatus(
       this.garage
         ? `${this.garage.label} · segnalibro salvato sulla mappa`
@@ -913,7 +1081,7 @@ export class Game {
   private selectVehicle(id: string): void {
     const spec = getVehicle(id);
     if (spec.id === this.car.spec.id) return;
-    this.car.setSpec(spec);
+    this.car.setSpec(spec, this.customCars.get(spec.id) ?? null);
     saveVehicleId(spec.id);
     if (this.heights) {
       const { x, z, yaw } = this.car.state;
@@ -927,8 +1095,9 @@ export class Game {
   }
 
   private cycleVehicle(): void {
-    const index = VEHICLES.findIndex((v) => v.id === this.car.spec.id);
-    this.selectVehicle(VEHICLES[(index + 1) % VEHICLES.length].id);
+    const vehicles = allVehicles();
+    const index = vehicles.findIndex((v) => v.id === this.car.spec.id);
+    this.selectVehicle(vehicles[(index + 1) % vehicles.length].id);
   }
 
   // -------------------------------------------------------------------------
@@ -2030,6 +2199,12 @@ export class Game {
     if (this.sky) {
       this.sky.dome.position.copy(this.camera.position);
       this.sky.updateEnvironment(this.renderer, this.scene);
+      // la stessa cubemap serve alla vernice: il clearcoat ha bisogno di un
+      // riflesso ampio per non sembrare plastica
+      if (this.scene.environment !== this.lastEnvironment) {
+        this.lastEnvironment = this.scene.environment;
+        this.car.setEnvironment(this.scene.environment);
+      }
     }
     if (this.stereo) this.renderStereo();
     else if (this.post) this.post.render(dt);

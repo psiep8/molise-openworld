@@ -4,6 +4,8 @@ import { createCarState, speedKmh, stepCar, type CarInput, type CarState } from 
 import { VEHICLES, getVehicle, loadPaintFor, tuningFor, type VehicleSpec } from '../sim/vehicle-catalog';
 import type { Heightfield } from '../geo/elevation';
 import type { BuildingIndex, RoadIndex } from '../geo/osm';
+import type { CityKit } from '../world/citykit';
+import { splitCarWheels } from './car-wheels';
 import { clamp } from '../geo/geo';
 import { WORLD } from '../config';
 
@@ -29,6 +31,16 @@ export class Vehicle {
   private lampMat = new THREE.MeshStandardMaterial();
   private tailMat = new THREE.MeshStandardMaterial();
   private paintMat: THREE.MeshPhysicalMaterial | null = null;
+  private kit: CityKit | null = null;
+  /** GLB importato dal garage: sostituisce la carrozzeria procedurale. */
+  private customModel: THREE.Object3D | null = null;
+  /** Ruote separate trovate nel GLB (nomi `wheel-fl`, `wheel-fr`, ecc.). */
+  private readonly externalWheels: { node: THREE.Object3D; front: boolean; radius: number }[] = [];
+  /** raggio medio delle ruote separate, in metri: il rotolamento deve combaciare col terreno */
+  private externalWheelRadius: number | null = null;
+  /** environment map del cielo, per vernice e vetri che brillano davvero */
+  private environment: THREE.Texture | null = null;
+  private readonly envBoost = new Map<THREE.Material, number>();
   private tiltPitch = 0;
   private tiltRoll = 0;
   private wheelSpin = 0;
@@ -47,10 +59,60 @@ export class Vehicle {
     this.build();
   }
 
-  /** Cambia modello a runtime (garage / selezione). */
-  setSpec(spec: VehicleSpec): void {
-    if (spec.id === this.spec.id) return;
+  /** Il kit si carica in parallelo alla mappa: arriva dopo il primo build. */
+  setKit(kit: CityKit | null): void {
+    this.kit = kit;
+    if (this.spec.model && !this.customModel) {
+      this.clear();
+      this.build();
+    }
+  }
+
+  /** True se la carrozzeria risponde al cambio tinta (solo mesh procedurali). */
+  get paintable(): boolean {
+    return this.paintMat !== null;
+  }
+
+  /**
+   * Riflessi dell'ambiente: la cubemap PMREM generata dal cielo. Senza, la
+   * vernice riflette solo le luci dirette e sembra vernice da modellino (vedi
+   * `webgl_materials_car`). L'intensità di base resta quella del materiale:
+   * si moltiplica per il boost, così la carrozzeria brilla più del plasticone.
+   */
+  setEnvironment(map: THREE.Texture | null): void {
+    if (map === this.environment) return;
+    this.environment = map;
+    this.applyEnvironment();
+  }
+
+  private applyEnvironment(): void {
+    if (!this.environment) return;
+    for (const [material, boost] of this.envBoost) {
+      const standard = material as THREE.MeshStandardMaterial;
+      const base = (standard.userData.baseEnvIntensity as number | undefined) ?? standard.envMapIntensity ?? 1;
+      standard.userData.baseEnvIntensity = base;
+      standard.envMap = this.environment;
+      standard.envMapIntensity = base * boost;
+      standard.needsUpdate = true;
+    }
+  }
+
+  /** Registra un materiale con quanto deve rispondere all'ambiente riflesso. */
+  private tune(material: THREE.MeshPhysicalMaterial, boost: number): THREE.MeshPhysicalMaterial {
+    this.envBoost.set(material, boost);
+    return material;
+  }
+
+  /**
+   * Cambia modello a runtime (garage / selezione).
+   *
+   * `externalModel` è un GLB già normalizzato (base a 0, lunghezza reale): se
+   * non c'è, lo spec può comunque indicare un modello del city kit.
+   */
+  setSpec(spec: VehicleSpec, externalModel: THREE.Object3D | null = null): void {
+    if (spec.id === this.spec.id && externalModel === this.customModel) return;
     this.spec = spec;
+    this.customModel = externalModel;
     this.clear();
     this.build();
   }
@@ -62,7 +124,11 @@ export class Vehicle {
     this.materials.clear();
     this.wheels.length = 0;
     this.frontPivots.length = 0;
+    this.externalWheels.length = 0;
+    this.externalWheelRadius = null;
+    this.envBoost.clear();
     this.headlights.length = 0;
+    this.paintMat = null;
     this.bodyGroup.clear();
     for (const child of [...this.group.children]) {
       if (child !== this.bodyGroup) this.group.remove(child);
@@ -99,6 +165,12 @@ export class Vehicle {
   }
 
   private build(): void {
+    const external = this.resolveExternal();
+    if (external) {
+      this.buildExternal(external.object, external.scale);
+      return;
+    }
+
     const spec = this.spec;
     const halfLength = spec.length / 2;
     const halfWidth = spec.width / 2;
@@ -108,47 +180,59 @@ export class Vehicle {
     const bodyY = ride + bodyH * 0.5;
     const beltY = ride + bodyH;
 
-    // Vernice da auto vera: metallizzato + clearcoat, ambiente riflesso
-    const paint = this.material({
-      color: loadPaintFor(spec.id, spec.paint),
-      // metallizzato sì, ma non a specchio: col cielo chiaro il cofano
-      // rifletteva il bianco e sembrava una lastra di alluminio
-      roughness: 0.38,
-      metalness: 0.35,
-      clearcoat: 0.55,
-      clearcoatRoughness: 0.14,
-      envMapIntensity: 0.9,
-    });
+    // Vernice da auto vera: vernice + clearcoat spesso (il clearcoat è la
+    // lastra di vernice trasparente: riflette il cielo con un alone stretto).
+    // L'intensità dell'ambiente la decide `setEnvironment`, con un boost alto:
+    // senza riflessi ampi sembra plastica da giocattolo.
+    const paint = this.tune(
+      this.material({
+        color: loadPaintFor(spec.id, spec.paint),
+        roughness: 0.3,
+        metalness: 0.5,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.06,
+        envMapIntensity: 1.0,
+      }),
+      2.4,
+    );
     this.paintMat = paint;
-    const trim = this.material({ color: spec.accent, roughness: 0.72, metalness: 0.25, clearcoat: 0.6, clearcoatRoughness: 0.25 });
+    const trim = this.tune(this.material({ color: spec.accent, roughness: 0.72, metalness: 0.25, clearcoat: 0.6, clearcoatRoughness: 0.25 }), 1.4);
     const plastic = this.material({ color: 0x1a1c1e, roughness: 0.92, metalness: 0.05 });
-    const chrome = this.material({ color: 0xd8dcdf, roughness: 0.2, metalness: 1, clearcoat: 0.9, clearcoatRoughness: 0.08, envMapIntensity: 1.4 });
+    const chrome = this.tune(this.material({ color: 0xd8dcdf, roughness: 0.14, metalness: 1, clearcoat: 1.0, clearcoatRoughness: 0.05 }), 3.2);
     // Vetro: trasparenza classica (la `transmission` fisica costa un pass extra
     // di scena e senza environment map risulta sporca).
-    const glass = this.material({
-      color: 0x1d2a33,
-      roughness: 0.06,
-      metalness: 0.5,
-      transparent: true,
-      opacity: 0.62,
-      envMapIntensity: 1.6,
-    });
-    const lamp = this.material({
-      color: 0xfff3d0,
-      emissive: 0xffe6a8,
-      emissiveIntensity: 0.6,
-      roughness: 0.35,
-      clearcoat: 0.4,
-      clearcoatRoughness: 0.3,
-    });
-    const tail = this.material({
-      color: 0x8f1f1a,
-      emissive: 0x5a0d0a,
-      emissiveIntensity: 0.35,
-      roughness: 0.45,
-      clearcoat: 0.5,
-      clearcoatRoughness: 0.2,
-    });
+    const glass = this.tune(
+      this.material({
+        color: 0x1d2a33,
+        roughness: 0.05,
+        metalness: 0.55,
+        transparent: true,
+        opacity: 0.6,
+      }),
+      3.0,
+    );
+    const lamp = this.tune(
+      this.material({
+        color: 0xfff3d0,
+        emissive: 0xffe6a8,
+        emissiveIntensity: 0.6,
+        roughness: 0.35,
+        clearcoat: 0.4,
+        clearcoatRoughness: 0.3,
+      }),
+      1.6,
+    );
+    const tail = this.tune(
+      this.material({
+        color: 0x8f1f1a,
+        emissive: 0x5a0d0a,
+        emissiveIntensity: 0.35,
+        roughness: 0.45,
+        clearcoat: 0.5,
+        clearcoatRoughness: 0.2,
+      }),
+      1.6,
+    );
     this.lampMat = lamp;
     this.tailMat = tail;
 
@@ -285,9 +369,9 @@ export class Vehicle {
       bumpMap: treadTexture(),
       bumpScale: 0.6,
     });
-    const hub = this.material({ color: 0x8e9498, roughness: 0.36, metalness: 0.82, clearcoat: 0.6, clearcoatRoughness: 0.15, envMapIntensity: 1 });
+    const hub = this.tune(this.material({ color: 0x8e9498, roughness: 0.36, metalness: 0.82, clearcoat: 0.6, clearcoatRoughness: 0.15 }), 2.0);
     // disco freno: si vede attraverso le razze, è quello che fa "auto vera"
-    const discMat = this.material({ color: 0x6f7477, roughness: 0.45, metalness: 0.9, envMapIntensity: 0.8 });
+    const discMat = this.tune(this.material({ color: 0x6f7477, roughness: 0.45, metalness: 0.9 }), 1.6);
 
     const frontZ = -spec.wheelbase / 2;
     const rearZ = spec.wheelbase / 2;
@@ -328,6 +412,188 @@ export class Vehicle {
       this.group.add(beam.target);
       this.headlights.push(beam);
     }
+
+    // ombre di contatto sotto le ruote: senza, l'auto sembra "galleggiare"
+    // sull'asfalto (le ombre del sole arrivano da lontano e non chiudono il
+    // punto in cui la gomma tocca la strada)
+    const shadows: { x: number; z: number; r: number }[] = [];
+    for (const side of frontX) shadows.push({ x: side * spec.track * 0.5, z: frontZ, r: spec.wheelRadius });
+    for (const side of [-1, 1]) shadows.push({ x: side * spec.track * 0.5, z: rearZ, r: spec.wheelRadius });
+    this.buildContactShadows(shadows);
+    this.applyEnvironment();
+  }
+
+  /**
+   * Macchia scura morbida sotto ogni ruota: chiude il punto di contatto tra
+   * gomma e strada. Quattro quad, una texture condivisa, zero luci.
+   */
+  private buildContactShadows(spots: { x: number; z: number; r: number }[]): void {
+    if (spots.length === 0) return;
+    const quad = this.track(new THREE.PlaneGeometry(1, 1));
+    quad.rotateX(-Math.PI / 2);
+    const material = new THREE.MeshBasicMaterial({
+      map: contactShadowTexture(),
+      transparent: true,
+      opacity: 0.5,
+      depthWrite: false,
+      color: 0xffffff,
+    });
+    this.materials.add(material);
+    for (const spot of spots) {
+      const size = Math.max(0.5, spot.r * 3.4);
+      const shadow = this.mesh(this.bodyGroup, quad, material, spot.x, 0.006, spot.z, false);
+      shadow.receiveShadow = false;
+      shadow.scale.set(size, 1, size);
+    }
+  }
+
+  /**
+   * Carrozzeria esterna: un GLB importato dal garage oppure, se lo spec lo
+   * indica, un modello del city kit. In entrambi i casi il muso dell'asset è a
+   * +Z, mentre il veicolo gioca con il muso a -Z: la rotazione la fa il build.
+   */
+  private resolveExternal(): { object: THREE.Object3D; scale: number | null } | null {
+    if (this.customModel) return { object: this.customModel, scale: null };
+    if (!this.spec.model || !this.kit) return null;
+    const asset = this.kit.bySlug(this.spec.model);
+    if (!asset) return null;
+    // la separazione delle ruote si fa una volta sola sul template e poi viene
+    // ereditata da ogni clonazione: senza, ogni cambio veicolo rianalizzerebbe
+    // decine di migliaia di triangoli
+    splitCarWheels(asset.template);
+    // la lunghezza di un'auto del kit corre lungo Z; il resto è larghezza
+    const sourceLength = Math.max(0.001, asset.size.z);
+    return {
+      object: asset.template.clone(true),
+      scale: this.spec.length / sourceLength,
+    };
+  }
+
+  private buildExternal(source: THREE.Object3D, scale: number | null): void {
+    const spec = this.spec;
+    const pivot = new THREE.Group();
+    pivot.name = 'vehicle-external';
+    pivot.add(source);
+    // muso +Z dell'asset -> muso -Z del gioco
+    pivot.rotation.y = Math.PI;
+    if (scale !== null) pivot.scale.setScalar(scale);
+    pivot.updateMatrixWorld(true);
+
+    // base a terra e centro sull'asse: un GLB può avere il pivot dove vuole.
+    // Il calcolo avviene prima di agganciare il pivot al gruppo: altrimenti il
+    // bounding box sarebbe in coordinate mondo e, cambiando auto in movimento,
+    // il modello si sposterebbe della posizione dell'auto.
+    const box = new THREE.Box3().setFromObject(pivot);
+    const center = box.getCenter(new THREE.Vector3());
+    pivot.position.set(-center.x, -box.min.y, -center.z);
+    this.bodyGroup.add(pivot);
+
+    source.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      if (!(mesh as unknown as { isMesh?: boolean }).isMesh) return;
+      const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+      mesh.receiveShadow = true;
+      mesh.castShadow = !material?.transparent;
+      // i materiali del GLB rispondono all'ambiente come quelli procedurali:
+      // carrozzeria e vetri hanno bisogno di più riflesso del resto
+      const standard = material as THREE.MeshStandardMaterial | undefined;
+      if (standard && (standard as unknown as { isMeshStandardMaterial?: boolean }).isMeshStandardMaterial) {
+        const boost = /paint|glass|chrome|lens|emit|metal|steel|alloy|rub/i.test(standard.name) ? 1.9 : 1.25;
+        this.envBoost.set(standard, boost);
+      }
+    });
+
+    // ruote: se la carrozzeria è un pezzo solo vengono separate (perni al mozzo).
+    // Per un GLB importato la geometria originale è di sua proprietà e viene
+    // liberata; i template del kit restano intatti (sono condivisi).
+    splitCarWheels(source, source === this.customModel);
+    this.collectExternalWheels(source);
+    this.applyEnvironment();
+
+    // ombre di contatto sotto le ruote rilevate (o sotto quelle dichiarate)
+    const shadowSpots: { x: number; z: number; r: number }[] = [];
+    for (const wheel of this.externalWheels) {
+      const world = wheel.node.getWorldPosition(new THREE.Vector3());
+      const local = this.bodyGroup.worldToLocal(world);
+      shadowSpots.push({ x: local.x, z: local.z, r: wheel.radius });
+    }
+    if (shadowSpots.length === 0) {
+      const halfLength = spec.length / 2;
+      const halfWidth = spec.width / 2;
+      for (const side of [-1, 1]) {
+        shadowSpots.push({ x: side * halfWidth * 0.72, z: -halfLength + spec.wheelRadius, r: spec.wheelRadius });
+        shadowSpots.push({ x: side * halfWidth * 0.72, z: halfLength - spec.wheelRadius, r: spec.wheelRadius });
+      }
+    }
+    this.buildContactShadows(shadowSpots);
+
+    // fari: gli asset non hanno uno spot, ma la notte serve luce in strada
+    const halfWidth = spec.width / 2;
+    const halfLength = spec.length / 2;
+    for (const side of [-1, 1]) {
+      const beam = new THREE.SpotLight(0xfff0cf, 0, 55, Math.PI / 7, 0.55, 1.2);
+      beam.position.set(side * halfWidth * 0.62, spec.height * 0.32, -halfLength + 0.06);
+      beam.castShadow = false;
+      this.group.add(beam);
+      beam.target.position.set(side * halfWidth, -0.4, -18);
+      this.group.add(beam.target);
+      this.headlights.push(beam);
+    }
+  }
+
+  /**
+   * Ruote animate nei GLB importati.
+   *
+   * Un modello Smooth Voxels esportato in un solo oggetto ha le ruote fuse
+   * nella carrozzeria: non si possono girare. Se invece le ruote sono oggetti
+   * separati chiamati `wheel-fl`, `wheel-fr`, `wheel-rl`, `wheel-rr`, qui si
+   * crea un perno sul centro di ciascuna e si fa sterzare/girare quello.
+   */
+  private collectExternalWheels(source: THREE.Object3D): void {
+    source.updateMatrixWorld(true);
+    const fallback = this.spec.wheelRadius;
+    const found: { node: THREE.Object3D; front: boolean; radius: number }[] = [];
+    const seen = new Set<THREE.Object3D>();
+    let radiusSum = 0;
+    source.traverse((object) => {
+      if (!object.name) return;
+      const match = /(?:^|[-_ ])wheel[-_ ]?(fl|fr|rl|rr)$/i.exec(object.name);
+      if (!match) return;
+      const parent = object.parent;
+      if (!parent) return;
+      const tag = match[1].toLowerCase();
+      const front = tag === 'fl' || tag === 'fr';
+      const splitHub = parent.name.endsWith('-hub') ? parent : null;
+      const radius = Number(splitHub?.userData.wheelRadius ?? 0) || fallback;
+
+      // il modello è già stato costruito una volta: il perno esiste e va
+      // riusato, altrimenti cambiando auto e tornando indietro le ruote
+      // resterebbero ferme
+      if (splitHub) {
+        if (!seen.has(splitHub)) {
+          seen.add(splitHub);
+          found.push({ node: splitHub, front, radius });
+          radiusSum += radius;
+        }
+        return;
+      }
+
+      const world = new THREE.Box3().setFromObject(object).getCenter(new THREE.Vector3());
+      const hub = new THREE.Group();
+      hub.name = `${object.name}-hub`;
+      parent.add(hub);
+      hub.position.copy(parent.worldToLocal(world));
+      hub.rotation.order = 'YXZ';
+      hub.userData.wheelRadius = radius;
+      hub.updateMatrixWorld(true);
+      hub.attach(object);
+
+      seen.add(hub);
+      found.push({ node: hub, front, radius });
+      radiusSum += radius;
+    });
+    this.externalWheels.push(...found);
+    if (found.length > 0) this.externalWheelRadius = radiusSum / found.length;
   }
 
   private wheelAt(
@@ -483,8 +749,17 @@ export class Vehicle {
 
     const steerAngle = next.steer * spec.maxSteer * 0.95;
     for (const pivot of this.frontPivots) pivot.rotation.y = steerAngle;
-    this.wheelSpin += (next.speed / spec.wheelRadius) * dt;
+    // per le ruote esterne si usa il raggio reale della ruota: se la carrozzeria
+    // ha pneumatici più grandi o più piccoli dello spec, il rotolamento deve
+    // comunque combaciare col terreno (altrimenti la ruota "striscia")
+    this.wheelSpin += (next.speed / (this.externalWheelRadius ?? spec.wheelRadius)) * dt;
     for (const wheel of this.wheels) wheel.rotation.x = this.wheelSpin;
+    // GLB importati: il muso è stato ruotato di 180°, quindi il verso di
+    // rotazione delle ruote è opposto a quello dei modelli procedurali
+    for (const wheel of this.externalWheels) {
+      if (wheel.front) wheel.node.rotation.y = steerAngle;
+      wheel.node.rotation.x = -this.wheelSpin;
+    }
 
     // fanalini: si accendono in frenata e diventano bianchi in retromarcia
     const braking = clamp(input.brake, 0, 1);
@@ -538,6 +813,33 @@ function treadTexture(): THREE.CanvasTexture {
   tex.repeat.set(4, 12);
   tex.anisotropy = 4;
   treadCache = tex;
+  return tex;
+}
+
+/**
+ * Ombra di contatto: disco sfumato da 96 px, condiviso da tutte le ruote.
+ * Serve a chiudere il punto in cui la gomma tocca la strada: l'ombra del sole
+ * arriva da lontano e nel punto di contatto lascia sempre un alone chiaro.
+ */
+let contactShadowCache: THREE.CanvasTexture | null = null;
+function contactShadowTexture(): THREE.CanvasTexture {
+  if (contactShadowCache) return contactShadowCache;
+  const size = 96;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    gradient.addColorStop(0, 'rgba(0,0,0,0.9)');
+    gradient.addColorStop(0.4, 'rgba(0,0,0,0.55)');
+    gradient.addColorStop(0.72, 'rgba(0,0,0,0.18)');
+    gradient.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, size, size);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  contactShadowCache = tex;
   return tex;
 }
 

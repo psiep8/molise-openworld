@@ -8,6 +8,7 @@
 > **Stato, comandi, limiti e prossimi passi:** [HANDOFF.md](HANDOFF.md) — il documento da leggere prima di riprendere il progetto su un'altra macchina.
 > **Specifica completa del simulatore:** [docs/MASTER_PROMPT.md](docs/MASTER_PROMPT.md), con lo stato di avanzamento punto per punto.
 > **Piano di realismo grafico (documento vivo):** [docs/REALISM-PLAN.md](docs/REALISM-PLAN.md) — cosa è fatto, cosa manca e in che ordine.
+> **City kit e auto:** [docs/CITYKIT.md](docs/CITYKIT.md) — cosa si usa e perché; [docs/GARAGE.md](docs/GARAGE.md) — auto fatte in Smooth Voxels; [docs/ROADMAP-VISUALS.md](docs/ROADMAP-VISUALS.md) — cosa manca e gli esempi three.js.
 
 **Area giocabile:** Palata · Montecilfone · Acquaviva Collecroce · Tavenna · Castelmauro (~14 × 12 km di campagna molisana)
 
@@ -20,6 +21,9 @@
 - **Meteo reale opzionale** (`P` → interruttore): condizioni attuali, nuvole, pioggia/neve e **sole alla posizione e ora vere**, con alba/tramonto del giorno. Aggiornamento ogni 10 minuti, fallback al pomeriggio fisso se lo spegni.
 - **Ora del giorno manuale** (`P` → slider 0–24): alba, mezzogiorno, tramonto e notte, con preset meteo sereno/nuvoloso/pioggia/neve/nebbia. Strada bagnata e fari si accendono da soli quando il sole scende.
 - **Ventidue veicoli procedurali** (`P` → Veicolo, oppure `B` per cambiarli al volo): i nove già presenti (Panda vecchia e nuova, Punto, Renegade, tre ruote, 500X, Captur, C3, Junior) più i tredici richiesti (Cupra Formentor, Alfa Romeo Tonale, Audi Q3, BMW X1, Mercedes-Benz GLA, Dacia Sandero, Toyota Yaris, Kia Picanto, Ford Fiesta, Nissan Qashqai, Fiat 500, Fiat 600, Peugeot 3008). Ognuno ha ingombri, passo, raggio ruota e **prestazioni reali** della versione rappresentata: cilindrata, potenza, coppia, 0-100 e velocità massima vengono dalle schede tecniche (vedi `docs/VEHICLE_DATA.md`). Le **sagome sono procedurali originali**, non modelli ufficiali dei marchi.
+- **Quattro carrozzerie del city kit** guidabili (Familiare, Parigina, Sedan pastello, Spider bianca): usano i GLB low-poly al posto della mesh procedurale, riscalati sulla lunghezza e ruotati col muso nel verso di marcia. Le ruote vengono **separate dalla carrozzeria a runtime** (perno al centro del mozzo, raggio misurato sul modello, quindi il rotolamento combacia col terreno) e sotto c'è un'ombra di contatto. Le prestazioni sono riferimenti di segmento, non schede reali.
+- **Auto personalizzate da Smooth Voxels**: modella un'auto in <https://www.smoothdev.nl/smoothvoxels/>, esportala in GLB e importala dal menu o trascinandola sulla finestra. Ogni auto riceve una scheda tecnica dagli ingombri, è guidabile subito e resta salvata in IndexedDB (max 12 per browser); un pulsante gira il **muso di 180°** se l'export è uscito al contrario. Flusso e convenzioni in `docs/GARAGE.md`.
+- **Vernice con riflessi**: la cubemap del cielo passa ai materiali del veicolo con un boost per famiglia (vernica, vetri, cromature), così il clearcoat ha riflessi veri e non sembra plastica.
 - **Modalità vita e negozi di Palata** (`E` vicino a un'attività): catalogo di luoghi (ristorazione, alimentari, abbigliamento, servizi, punti d'interesse), pannello attività con menu simulato, conferma dell'acquisto con costo e saldo residuo, spesa, guardaroba e ATM simulato.
 - **Denaro SOLO virtuale**: contanti e conto sono valute di gioco (500 € e 2.000 € iniziali, in centesimi interi). Nessun collegamento a carte, conti, IBAN, gateway o pagamenti reali. Il portafoglio (`I`) mostra contanti, conto e movimenti.
 - **Bisogni e orologio di gioco**: fame, energia e divertimento calano col tempo; mangiare, bere, comprare, passeggiare e dormire li modificano. Avvisi graduali, nessuna morte improvvisa. Si dorme a casa con `E` (avanza il giorno e recupera energia).
@@ -196,14 +200,15 @@ src/
     sky.ts             cielo, sole, ombre
   environment/
     sun-clock.ts       sole per un'ora locale arbitraria + preset meteo
+  garage.ts            import GLB, specifica automatica e IndexedDB
   entities/
     player.ts          controller a piedi; usa il corpo umano GLB (fallback: rig procedurale)
     human-model.ts     corpi rigged, blend idle/camminata/corsa, istanze clonate
     appearance.ts      sesso, altezza, corporatura, carnagione, capelli, outfit
-    vehicle.ts         veicoli procedurali dal catalogo + assetto e tinta
+    vehicle.ts         veicoli procedurali o GLB + assetto, tinta e ruote
   sim/
     car.ts             fisica pura e testabile: motore, cambio, freni, aderenza
-    vehicle-catalog.ts 22 veicoli con dati reali (docs/VEHICLE_DATA.md)
+    vehicle-catalog.ts 22 veicoli con dati reali + 4 carrozzerie del kit
     routing.ts         grafo stradale + A* per l'itinerario scelto sulla mappa
     economy.ts         economia virtuale: contanti, conto, acquisti atomici, movimenti
     needs.ts           fame, energia, divertimento: calo nel tempo ed effetti

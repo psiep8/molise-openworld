@@ -48,7 +48,7 @@ Stack: TypeScript + Vite + Three.js (WebGL2), Vitest, nessun framework UI.
 | Qualità | ✅ nuovo | preset low/medium/high/ultra + resolution scaling adattivo |
 | Audio | ✅ nuovo | WebAudio procedurale: motore, rotolamento, vento, passi, uccelli |
 | Fisica auto | ✅ | modello bicycle puro, testato |
-| Catalogo veicoli | ✅ aggiornato | **22 modelli**: 9 preesistenti + 13 richiesti (sagome procedurali, prestazioni reali) |
+| Catalogo veicoli | ✅ aggiornato | **26 modelli**: 22 procedurali (9 + 13, prestazioni reali) + 4 carrozzerie del kit; più le auto importate dal garage |
 | Economia virtuale | ✅ nuovo | SOLO EURO DI GIOCO: contanti + conto virtuale, acquisti atomici, storico, ATM simulato (`src/sim/economy.ts`) |
 | Luoghi di Palata | ✅ nuovo | catalogo data-driven, stato di verifica esplicito, **nessuno `verified`** (`src/sim/venue-catalog.ts`) |
 | Bisogni + orologio | ✅ nuovo | fame/energia/divertimento, giorno/notte, sonno a casa (`src/sim/needs.ts`) |
@@ -329,7 +329,7 @@ Screenshot smoke: `smoke/shot.png` (ignorato da git). Il profilo Chrome è in
 4. **Verificare i flussi della modalità vita a mano**: `E` vicino a un'attività →
    comprare in contanti e col conto (controllare che il saldo non vada mai negativo
    e che lo storico cresca), ATM simulato, `E` a casa → dormire (giorno +1, 07:00,
-   energia 100), `I` per il portafoglio, e provare su strada i 22 modelli. Segnare
+   energia 100), `I` per il portafoglio, e provare su strada i 26 modelli. Segnare
    qui l'esito prima di dichiarare la funzione "verificata".
 
 ### P1 — Qualità grafica “quasi AAA”
@@ -772,3 +772,138 @@ varietà nelle auto in sosta e i segnali sul palo zincato vero.
   proprietario. Da guardare in gioco: piazza che si appoggia ai gradini, targhe
   leggibili e non dentro i muri, auto low-poly con il muso nel verso giusto,
   altezza dei segnali sul palo del kit.
+
+## 23/10 — Auto del kit guidabili e garage Smooth Voxels
+
+Il proprietario ha chiesto due cose: mettere subito in gioco i veicoli dei GLB e
+poter modellare le proprie macchine in Smooth Voxels. Fatte entrambe, più il
+documento con quello che manca e gli otto esempi three.js indicati.
+
+### Auto del kit guidabili
+
+- **Quattro voci nuove** in `src/sim/vehicle-catalog.ts`: `kit-family-sedan`,
+  `kit-paris-car`, `kit-pastel-sedan`, `kit-convertible`. Ognuna ha il campo
+  `model` con lo slug del GLB (`family-sedan`, `paris-car-01`, `pastel-sedan`,
+  `white-sports-convertible`).
+- **Rendering** (`src/entities/vehicle.ts`): `resolveExternal` cerca l'asset con
+  `CityKit.bySlug`, clona il template e lo scala sulla lunghezza dello spec.
+  L'asset ha il muso a +Z, il gioco guida a −Z: rotazione di 180°, base a terra,
+  centro su x/z. I due `SpotLight` dei fari si aggiungono anche qui.
+- **Fisica**: quella di sempre, con ingombri e prestazioni dello spec. Le
+  prestazioni delle voci `kit-*` sono **riferimenti di segmento**, non schede
+  reali: il commento nel catalogo lo dice.
+- **Tinta**: per i GLB il menu mostra un avviso e non applica la palette
+  (`Vehicle.paintable`).
+- **Ruote**: le low-poly sono un solo oggetto, quindi restano ferme. Se il kit
+  manca, si ricade sulla carrozzeria procedurale senza errori.
+- La berlina fotorealistica resta solo in sosta (ruote fuse nei materiali
+  `rub`/`alloy`).
+
+### Garage Smooth Voxels
+
+- **`src/garage.ts`** (nuovo): legge il GLB con `GLTFLoader` (+ Draco),
+  normalizza asse lungo su Z, base a 0, centro e scala, ricava una scheda
+  plausibile dagli ingombri e salva il file in IndexedDB.
+- **Import**: file picker nel menu (`Auto personalizzate`) e drag & drop sulla
+  finestra. Le auto compaiono nella select con `★`, sono guidabili subito e
+  restano dopo il ricaricamento. Massimo 12 per browser; pulsante per svuotare.
+- **Ruote animate opzionali**: se il GLB ha oggetti separati `wheel-fl`,
+  `wheel-fr`, `wheel-rl`, `wheel-rr` con l'origine al mozzo, il veicolo crea un
+  perno, le fa sterzare e girare. Documentato in `docs/GARAGE.md`.
+- **Nessun tint** sui modelli importati: materiali e texture restano quelli
+  dell'utente. Il colore si cambia nell'editor.
+- **UI**: sezione in `index.html`, stili in `src/style.css`, wiring in
+  `src/game.ts` (`loadCustomCars`, `importCars`, `clearImportedCars`).
+- Smooth Voxels è un editor esterno: il progetto ci si collega, non lo incorpora.
+
+### Documenti
+
+- **`docs/GARAGE.md`**: flusso completo, convenzioni (1 unità = 1 m, muso +Z,
+  base a 0, nomi ruote), cosa fa l'import, limiti, problemi tipici, licenza.
+- **`docs/ROADMAP-VISUALS.md`**: cosa manca ai GLB delle auto (ruote separate,
+  interni, fari emissivi, tinta, LOD, collisioni, suono, animazioni) e come
+  usare gli otto esempi three.js: `webgl_materials_car`,
+  `webgpu_generator_building`, `webgpu_compute_particles_rain`,
+  `webgpu_compute_particles_snow`, `webgpu_custom_fog`,
+  `webgl_geometry_terrain`, `webgl_animation_skinning_blending`,
+  `webgl_animation_skinning_additive_blending`. Include la nota che gli esempi
+  `webgpu_*` non girano sul `WebGLRenderer` attuale.
+- **`docs/CITYKIT.md`**: nuova §1.3.1 sulle carrozzerie guidabili e stato
+  aggiornato.
+
+### Verifiche
+
+- `npx tsc --noEmit` ✅ e `npm test` **179/179** ✅ sul blocco di codice
+  principale. Le ultime rifiniture (rinomina di `clearGarageRecords`, filtro
+  solo `.glb`, testi UI) non sono state ricontrollate.
+- **Build, browser, screenshot e fps NON eseguiti**: il proprietario ha chiesto
+  di non lanciare test su questa macchina (niente rete/PC adatto); farà la
+  verifica da un'altra macchina.
+- Da guardare in gioco: auto del kit con il muso nel verso giusto e non
+  interrate, nessuna doppia ruota, auto importata della lunghezza giusta,
+  ruote separate che sterzano, garage che ricarica dopo F5.
+
+## 23/10 — Ruote separate, vernice con riflessi e correzione del muso
+
+Tre richieste del proprietario, tutte sulle auto: correggere il muso delle auto
+importate, rendere la vernice realistica, e far girare le ruote in modo
+realistico soprattutto al contatto con l'asfalto.
+
+### Ruote animate (`src/entities/car-wheels.ts`, nuovo)
+
+- I GLB del kit e quelli di Smooth Voxels escono spesso come **un solo oggetto**:
+  la separazione ora avviene a runtime. Si collegano i triangoli che condividono
+  lo stesso vertice (weld a 1 mm, union-find), si isolano le componenti a forma
+  di ruota (due assi larghi e uno stretto, nella metà bassa del veicolo) e le
+  quattro più vicine agli angoli diventano quattro ruote con un perno al mozzo.
+- **La geometria originale non si tocca** (i template del kit sono condivisi con
+  le auto parcheggiate): si creano nuove geometrie con gli stessi vertici,
+  normali e UV, quindi la texture resta allineata. Se l'analisi non trova quattro
+  ruote plausibili non si tocca nulla.
+- **Raggio reale**: il raggio della ruota viene misurato sul modello e usato per
+  il rotolamento (`wheelSpin += speed / radius`), quindi una carrozzeria con
+  pneumatici più grandi dello spec non "striscia" sulla strada.
+- La separazione sulle auto del kit si fa **una volta sul template** e poi viene
+  ereditata da ogni clonazione; per le auto importate avviene alla prima
+  costruzione e il perno resta nel modello.
+- Le ruote dichiarate a mano (`wheel-fl`… con origine al mozzo) continuano a
+  funzionare come prima.
+
+### Ombre di contatto
+
+- Quattro quad sfumati sotto le ruote (texture condivisa da 96 px, `MeshBasicMaterial`,
+  `depthWrite: false`, a 6 mm dal piano): chiudono il punto in cui la gomma
+  tocca la strada. Le ombre del sole arrivano da lontano e lasciano sempre un
+  alone chiaro nel contatto.
+- Vengono messe anche sotto le carrozzerie procedurali, nelle posizioni di
+  passo e carreggiata.
+
+### Vernice realistica
+
+- La cubemap PMREM del cielo (`sky.updateEnvironment` → `scene.environment`)
+  arriva adesso anche ai materiali del veicolo: `Vehicle.setEnvironment` la
+  applica con un **boost per famiglia** (vernica 2,4×, vetri e cromature 3,0×,
+  lenti 1,9×, plastiche 1,25×), così la carrozzeria ha riflessi ampi e le
+  plastiche restano opache.
+- La vernice è passata a clearcoat 1,0, clearcoatRoughness 0,06, metalness 0,5,
+  roughness 0,30. La stessa mappa viene passata anche ai materiali dei GLB.
+- Il Game la aggiorna quando il cielo rigenera la cubemap (confronto per
+  identità, nessun costo nei frame normali).
+
+### Muso 180° per le auto importate
+
+- Nuovo pulsante **Ruota il muso 180°** nel pannello garage: visibile solo quando
+  il veicolo corrente è un'auto importata.
+- La scelta diventa `flip` nel record IndexedDB, quindi sopravvive al
+  ricaricamento; il modello viene riletto e normalizzato con la rotazione.
+- Nuove funzioni in `src/garage.ts`: `readGarageRecord`, `buildGarageScene`.
+
+### Verifiche
+
+- **Nessun test, nessuna build, nessun browser**: su richiesta del proprietario
+  (questa macchina non ha rete e non è adatta). Il controllo statico a fine
+  blocco è stato fatto a mano. Da verificare in gioco, in ordine: le quattro
+  auto del kit con le ruote che girano, l'ombra di contatto al posto giusto, la
+  vernice che riflette il cielo, l'auto importata con il muso girato.
+- Restano fermi i precedenti punti: fari emissivi dei GLB, LOD, collisioni per
+  modello, suono per auto (vedi `docs/ROADMAP-VISUALS.md`).

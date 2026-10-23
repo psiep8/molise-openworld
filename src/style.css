@@ -873,6 +873,26 @@ kbd {
   cursor: default;
 }
 
+a.text-btn,
+.car-import-label {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.car-import-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.inline-link {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
 .settings-hint {
   font-size: 10.5px;
   color: var(--muted);

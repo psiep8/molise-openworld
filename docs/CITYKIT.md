@@ -57,7 +57,8 @@ draw call.
 
 ### 1.3 Auto low-poly (4 free degli altri pack)
 
-Alternano le berline in sosta lontano dallo spawn. Il davanti è stato verificato
+Alternano le berline in sosta lontano dallo spawn e, dalla stessa carrozzeria,
+sono anche guidabili (vedi §1.3.1). Il davanti è stato verificato
 decodificando i GLB: i fari rossi stanno a **−Z**, quindi il muso è a **+Z**,
 come la berlina del kit e come il codice di parcheggio già presume. Sono un solo
 ruolo (`car-lowpoly`) con quattro varianti; la scala è ricalcolata sulla
@@ -72,6 +73,46 @@ lunghezza reale (4,3 m) perché i modelli sono più corti del vero.
 
 Vicino a casa (150 m) resta solo la berlina fotorealistica: è lì che la si
 guarda da vicino. Oltre, il 45% delle auto in sosta è low-poly.
+
+#### 1.3.1 Le stesse carrozzerie come veicoli guidabili
+
+Quattro voci del catalogo (`src/sim/vehicle-catalog.ts`) usano questi GLB al
+posto della mesh procedurale, tramite il campo `model` (lo slug del manifest):
+
+| Veicolo | `id` | `model` | Lunghezza |
+| --- | --- | --- | --- |
+| Familiare low-poly | `kit-family-sedan` | `family-sedan` | 4,42 m |
+| Parigina low-poly | `kit-paris-car` | `paris-car-01` | 4,12 m |
+| Sedan pastello | `kit-pastel-sedan` | `pastel-sedan` | 4,50 m |
+| Spider bianca | `kit-convertible` | `white-sports-convertible` | 4,24 m |
+
+- **Rendering**: `Vehicle.resolveExternal` cerca l'asset con `CityKit.bySlug`,
+  clona il template (materiali condivisi) e lo scala sulla lunghezza dello spec.
+  Il muso dell'asset è a **+Z**, il gioco guida a **−Z**: la carrozzeria viene
+  ruotata di 180° e riappoggiata a terra/centrata. I due `SpotLight` dei fari
+  vengono aggiunti come per le auto procedurali.
+- **Fisica**: quella di `src/sim/car.ts`, con ingombri, passo, carreggiata,
+  massa e prestazioni dello spec. Le prestazioni delle quattro voci sono **dati
+di riferimento di segmento**, non schede tecniche reali (il catalogo lo dice
+  nel commento sopra le voci).
+- **Ruote**: i quattro GLB sono **un solo oggetto**, quindi vengono separate a
+  runtime (`src/entities/car-wheels.ts`): si isola la componente triangolare di
+  ogni ruota, le quattro vanno agli angoli e il perno nasce al centro del mozzo.
+  Il raggio è quello misurato sul modello, quindi il rotolamento combacia con
+  l'asfalto. Se l'analisi fallisce (gomma attaccata al corpo, ruota a cubo), le
+  ruote restano ferme e il resto funziona. Sotto ogni ruota c'è un'ombra di
+  contatto. Le auto importate dal garage seguono la stessa strada, e hanno in
+  più la correzione del muso da menu. Vedi `docs/GARAGE.md`.
+- **Riflessi**: la cubemap del cielo (`scene.environment`) arriva anche qui con
+  un boost per famiglia di materiale, così vernice e vetri non sembrano
+  plastica.
+- **Tinta**: il menu mostra un avviso e non applica la palette; il colore è
+  quello del GLB (`Vehicle.paintable` è `false`).
+- **Senza kit**: `resolveExternal` restituisce `null` e si costruisce la
+  carrozzeria procedurale, come per qualsiasi altro veicolo. Nessun errore.
+- La berlina fotorealistica `realistic-car-sedan-01` resta **solo in sosta**:
+  è quella che si guarda da vicino e le ruote sono fuse nei materiali
+  `rub`/`alloy`; da guidare sembrerebbe un modellino fermo.
 
 ### 1.4 Cosa NON usiamo (e perché)
 
@@ -302,6 +343,8 @@ cambia nulla. Diagnostica: `window.__molise.kit` =
 | Targhe con i nomi delle vie | ✅ integrate nel codice |
 | Segnali su palo del kit, facce italiane | ✅ integrato nel codice |
 | Auto low-poly in sosta | ✅ integrate (davanti a +Z verificato sui GLB) |
+| Auto low-poly guidabili (4) | ✅ integrate nel catalogo e nel rendering |
+| Garage Smooth Voxels / auto importate | ✅ integrato (`docs/GARAGE.md`) |
 | Verifica visiva e fps | ⏳ **non eseguita** (richiesta di salto test/browser) |
 
 Niente ✅ dove non c'è una prova: il codice compila e i test precedenti erano

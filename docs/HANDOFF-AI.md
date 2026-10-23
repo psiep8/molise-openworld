@@ -66,7 +66,7 @@ pack free (circa 370 KB) per il margine di campagna e quattro berline.
 | `sign` | `realistic-street-sign-01` | 28.120 | palo `ss_galv` per STOP/precedenza/50 |
 | `bench` | `realistic-bench-01` | 21.252 | panchine al posto delle scatole |
 | `bin` | `realistic-trash-bin-01` | 22.522 | cestini ogni 3 panchine |
-| `car` | `realistic-car-sedan-01` | 65.454 | berline in sosta |
+| `car` | `realistic-car-sedan-01` | 65.137 | berline in sosta |
 | `boulder` | `realistic-rock-boulder-01` | 24.864 | pochi massi sui pendii |
 
 ### Scenery low-poly (7 free degli altri pack)
@@ -99,6 +99,14 @@ yaw della berlina del kit; scala ricalcolata sulla lunghezza di 4,3 m.
 | `car-lowpoly` | `family-sedan` | 2.424 |
 | `car-lowpoly` | `pastel-sedan` | 7.144 |
 | `car-lowpoly` | `white-sports-convertible` | 6.904 |
+
+Le stesse quattro carrozzerie sono **guidabili**: nel catalogo ci sono
+`kit-family-sedan` (4,42 m), `kit-paris-car` (4,12 m), `kit-pastel-sedan`
+(4,50 m) e `kit-convertible` (4,24 m), con `model` = slug. `Vehicle` le riscala
+sulla lunghezza dello spec, le ruota di 180° (muso +Z → −Z), le appoggia a terra
+e aggiunge i due spot dei fari. Le prestazioni sono **riferimenti di segmento**,
+non schede reali. Le ruote sono fuse nella mesh: non girano. La berlina
+fotorealistica resta solo in sosta. Dettagli: `docs/CITYKIT.md` §1.3.1.
 
 **Perché questi e non il pack "City"** (quello linkato all'inizio): City è
 low-poly moderno, griglia 4 m, palazzi vetrati al 70% dell'altezza reale. In un
@@ -267,10 +275,23 @@ Dettagli che fanno perdere tempo se non si sanno:
    scatola oltre ~120 m.
 6. **Incrocio**: il materiale di `road-junction` può servire per le zone di
    giunzione, ma oggi i nastri si sovrappongono con `roadLift`.
-7. **Veicolo del giocatore**: resta procedurale (22 modelli in
-   `src/sim/vehicle-catalog.ts`). Il kit fornisce una sola berlina: usarla solo
-   per la sosta, non per sostituire il catalogo.
-8. **Nuovi prop da tarare in gioco** (nessuna verifica visiva fatta): altezza dei
+7. **Auto guidabili**: 22 modelli procedurali + 4 carrozzerie del kit in
+   `src/sim/vehicle-catalog.ts` (26 voci). Le ruote dei GLB unici vengono
+   **separate a runtime** (`src/entities/car-wheels.ts`): perno al mozzo,
+   raggio misurato sul modello, ombra di contatto sotto ogni ruota. Non tingere
+   le low-poly: l'atlante unico colorerebbe anche vetri e gomme. La berlina
+   fotorealistica resta solo in sosta.
+8. **Garage Smooth Voxels / auto importate** (`src/garage.ts`, `docs/GARAGE.md`):
+   import GLB da menu o drag & drop, specifica automatica dagli ingombri,
+   IndexedDB (max 12 per browser), ruote animate (separate o dichiarate),
+   pulsante **Ruota il muso 180°** salvato nel record. Da verificare in gioco il
+   verso del muso, la scala e la ricarica dopo F5. Il modello è esterno: nessun
+   tint, nessuna LOD.
+8b. **Vernice e riflessi**: `Vehicle.setEnvironment` prende la cubemap PMREM del
+   cielo e la applica ai materiali del veicolo con un boost per famiglia
+   (vernica 2,4×, vetri e cromature 3×). Restano da provare `transmission` per i
+   vetri e lo stesso trattamento sulle auto in sosta.
+9. **Nuovi prop da tarare in gioco** (nessuna verifica visiva fatta): altezza dei
    segnali sul palo del kit, scala del relitto (1,45–1,57) e dei massi
    (0,8–1,7), siepi che non entrino nei muri, canneti alla quota giusta rispetto
    all'acqua, piazza che si appoggia ai gradini della chiesa, targhe leggibili e
@@ -344,6 +365,15 @@ Se il budget non c'è, per gli edifici conviene investire sulle facciate
 procedurali (cornici, gronde, profondità reale delle finestre) invece di
 comprare il pack: le mesh finite non si adattano alle impronte OSM.
 
+### 6.4 Smooth Voxels (auto dell'utente)
+
+<https://www.smoothdev.nl/smoothvoxels/> è un editor voxel esterno (non un asset
+pack): si modella l'auto, si esporta in GLB e la si importa dal menu **Auto
+personalizzate**. Non è incorporato nel progetto e non aggiunge dipendenze.
+Il flusso, le convenzioni (1 unità = 1 m, muso +Z, ruote `wheel-fl`…) e i limiti
+sono in `docs/GARAGE.md`. Nessun asset Smooth Voxels è nel repository: i modelli
+restano in IndexedDB, nel browser dell'utente.
+
 ---
 
 ## 7. Licenza e regole da non violare
@@ -363,17 +393,19 @@ comprare il pack: le mesh finite non si adattano alle impronte OSM.
 
 | Verifica | Esito |
 | --- | --- |
-| `npx tsc --noEmit` | ✅ pulito dopo l'ultimo passaggio |
-| `npm test` (171 test, 18 file) | ✅ verde **prima** del passaggio sul paesaggio |
-| `npm run build` | ✅ verde **prima** del passaggio sul paesaggio |
+| `npx tsc --noEmit` | ✅ pulito sul blocco auto del kit + garage; le ultime rifiniture non sono state ricontrollate |
+| `npm test` (179 test, 18 file) | ✅ verde sul blocco auto del kit + garage |
+| `npm run build` | ✅ verde **prima** del passaggio sul paesaggio; non rilanciato |
 | `npm run kit -- --list` / `--index` / chiave errata | ✅ verificati; `--index` è offline e ha indicizzato 24/24 |
 | Segnali su palo kit + facce italiane | ✅ codice, `tsc` pulito |
+| Auto kit guidabili + garage Smooth Voxels | ✅ codice e test; **nessuna verifica in browser** |
 | Browser, screenshot, smoke, fps | ❌ **non eseguiti** (richiesta esplicita del proprietario) |
 
-Dopo l'ultimo passaggio (ruoli con varianti, siepi, canneti, pietre, relitto,
-piazza, targhe, auto low-poly) è stato eseguito **solo `tsc`**, come chiesto:
-«nessun test, nessun run dev». Le nuove posizioni non sono mai state viste a
-schermo.
+Dopo l'ultimo passaggio (auto kit guidabili, import GLB, garage) sono stati
+eseguiti `tsc` e `npm test` finché il proprietario non ha chiesto di fermarsi:
+«non fare test, non ho connessione e PC adatto, lo farò da un'altra macchina».
+Quindi build, browser e fps restano da fare. In particolare non è mai stato
+visto a schermo un GLB importato, né l'auto del kit guidata.
 
 ---
 
@@ -398,7 +430,9 @@ Poi guardare, in ordine: asfalto e cordolo a distanza ravvicinata, auto in sosta
 marciapiede, panchine e cestini allineati, segnali STOP/precedenza/50 sul palo
 del kit, piazza davanti alla chiesa appoggiata ai gradini, targhe delle vie
 leggibili, siepi fuori dal paese, canneti lungo i torrenti, massi sui pendii,
-relitto nel fosso, fps con `G` su high/ultra. Se qualcosa è fuori posto, i
+relitto nel fosso, fps con `G` su high/ultra. Poi il garage: scegli una
+`kit-*` dalla select (deve avere il muso avanti e le ruote a terra), importa un
+GLB di prova, guida, ricarica la pagina e controlla che sia ancora lì. Se qualcosa è fuori posto, i
 parametri da toccare sono in `city-props.ts` (distanze, offset, tetti),
 `piazza.ts` (dimensioni) e `street-furniture.ts` (tetto panchine, segnali,
 targhe).

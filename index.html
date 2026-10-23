@@ -184,7 +184,7 @@
         <div class="setting-row">
           <div class="setting-copy">
             <strong>Veicolo</strong>
-            <small id="vehicle-count-copy">Catalogo completo: modelli preesistenti e nuovi, ognuno con ingombri e parametri di guida propri.</small>
+            <small id="vehicle-count-copy">Catalogo completo: modelli di serie e auto importate, ognuno con ingombri e parametri di guida propri.</small>
           </div>
         </div>
 
@@ -198,8 +198,48 @@
 
         <div class="setting-row">
           <div class="setting-copy">
+            <strong>Auto personalizzate · Smooth Voxels</strong>
+            <small>
+              Modella la macchina in <a class="inline-link" href="https://www.smoothdev.nl/smoothvoxels/" target="_blank" rel="noreferrer">Smooth Voxels</a>, esportala in GLB e trascinala qui (o
+              sulla finestra di gioco). L'auto resta nel browser, non nel repository.
+            </small>
+          </div>
+        </div>
+        <div class="garage-box">
+          <div id="car-import-status" class="garage-status">
+            Nessuna auto importata: scegli un GLB qui o trascinalo sulla finestra.
+          </div>
+          <div class="settings-actions">
+            <label class="text-btn car-import-label" for="car-import">Importa GLB</label>
+            <input
+              id="car-import"
+              class="car-import-input"
+              type="file"
+              accept=".glb,model/gltf-binary"
+              multiple
+            />
+            <a
+              id="btn-car-editor"
+              class="text-btn"
+              href="https://www.smoothdev.nl/smoothvoxels/"
+              target="_blank"
+              rel="noreferrer"
+              >Apri Smooth Voxels</a
+            >
+            <button id="btn-car-clear" class="text-btn" type="button">Elimina importate</button>
+            <button id="btn-car-flip" class="text-btn" type="button" hidden>Ruota il muso 180°</button>
+          </div>
+          <small class="settings-hint">
+            Muso verso +Z, ruote a terra, 1 unità = 1 metro. Per far girare le ruote,
+            esportale come oggetti separati chiamati <kbd>wheel-fl</kbd>, <kbd>wheel-fr</kbd>,
+            <kbd>wheel-rl</kbd>, <kbd>wheel-rr</kbd>.
+          </small>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-copy">
             <strong>Colore carrozzeria</strong>
-            <small>Dieci tinte, ricordate per ogni veicolo.</small>
+            <small>Dieci tinte, ricordate per ogni veicolo; le carrozzerie GLB usano i colori del modello.</small>
           </div>
         </div>
         <div id="paint-swatches" class="paint-swatches" role="group" aria-label="Colore carrozzeria"></div>

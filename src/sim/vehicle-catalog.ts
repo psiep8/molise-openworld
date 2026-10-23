@@ -36,6 +36,12 @@ export interface VehicleSpec {
   wheelRadius: number;
   paint: number;
   accent: number;
+  /**
+   * Slug del GLB nel city kit da usare al posto della carrozzeria procedurale
+   * (es. `family-sedan`). Le misure restano quelle dello spec: il modello viene
+   * riscalato sulla lunghezza dichiarata qui.
+   */
+  model?: string;
 
   // --- dati meccanici reali della versione rappresentata -------------------
   /** descrizione del motore, come sulle schede tecniche */
@@ -850,10 +856,189 @@ export const VEHICLES: readonly VehicleSpec[] = [
     maxSteer: 0.52,
     offroadFactor: 0.68,
   },
+  // --- carrozzerie del city kit -------------------------------------------
+  // Non sono versioni di un modello reale: la scheda tecnica qui sotto è un
+  // riferimento plausibile per il segmento, non un dato di fabbrica. Servono a
+  // far guidare i GLB low-poly del kit con la stessa fisica degli altri.
+  {
+    id: 'kit-family-sedan',
+    name: 'Familiare low-poly',
+    blurb: 'Carrozzeria del kit, guida da berlina familiare',
+    style: 'hatch',
+    roof: 'sloped',
+    wheelLayout: 'four',
+    length: 4.42,
+    width: 1.82,
+    height: 1.47,
+    wheelbase: 2.62,
+    track: 1.54,
+    wheelRadius: 0.32,
+    paint: 0x3b6b8f,
+    accent: 0x1c1f22,
+    model: 'family-sedan',
+    engine: '1.6 benzina',
+    displacementCc: 1598,
+    powerCv: 110,
+    torqueNm: 155,
+    rpmTorque: 4000,
+    rpmPower: 6000,
+    redlineRpm: 6500,
+    idleRpm: 900,
+    gears: 5,
+    driven: 'fwd',
+    mass: 1280,
+    topSpeedKmh: 190,
+    zeroTo100S: 10.9,
+    reverseKmh: 30,
+    grip: 0.9,
+    rollResistance: 0.014,
+    brakeDecel: 9.1,
+    maxSteer: 0.55,
+    offroadFactor: 0.64,
+  },
+  {
+    id: 'kit-paris-car',
+    name: 'Parigina low-poly',
+    blurb: 'Carrozzeria del kit, compatta da città',
+    style: 'hatch',
+    roof: 'boxy',
+    wheelLayout: 'four',
+    length: 4.12,
+    width: 1.72,
+    height: 1.46,
+    wheelbase: 2.5,
+    track: 1.45,
+    wheelRadius: 0.31,
+    paint: 0x6d7b63,
+    accent: 0x26282a,
+    model: 'paris-car-01',
+    engine: '1.1 benzina',
+    displacementCc: 1124,
+    powerCv: 60,
+    torqueNm: 88,
+    rpmTorque: 3000,
+    rpmPower: 5500,
+    redlineRpm: 6000,
+    idleRpm: 850,
+    gears: 5,
+    driven: 'fwd',
+    mass: 950,
+    topSpeedKmh: 160,
+    zeroTo100S: 15.0,
+    reverseKmh: 30,
+    grip: 0.88,
+    rollResistance: 0.015,
+    brakeDecel: 8.7,
+    maxSteer: 0.6,
+    offroadFactor: 0.7,
+  },
+  {
+    id: 'kit-pastel-sedan',
+    name: 'Sedan pastello',
+    blurb: 'Carrozzeria del kit, berlina morbida',
+    style: 'hatch',
+    roof: 'sloped',
+    wheelLayout: 'four',
+    length: 4.5,
+    width: 1.84,
+    height: 1.48,
+    wheelbase: 2.68,
+    track: 1.56,
+    wheelRadius: 0.33,
+    paint: 0xd7c7a8,
+    accent: 0x24272a,
+    model: 'pastel-sedan',
+    engine: '1.6 benzina',
+    displacementCc: 1598,
+    powerCv: 115,
+    torqueNm: 155,
+    rpmTorque: 4000,
+    rpmPower: 6000,
+    redlineRpm: 6500,
+    idleRpm: 900,
+    gears: 5,
+    driven: 'fwd',
+    mass: 1310,
+    topSpeedKmh: 195,
+    zeroTo100S: 10.4,
+    reverseKmh: 30,
+    grip: 0.91,
+    rollResistance: 0.014,
+    brakeDecel: 9.2,
+    maxSteer: 0.55,
+    offroadFactor: 0.63,
+  },
+  {
+    id: 'kit-convertible',
+    name: 'Spider bianca',
+    blurb: 'Carrozzeria del kit, spider leggera a trazione posteriore',
+    style: 'hatch',
+    roof: 'flat',
+    wheelLayout: 'four',
+    length: 4.24,
+    width: 1.78,
+    height: 1.29,
+    wheelbase: 2.5,
+    track: 1.52,
+    wheelRadius: 0.32,
+    paint: 0xf2f1ea,
+    accent: 0x1a1c1e,
+    model: 'white-sports-convertible',
+    engine: '1.8 benzina',
+    displacementCc: 1798,
+    powerCv: 140,
+    torqueNm: 175,
+    rpmTorque: 4200,
+    rpmPower: 6500,
+    redlineRpm: 7000,
+    idleRpm: 900,
+    gears: 6,
+    driven: 'rwd',
+    mass: 1180,
+    topSpeedKmh: 210,
+    zeroTo100S: 8.6,
+    reverseKmh: 30,
+    grip: 0.95,
+    rollResistance: 0.013,
+    brakeDecel: 9.6,
+    maxSteer: 0.52,
+    offroadFactor: 0.6,
+  },
 ];
 
+/**
+ * Auto importate a runtime (garage Smooth Voxels). Stanno fuori dal catalogo
+ * curato per non sporcarlo: la select e il ciclo veicoli leggono `allVehicles`.
+ */
+const IMPORTED: VehicleSpec[] = [];
+
+/** Aggiunge (o sostituisce) un veicolo importato nel browser. */
+export function registerVehicle(spec: VehicleSpec): void {
+  const index = IMPORTED.findIndex((entry) => entry.id === spec.id);
+  if (index >= 0) IMPORTED[index] = spec;
+  else IMPORTED.push(spec);
+}
+
+export function unregisterVehicle(id: string): void {
+  const index = IMPORTED.findIndex((entry) => entry.id === id);
+  if (index >= 0) IMPORTED.splice(index, 1);
+}
+
+export function clearImportedVehicles(): void {
+  IMPORTED.length = 0;
+}
+
+/** Catalogo completo: prima i modelli di serie, poi le auto importate. */
+export function allVehicles(): VehicleSpec[] {
+  return [...VEHICLES, ...IMPORTED];
+}
+
+export function importedCount(): number {
+  return IMPORTED.length;
+}
+
 export function getVehicle(id: string | null | undefined): VehicleSpec {
-  return VEHICLES.find((v) => v.id === id) ?? VEHICLES[0];
+  return IMPORTED.find((v) => v.id === id) ?? VEHICLES.find((v) => v.id === id) ?? VEHICLES[0];
 }
 
 /** Etichetta compatta per HUD e menu: motore, potenza, velocità massima. */
@@ -959,7 +1144,10 @@ const STORAGE_KEY = 'molise.vehicle';
 export function loadVehicleId(): string {
   try {
     const saved = window.localStorage.getItem(STORAGE_KEY);
-    return getVehicle(saved).id;
+    if (!saved) return VEHICLES[0].id;
+    // solo se il modello esiste davvero: un'auto importata può non essere
+    // ancora registrata al primo avvio
+    return getVehicle(saved).id === saved ? saved : VEHICLES[0].id;
   } catch {
     return VEHICLES[0].id;
   }
