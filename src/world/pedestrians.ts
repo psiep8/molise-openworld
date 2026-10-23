@@ -3,7 +3,7 @@ import type { Appearance } from '../entities/appearance';
 import { HumanBody, type HumanAssets } from '../entities/human-model';
 import type { Heightfield } from '../geo/elevation';
 import type { Pt } from '../geo/geo';
-import type { OsmData } from '../geo/osm';
+import { CURB_HEIGHT, ROAD_LIFT, type OsmData } from '../geo/osm';
 
 /**
  * Pedoni del paese.
@@ -173,7 +173,9 @@ export class Pedestrians {
       }
 
       const pos = sampleRoute(walker.route, walker.s);
-      const y = this.heights.heightAt(pos.x, pos.z);
+      // il marciapiede è rialzato sopra il terreno: senza questa quota i piedi
+      // finiscono dentro il cordolo
+      const y = this.heights.heightAt(pos.x, pos.z) + ROAD_LIFT + CURB_HEIGHT;
       const dx = pos.x - focus.x;
       const dz = pos.z - focus.z;
       const dist = Math.hypot(dx, dz);
@@ -184,7 +186,8 @@ export class Pedestrians {
       }
 
       walker.body.group.position.set(pos.x, y, pos.z);
-      walker.body.group.rotation.y = Math.atan2(-pos.dx * walker.dir, -pos.dz * walker.dir);
+      // il modello guarda verso +z: l'angolo va calcolato sulla direzione di marcia
+      walker.body.group.rotation.y = Math.atan2(pos.dx * walker.dir, pos.dz * walker.dir);
       walker.body.group.visible = dist < VISIBLE_RADIUS;
       if (dist < ANIM_RADIUS) walker.body.update(dt, walker.wait > 0 ? 0 : walker.speed);
     }

@@ -9,7 +9,7 @@ import { windTimeUniform } from '../gfx/wind';
 const RADIUS = 40;
 const MAX_TUFTS = 82000;
 /** Ciuffi bassi che chiudono i buchi tra le lame alte (tappeto di base). */
-const CARPET = 12000;
+const CARPET = 0;
 /** Oltre questa distanza il campo viene ricostruito. */
 const REBUILD_DISTANCE = 18;
 /** Altezza del ciuffo in metri: la geometria base è alta 0,6. */
@@ -355,7 +355,7 @@ export class GrassField {
     // erba che sconfina sull'asfalto: una fascia di 40 cm sul bordo della
     // carreggiata. È quello che rende vivo il ciglio, invece del taglio netto
     // fra asfalto e prato che sembra un decalcomania.
-    const edgeTarget = Math.round(1500 * density);
+    const edgeTarget = Math.round(4200 * density);
     const edgeMesh = new THREE.InstancedMesh(this.geometry, this.material, edgeTarget);
     edgeMesh.castShadow = false;
     edgeMesh.receiveShadow = false;

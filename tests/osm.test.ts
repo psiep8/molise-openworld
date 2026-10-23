@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BuildingIndex, RoadIndex, roadSurface, roadWidth, type Building, type Road } from '../src/geo/osm';
+import { isRealJunction } from '../src/world/roads';
 
 function building(x: number, z: number, size = 10, height = 6): Building {
   const points = [
@@ -55,6 +56,27 @@ describe('indice edifici', () => {
     const res = index.resolveCircle(10.3, 5, 0.6);
     expect(res.hit).toBe(true);
     expect(res.x).toBeGreaterThanOrEqual(10.55);
+  });
+});
+
+describe('incroci per strisce e stop', () => {
+  const roads = new RoadIndex([
+    road('residential', [
+      { x: -50, z: 0 },
+      { x: 50, z: 0 },
+    ]),
+    road('residential', [
+      { x: 0, z: -50 },
+      { x: 0, z: 50 },
+    ]),
+  ]);
+
+  it('conta come incrocio solo il punto che sta su un\'altra strada', () => {
+    // idx 0 è la strada orizzontale: il punto (0,0) sta anche sulla verticale
+    expect(isRealJunction(roads, { x: 0, z: 0 }, 0)).toBe(true);
+    // tratto dritto in mezzo alla sola strada orizzontale
+    expect(isRealJunction(roads, { x: 30, z: 0 }, 0)).toBe(false);
+    expect(isRealJunction(undefined, { x: 0, z: 0 }, 0)).toBe(false);
   });
 });
 

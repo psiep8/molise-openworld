@@ -324,6 +324,14 @@ function pushStopLine(
   pushRibbon(target, line, 0.4, lift, color, heights, 1);
 }
 
+/**
+ * Vero incrocio: il punto sta anche su un'altra strada (esclusa `own`).
+ * Le strisce e lo stop si mettono solo qui; sui tratti dritti non ci sono.
+ */
+export function isRealJunction(roads: RoadIndex | undefined, at: Pt, own: number): boolean {
+  return roads ? roads.isOnRoad(at.x, at.z, 2, own) : false;
+}
+
 function toGeometry(a: RibbonArrays): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(a.positions, 3));
@@ -475,8 +483,8 @@ export function buildRoads(
   const markings = emptyRibbon();
   const asphaltColor = new THREE.Color(0xffffff);
   const dirtColor = new THREE.Color(0xf6efe6);
-  const pavementColor = new THREE.Color(0x8b9294);
-  const curbColor = new THREE.Color(0xb9bcbb);
+  const pavementColor = new THREE.Color(0x9c9a92);
+  const curbColor = new THREE.Color(0xd9d6cc);
   const markingColor = new THREE.Color(0xf4f2e8);
   /** punti in cui piantare un lampione: bordo strada dentro/attorno al paese */
   const lamps: { x: number; z: number; yaw: number }[] = [];
@@ -525,13 +533,14 @@ export function buildRoads(
     const curbTop = lift + CURB_HEIGHT;
     const walkLift = curbTop + 0.005;
     const blockedWalk = (x: number, z: number): boolean => (roadIndex ? roadIndex.isOnRoad(x, z, 0.4) : false);
+    // il cordolo parte dal bordo dell'asfalto e occupa 22 cm; il marciapiede
+    // inizia dove finisce il cordolo, così nessuno dei due copre l'altro
+    const curbWidth = 0.22;
     for (const side of [-1, 1]) {
-      // marciapiede accostato al bordo carreggiata, interrotto agli incroci
-      const walkLine = offsetPolyline(pts, side * (road.width / 2 + walkWidth / 2));
-      pushRuns(pavement, walkLine, walkWidth, walkLift, pavementColor, heights, blockedWalk);
-      // cordolo: fascia chiara in cima al rialzo, poi la faccia verticale
-      const curbLine = offsetPolyline(pts, side * (road.width / 2 + 0.14));
-      pushRuns(pavement, curbLine, 0.28, curbTop, curbColor, heights, blockedWalk);
+      // cordolo: fascia chiara in cima al rialzo, sempre continua lungo il bordo
+      const curbLine = offsetPolyline(pts, side * (road.width / 2 + curbWidth / 2));
+      pushRibbon(pavement, curbLine, curbWidth, curbTop, curbColor, heights, 1);
+      // faccia verticale del cordolo, a filo dell'asfalto
       pushCurbWall(
         pavement,
         offsetPolyline(pts, side * (road.width / 2 + 0.005)),
@@ -540,13 +549,15 @@ export function buildRoads(
         side,
         curbColor,
         heights,
-        blockedWalk,
+        () => false,
       );
-      // bordo esterno del marciapiede: senza questa faccia il nastro resta
-      // sospeso sopra il prato e si vede il vuoto sotto
+      // marciapiede accostato al cordolo, interrotto solo agli incroci veri
+      const walkLine = offsetPolyline(pts, side * (road.width / 2 + curbWidth + walkWidth / 2));
+      pushRuns(pavement, walkLine, walkWidth, walkLift, pavementColor, heights, blockedWalk);
+      // bordo esterno del marciapiede: chiude il nastro sul lato verso il prato
       pushCurbWall(
         pavement,
-        offsetPolyline(pts, side * (road.width / 2 + walkWidth)),
+        offsetPolyline(pts, side * (road.width / 2 + curbWidth + walkWidth)),
         0,
         walkLift,
         -side,
@@ -587,7 +598,7 @@ export function buildRoads(
       tz /= tl;
 
       // un attraversamento ogni ~70 m, ma solo su tratti abbastanza dritti
-      if (sinceCross > 70 && i + 1 < pts.length) {
+      if (sinceCross > 70 && i + 1 < pts.length && isRealJunction(roadIndex, b, idx)) {
         const c = pts[i + 1];
         let ux = c.x - b.x;
         let uz = c.z - b.z;
