@@ -184,7 +184,9 @@ export function buildSigns(
   heights: Heightfield,
   buildings: BuildingIndex,
   _renderer: THREE.WebGLRenderer,
-  kit?: CityKit | null,
+  // il kit non serve più per il palo (vedi sotto): resta in firma per non
+  // toccare i chiamanti
+  _kit?: CityKit | null,
 ): THREE.Group {
   const group = new THREE.Group();
   group.name = 'road-signs';
@@ -237,27 +239,22 @@ export function buildSigns(
 
   if (placements.length === 0) return group;
 
-  // Palo del kit quando c'è: è il palo zincato vero di `realistic-street-sign-01`
-  // (2,95 m, con attacco per la piastra). La faccia resta la nostra, perché le
-  // forme italiane sono ottagono/triangolo/disco, non la piastra rettangolare
-  // dell'asset. Senza kit resta il palo cilindrico procedurale.
-  const signPole = kit?.part('sign', 'ss_galv');
-  const poleMat = signPole?.material ?? new THREE.MeshStandardMaterial({
+  // Palo sempre procedurale: un cilindro zincato da 4 cm.
+  //
+  // Prima si usava la parte `ss_galv` del cartello del kit (28.000 triangoli:
+  // bulloni, piastra, staffe). Istanziata su ~350 cartelli faceva **nove milioni
+  // di triangoli** per dei pali che a due metri sono un tubo grigio. È uno dei
+  // tagli più grossi di tutta la scalata qualità, e non si vede.
+  const poleMat = new THREE.MeshStandardMaterial({
     color: 0x9aa2a6,
     roughness: 0.45,
     metalness: 0.6,
   });
-  let poleGeo: THREE.BufferGeometry;
-  if (signPole) {
-    poleGeo = signPole.geometry;
-  } else {
-    const procedural = new THREE.CylinderGeometry(0.035, 0.04, 2.1, 8);
-    procedural.translate(0, 1.05, 0);
-    poleGeo = procedural;
-  }
-  // quota della faccia e distanza dal palo (la piastra del kit sta a +Z)
-  const faceY = signPole ? 2.52 : 1.98;
-  const faceZ = signPole ? 0.075 : 0.055;
+  const poleGeo = new THREE.CylinderGeometry(0.035, 0.04, 2.45, 8);
+  poleGeo.translate(0, 1.225, 0);
+  // quota della faccia: il bordo basso del cartello resta sopra i 2 m
+  const faceY = 2.45;
+  const faceZ = 0.055;
   // i cartelli stanno sul marciapiede: asfalto rialzato + cordolo
   const baseLift = ROAD_LIFT + CURB_HEIGHT + 0.005;
   const poles = new THREE.InstancedMesh(poleGeo, poleMat, placements.length);
@@ -723,7 +720,7 @@ export function buildStreetProps(
   if (kit?.has('bench')) {
     // panchina del kit: 21k triangoli l'una. Il tetto per preset evita che un
     // paese con 90 case diventi 1,9 milioni di triangoli solo di panchine.
-    const limit: Record<QualityLevel, number> = { low: 6, medium: 12, high: 24, ultra: 32 };
+    const limit: Record<QualityLevel, number> = { minimal: 0, low: 6, medium: 12, high: 24, ultra: 32 };
     const visible = benches.slice(0, limit[quality]);
     group.add(
       kit.instances(

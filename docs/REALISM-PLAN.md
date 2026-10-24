@@ -511,4 +511,37 @@ segue il DEM, ma il DEM è a 10 m: sotto questa soglia non si può inventare.
 > prima area libera. Se in futuro si vuole la chiesa sulla piazza, va tolta
 > qualche impronta OSM e ricostruito l'indice prima di piantare la vegetazione.
 
+### 24 ottobre 2026 — qualità su ogni macchina (fase 8 anticipata)
+
+Il vincolo 3 del piano («il preset `low` deve restare giocabile su un PC
+modesto») non era rispettato: `low` costruiva ancora 14.000 alberi, ombre su
+tutto e tutte le decorazioni delle facciate. Ora la scala è **compatibilità →
+bassa → media → alta → ultra** e ogni gradino decide anche *quanto mondo*
+esiste, non solo la risoluzione.
+
+| Voce | Stato | Note |
+| --- | --- | --- |
+| Preset `minimal` (Compatibilità) | fatto, verificato headless | niente ombre, erba, pedoni, meteo, post, kit, chiusini; facciate semplificate; 2.200 alberi; terreno 1,5 km a z15 |
+| Budget di mondo per preset (alberi, cespugli, pedoni, luci, raggio terreno) | fatto | `src/gfx/quality.ts`, letto da `game.ts`, `vegetation.ts`, `city-props.ts`, `farmsteads.ts`, `street-furniture.ts` |
+| Auto-detect dalla GPU reale | fatto, testato | `classifyQuality` pura + `readGpuRenderer`; software → minimal, iGPU → low/medium |
+| Degradazione automatica a gradini | fatto, avvio gradini osservato | ombre → erba → meteo → terreno → scala 0,5×; permanente per la sessione |
+| Facciate semplificate su minimal/low | fatto, misurato | `building-trim` 2.299.200 → 203.276 triangoli |
+| Palo dei cartelli senza il pezzo del kit | fatto | 28.000 triangoli per cartello → cilindro da 48; `road-signs` 9,9 M → decine di migliaia |
+| Composer di post-processing creato solo se serve | fatto | su minimal/low/medium non alloca render target |
+| Tetto satellite applicato al terreno | fatto (bug corretto) | prima ogni preset scaricava z18; ora minimal z15, low z16 |
+| Selettore qualità nelle impostazioni | fatto | + `G` cicla su cinque livelli, avviso sulla densità al riavvio |
+| Messaggio WebGL2 assente | fatto | `main.ts`, niente più pagina nera |
+| Misura fps su GPU vera | **da fare** | le misure di questa sessione sono su SwiftShader (2–3 fps) e servono solo a contare triangoli e draw call |
+
+Misure headless a Palata, preset `minimal`: **5,29 M → 2,54 M triangoli**,
+123 draw call. `high` carica con 839 draw call e 35,8 M triangoli (passata
+d'ombra e post inclusi), nessun errore runtime. La degradazione automatica,
+provata su `medium` a 0,5 fps, ha applicato tutti i gradini portando il frame
+da 11,88 M a 7,25 M triangoli e da 386 a 216 draw call. `tsc` ✅, `npm test`
+**203/203** ✅, `vite build` ✅, `SMOKE_QUALITY=minimal npm run smoke` ✅.
+
+Prossimo taglio consigliato: marciapiedi e cordoli esistono su tutte le strade
+asfaltate (750.000 + 231.000 triangoli); limitarli alle strade con edifici
+entro ~40 m è più realistico e toglie la voce più grossa rimasta su `minimal`.
+
 > Aggiornare questa tabella e il registro a ogni blocco di lavoro completato, con la data.

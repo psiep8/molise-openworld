@@ -125,8 +125,10 @@ import { PostPipeline } from './gfx/post';
 import { updateWind } from './gfx/wind';
 import {
   QUALITY_PRESETS,
+  isQualityLevel,
   loadQuality,
   nextQuality,
+  readGpuProfile,
   saveQuality,
   type QualityLevel,
   type QualityPreset,
@@ -155,6 +157,13 @@ export interface Diagnostics {
   tileErrors: number;
   quality: QualityLevel;
   renderScale: number;
+  /** stringa della GPU letta dal driver: dice che preset aspettarsi */
+  gpu: string;
+  /** draw call e triangoli dell'ultimo frame (costo reale, non stimato) */
+  drawCalls: number;
+  triangles: number;
+  /** gradini di degradazione automatica già applicati (0 = nessuno) */
+  degraded: number;
   route: { distance: number; label: string } | null;
   wallet: { cash: number; account: number; total: number; transactions: number };
   needs: { hunger: number; energy: number; fun: number };
@@ -255,9 +264,27 @@ export class Game {
   private tileErrors = 0;
   private qualityLevel: QualityLevel = 'high';
   private quality: QualityPreset = QUALITY_PRESETS.high;
+  /** stringa della GPU, solo per la diagnostica */
+  private gpuName = '';
   private post?: PostPipeline;
   private renderScale = 1;
   private lastQualityCheck = 0;
+  /**
+   * Degradazione automatica per i PC che non reggono nemmeno il preset scelto.
+   *
+   * Il resolution scaling da solo non basta: su una iGPU vecchia scendere a
+   * 0,6× non salva un frame che paga 14.000 alberi in ombra. Qui, dopo qualche
+   * secondo sotto i 26 fps con la scala già al minimo, si spengono gli effetti
+   * uno alla volta (ombre → erba → meteo → dettaglio satellite). È `sticky`:
+   * non torna indietro da sola, per non far ballare la grafica fra due stati.
+   */
+  private degradeStep = 0;
+  private slowChecks = 0;
+  /** moltiplicatore dell'erba: la degradazione lo porta a 0 senza ricostruire il mondo */
+  private grassScale = 1;
+  /** raggio di streaming corrente: parte dal preset e scende se serve */
+  private viewRadius = VIEW_RADIUS;
+  private weatherFxOn = true;
   private clouds!: CloudLayer;
   private precipitation!: Precipitation;
   private mist!: GroundMist;
@@ -314,9 +341,16 @@ export class Game {
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
+    // Il preset va scelto **prima** del renderer: l'MSAA si fissa alla
+    // creazione del contesto WebGL e non si può più cambiare. Su `minimal`
+    // costa memoria e banda per niente, quindi si crea senza antialias.
+    const gpu = readGpuProfile();
+    this.gpuName = gpu.renderer ?? '';
+    this.qualityLevel = loadQuality(gpu);
+    this.quality = QUALITY_PRESETS[this.qualityLevel];
     this.renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: true,
+      antialias: this.quality.antialias,
       powerPreference: 'high-performance',
     });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -325,8 +359,12 @@ export class Game {
     // 0,72: con l'esposizione precedente (0,88) le facciate chiare e l'asfalto
     // finivano a ridosso del bianco e la scena sembrava lavata.
     this.renderer.toneMappingExposure = EXPOSURE_DAY;
-    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.enabled = this.quality.shadows;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    // i contatori di `renderer.info` vengono azzerati a mano a ogni frame: con
+    // il post-processing il reset automatico lasciava solo la passata finale
+    // (1 draw call, 1 triangolo) e la diagnostica non diceva niente
+    this.renderer.info.autoReset = false;
 
     this.camera = new THREE.PerspectiveCamera(68, window.innerWidth / window.innerHeight, 0.1, 12000);
     this.camera.rotation.order = 'YXZ';
@@ -346,9 +384,9 @@ export class Game {
 
     this.realWeather.onChange = () => this.updateWeatherStatus();
 
-    this.qualityLevel = loadQuality();
-    this.quality = QUALITY_PRESETS[this.qualityLevel];
-    this.post = new PostPipeline(this.renderer, this.scene, this.camera, this.quality.bloom);
+    // il composer si crea **solo** se il preset lo usa: sui PC deboli i suoi
+    // render target costano VRAM e banda anche quando restano spenti
+    if (this.quality.post) this.post = new PostPipeline(this.renderer, this.scene, this.camera, this.quality.bloom);
     this.applyQuality(this.qualityLevel, false);
 
     // Ripristina la modalità vita (denaro virtuale, bisogni, orologio).
@@ -380,15 +418,19 @@ export class Game {
       const base = `${import.meta.env.BASE_URL}geo/`;
       this.hud.setLoading(0.03, 'Leggo la mappa del Molise…');
       // il kit si carica in parallelo alla mappa: se i file mancano (licenza non
-      // scaricata, macchina nuova) il gioco parte lo stesso con le mesh procedurali
-      const kitPromise = loadCityKit(
-        `${import.meta.env.BASE_URL}citykit/`,
-        `${import.meta.env.BASE_URL}draco/`,
-        this.renderer.capabilities.getMaxAnisotropy(),
-      ).catch((error) => {
-        console.warn('city kit non caricato', error);
-        return null;
-      });
+      // scaricata, macchina nuova) il gioco parte lo stesso con le mesh procedurali.
+      // Su `minimal` non si scarica affatto: i GLB del kit pesano decine di MB
+      // per volta e il pavimento in asfalto procedurale basta su un PC da 15 fps.
+      const kitPromise = this.quality.kit
+        ? loadCityKit(
+            `${import.meta.env.BASE_URL}citykit/`,
+            `${import.meta.env.BASE_URL}draco/`,
+            this.renderer.capabilities.getMaxAnisotropy(),
+          ).catch((error) => {
+            console.warn('city kit non caricato', error);
+            return null;
+          })
+        : Promise.resolve(null);
 
       // auto di serie: il manifest è piccolo e si legge subito; i GLB veri si
       // scaricano solo quando si sceglie quella macchina (fino a 40 MB l'uno)
@@ -422,14 +464,24 @@ export class Game {
       const streets = buildRoads(osm, heights, this.renderer, this.roadIndex, this.buildingIndex, this.kit);
       this.roadsGroup = streets.group;
       this.scene.add(this.roadsGroup);
-      this.streetLights = new StreetLights(streets.lamps, heights, this.renderer);
+      // il pool di luci puntiformi costa un ciclo di illuminazione per fragment:
+      // due lampioni accesi bastano a leggere la notte, sette no su una iGPU
+      this.streetLights = new StreetLights(
+        streets.lamps,
+        heights,
+        this.renderer,
+        this.quality.pointLights,
+      );
       this.scene.add(this.streetLights.group);
       this.scene.add(buildWater(osm, heights, this.renderer));
 
       this.scene.add(buildSigns(osm, heights, this.buildingIndex, this.renderer, this.kit));
       this.scene.add(buildStreetNames(osm, heights, this.buildingIndex));
       this.scene.add(buildStreetProps(osm, heights, this.buildingIndex, this.renderer, this.kit, this.qualityLevel));
-      this.scene.add(buildRoadDrainage(osm, heights));
+      // chiusini e caditoie: due InstancedMesh da ~600.000 triangoli in mappa,
+      // invisibili da lontano e ininfluenti sulla guida. Sui preset leggeri non si
+      // costruiscono affatto.
+      if (this.quality.drainage) this.scene.add(buildRoadDrainage(osm, heights));
       // la chiesa cerca un posto libero attorno al centro del paese; l'impronta
       // entra nell'indice prima di alberi, cespugli ed erba, così nessuno ci
       // cresce dentro (e il giocatore non la attraversa)
@@ -467,12 +519,19 @@ export class Game {
 
       this.hud.setLoading(0.5, 'Costruisco le case…');
       await nextFrame();
-      this.scene.add(buildBuildings(osm, heights, this.renderer).group);
+      this.scene.add(
+        buildBuildings(osm, heights, this.renderer, { detail: this.quality.buildingDetail }).group,
+      );
 
       this.hud.setLoading(0.64, 'Pianto alberi e uliveti…');
       await nextFrame();
       this.scene.add(
-        buildVegetation(osm, heights, this.roadIndex, this.buildingIndex, this.renderer, this.pavedAreas).group,
+        buildVegetation(osm, heights, this.roadIndex, this.buildingIndex, this.renderer, this.pavedAreas, {
+          trees: this.quality.trees,
+          shrubs: this.quality.shrubs,
+          // le ombre di migliaia di istanze sono la prima voce da tagliare
+          shadows: this.quality.level === 'high' || this.quality.level === 'ultra',
+        }).group,
       );
       // alberi di strada e auto in sosta del kit: solo dentro il paese e con un
       // tetto di istanze deciso dal preset (sono modelli fotorealistici, pesanti)
@@ -516,6 +575,7 @@ export class Game {
       this.clouds = new CloudLayer();
       this.scene.add(this.clouds.mesh);
       this.precipitation = new Precipitation();
+      this.precipitation.group.visible = this.weatherFxOn;
       // gli schizzi devono cadere sulla superficie vera: l'asfalto sta 20 cm
       // sopra il DEM, altrimenti l'anello sparisce sotto la strada
       this.precipitation.setGroundSampler((x, z) => {
@@ -524,6 +584,7 @@ export class Game {
       });
       this.scene.add(this.precipitation.group);
       this.mist = new GroundMist();
+      this.mist.group.visible = this.weatherFxOn;
       this.mist.setGroundSampler((x, z) => this.heights.heightAt(x, z));
       this.scene.add(this.mist.group);
       this.routeBeacon = this.createRouteBeacon();
@@ -532,14 +593,24 @@ export class Game {
       const imagery = new ImageryStreamer(ESRI_WORLD_IMAGERY, this.renderer.capabilities.getMaxAnisotropy(), () => {
         this.tileErrors++;
       });
-      this.terrain = new Terrain(heights, imagery, this.renderer);
+      // il tetto di zoom va passato **qui**: `applyQuality` gira nel costruttore,
+      // prima che il terreno esista, e senza questo argomento ogni preset
+      // scaricava comunque tile z18 (era il vero costo nascosto dei preset bassi)
+      this.terrain = new Terrain(heights, imagery, this.renderer, this.quality.maxSatelliteZoom);
       this.scene.add(this.terrain.group);
 
       this.spawnAtStart();
       this.hud.setLoading(0.78, 'Carico il terreno intorno a Palata…');
-      await this.terrain.preload(this.player.position.x, this.player.position.z, 1600);
+      await this.terrain.preload(
+        this.player.position.x,
+        this.player.position.z,
+        Math.min(1600, this.viewRadius),
+      );
 
       this.map = new MapRenderer(osm);
+      // su `minimal` il radar parte vettoriale: niente tile satellitari da
+      // scaricare e decodificare su una macchina che sta già a 20 fps
+      if (this.quality.level === 'minimal') this.map.radar = false;
       this.map.onUpdate = () => {
         if (this.running && this.hud.mapVisible) this.drawBigMap();
       };
@@ -585,7 +656,8 @@ export class Game {
 
   private spawnPedestrians(): void {
     if (!this.humanAssets) return;
-    const count = this.qualityLevel === 'low' ? 6 : this.qualityLevel === 'medium' ? 10 : 18;
+    const count = this.quality.pedestrians;
+    if (count <= 0) return;
     this.pedestrians = new Pedestrians(
       this.humanAssets,
       this.osm,
@@ -623,7 +695,7 @@ export class Game {
     const carPose = this.findRoadPose(aheadX, aheadZ, 1.7) ?? this.findRoadPose(aheadX, aheadZ, 0.9) ?? pose;
     this.car.reset(carPose.x, carPose.z, carPose.yaw, this.heights);
 
-    this.terrain.update(this.player.position.x, this.player.position.z, VIEW_RADIUS, true);
+    this.terrain.update(this.player.position.x, this.player.position.z, this.viewRadius, true);
     this.spawnPedestrians();
     this.snapWalkCamera();
   }
@@ -833,6 +905,10 @@ export class Game {
     });
     const vehicleSelect = document.getElementById('vehicle-select') as HTMLSelectElement | null;
     vehicleSelect?.addEventListener('change', () => this.selectVehicle(vehicleSelect.value));
+    const qualitySelect = document.getElementById('quality-select') as HTMLSelectElement | null;
+    qualitySelect?.addEventListener('change', () => {
+      if (isQualityLevel(qualitySelect.value)) this.applyQuality(qualitySelect.value);
+    });
 
     const carImport = document.getElementById('car-import') as HTMLInputElement | null;
     carImport?.addEventListener('change', () => {
@@ -1041,7 +1117,7 @@ export class Game {
     this.camera.fov = 68;
     this.camera.updateProjectionMatrix();
     this.snapWalkCamera();
-    this.terrain.update(this.player.position.x, this.player.position.z, VIEW_RADIUS, true);
+    this.terrain.update(this.player.position.x, this.player.position.z, this.viewRadius, true);
     this.hud.toast(`Sei al garage: ${label}`, 2800);
     if (this.hud.mapVisible) this.drawBigMap();
     if (this.routeDestination) this.recomputeRoute();
@@ -1065,6 +1141,15 @@ export class Game {
     if (weatherSelect) weatherSelect.value = this.manualWeather;
     const vehicleSelect = document.getElementById('vehicle-select') as HTMLSelectElement | null;
     if (vehicleSelect) vehicleSelect.value = this.car.spec.id;
+    const qualitySelect = document.getElementById('quality-select') as HTMLSelectElement | null;
+    if (qualitySelect) qualitySelect.value = this.qualityLevel;
+    const qualityCopy = document.getElementById('quality-copy');
+    if (qualityCopy) {
+      const auto = this.degradeStep > 0 ? ' · ridotta automaticamente per gli fps' : '';
+      qualityCopy.textContent =
+        `${this.quality.hint}${auto}. ${this.quality.trees.toLocaleString('it-IT')} alberi al caricamento: ` +
+        'se cambi densità a partita avviata, alberi e arredo cambiano al prossimo avvio; erba, ombre ed effetti subito.';
+    }
     this.hud.setManualTime(this.manualTime);
     this.hud.setTimeLabel(this.manualHour);
 
@@ -1936,20 +2021,24 @@ export class Game {
     const windRad = THREE.MathUtils.degToRad(w.windDirection);
     const windX = -Math.sin(windRad) * w.windSpeed * 0.08;
     const windZ = -Math.cos(windRad) * w.windSpeed * 0.08;
-    this.clouds.update(dt, this.camera, { coverage: cover, windX, windZ, sunElevation: sun.elevation });
+    // con `weather: 'off'` (minimal) nuvole, pioggia, neve e foschia non
+    // esistono: si risparmiano tre draw call trasparenti e i loro aggiornamenti
+    if (this.weatherFxOn) {
+      this.clouds.update(dt, this.camera, { coverage: cover, windX, windZ, sunElevation: sun.elevation });
+      this.precipitation.update(dt, this.camera, { rain, snow, windX, windZ });
+      // banchi di foschia bassa: soprattutto all'alba/tramonto e con la nebbia.
+      // La neve secca l'aria, quindi li riduce.
+      const horizonMist = 1 - smoothstep(6, 26, Math.abs(sun.elevation));
+      const mistAmount = clamp(horizonMist * 0.72 + rain * 0.16 + (foggy ? 0.62 : 0) - snow * 0.25, 0, 1);
+      this.mist.setColor(this.fogColor);
+      this.mist.update(dt, this.camera, mistAmount, windX, windZ);
+    }
     // ombre delle nuvole sul suolo: solo con cielo coperto e di giorno
     setCloudShadow(cloud * day, dt, windX, windZ);
     // finestre accese: si accendono al tramonto, si spengono all'alba
     setWindowGlow(1 - day);
     // stelle e luna
     this.sky.setNightSky(1 - day);
-    this.precipitation.update(dt, this.camera, { rain, snow, windX, windZ });
-    // banchi di foschia bassa: soprattutto all'alba/tramonto e con la nebbia.
-    // La neve secca l'aria, quindi li riduce.
-    const horizonMist = 1 - smoothstep(6, 26, Math.abs(sun.elevation));
-    const mistAmount = clamp(horizonMist * 0.72 + rain * 0.16 + (foggy ? 0.62 : 0) - snow * 0.25, 0, 1);
-    this.mist.setColor(this.fogColor);
-    this.mist.update(dt, this.camera, mistAmount, windX, windZ);
 
     // fari accesi quando il sole è basso, strada bagnata con pioggia o neve
     const night = 1 - smoothstep(-3, 10, sun.elevation);
@@ -1967,7 +2056,8 @@ export class Game {
 
   /** Applica il preset e il resolution scaling adattivo. */
   private applyRenderScale(): void {
-    const ratio = Math.max(0.6, this.basePixelRatio() * this.renderScale);
+    const floor = this.quality.renderScaleFloor;
+    const ratio = Math.max(floor, this.basePixelRatio() * this.renderScale);
     this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.post?.setPixelRatio(ratio);
@@ -1975,21 +2065,79 @@ export class Game {
   }
 
   private applyQuality(level: QualityLevel, announce = true): void {
+    const previous = this.quality;
     this.qualityLevel = level;
     this.quality = QUALITY_PRESETS[level];
     saveQuality(level);
     this.renderScale = 1;
-    this.renderer.shadowMap.enabled = true;
+    // cambiare preset a mano azzera la degradazione automatica: l'utente ha
+    // appena scelto, non deve combattere con le scelte fatte prima
+    this.degradeStep = 0;
+    this.slowChecks = 0;
+    this.grassScale = 1;
+    this.viewRadius = this.quality.viewRadius;
+    this.weatherFxOn = this.quality.weather !== 'off';
+    this.setShadows(this.quality.shadows);
     this.applyRenderScale();
     this.sky?.setShadowMapSize(this.quality.shadowMapSize);
     this.terrain?.setMaxZoom(this.quality.maxSatelliteZoom);
-    this.post?.setEnabled(this.quality.post && !this.stereo);
-    this.post?.setBloom(this.quality.bloom);
-    this.post?.setSSAO(this.quality.ssao && !this.stereo);
+    if (this.quality.post) {
+      const post = this.ensurePost();
+      post.setEnabled(!this.stereo);
+      post.setBloom(this.quality.bloom);
+      post.setSSAO(this.quality.ssao && !this.stereo);
+    } else {
+      this.post?.setEnabled(false);
+      this.post?.setSSAO(false);
+    }
+    if (this.precipitation) this.precipitation.group.visible = this.weatherFxOn;
+    if (this.mist) this.mist.group.visible = this.weatherFxOn;
+    if (this.grass) this.grass.group.visible = this.quality.grassDensity * this.grassScale > 0.01;
+    if (this.terrain) {
+      const focus = this.mode === 'walk' ? this.player.position : this.car.state;
+      this.terrain.update(focus.x, focus.z, this.viewRadius, true);
+    }
     if (announce) {
       const fx = this.quality.post ? ` · bloom${this.quality.ssao ? ' + SSAO' : ''}` : '';
-      this.hud.toast(`Grafica: ${this.quality.label}${fx} · satellite z${this.quality.maxSatelliteZoom}`, 3200);
+      // alberi e arredo sono costruiti una volta sola: se il preset cambia
+      // densità, il mondo resta quello del caricamento. L'erba si adatta subito
+      // (si ricostruisce ogni 18 m) e lo diciamo, per non promettere miracoli.
+      const trees = previous.trees !== this.quality.trees ? ' · alberi al prossimo avvio' : '';
+      this.hud.toast(
+        `Grafica: ${this.quality.label}${fx} · satellite z${this.quality.maxSatelliteZoom}${trees}`,
+        3600,
+      );
     }
+  }
+
+  /** Crea la pipeline di post-processing alla prima richiesta (preset alti). */
+  private ensurePost(): PostPipeline {
+    if (!this.post) {
+      this.post = new PostPipeline(this.renderer, this.scene, this.camera, this.quality.bloom);
+      this.post.setPixelRatio(Math.max(this.quality.renderScaleFloor, this.basePixelRatio() * this.renderScale));
+      this.post.setSize(window.innerWidth, window.innerHeight);
+    }
+    return this.post;
+  }
+
+  /**
+   * Accende o spegne le ombre a runtime. `shadowMap.enabled` da solo non basta:
+   * three ricompila i materiali solo se glielo si chiede, altrimenti la scena
+   * resta illuminata come se le ombre ci fossero (o peggio, nera).
+   */
+  private setShadows(enabled: boolean): void {
+    if (this.renderer.shadowMap.enabled === enabled) {
+      this.sky?.setShadows(enabled);
+      return;
+    }
+    this.renderer.shadowMap.enabled = enabled;
+    this.renderer.shadowMap.needsUpdate = true;
+    this.sky?.setShadows(enabled);
+    this.scene.traverse((object) => {
+      const material = (object as THREE.Mesh).material;
+      const list = Array.isArray(material) ? material : material ? [material] : [];
+      for (const m of list) m.needsUpdate = true;
+    });
   }
 
   private bindInput(): void {
@@ -2137,7 +2285,7 @@ export class Game {
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-    this.post?.setPixelRatio(Math.max(0.6, this.basePixelRatio() * this.renderScale));
+    this.post?.setPixelRatio(Math.max(this.quality.renderScaleFloor, this.basePixelRatio() * this.renderScale));
     this.post?.setSize(w, h);
   };
 
@@ -2264,29 +2412,32 @@ export class Game {
   // -------------------------------------------------------------------------
   private frame = (): void => {
     requestAnimationFrame(this.frame);
-    // il tempo reale serve a misurare gli fps, quello limitato alla simulazione:
-    // sotto i 20 fps il passo di fisica non deve superare i 50 ms (tunneling)
+    this.renderer.info.reset();
+    // il tempo reale misura gli fps, quello limitato serve alla simulazione:
+    // sotto i 20 fps il passo di fisica non deve superare i 50 ms (tunneling).
+    // Se il clamp a 0,5 s finisse anche negli fps, ogni frame più lento di
+    // mezzo secondo verrebbe dichiarato "2 fps" e la degradazione automatica
+    // non saprebbe mai di essere su una macchina da 0,1 fps.
     this.timer.update();
-    const rawDt = Math.min(0.5, this.timer.getDelta());
+    const realDt = this.timer.getDelta();
+    const rawDt = Math.min(0.5, realDt);
     const dt = Math.min(0.05, rawDt);
+    // se la scheda è stata in background per minuti, il primo frame non deve
+    // contare come "0,1 fps" e far scattare una degradazione per niente
+    const perfDt = Math.min(2, realDt);
 
     this.fpsFrames++;
-    this.fpsElapsed += rawDt;
+    this.fpsElapsed += perfDt;
     if (this.fpsElapsed >= 0.5) {
       this.fps = this.fpsFrames / this.fpsElapsed;
       this.fpsFrames = 0;
+      // si controlla ogni ~2 s: abbastanza spesso per reagire, abbastanza
+      // raro per non ballare fra due livelli in una singola raffica
+      this.lastQualityCheck += this.fpsElapsed;
       this.fpsElapsed = 0;
-      // resolution scaling adattivo: tiene il frame rate sopra i ~35 fps
-      this.lastQualityCheck += 0.5;
       if (this.lastQualityCheck >= 2 && this.running) {
         this.lastQualityCheck = 0;
-        if (this.fps < 34 && this.renderScale > 0.65) {
-          this.renderScale = Math.max(0.65, this.renderScale - 0.15);
-          this.applyRenderScale();
-        } else if (this.fps > 56 && this.renderScale < 1) {
-          this.renderScale = Math.min(1, this.renderScale + 0.1);
-          this.applyRenderScale();
-        }
+        this.tunePerformance();
       }
     }
 
@@ -2308,6 +2459,84 @@ export class Game {
     else this.renderer.render(this.scene, this.camera);
     this.publishDiagnostics();
   };
+
+  /**
+   * Adatta il costo del frame agli fps misurati.
+   *
+   * Prima si abbassa la risoluzione (pixel più grandi, nessun cambio di scena);
+   * quando anche il minimo del preset non basta, si spengono gli effetti in
+   * ordine di costo percepito: ombre, erba, meteo, dettaglio satellite, raggio
+   * del terreno. Così anche una macchina da 20 fps arriva a 30 senza toccare
+   * il tasto `G`. La scala torna su quando c'è margine, la degradazione no:
+   * evita che la grafica oscilli fra due livelli.
+   */
+  private tunePerformance(): void {
+    const floor = this.quality.renderScaleFloor;
+    if (this.fps < 32 && this.renderScale > floor + 0.001) {
+      this.renderScale = Math.max(floor, this.renderScale - 0.15);
+      this.applyRenderScale();
+      this.slowChecks = 0;
+      return;
+    }
+    if (this.fps < 26 && this.renderScale <= floor + 0.001) {
+      this.slowChecks++;
+      if (this.slowChecks >= 3) {
+        this.slowChecks = 0;
+        this.degrade();
+      }
+      return;
+    }
+    this.slowChecks = Math.max(0, this.slowChecks - 1);
+    if (this.fps > 56 && this.renderScale < 1) {
+      this.renderScale = Math.min(1, this.renderScale + 0.1);
+      this.applyRenderScale();
+    }
+  }
+
+  /** Un gradino di degradazione: si chiama solo quando gli fps restano bassi. */
+  private degrade(): void {
+    if (this.degradeStep >= 5) return;
+    this.degradeStep++;
+    switch (this.degradeStep) {
+      case 1:
+        this.setShadows(false);
+        this.hud.toast('Prestazioni: ombre disattivate per tenere il gioco fluido', 3600);
+        break;
+      case 2:
+        this.grassScale = 0;
+        if (this.grass) this.grass.group.visible = false;
+        break;
+      case 3:
+        this.weatherFxOn = false;
+        this.precipitation?.clear();
+        if (this.precipitation) this.precipitation.group.visible = false;
+        if (this.mist) this.mist.group.visible = false;
+        this.clouds?.setVisible(false);
+        this.terrain?.setMaxZoom(15);
+        break;
+      case 4:
+        this.viewRadius = Math.min(this.viewRadius, 1600);
+        if (this.terrain) {
+          const focus = this.mode === 'walk' ? this.player.position : this.car.state;
+          this.terrain.update(focus.x, focus.z, this.viewRadius, true);
+        }
+        break;
+      default: {
+        // ultimo gradino: sotto 0,5× non ha senso, si toglie il resto del
+        // dettaglio (kit già assente su minimal, qui vale per i preset alti
+        // scelti a mano su una macchina che non li regge)
+        this.quality = { ...this.quality, renderScaleFloor: 0.5 };
+        this.renderScale = 0.5;
+        this.applyRenderScale();
+        this.viewRadius = Math.min(this.viewRadius, 1200);
+        if (this.terrain) {
+          const focus = this.mode === 'walk' ? this.player.position : this.car.state;
+          this.terrain.update(focus.x, focus.z, this.viewRadius, true);
+        }
+        break;
+      }
+    }
+  }
 
   /**
    * Stereo affiancato (side-by-side): due viewport, due camere separate da
@@ -2386,10 +2615,17 @@ export class Game {
 
     const focus = this.mode === 'walk' ? this.player.position : this.car.position;
     this.pedestrians?.update(dt, focus);
-    this.terrain.update(focus.x, focus.z, VIEW_RADIUS);
+    this.terrain.update(focus.x, focus.z, this.viewRadius);
     this.terrain.tick();
     updateWind(dt);
-    this.grass?.update(focus.x, focus.z, this.heights, this.roadIndex, this.buildingIndex, this.quality.grassDensity);
+    this.grass?.update(
+      focus.x,
+      focus.z,
+      this.heights,
+      this.roadIndex,
+      this.buildingIndex,
+      this.quality.grassDensity * this.grassScale,
+    );
     if (this.manualTime) this.applyManualAtmosphere(dt, focus);
     else if (this.realWeatherEnabled) this.applyWeatherVisuals(dt, focus);
     this.updateSky(focus);
@@ -2598,6 +2834,10 @@ export class Game {
       tileErrors: this.tileErrors,
       quality: this.qualityLevel,
       renderScale: this.renderScale,
+      gpu: this.gpuName,
+      drawCalls: this.renderer.info.render.calls,
+      triangles: this.renderer.info.render.triangles,
+      degraded: this.degradeStep,
       route: this.route ? { distance: Math.round(this.route.distance), label: this.routeLabel } : null,
       wallet: {
         cash: this.wallet.cash,

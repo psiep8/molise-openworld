@@ -113,12 +113,46 @@ applica tone mapping e color space corretti sul render target lineare. L'occlusi
 con gli altri preset. Se il preset è `low`/`medium` la pipeline viene saltata e si renderizza
 diretto.
 
-`src/gfx/quality.ts` definisce quattro preset (`low`, `medium`, `high`, `ultra`) con
-`pixelRatio`, dimensione shadow map, post-processing e zoom massimo delle tile satellite.
-Il preset iniziale è scelto da `hardwareConcurrency`/`deviceMemory`/user agent, può essere
-forzato con `?quality=` e viene salvato in `localStorage`. In più `Game` applica un
-**resolution scaling adattivo**: se gli fps scendono sotto 34 il pixel ratio scende fino a
-0.65×, se risalgono sopra 56 torna a 1×.
+`src/gfx/quality.ts` definisce **cinque** preset (`minimal`, `low`, `medium`, `high`,
+`ultra`). Ognuno non è solo una manopola di rendering: descrive **quanto mondo esiste**.
+
+| Campo | Effetto |
+| --- | --- |
+| `pixelRatio`, `renderScaleFloor`, `antialias` | risoluzione, scala minima adattiva, MSAA del contesto (fissato alla creazione) |
+| `shadows`, `shadowMapSize` | passata d'ombra, la più cara |
+| `post`, `bloom`, `ssao` | pipeline di post-processing (creata solo se il preset la usa) |
+| `maxSatelliteZoom`, `viewRadius` | tile satellite e chunk di terreno tenuti in memoria |
+| `trees`, `shrubs`, `pedestrians`, `grassDensity`, `pointLights` | densità di scena |
+| `weather`, `kit`, `drainage`, `buildingDetail` | effetti e asset che si possono saltare del tutto |
+
+`minimal` è il preset di compatibilità: niente ombre, erba, pedoni, meteo, post-processing,
+GLB del kit né chiusini, facciate semplificate (muri, tetti, cornicione, comignolo,
+portone e vetri), 2.200 alberi, terreno a 1,5 km e tile z15. `low` è la fascia dei portatili
+con grafica integrata. `medium` riporta il mondo pieno senza post-processing. `high` e
+`ultra` aggiungono bloom, SSAO, ombre degli alberi e dettaglio massimo.
+
+Il preset iniziale viene scelto da `classifyQuality()` (funzione pura, testata) usando la
+stringa della GPU, i core e la memoria dichiarata dal browser: rendering software →
+`minimal`, GPU integrate → `low` (o `medium` con 8+ core/8 GB), GPU dedicate → `high`. Può
+essere forzato con `?quality=` e viene salvato in `localStorage` (`molise.quality`). Se il
+browser non riesce ad aprire WebGL2, `main.ts` mostra un messaggio comprensibile invece
+di una pagina nera.
+
+`Game` adatta il costo a runtime in due fasi. Prima il **resolution scaling**: sotto i 34
+fps il pixel ratio scende fino a `renderScaleFloor` del preset, sopra i 56 torna su. Se
+anche il minimo non basta (tre controlli consecutivi sotto i 26 fps), scatta una
+**degradazione a gradini**, permanente per la sessione: ombre off → erba off → meteo e
+fusione off (z15) → raggio del terreno a 1,6 km → scala 0,5× e raggio a 1,2 km. Cambiare
+preset a mano azzera i gradini. `window.__molise` espone `degraded`, `drawCalls`,
+`triangles` e `gpu` per sapere cosa sta succedendo.
+
+Il composer di post-processing viene costruito alla prima richiesta, non all'avvio: sui
+preset bassi non occupa VRAM. `buildBuildings` accetta `detail: 'simple'`, che tiene la
+sagoma delle case e rinuncia a cornici, davanzali, persiane, pluviali, cantonali e balconi
+(oltre due milioni di triangoli su 2.200 case). I cartelli stradali usano un palo
+cilindrico procedurale al posto della parte del kit da 28.000 triangoli. Tutto questo è
+misurato in `scripts/smoke.mjs` (`SMOKE_QUALITY=minimal`, draw call e triangoli in
+`window.__molise`).
 
 Le superfici usano texture PBR fotografiche CC0 (Poly Haven + ambientCG) raccolte in
 `public/textures/` da `scripts/fetch-textures.mjs` (`npm run textures`): colore in sRGB,

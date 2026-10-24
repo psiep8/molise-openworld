@@ -25,6 +25,18 @@ const BRICK_COLORS = [0xd8bda4, 0xcdb198, 0xe0c6ae, 0xc6a98f];
  */
 type FacadeFamily = 'plaster' | 'plaster2' | 'stone' | 'brick';
 
+/**
+ * Quanto dettaglio hanno le facciate. Lo decide il preset grafico: `simple`
+ * tiene la sagoma della casa (muri, tetto, zoccolo, cornicione, comignolo,
+ * portone, vetri) e rinuncia a cornici, davanzali, persiane, pluviali,
+ * cantonali e balconi, che da soli valgono oltre due milioni di triangoli.
+ */
+export type BuildingDetail = 'full' | 'simple';
+
+export interface BuildingOptions {
+  detail?: BuildingDetail;
+}
+
 function facadeFamily(area: number, seed: number): FacadeFamily {
   const h = hashInt(seed, 41) % 100;
   // case piccole (centro storico) più spesso in pietra a vista
@@ -308,6 +320,7 @@ function addWindow(
   frame: THREE.Color,
   stone: THREE.Color,
   shutters: THREE.Color | null,
+  simple = false,
 ): void {
   const cx = edge.mx + edge.ex * offset + edge.nx * 0.02;
   const cz = edge.mz + edge.ez * offset + edge.nz * 0.02;
@@ -315,6 +328,9 @@ function addWindow(
 
   // vetro: pannello scuro appena arretrato rispetto alla cornice
   glass.push(solidBox(w, h, 0.025, cx, y, cz, new THREE.Color(0x243038), edge.angle));
+  // `simple`: resta il vetro (la finestra si legge lo stesso) e si risparmiano
+  // cornice, traversi, davanzale e persiane, cioè quasi tutta la geometria
+  if (simple) return;
 
   // montanti e traversi
   for (const side of [-1, 1] as const) {
@@ -358,7 +374,13 @@ function addWindow(
   }
 }
 
-function buildOne(b: Building, heights: Heightfield, seed: number): BuildingParts {
+function buildOne(
+  b: Building,
+  heights: Heightfield,
+  seed: number,
+  detail: BuildingDetail = 'full',
+): BuildingParts {
+  const simple = detail === 'simple';
   const c = centroid(b.points);
   // quota del terreno sotto tutta l'impronta: il muro parte dal punto più basso,
   // così sul lato in discesa non resta il vuoto sotto la casa. Lo zoccolo in
@@ -441,14 +463,16 @@ function buildOne(b: Building, heights: Heightfield, seed: number): BuildingPart
   // facciata restava un foglio di carta.
   const floors = Math.max(1, Math.round(b.height / 3.1));
   const floorTrim = stone.clone().multiplyScalar(0.97);
-  for (let f = 1; f < floors; f++) {
-    const y = base + (b.height * f) / floors;
-    trim.push(bandGeometry(b.points, c, 1.014, y - 0.07, y + 0.07, floorTrim));
+  if (!simple) {
+    for (let f = 1; f < floors; f++) {
+      const y = base + (b.height * f) / floors;
+      trim.push(bandGeometry(b.points, c, 1.014, y - 0.07, y + 0.07, floorTrim));
+    }
   }
 
   // cantonali: blocchi in pietra agli spigoli, quello che fa sembrare la casa
   // murata e non stampata in un pezzo solo
-  if (b.area > 28 && b.points.length <= 10) {
+  if (!simple && b.area > 28 && b.points.length <= 10) {
     const quoin = stone.clone().multiplyScalar(0.9);
     const half = 0.15;
     for (const p of b.points) {
@@ -460,7 +484,7 @@ function buildOne(b: Building, heights: Heightfield, seed: number): BuildingPart
 
   // grondaia in zinco appesa al filo della gronda, su tutti i lati
   const gutterY = eaveY + 0.01;
-  for (let i = 0; i < b.points.length; i++) {
+  for (let i = 0; !simple && i < b.points.length; i++) {
     const a = b.points[i];
     const next = b.points[(i + 1) % b.points.length];
     const len = Math.hypot(next.x - a.x, next.z - a.z);
@@ -541,7 +565,7 @@ function buildOne(b: Building, heights: Heightfield, seed: number): BuildingPart
     trim.push(solidBox(width * 1.35, 0.1, width * 1.35, c.x + dx, top + 0.05, c.z + dz, new THREE.Color(0x9c9285)));
   }
 
-  if (hashInt(seed, 31) % 10 < 6) {
+  if (!simple && hashInt(seed, 31) % 10 < 6) {
     // due pluviali ai vertici più esterni in x: bastano a rompere il muro liscio
     let left = b.points[0];
     let right = b.points[0];
@@ -559,7 +583,7 @@ function buildOne(b: Building, heights: Heightfield, seed: number): BuildingPart
   // ---------------------------------------------------------------------------
   // finestre: vani veri, non disegnati nella texture
   // ---------------------------------------------------------------------------
-  const hasBalcony = b.area > 85 && b.height >= 6.2 && hashInt(seed, 37) % 3 < 2;
+  const hasBalcony = !simple && b.area > 85 && b.height >= 6.2 && hashInt(seed, 37) % 3 < 2;
   if (b.area >= 20 && b.height >= 2.6 && b.points.length <= 14) {
     const shutters = hashInt(seed, 41) % 10 < 7
       ? new THREE.Color([0x4c5d49, 0x5a4635, 0x67706e, 0x3f4a3d][hashInt(seed, 43) % 4]!)
@@ -614,7 +638,7 @@ function buildOne(b: Building, heights: Heightfield, seed: number): BuildingPart
     const stride = candidates.length > take ? candidates.length / take : 1;
     for (let i = 0; i < take; i++) {
       const pick = candidates[Math.floor(i * stride)]!;
-      addWindow(trim, glass, pick.side, pick.off, pick.y, winW, winH, frame, stone, shutters);
+      addWindow(trim, glass, pick.side, pick.off, pick.y, winW, winH, frame, stone, shutters, simple);
     }
   }
 
@@ -661,7 +685,9 @@ export function buildBuildings(
   osm: OsmData,
   heights: Heightfield,
   renderer: THREE.WebGLRenderer,
+  options: BuildingOptions = {},
 ): { group: THREE.Group; count: number } {
+  const detail = options.detail ?? 'full';
   const group = new THREE.Group();
   group.name = 'buildings';
   const walls: THREE.BufferGeometry[] = [];
@@ -682,7 +708,7 @@ export function buildBuildings(
     if (b.points.length < 3 || b.area < 6) return;
     const seed = i * 31 + Math.round(b.height * 10);
     try {
-      const out = buildOne(b, heights, seed);
+      const out = buildOne(b, heights, seed, detail);
       walls.push(out.wall);
       wallsByFamily[out.family].push(out.wall);
       roofs.push(out.roof);

@@ -992,6 +992,9 @@ a.text-btn,
   accent-color: var(--accent);
 }
 
+.quality-field {
+  min-width: 190px;
+}
 .setting-field select {
   width: 100%;
   padding: 9px 10px;

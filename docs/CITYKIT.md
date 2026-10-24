@@ -30,7 +30,7 @@ low-poly, **8 edifici rurali** e **6 alberi da campo**.
 | `tree-park` | Realistic Park Tree 01 | alberi da parco e bosco |
 | `lamp` | Realistic Street Lamp 01 | lampione stradale |
 | `traffic-light` | Realistic Traffic Light 01 | semaforo |
-| `sign` | Realistic Street Sign 01 | palo zincato per i nostri STOP/precedenza/50 |
+| `sign` | Realistic Street Sign 01 | preso ma **non più usato**: dal 24/10 il palo dei cartelli è un cilindro procedurale (28.000 triangoli l'uno erano 9,9 M in mappa) |
 | `bench` | Realistic Bench 01 | panchina |
 | `bin` | Realistic Trash Bin 01 | cestino |
 | `car` | Realistic Car Sedan 01 | auto parcheggiate e traffico |
@@ -355,11 +355,12 @@ sono anche più piccoli del vero: le scale sono decise a mano per ruolo.
 - **Relitto**: uno solo, su una strada di campagna tra 520 e 1700 m da casa,
   di traverso nel fosso. È l'unico modello low-poly "di strada": non ha un verso
   e quindi non si nota lo stile.
-- **Segnali** (`buildSigns`): il palo zincato è la parte `ss_galv` del kit,
-  alto 2,95 m; la faccia resta disegnata su canvas perché le forme italiane
-  sono ottagono STOP, triangolo "dare precedenza" (punta in basso) e disco 50,
-  non la piastra rettangolare dell'asset. Con il kit il cartello sta a 2,52 m,
-  sul marciapiede rialzato; senza kit resta il palo procedurale da 2,1 m.
+- **Segnali** (`buildSigns`): palo **procedurale** da 2,45 m (cilindro a 8 lati).
+  Fino al 24/10 si usava la parte `ss_galv` del kit (2,95 m) ma costa 28.000
+  triangoli per cartello: su ~350 cartelli erano 9,9 M di triangoli per dei tubi
+  grigi. La faccia resta disegnata su canvas perché le forme italiane sono
+  ottagono STOP, triangolo "dare precedenza" (punta in basso) e disco 50, non la
+  piastra rettangolare dell'asset. La base sta sul marciapiede rialzato.
 - **Casali di campagna** (`src/world/farmsteads.ts`): è il pezzo nuovo di questa
   sessione. Fuori dal paese, a 15–30 m dalle strade rurali, compaiono 18 case,
   11 rimesse e 46 alberi (preset alto). Ogni casa/rimessa aggiunge la sua
@@ -418,7 +419,7 @@ o `null`.
 | Siepi, rovi, canneti, pietre, relitto | ✅ integrati nel codice |
 | Piazza davanti alla chiesa | ✅ integrata nel codice |
 | Targhe con i nomi delle vie | ✅ integrate nel codice |
-| Segnali su palo del kit, facce italiane | ✅ integrato nel codice |
+| Segnali con facce italiane, palo procedurale | ✅ integrato nel codice (il palo del kit è stato tolto per costo: 28k triangoli l'uno) |
 | Auto low-poly in sosta | ✅ integrate (davanti a +Z verificato sui GLB) |
 | Auto low-poly guidabili (4) | ✅ integrate nel catalogo e nel rendering |
 | Campagna: 8 case/rimesse + 6 alberi (14 GLB) | ✅ indicizzati e piazzati da `farmsteads.ts` |

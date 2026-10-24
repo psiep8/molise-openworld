@@ -20,6 +20,12 @@ import { PNG } from 'pngjs';
 const ROOT = path.resolve(import.meta.dirname, '..');
 const PORT = 9223;
 const BASE_URL = process.env.SMOKE_URL ?? 'http://127.0.0.1:4173';
+/** Preset forzato (`SMOKE_QUALITY=minimal`): serve a provare i PC deboli. */
+const QUALITY = process.env.SMOKE_QUALITY ?? '';
+/** Zoom satellite massimo per preset: sotto z17 non ci sono chunk "dettagliati". */
+const PRESET_ZOOM = { minimal: 15, low: 16, medium: 17, high: 18, ultra: 18 };
+const gameUrl = (params) =>
+  `${BASE_URL}/?${params}${QUALITY ? `&quality=${QUALITY}` : ''}`;
 const CHROME =
   process.env.CHROME_PATH ??
   (existsSync('C:/Program Files/Google/Chrome/Application/chrome.exe')
@@ -146,7 +152,7 @@ async function main() {
   try {
     await waitForChrome();
     log('Chrome pronto, apro il gioco…');
-    const target = await newTarget(`${BASE_URL}/?autostart=drive`);
+    const target = await newTarget(gameUrl('autostart=drive'));
     const cdp = await connect(target);
 
     const consoleErrors = [];
@@ -218,7 +224,12 @@ async function main() {
     if (diag.mode !== 'drive') throw new Error(`modalità attesa drive, trovata ${diag.mode}`);
     if (moved < 1) throw new Error('l’auto non si è mossa con W');
     if (diag.textured < 1) throw new Error('nessun chunk con texture satellite caricata');
-    if (diag.detailed < 1) throw new Error('nessun chunk in dettaglio z17+ vicino al giocatore');
+    // il dettaglio z17+ esiste solo se il preset lo prevede: su `minimal` e
+    // `low` il tetto è z15/z16 e non c'è niente da pretendere
+    const presetZoom = PRESET_ZOOM[diag.quality] ?? 18;
+    if (presetZoom >= 17 && diag.detailed < 1) {
+      throw new Error(`nessun chunk in dettaglio z17+ vicino al giocatore (preset ${diag.quality})`);
+    }
     if (consoleErrors.length) throw new Error(`errori console: ${consoleErrors.slice(0, 4).join(' | ')}`);
 
     // itinerario: apri la mappa grande e clicca al centro (≈ centro del mondo)
@@ -261,7 +272,7 @@ async function main() {
     if (stats.uniqueColors < 40) throw new Error(`pochi colori distinti (${stats.uniqueColors})`);
 
     // fai un giro a piedi in una seconda scheda
-    const walkTarget = await newTarget(`${BASE_URL}/?autostart=walk`);
+    const walkTarget = await newTarget(gameUrl('autostart=walk'));
     const cdp2 = await connect(walkTarget);
     await cdp2.send('Runtime.enable');
     await cdp2.send('Page.enable');

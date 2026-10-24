@@ -45,7 +45,7 @@ Stack: TypeScript + Vite + Three.js (WebGL2), Vitest, nessun framework UI.
 | Radar / mappa | ✅ | satellite Esri z17 + overlay OSM, mosaico z14 per mappa grande |
 | Itinerario | ✅ nuovo | click sulla mappa grande → A* sulla rete OSM, km e tempi, beacon 3D |
 | Post-processing | ✅ aggiornato | bloom con soglia 3,2 (non investe più il cielo) + SSAO + SMAA + OutputPass, disattivabile |
-| Qualità | ✅ nuovo | preset low/medium/high/ultra + resolution scaling adattivo |
+| Qualità | ✅ aggiornato | **5 preset** (compatibilità→ultra) con budget di mondo, auto-detect dalla GPU e **degradazione automatica a gradini** per i PC molto lenti |
 | Audio | ✅ nuovo | WebAudio procedurale: motore per modello (cilindri/regimi reali), rotolamento, vento, passi, uccelli |
 | Fisica auto | ✅ | modello bicycle puro, testato |
 | Catalogo veicoli | ✅ aggiornato | **31 modelli**: 21 procedurali (8 + 13, prestazioni reali) + **6 auto di serie su GLB** + 4 carrozzerie del kit; più le auto importate dal garage |
@@ -1079,3 +1079,123 @@ la camera in volo.
 - I 112 GLB del kit rimasti fuori dal manifest sono disponibili se servono
   altri arredi, ma non vanno indicizzati in blocco: il filtro è la coerenza
   con Palata.
+
+## 24/10 — Qualità per tutte le macchine (compatibilità → ultra)
+
+Richiesta del proprietario: lo switch di qualità c'è, ma il gioco deve girare
+anche sui PC deboli. Il problema non era il resolution scaling: era che il
+preset `low` **non era una modalità debole**. Costruiva comunque 14.000 alberi,
+2.600 cespugli, ombre su tutto, 2,3 milioni di triangoli di cornici e persiane,
+chiusini e un palo del kit da 28.000 triangoli per ogni cartello (≈9,9 milioni
+di triangoli in mappa a `high`).
+
+### Cosa è cambiato
+
+**Cinque preset con budget di mondo** (`src/gfx/quality.ts`). Oltre a
+pixel ratio, ombre, post e zoom satellite, ogni preset decide alberi, cespugli,
+pedoni, ciuffi d'erba, luci dei lampioni, raggio del terreno, meteo, kit,
+chiusini e dettaglio delle facciate.
+
+| Preset | Alberi | Erba | Pedoni | Terreno | Ombre | Post | Kit | Facciate |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `minimal` (Compatibilità) | 2.200 | no | no | 1,5 km, z15 | no | no | no | semplificate |
+| `low` (Bassa) | 4.500 | 0,22 | 4 | 2,2 km, z16 | sì, 1024 | no | sì | semplificate |
+| `medium` (Media) | 8.000 | 0,45 | 10 | 2,6 km, z17 | sì, 1024 | no | sì | piene |
+| `high` (Alta) | 12.000 | 0,72 | 18 | 3,1 km, z18 | sì, 2048 | bloom+SSAO | sì | piene |
+| `ultra` | 14.000 | 1,0 | 22 | 3,1 km, z18 | sì, 4096 | bloom+SSAO | sì | piene |
+
+- **Rilevamento GPU vero** (`classifyQuality`, testata): usa
+  `WEBGL_debug_renderer_info`. Rendering software (SwiftShader/llvmpipe) →
+  `minimal`; Intel/iGPU → `low` (o `medium` con 8+ core e 8 GB); 2 core →
+  `minimal`; GPU dedicata → `high`. `?quality=` e `localStorage` restano
+  prioritari. L'MSAA si decide **prima** di creare il renderer: su `minimal`
+  il contesto nasce senza antialias.
+- **Degradazione automatica a gradini**: prima il resolution scaling fino al
+  minimo del preset; se restano tre controlli consecutivi sotto i 26 fps,
+  scattano nell'ordine ombre off → erba off → meteo/foschia off e z15 → terreno
+  a 1,6 km → scala 0,5× e terreno a 1,2 km. È permanente per la sessione (niente
+  grafica che oscilla) e si azzera cambiando preset a mano. Il gradino 1 avvisa
+  con un toast.
+- **Facciate semplificate** (`buildingDetail: 'simple'` su minimal/low): muri,
+tetti, zoccolo, cornicione, comignolo, portone e vetri restano; spariscono
+cornici, davanzali, persiane, pluviali, cantonali e balconi. Misurato a Palata:
+`building-trim` **2.299.200 → 203.276** triangoli.
+- **Cartelli**: palo cilindrico procedurale al posto della parte `ss_galv` del
+  kit (28.000 triangoli l'una). `road-signs` passa da **9,9 M** a poche decine
+  di migliaia di triangoli, uguale su tutti i preset.
+- **Chiusini e caditoie** non si costruiscono su minimal/low: due InstancedMesh
+  da ~600.000 triangoli in mappa.
+- **Post-processing pigro**: il composer (`EffectComposer`, SSAO 1024², SMAA)
+  si crea solo quando il preset lo usa. Su minimal/low/medium non occupa VRAM.
+- **Bug vero trovato e corretto**: `Terrain` veniva creato senza
+  `maxSatelliteZoom`, quindi `applyQuality` (che gira nel costruttore, prima del
+  terreno) non aveva effetto e **ogni preset scaricava tile z18**. Ora il tetto
+  arriva al costruttore: `minimal` usa z15, `low` z16.
+- **Meteo come interruttore**: con `weather: 'off'` nuvole, pioggia, neve e
+  foschia non si aggiornano e il gruppo resta nascosto. Le 2 luci dei lampioni
+  di `minimal` sostituiscono il pool da 7.
+- **Impostazioni**: nuova tendina **Qualità grafica** (compatibilità→ultra) con
+  la descrizione del preset e degli alberi al caricamento. `G` ora cicla su
+  cinque livelli. Nota onesta nell'interfaccia: alberi e arredo cambiano al
+  prossimo avvio; erba, ombre ed effetti subito.
+- **WebGL2 assente**: `main.ts` mostra un messaggio che spiega cosa fare invece
+  di lasciare la pagina nera.
+- **Diagnostica**: `window.__molise` aggiunge `gpu`, `drawCalls`, `triangles`,
+  `degraded`. I contatori sono azzerati a mano a ogni frame: con il
+  post-processing il reset automatico lasciava solo la passata finale (1 draw
+  call, 1 triangolo).
+
+### Misure e verifiche
+
+Headless Chrome + SwiftShader (`--use-angle=swiftshader`), spawn in auto a
+Palata, preset **minimal**: **5,29 M → 2,54 M triangoli**, 123 draw call, 5–8
+chunk con texture z15 (prima z18). `high`: scena caricata, 839 draw call, 35,8 M
+triangoli **compresi passata d'ombra e post**, nessun errore runtime; su
+SwiftShader gira a ~2 fps, che non dice niente sulle GPU vere.
+
+La degradazione automatica è stata provata dal vivo su `medium` (SwiftShader,
+~0,5 fps): in ~100 s ha applicato **tutti i gradini** (ombre off → erba off →
+meteo off → terreno 1,6 km → scala 0,5× e terreno 1,2 km). Triangoli per frame
+**11,88 M → 7,25 M**, draw call **386 → 216**, `errors` vuoto: la ricompilazione
+dei materiali dopo lo spegnimento delle ombre non ha prodotto errori.
+
+Durante questa prova è emerso un altro bug della stessa famiglia di quello del
+23/10: il `dt` veniva limitato a 0,5 s **anche per il conteggio degli fps**,
+quindi ogni frame più lento di mezzo secondo risultava "2 fps" e la
+calibrazione non capiva mai di essere su una macchina da 0,5 fps. Ora gli fps e
+il timer della degradazione usano il tempo reale (limitato a 2 s solo per
+ignorare il ritorno da una scheda in background); la fisica continua a usare il
+`dt` limitato.
+
+- `node node_modules/typescript/bin/tsc --noEmit` ✅
+- `node node_modules/vitest/vitest.mjs run` ✅ **203/203** in 20 file (nuovo
+  `tests/quality.test.ts`: 10 casi su preset e classificazione GPU)
+- `node node_modules/vite/bin/vite.js build` ✅
+- `SMOKE_QUALITY=minimal npm run smoke` ✅ verde: nessun errore console, auto che
+  avanza, giocatore che cammina, itinerario, immagine non piatta
+- `npm run smoke` a `high` **non completato** in SwiftShader (timeout oltre 10
+  minuti): non è un fallimento del gioco, ma la prova fps su GPU vera resta da
+  fare. Il caricamento di `high` è stato verificato a parte.
+
+Nota per chi riprende: lo smoke ora accetta `SMOKE_QUALITY` e non pretende i
+chunk z17+ quando il preset ha un tetto più basso (prima falliva per costruzione
+su `minimal`/`low`).
+
+### Cosa resta per i PC più deboli
+
+1. **Misurare gli fps veri** su una GPU integrata (Intel UHD/HD, Vega) nelle tre
+   posizioni di prova del piano di realismo. I numeri qui sono SwiftShader.
+2. **Marciapiedi e cordoli**: 750.000 + 231.000 triangoli generati su *tutte* le
+   strade asfaltate, anche in aperta campagna. Generarli solo dove c'è un
+   edificio entro ~40 m taglierebbe la voce più grossa rimasta su `minimal`, ed
+   è anche più realistico.
+3. **LOD/alberi**: la densità è fissata al caricamento. Un LOD per distanza (o
+   il passaggio delle istanze lontane a card) permetterebbe di alzare i numeri
+   senza costruire un mondo doppio.
+4. **Geometria unita**: case e strade sono mesh uniche per famiglia, quindi il
+   frustum culling non risparmia nulla; dividerle per tile di ~500 m darebbe
+   un taglio silenzioso su tutti i preset.
+5. **Texture KTX2** e GLB compressi (fase 8 del piano): meno VRAM e caricamento
+   più rapido, soprattutto sul kit e sulle auto.
+6. **Mobile**: il classifier ora non sale sopra `low` sui telefoni, ma mancano
+   joystick virtuale e DPR limitato.

@@ -21,13 +21,15 @@ import type { CityKit, KitSpot } from './citykit';
  * non card, e fuori dalla vista non servono.
  */
 
-const TREE_LIMIT: Record<QualityLevel, number> = { low: 0, medium: 10, high: 22, ultra: 32 };
-const CAR_LIMIT: Record<QualityLevel, number> = { low: 4, medium: 10, high: 18, ultra: 24 };
-const HEDGE_LIMIT: Record<QualityLevel, number> = { low: 48, medium: 120, high: 220, ultra: 340 };
-const BUSH_LIMIT: Record<QualityLevel, number> = { low: 30, medium: 80, high: 150, ultra: 220 };
-const REED_LIMIT: Record<QualityLevel, number> = { low: 24, medium: 70, high: 130, ultra: 190 };
-const ROCK_LIMIT: Record<QualityLevel, number> = { low: 24, medium: 64, high: 120, ultra: 170 };
-const BOULDER_LIMIT: Record<QualityLevel, number> = { low: 2, medium: 4, high: 8, ultra: 10 };
+// `minimal` non carica nemmeno il kit (preset `kit: false`), ma le mappe
+// restano complete per non lasciare buchi se un giorno lo farà.
+const TREE_LIMIT: Record<QualityLevel, number> = { minimal: 0, low: 0, medium: 10, high: 22, ultra: 32 };
+const CAR_LIMIT: Record<QualityLevel, number> = { minimal: 0, low: 4, medium: 10, high: 18, ultra: 24 };
+const HEDGE_LIMIT: Record<QualityLevel, number> = { minimal: 0, low: 48, medium: 120, high: 220, ultra: 340 };
+const BUSH_LIMIT: Record<QualityLevel, number> = { minimal: 0, low: 30, medium: 80, high: 150, ultra: 220 };
+const REED_LIMIT: Record<QualityLevel, number> = { minimal: 0, low: 24, medium: 70, high: 130, ultra: 190 };
+const ROCK_LIMIT: Record<QualityLevel, number> = { minimal: 0, low: 24, medium: 64, high: 120, ultra: 170 };
+const BOULDER_LIMIT: Record<QualityLevel, number> = { minimal: 0, low: 2, medium: 4, high: 8, ultra: 10 };
 const TREE_RADIUS = 760;
 const CAR_RADIUS = 560;
 const SCENERY_RADIUS = 2400;
@@ -69,6 +71,11 @@ export function buildCityProps(
   const rockLimit = ROCK_LIMIT[quality];
   const boulderLimit = BOULDER_LIMIT[quality];
   const carLimit = CAR_LIMIT[quality];
+  // `minimal` non carica il kit, ma se un giorno lo facesse: nessun limite
+  // attivo significa nessun giro su 1.090 strade per piazzare zero oggetti.
+  if (treeLimit + hedgeLimit + bushLimit + reedLimit + rockLimit + boulderLimit + carLimit === 0) {
+    return { group, trees: 0, cars: 0, hedges: 0, bushes: 0, reeds: 0, rocks: 0, wrecks: 0 };
+  }
   const treeSpots: KitSpot[] = [];
   const carSpots: (KitSpot & { color: number })[] = [];
   const lowCarSpots: KitSpot[] = [];

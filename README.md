@@ -105,8 +105,13 @@ DEM Terrarium, tag OSM) e su come renderli credibili in un motore proprio.
 - **Audio procedurale.** Motore con cilindri e regimi veri della scheda in uso (V12, V8,
   quattro cilindri…), rotolamento, vento, passi e uccelli sintetizzati con WebAudio,
   senza file audio; parte al primo click e si spegne con `N`.
-- **Qualità scalabile.** Preset bassa/media/alta/ultra scelti in automatico, con
-  resolution scaling adattivo per tenere il frame rate: il mondo gira anche su PC modesti.
+- **Qualità scalabile su ogni PC.** Cinque preset (**compatibilità**, bassa, media, alta,
+  ultra) scelti in automatico dalla GPU reale (`WEBGL_debug_renderer_info`): un PC con
+  grafica integrata parte in bassa, un portatile molto vecchio o il rendering software in
+  **compatibilità**, una GPU dedicata in alta. Il preset non cambia solo la risoluzione:
+  decide ombre, erba, alberi, pedoni, arredo, meteo e dettaglio delle facciate. Se gli fps
+  restano bassi il gioco riduce da solo risoluzione, ombre, erba, meteo e raggio del
+  terreno; `G` (o le impostazioni) cambia preset a mano.
 - **Radar vero.** La minimappa disegna le tile Esri z17 intorno al giocatore, con le strade
   OSM in crema sopra; la mappa grande parte dal mosaico Sentinel locale dell'intera area
   e usa le tile Esri come fallback. `V` alterna satellite e mappa vettoriale, `M` apre la
@@ -158,7 +163,7 @@ npm run geo -- --skip-osm
 | `M` | mappa grande (click = itinerario) | mappa grande (click = itinerario) |
 | `X` | annulla l'itinerario | annulla l'itinerario |
 | `V` | radar satellite / mappa | radar satellite / mappa |
-| `G` | qualità grafica (bassa/media/alta/ultra) | qualità grafica |
+| `G` | qualità grafica (compatibilità → bassa → media → alta → ultra) | qualità grafica |
 | `B` | cambia veicolo | cambia veicolo |
 | `T` | imposta la casa più vicina come garage (segnalibro in mappa) | come a piedi |
 | `L` | torna al garage (auto parcheggiata lì) | come a piedi |
@@ -241,7 +246,7 @@ src/
     satellite.ts       cache tile Esri e mosaico z14 per la mappa grande
   gfx/
     post.ts            bloom + SMAA + OutputPass (post-processing opzionale)
-    quality.ts         preset low/medium/high/ultra + auto-detect
+    quality.ts         preset minimal/low/medium/high/ultra + auto-detect GPU
   audio/
     audio.ts           WebAudio procedurale: motore per modello, vento, passi, uccelli
   game.ts              orchestrazione, input, camera, loop

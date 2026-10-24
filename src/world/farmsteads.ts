@@ -21,9 +21,9 @@ import type { CityKit, KitSpot } from './citykit';
  * (`mulberry32`), quindi il mondo è lo stesso a ogni avvio.
  */
 
-const HOUSE_LIMIT: Record<QualityLevel, number> = { low: 5, medium: 11, high: 18, ultra: 24 };
-const SHED_LIMIT: Record<QualityLevel, number> = { low: 3, medium: 7, high: 12, ultra: 16 };
-const TREE_LIMIT: Record<QualityLevel, number> = { low: 10, medium: 26, high: 46, ultra: 64 };
+const HOUSE_LIMIT: Record<QualityLevel, number> = { minimal: 0, low: 5, medium: 11, high: 18, ultra: 24 };
+const SHED_LIMIT: Record<QualityLevel, number> = { minimal: 0, low: 3, medium: 7, high: 12, ultra: 16 };
+const TREE_LIMIT: Record<QualityLevel, number> = { minimal: 0, low: 10, medium: 26, high: 46, ultra: 64 };
 
 /** Fascia attorno a Palata in cui non si costruisce: il paese ha già le sue case. */
 const INNER_RADIUS = 260;
@@ -173,6 +173,7 @@ export function buildFarmsteads(
   const houseLimit = HOUSE_LIMIT[quality];
   const shedLimit = SHED_LIMIT[quality];
   const treeLimit = TREE_LIMIT[quality];
+  if (houseLimit + shedLimit + treeLimit === 0) return { group, houses: 0, sheds: 0, trees: 0 };
 
   const houseSpots: KitSpot[] = [];
   const shedSpots: KitSpot[] = [];

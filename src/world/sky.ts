@@ -27,6 +27,8 @@ export interface SkyRig {
   dome: THREE.Mesh;
   update(target: THREE.Vector3): void;
   setShadowMapSize(size: number): void;
+  /** Accende/spegne la passata d'ombra del sole (degradazione automatica). */
+  setShadows(enabled: boolean): void;
   /** elevation in gradi sopra l'orizzonte, theta nel sistema Three.js (0 = sud, 90 = est). */
   setSun(elevationDeg: number, thetaDeg: number): void;
   setSkyParams(params: Partial<SkyParams>): void;
@@ -226,6 +228,15 @@ export function createSky(scene: THREE.Scene): SkyRig {
     sunLight.shadow.map = null;
   };
 
+  /** Oltre a `renderer.shadowMap.enabled`, va spenta anche la luce. */
+  const setShadows = (enabled: boolean): void => {
+    sunLight.castShadow = enabled;
+    if (!enabled) {
+      sunLight.shadow.map?.dispose();
+      sunLight.shadow.map = null;
+    }
+  };
+
   const setSkyParams = (params: Partial<SkyParams>): void => {
     if (params.turbidity !== undefined) uniforms.turbidity.value = params.turbidity;
     if (params.rayleigh !== undefined) uniforms.rayleigh.value = params.rayleigh;
@@ -278,6 +289,7 @@ export function createSky(scene: THREE.Scene): SkyRig {
     dome: sky,
     update,
     setShadowMapSize,
+    setShadows,
     setSun,
     setSkyParams,
     setLighting,

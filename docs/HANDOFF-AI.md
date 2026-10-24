@@ -65,7 +65,7 @@ pack free (circa 370 KB) per il margine di campagna e quattro berline.
 | `tree-park` | `realistic-park-tree-01` | 110.236 | preso, **non usato** (troppo pesante) |
 | `lamp` | `realistic-street-lamp-01` | 20.654 | preso, **non usato** |
 | `traffic-light` | `realistic-traffic-light-01` | 26.068 | preso, **non usato** |
-| `sign` | `realistic-street-sign-01` | 28.120 | palo `ss_galv` per STOP/precedenza/50 |
+| `sign` | `realistic-street-sign-01` | 28.120 | **non più usato**: palo `ss_galv` troppo carico (9,9 M triangoli su ~350 cartelli); ora palo procedurale |
 | `bench` | `realistic-bench-01` | 21.252 | panchine al posto delle scatole |
 | `bin` | `realistic-trash-bin-01` | 22.522 | cestini ogni 3 panchine |
 | `car` | `realistic-car-sedan-01` | 65.137 | berline in sosta |
@@ -240,10 +240,11 @@ Dettagli che fanno perdere tempo se non si sanno:
 - **Ruoli con varianti**: `CityKit.variants(role)`; `instances()` raggruppa le
   istanze per variante. I ruoli nuovi sono `hedge`, `bush`, `reed`, `rock`,
   `wreck`, `car-lowpoly`.
-- **Segnali**: `buildSigns` usa il palo `ss_galv` del kit (2,95 m) e le facce
-  canvas procedurali (ottagono STOP, triangolo dare precedenza con la punta in
-  basso, disco 50) a 2,52 m, con la base sul piano del marciapiede (asfalto +
-  cordolo, 38,5 cm sopra il DEM). La piastra
+- **Segnali**: `buildSigns` usa un **palo procedurale** (cilindro a 8 lati, 2,45 m)
+  e le facce canvas procedurali (ottagono STOP, triangolo dare precedenza con la
+  punta in basso, disco 50), con la base sul piano del marciapiede (asfalto +
+  cordolo, 38,5 cm sopra il DEM). Dal 24/10 la parte `ss_galv` del kit è stata
+  tolta: 28.000 triangoli per palo erano 9,9 M in mappa. La piastra
   rettangolare dell'asset non si usa: le forme italiane sono un'altra cosa.
   Senza kit resta il palo procedurale da 2,1 m.
 - **Piazza**: `buildChurchPiazza` sta in `piazza.ts`, usa `plaza/paving` e

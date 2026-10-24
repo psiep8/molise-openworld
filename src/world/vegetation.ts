@@ -18,6 +18,22 @@ const CYPRESS_COLORS = [0x35502e, 0x2e4629, 0x3d5a34];
 type TreeKind = 'broadleaf' | 'olive' | 'cypress';
 
 /**
+ * Quanto mondo piantare, deciso dal preset grafico.
+ *
+ * Prima questa funzione usava sempre `TREES_MAX`: su un portatile senza GPU
+ * dedicata il mondo si costruiva comunque con 14.000 alberi e 2.600 cespugli,
+ * e il primo secondo di gioco era già a 15 fps. Il tetto arriva da fuori, così
+ * `minimal` pianta solo le sagome indispensabili al paesaggio.
+ */
+export interface VegetationOptions {
+  /** tetti di istanze; si somma al tetto assoluto `TREES_MAX` */
+  trees?: number;
+  shrubs?: number;
+  /** ombre del sole per alberi e cespugli (la passata più costosa) */
+  shadows?: boolean;
+}
+
+/**
  * Alberi istanziati ma non più "a blocchi":
  *
  *  - **tronco** conico a 8 lati con corteccia PBR fotografica;
@@ -37,8 +53,17 @@ export function buildVegetation(
   buildings: BuildingIndex,
   renderer: THREE.WebGLRenderer,
   paved: readonly PavedArea[] = [],
-): { group: THREE.Group; count: number } {
+  options: VegetationOptions = {},
+): { group: THREE.Group; count: number; shrubs: number } {
+  const treeLimit = Math.max(0, Math.min(TREES_MAX, options.trees ?? TREES_MAX));
+  const shrubLimit = Math.max(0, options.shrubs ?? 2600);
+  const castTreeShadows = options.shadows ?? true;
   const rng = mulberry32(0x5eed);
+  if (treeLimit === 0 && shrubLimit === 0) {
+    const empty = new THREE.Group();
+    empty.name = 'vegetation';
+    return { group: empty, count: 0, shrubs: 0 };
+  }
   const placements: { x: number; y: number; z: number; s: number; rot: number; color: number; kind: TreeKind }[] = [];
 
   const tryPlace = (
@@ -49,7 +74,7 @@ export function buildVegetation(
     margin = 1.6,
     kind: TreeKind = 'broadleaf',
   ): boolean => {
-    if (placements.length >= TREES_MAX) return false;
+    if (placements.length >= treeLimit) return false;
     if (heights.slopeAt(px, pz) > 34) return false;
     if (roads.isOnRoad(px, pz, margin)) return false;
     if (buildings.hitsCircle(px, pz, 2.6)) return false;
@@ -75,7 +100,7 @@ export function buildVegetation(
     const step = area.kind === 'orchard' ? 16 : area.kind === 'park' ? 20 : 17;
     for (let z = b.minZ; z <= b.maxZ; z += step) {
       for (let x = b.minX; x <= b.maxX; x += step) {
-        if (placements.length >= TREES_MAX) break;
+        if (placements.length >= treeLimit) break;
         const px = x + (rng() - 0.5) * step * 0.9;
         const pz = z + (rng() - 0.5) * step * 0.9;
         if (!pointInPolygon(px, pz, area.points)) continue;
@@ -134,7 +159,7 @@ export function buildVegetation(
 
   const group = new THREE.Group();
   group.name = 'vegetation';
-  if (placements.length === 0) return { group, count: 0 };
+  if (placements.length === 0) return { group, count: 0, shrubs: 0 };
 
   // vento condiviso da tutte le chiome: ampiezza crescente con l'altezza
   const uTime = windTimeUniform();
@@ -229,7 +254,7 @@ export function buildVegetation(
   const bushList: typeof placements = [];
   const bushRng = mulberry32(0x8bad);
   for (const p of placements) {
-    if (bushList.length >= 2600) break;
+    if (bushList.length >= shrubLimit) break;
     if (bushRng() > 0.3) continue;
     const a = bushRng() * Math.PI * 2;
     const d = 1.5 + bushRng() * 2.6;
@@ -284,7 +309,9 @@ export function buildVegetation(
       });
     });
     for (const mesh of meshes) {
-      mesh.castShadow = true;
+      // solo i preset alti pagano l'ombra di migliaia di alberi: la mappa
+      // d'ombra disegna tutte le istanze del set a ogni frame
+      mesh.castShadow = castTreeShadows;
       mesh.receiveShadow = false;
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
@@ -309,7 +336,7 @@ export function buildVegetation(
   ];
 
   group.add(...meshes);
-  return { group, count: placements.length };
+  return { group, count: placements.length, shrubs: bushList.length };
 }
 
 /**
