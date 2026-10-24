@@ -379,7 +379,9 @@ export class Game {
     this.stereoCamera.rotation.order = 'YXZ';
     this.stereoCamera.position.set(START.x, 400, START.z);
 
-    this.scene.fog = new THREE.Fog(0xccd8dd, 1100, 4200);
+    // giornata serena di partenza: la stessa foschia del meteo reale, così
+    // l'orizzonte con le montagne lontane si vede fin dal primo frame
+    this.scene.fog = new THREE.Fog(0xccd8dd, 2_500, 8_000);
     this.scene.background = new THREE.Color(0xccd8dd);
 
     this.scene.add(this.player.avatar);
@@ -1901,7 +1903,9 @@ export class Game {
     this.sky.setSkyParams(DEFAULT_SKY);
     this.sky.setLighting(DEFAULT_LIGHTING);
     this.renderer.toneMappingExposure = EXPOSURE_DAY;
-    this.scene.fog = new THREE.Fog(0xccd8dd, 1100, 4200);
+    // ripristino a giornata serena: foschia lunga, come quando il meteo reale
+    // è attivo e il cielo è limpido
+    this.scene.fog = new THREE.Fog(0xccd8dd, 2_500, 8_000);
     this.scene.background = new THREE.Color(0xccd8dd);
     this.clouds?.setVisible(false);
     this.precipitation?.clear();
