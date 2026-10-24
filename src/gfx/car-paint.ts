@@ -175,14 +175,20 @@ export function tintPaint(material: THREE.MeshStandardMaterial, color: number): 
  */
 export function paintMaterialFrom(source: THREE.MeshStandardMaterial): THREE.MeshPhysicalMaterial {
   const paint = new THREE.MeshPhysicalMaterial();
-  // `MeshPhysicalMaterial.copy` non accetta un materiale Standard come sorgente
-  // (legge `clearcoatNormalScale` che lì non esiste): si copia lo strato
-  // Standard con la sua stessa implementazione e lo si completa a vernice.
-  const copyStandard = THREE.MeshStandardMaterial.prototype.copy as unknown as (
-    this: THREE.MeshPhysicalMaterial,
-    source: THREE.MeshStandardMaterial,
-  ) => THREE.MeshPhysicalMaterial;
-  copyStandard.call(paint, source);
+  const alreadyPhysical = (source as unknown as { isMeshPhysicalMaterial?: boolean }).isMeshPhysicalMaterial === true;
+  if (alreadyPhysical) {
+    // il GLB usava già KHR_materials_clearcoat/sheen: si tengono quei dati
+    paint.copy(source as THREE.MeshPhysicalMaterial);
+  } else {
+    // `MeshPhysicalMaterial.copy` non accetta un materiale Standard come
+    // sorgente (legge `clearcoatNormalScale`, che lì non esiste): si copia lo
+    // strato Standard con la sua stessa implementazione e lo si completa qui.
+    const copyStandard = THREE.MeshStandardMaterial.prototype.copy as unknown as (
+      this: THREE.MeshPhysicalMaterial,
+      source: THREE.MeshStandardMaterial,
+    ) => THREE.MeshPhysicalMaterial;
+    copyStandard.call(paint, source);
+  }
   paint.name = source.name;
   if (!source.roughnessMap) {
     paint.roughness = 0.32;

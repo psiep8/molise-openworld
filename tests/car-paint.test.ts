@@ -148,6 +148,20 @@ describe('finitura della vernice', () => {
     expect(paint).not.toBe(source);
   });
 
+  it('tiene il clearcoat già dichiarato dal GLB (KHR_materials_clearcoat)', () => {
+    const source = new THREE.MeshPhysicalMaterial({
+      name: 'car paint',
+      color: 0x204080,
+      clearcoat: 0.4,
+      clearcoatRoughness: 0.2,
+    });
+    const paint = paintMaterialFrom(source);
+    // la vernice del gioco porta il clearcoat a 1, ma non perde gli altri dati
+    expect(paint.clearcoat).toBe(1);
+    expect(paint.color.getHex()).toBe(0x204080);
+    expect(paint.userData.paintFinish).toBe(true);
+  });
+
   it('desatura l’albedo nello shader, non i riflessi', () => {
     const paint = paintMaterialFrom(new THREE.MeshStandardMaterial({ color: 0xff0000 }));
     const shader = {
