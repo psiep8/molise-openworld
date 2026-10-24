@@ -1065,7 +1065,7 @@ export class Game {
 
   private setPaint(color: number): void {
     if (!this.car.paintable) {
-      this.hud.toast('Carrozzeria GLB: il colore si imposta nel modello', 2600);
+      this.hud.toast('Questo modello ha la vernice nell\'atlante: si può desaturare dalle impostazioni', 3000);
       return;
     }
     this.car.setPaint(color);
