@@ -47,6 +47,39 @@ rotolamento combacia col terreno. Dettagli in `src/world/car-library.ts` e
 I file `.glb` sono in `.gitignore`, il manifest è versionato. **La licenza dei
 modelli va verificata** prima di una distribuzione pubblica.
 
+### Vernice, tinta e fari notturni
+
+La vernice dei modelli di serie non è più intoccabile. `src/gfx/car-paint.ts`
+cerca il materiale della **scocca** e lo porta a `MeshPhysicalMaterial` con
+clearcoat 1,0, `clearcoatRoughness` 0,06 e rugosità 0,32; poi lo tinge con la
+palette del menu (o con la tinta scelta dal giocatore, salvata per veicolo).
+
+Perché sia tingibile servono due cose, entrambe già vere nei sei modelli:
+
+| Requisito | Perché |
+| --- | --- |
+| un materiale **solo scocca**, con un nome riconoscibile (`carpaint`, `Body_Color`, `Body Paint`, `M_CarPaint_*`, `punto-body`…) | tingere un atlante unico colorerebbe anche vetri e cerchi |
+| il colore **non cotto nella texture**, oppure una texture neutra | `material.color` moltiplica la mappa: una tinta rossa su una mappa blu dà nero |
+
+Quando il colore è nella texture (Audi R8 blu, Defender grigio-verde) la tinta
+viene applicata nello shader come `tinta × luminanza`, quindi il dettaglio
+resta. L'Aventador ha un atlante unico `_BodySG` (scocca + cerchi): per lui la
+**tinta è disattivata** e si può solo desaturare.
+
+La **saturazione** è un'uniform sola per tutte le vernici (35–100%, predefinita
+82%): *Impostazioni → Saturazione vernice*. Agisce sull'albedo dopo la texture,
+quindi non spegne i riflessi del cielo.
+
+**Fari**: `buildExternal` raccoglie i materiali con `lens`/`light`/`fanal` nel
+nome (esclusi i trasparenti) e `setLights` ne pilota l'emissivo — spento di
+giorno, 1,9 di notte. Se il GLB dichiara già un emissivo, il colore dell'autore
+resta. Per un'auto nuova basta chiamare la lente `lensRoad` o `headlight`.
+
+**Le auto importate dal giocatore restano com'erano**: materiali del suo file,
+nessuna tinta e nessun fuso orario sulle luci (il modello è suo). Per questo in
+`buildExternal` il ritocco si applica solo a `source !== customModel`.
+
+
 Il resto di questo documento riguarda le **auto importate** dall'utente.
 
 ---
@@ -198,8 +231,8 @@ avviso. Il limite è una scelta di memoria, non tecnica; si alza cambiando
 | --- | --- | --- |
 | Ruote fuse in modo irrecuperabile | restano ferme | esportarle separate con i nomi della §2.1 |
 | Nessun interno | vetri vuoti, niente volante | modellare abitacolo e volante nel GLB |
-| Nessuna tinta runtime | il colore è quello del GLB | `Vehicle.paintable` è `false` per i modelli esterni |
-| Fari/luci non emissivi | di notte lo spot illumina la strada ma il fanale resta scuro | aggiungere materiali emissivi al GLB o mapparli in `buildExternal` |
+| Tinta non applicabile alle auto importate | il colore è quello del GLB | scelta voluta: `Vehicle.buildExternal` tinge solo la libreria di serie; per tingere anche le importate basta togliere il confronto con `customModel` |
+| Fari/luci non emissivi sulle auto importate | di notte lo spot illumina la strada ma il fanale resta scuro | dare ai materiali delle lenti un nome con `lens`/`light`: la libreria di serie lo fa già |
 | Nessuna LOD | molti triangoli anche a 100 m | generare LOD nel GLB o aggiungere un `LOD` in `Vehicle` |
 | Collisione a scatola | gli spigoli possono compenetrare | `Vehicle.update` usa `spec.width`; servirebbe un box per modello |
 | Suono generico | il motore suona come gli altri | `GameAudio` non legge il modello; servirebbe un suono per auto |
