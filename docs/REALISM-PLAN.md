@@ -544,4 +544,24 @@ Prossimo taglio consigliato: marciapiedi e cordoli esistono su tutte le strade
 asfaltate (750.000 + 231.000 triangoli); limitarli alle strade con edifici
 entro ~40 m è più realistico e toglie la voce più grossa rimasta su `minimal`.
 
+
+### 24 ottobre 2026 — vernice delle auto, orizzonte e passo dei pedoni
+
+| Voce | Stato | Note |
+| --- | --- | --- |
+| Vernice dei GLB riconosciuta per materiale e portata a clearcoat | fatto, verificato headless sui sei modelli | `src/gfx/car-paint.ts`: `isPaintMaterial`, `choosePaintMaterials`, `paintMaterialFrom`; il Ferrari dà `Body_Color` tintabile, clearcoat 1,0, rugosità 0,32 |
+| Tinta della scocca anche sulle auto GLB, clonata per istanza | fatto | `Vehicle.buildExternal` sostituisce il materiale solo sulle mesh della scocca; il template resta pulito |
+| Tinta per i modelli con il colore nella texture (Audi blu, Defender grigio) | fatto, mappa misurata | nello shader `tinta × clamp(0,55 + 1,6 × luminanza)`; moltiplicare il colore per la mappa avrebbe dato nero |
+| Atlanti unici (Aventador scocca + cerchi) solo desaturati | fatto | `tintable: false`, così non si colorano le gomme |
+| Saturazione della vernice regolabile dalle impostazioni | fatto, provato | slider 35–100% (default 82%), uniform condivisa, valore in `localStorage`; etichetta e salvataggio verificati in Chrome |
+| Fari e fanalini emissivi dei GLB pilotati dalla notte | fatto | 0 di giorno, 1,9 di notte, senza `needsUpdate` per frame |
+| Cintura di montagne oltre il DEM | fatto, testata | `src/world/far-terrain.ts`: anello 10.900 triangoli, una draw call, quota DEM al bordo, rumore ridged fuori dal mondo |
+| Nebbia serena portata a ~8 km | fatto | prima le colline a 4 km sparivano e l'orizzonte era un muro bianco |
+| Passo dei pedoni sincronizzato nel blend camminata/corsa | fatto, testato | `syncStridePhase` in `src/entities/human-model.ts` |
+
+Verifiche di questa sessione: `tsc --noEmit` ✅, `vitest run` **233/233** ✅,
+`vite build` ✅, `SMOKE_QUALITY=minimal npm run smoke` ✅ (124 draw call,
+2,55 M triangoli, nessun errore console). Resta da guardare a schermo su GPU
+vera: colore delle auto dopo la tinta, montagne all'orizzonte, fari di notte.
+
 > Aggiornare questa tabella e il registro a ogni blocco di lavoro completato, con la data.

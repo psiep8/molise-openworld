@@ -1199,3 +1199,62 @@ su `minimal`/`low`).
    più rapido, soprattutto sul kit e sulle auto.
 6. **Mobile**: il classifier ora non sale sopra `low` sui telefoni, ma mancano
    joystick virtuale e DPR limitato.
+
+## 24/10 — Vernice delle auto, orizzonte, passo dei pedoni
+
+Richiesta del proprietario: i colori delle auto erano troppo saturi, dovevano
+essere cambiabili dalle impostazioni, e la grafica doveva chiudere i punti P1
+del piano visuale. Fatto tutto senza toccare gli asset.
+
+### Vernice (`src/gfx/car-paint.ts`, nuovo)
+
+- **Riconoscimento**: `isPaintMaterial` accetta `carpaint`, `Body_Color`,
+  `Body Paint`, `M_CarPaint_NoRV*`, `punto-body`… e rifiuta vetri, gomme,
+  cromature, luci, targhe, interni. Se il modello non ha nomi utili ma ha un
+  materiale dominante (≥ 35% dei triangoli, ≤ 6 materiali) lo prende per area:
+  è il caso dell'Aventador (`_BodySG`).
+- **Finitura**: `MeshPhysicalMaterial` con clearcoat 1, `clearcoatRoughness`
+  0,06, rugosità 0,32 se il GLB non porta una mappa di rugosità. Attenzione:
+  `MeshPhysicalMaterial.copy()` **non accetta** un materiale Standard (legge
+  `clearcoatNormalScale`, che lì non esiste) — si copia lo strato Standard con
+  `MeshStandardMaterial.prototype.copy.call(paint, source)`. Era un crash vero,
+  trovato dal primo test in Node.
+- **Tinta**: i materiali della scocca vengono clonati per istanza (il template
+  è condiviso). Se il colore è nella texture (Audi blu, Defender grigio) la
+  tinta passa dallo shader come `tinta × luminanza`, altrimenti
+  `material.color`. Gli atlanti unici (Aventador, che include i cerchi) sono
+  `tintable: false`: si desaturano soltanto.
+- **Saturazione**: uniform condivisa `uPaintSaturation`, 35–100%, default 82%,
+  slider in Impostazioni e valore salvato. Agisce sull'albedo dopo la texture.
+- **Fari**: i materiali `lens`/`light` del GLB si accendono con `setLights`
+  (0 di giorno, 1,9 di notte), senza `needsUpdate` per frame.
+
+### Orizzonte (`src/world/far-terrain.ts`, nuovo)
+
+Anello polare 34 × 160 (≈ 10.900 triangoli) da `viewRadius × 0,7` a 11 km, una
+sola draw call. Dentro il DEM usa `Heightfield.heightAt` (nessun gradino),
+fuori somma rumore *ridged* che cresce con la distanza dal bordo. Colori per
+vertice (prato → faggeta → roccia) con velo d'aria crescente, Lambert + nebbia
+della scena. Si ricampiona ogni 350 m di cammino e sta 2–12 m sotto il terreno
+nella fascia di sovrapposizione. La nebbia serena arriva a ~8 km.
+
+### Passo dei pedoni (`src/entities/human-model.ts`)
+
+`syncStridePhase` riporta la clip meno pesante alla stessa frazione di falcata
+della principale a ogni frame: durante il blend camminata ↔ corsa i piedi non
+cambiano più ritmo a metà falcata.
+
+### Verifiche
+
+`tsc --noEmit` 0 errori, `vitest run` **233/233** (23 file; nuovi
+`tests/car-paint.test.ts`, `tests/far-terrain.test.ts`,
+`tests/human-gait.test.ts`), `vite build` ok,
+`SMOKE_QUALITY=minimal npm run smoke` **superato** (124 draw call, 2,55 M
+triangoli, 0 errori console). In Chrome headless i sei GLB sono stati caricati
+davvero: Ferrari → `Body_Color` tintabile, clearcoat 1, rugosità 0,32, 2 lenti;
+Audi → `carpaint` con mappa blu (tinta nello shader); Defender → `Body Paint`
+con mappa 4K; slider → etichetta 50% e `localStorage` `0.5`.
+
+**Non verificato**: una GPU vera non c'è su questa macchina, quindi resta da
+guardare a schermo il colore delle auto dopo la tinta e le montagne lontane
+all'orizzonte.

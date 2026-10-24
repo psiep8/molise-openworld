@@ -1,7 +1,21 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { createCarState, speedKmh, stepCar, type CarInput, type CarState } from '../sim/car';
-import { VEHICLES, getVehicle, loadPaintFor, tuningFor, type VehicleSpec } from '../sim/vehicle-catalog';
+import {
+  VEHICLES,
+  getVehicle,
+  hasPaintFor,
+  loadPaintFor,
+  tuningFor,
+  type VehicleSpec,
+} from '../sim/vehicle-catalog';
+import {
+  applyPaintFinish,
+  choosePaintMaterials,
+  isPaintMaterial,
+  paintMaterialFrom,
+  tintPaint,
+} from '../gfx/car-paint';
 import type { Heightfield } from '../geo/elevation';
 import type { BuildingIndex, RoadIndex } from '../geo/osm';
 import type { CityKit } from '../world/citykit';
@@ -32,6 +46,14 @@ export class Vehicle {
   private lampMat = new THREE.MeshStandardMaterial();
   private tailMat = new THREE.MeshStandardMaterial();
   private paintMat: THREE.MeshPhysicalMaterial | null = null;
+  /**
+   * Carrozzeria dipinta di un GLB: materiali clonati per questa istanza (il
+   * template è condiviso, tingere quello cambierebbe tutte le auto in scena) e
+   * portati a vernice fisica.
+   */
+  private readonly paintTargets: { material: THREE.MeshPhysicalMaterial; tintable: boolean }[] = [];
+  /** fari e fanalini dei GLB: materiali da accendere quando scende la notte */
+  private readonly lensMaterials: { material: THREE.MeshStandardMaterial; base: number }[] = [];
   private kit: CityKit | null = null;
   /** auto di serie su GLB (`public/cars/`), separate dal garage dell'utente. */
   private carLibrary: CarLibrary | null = null;
@@ -80,9 +102,9 @@ export class Vehicle {
     }
   }
 
-  /** True se la carrozzeria risponde al cambio tinta (solo mesh procedurali). */
+  /** True se la carrozzeria risponde al cambio tinta (procedurale o vernice del GLB). */
   get paintable(): boolean {
-    return this.paintMat !== null;
+    return this.paintMat !== null || this.paintTargets.some((target) => target.tintable);
   }
 
   /**
@@ -141,6 +163,8 @@ export class Vehicle {
     this.envBoost.clear();
     this.headlights.length = 0;
     this.paintMat = null;
+    this.paintTargets.length = 0;
+    this.lensMaterials.length = 0;
     this.bodyGroup.clear();
     for (const child of [...this.group.children]) {
       if (child !== this.bodyGroup) this.group.remove(child);
@@ -208,6 +232,9 @@ export class Vehicle {
       2.4,
     );
     this.paintMat = paint;
+    // anche la vernice procedurale passa dal ritocco di saturazione: la palette
+    // e i GLB devono mostrare lo stesso colore
+    applyPaintFinish(paint);
     const trim = this.tune(this.material({ color: spec.accent, roughness: 0.72, metalness: 0.25, clearcoat: 0.6, clearcoatRoughness: 0.25 }), 1.4);
     const plastic = this.material({ color: 0x1a1c1e, roughness: 0.92, metalness: 0.05 });
     const chrome = this.tune(this.material({ color: 0xd8dcdf, roughness: 0.14, metalness: 1, clearcoat: 1.0, clearcoatRoughness: 0.05 }), 3.2);
@@ -473,7 +500,9 @@ export class Vehicle {
     // ruote con perno) e viene riusato a ogni cambio veicolo
     const car = this.carLibrary?.cached(this.spec.model) ?? null;
     if (car) {
-      return { object: car.template, scale: this.spec.length / Math.max(0.001, car.size.z) };
+      // clonato: la vernice e i perni delle ruote si modificano sull'istanza,
+      // così il template resta pulito per il prossimo cambio veicolo
+      return { object: car.template.clone(true), scale: this.spec.length / Math.max(0.001, car.size.z) };
     }
 
     if (!this.kit) return null;
@@ -511,20 +540,77 @@ export class Vehicle {
     pivot.position.set(-center.x, -box.min.y, -center.z);
     this.bodyGroup.add(pivot);
 
+    // materiali del GLB raccolti per materiale (nome, area, mesh): serve a
+    // riconoscere la vernice anche quando il modello usa un unico atlante che
+    // copre scocca e cerchi (`_BodySG` dell'Aventador)
+    const usage = new Map<
+      THREE.Material,
+      { name: string; triangles: number; meshes: THREE.Mesh[] }
+    >();
     source.traverse((object) => {
       const mesh = object as THREE.Mesh;
       if (!(mesh as unknown as { isMesh?: boolean }).isMesh) return;
-      const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+      const list = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      const material = list[0];
       mesh.receiveShadow = true;
       mesh.castShadow = !material?.transparent;
-      // i materiali del GLB rispondono all'ambiente come quelli procedurali:
-      // carrozzeria e vetri hanno bisogno di più riflesso del resto
-      const standard = material as THREE.MeshStandardMaterial | undefined;
-      if (standard && (standard as unknown as { isMeshStandardMaterial?: boolean }).isMeshStandardMaterial) {
-        const boost = /paint|glass|chrome|lens|emit|metal|steel|alloy|rub/i.test(standard.name) ? 1.9 : 1.25;
-        this.envBoost.set(standard, boost);
+      const geometry = mesh.geometry as THREE.BufferGeometry | undefined;
+      const positions = geometry?.attributes?.position?.count ?? 0;
+      const triangles = (geometry?.index ? geometry.index.count : positions) / 3;
+      for (const entry of list) {
+        if (!entry) continue;
+        const record = usage.get(entry) ?? { name: entry.name ?? '', triangles: 0, meshes: [] };
+        record.triangles += triangles;
+        if (!record.meshes.includes(mesh)) record.meshes.push(mesh);
+        usage.set(entry, record);
       }
     });
+
+    const sharedMaterials = [...usage.keys()];
+    // le auto importate dall'utente restano con i materiali del suo file (vedi
+    // `garage.ts`): si tinge solo la libreria di serie
+    if (source !== this.customModel) {
+      const candidates = sharedMaterials.map((material) => ({
+        name: material.name ?? '',
+        triangles: usage.get(material)?.triangles ?? 0,
+      }));
+      for (const index of choosePaintMaterials(candidates)) {
+        const original = sharedMaterials[index] as THREE.MeshStandardMaterial | undefined;
+        if (!original || !(original as unknown as { isMeshStandardMaterial?: boolean }).isMeshStandardMaterial) {
+          continue;
+        }
+        // clonato: il template è condiviso da tutte le istanze dell'auto
+        const paint = paintMaterialFrom(original);
+        this.materials.add(paint);
+        // un atlante unico (scocca + cerchi) si può solo desaturare: tingere il
+        // fattore di colore colorerebbe anche gomme e vetri
+        this.paintTargets.push({ material: paint, tintable: isPaintMaterial(original.name) });
+        this.envBoost.set(paint, 2.2);
+        for (const mesh of usage.get(original)?.meshes ?? []) {
+          mesh.material = Array.isArray(mesh.material)
+            ? mesh.material.map((entry) => (entry === original ? paint : entry))
+            : paint;
+        }
+        usage.delete(original);
+      }
+    }
+
+    for (const [material, record] of usage) {
+      const standard = material as THREE.MeshStandardMaterial;
+      if (!(standard as unknown as { isMeshStandardMaterial?: boolean }).isMeshStandardMaterial) continue;
+      // i materiali del GLB rispondono all'ambiente come quelli procedurali:
+      // carrozzeria e vetri hanno bisogno di più riflesso del resto
+      const boost = /paint|glass|chrome|lens|emit|metal|steel|alloy|rub/i.test(record.name) ? 1.9 : 1.25;
+      this.envBoost.set(standard, boost);
+      // fari e fanalini: di notte l'emissivo del materiale si accende, così il
+      // fanale si vede senza aggiungere altre luci alla scena
+      if (/(lens|light|fanal|headlight|taillight|stop light)/i.test(record.name) && !standard.transparent) {
+        // se il GLB non dichiara un emissivo, la lente prende il proprio colore
+        // (bianco davanti, rosso dietro); se lo dichiara, si rispetta l'autore
+        if (standard.emissive.getHex() === 0x000000) standard.emissive.copy(standard.color);
+        this.lensMaterials.push({ material: standard, base: standard.emissiveIntensity ?? 1 });
+      }
+    }
 
     // ruote: se la carrozzeria è un pezzo solo vengono separate (perni al mozzo).
     // Per un GLB importato la geometria originale è di sua proprietà e viene
@@ -532,6 +618,10 @@ export class Vehicle {
     splitCarWheels(source, source === this.customModel);
     this.collectExternalWheels(source);
     this.applyEnvironment();
+    // tinta scelta dall'utente (se c'è): altrimenti resta quella del modello
+    if (this.paintable && hasPaintFor(spec.id)) {
+      this.setPaint(loadPaintFor(spec.id, spec.paint));
+    }
 
     // ombre di contatto sotto le ruote rilevate (o sotto quelle dichiarate)
     const shadowSpots: { x: number; z: number; r: number }[] = [];
@@ -562,6 +652,9 @@ export class Vehicle {
       this.group.add(beam.target);
       this.headlights.push(beam);
     }
+    // se si cambia auto di notte, i fari del nuovo modello devono accendersi
+    // subito invece di aspettare il prossimo cambio di luce
+    this.setLights(this.nightLevel);
   }
 
   /**
@@ -686,9 +779,16 @@ export class Vehicle {
 
   /** Cambia la tinta della carrozzeria senza ricostruire il modello. */
   setPaint(color: number): void {
-    if (!this.paintMat) return;
-    this.paintMat.color.setHex(color);
-    this.paintMat.needsUpdate = true;
+    if (this.paintMat) {
+      this.paintMat.color.setHex(color);
+      this.paintMat.needsUpdate = true;
+    }
+    // nei GLB il colore si applica alla sola scocca: gli atlanti che includono
+    // cerchi e vetri restano del colore del modello (vedi `tintable`)
+    for (const target of this.paintTargets) {
+      if (!target.tintable) continue;
+      tintPaint(target.material, color);
+    }
   }
 
   get kmh(): number {
@@ -719,6 +819,15 @@ export class Vehicle {
     for (const beam of this.headlights) beam.intensity = 42 * on;
     this.lampMat.emissiveIntensity = 0.5 + 2.6 * on;
     this.tailMat.emissiveIntensity = 0.3 + 1.2 * on;
+    // fari e fanalini del GLB: di giorno spenti, di notte accesi. `setLights`
+    // gira a ogni frame, quindi si tocca il materiale solo quando il valore
+    // cambia davvero (un `needsUpdate` per frame rifarebbe il programma).
+    const lensLevel = on * 1.9;
+    for (const lens of this.lensMaterials) {
+      const target = lens.base * lensLevel;
+      if (Math.abs(lens.material.emissiveIntensity - target) < 0.01) continue;
+      lens.material.emissiveIntensity = target;
+    }
   }
 
   reset(x: number, z: number, yaw: number, heights: Heightfield): void {

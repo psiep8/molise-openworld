@@ -54,6 +54,35 @@ Note:
 - **Licenza**: i GLB sono forniti dal proprietario e restano fuori da git; la
   licenza va verificata prima di una distribuzione pubblica.
 
+## Vernice, tinta e saturazione
+
+I GLB vengono da showroom diversi e non hanno una convenzione unica per la
+carrozzeria. `src/gfx/car-paint.ts` la riconosce dal nome del materiale (e, se
+il modello ha un solo materiale dominante, dall'area) e la porta a vernice
+fisica: clearcoat 1,0, `clearcoatRoughness` 0,06, rugosità 0,32 (i valori da
+editor — il Defender esportato a 0,98 — sembravano plastica opaca).
+
+| Modello | Materiale di carrozzeria | Texture | Tinta dal menu |
+|---|---|---|---|
+| `ferrari.glb` | `Body_Color` | no | sì, colore del materiale |
+| `fiat-punto.glb` | `punto-body` | no | sì, colore del materiale |
+| `audi-r8.glb` | `..._2023_carpaint` | sì (blu) | sì, **nello shader** (tinta × luminanza) |
+| `land-rover-defender.glb` | `Body Paint` | sì (grigio-verde 4K) | sì, nello shader |
+| `cupra-terramar.glb` | `M_CarPaint_NoRV*` (5 varianti) | no | sì, colore del materiale |
+| `lamborghini-aventador.glb` | `_BodySG` (atlante scocca + cerchi) | sì | **no**: si desatura soltanto |
+
+Perché l'Audi e il Defender passano dallo shader: il loro colore è **cotto nella
+texture**, e `material.color` moltiplica la mappa. Una tinta rossa su una mappa
+blu darebbe nero. Là l'albedo diventa `tinta × clamp(0,55 + 1,6 × luminanza)`:
+resta il dettaglio (macchie, riflessi, flake) e il colore è quello scelto.
+L'Aventador ha un atlante unico che copre anche i cerchi, quindi tingere il
+materiale colorerebbe le gomme: per lui la vernice si può solo desaturare.
+
+**Saturazione**: uniform condivisa da tutte le vernici, 35–100% (predefinita
+82%), regolabile in *Impostazioni → Saturazione vernice* e salvata in
+`localStorage` (`molise.paint.saturation`). Agisce sull'albedo dopo la texture,
+quindi non spegne i riflessi del cielo.
+
 ## Fonti
 
 - **Panda 141 1.0 Fire 45 CV** — 140 km/h e 0-100 in 16,2 s:

@@ -1310,6 +1310,16 @@ function paintKey(id: string): string {
   return `molise.paint.${id}`;
 }
 
+/** True se l'utente ha già scelto una tinta per quel veicolo. */
+export function hasPaintFor(id: string): boolean {
+  try {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(paintKey(id)) !== null;
+  } catch {
+    return false;
+  }
+}
+
 /** Tinta scelta per quel veicolo (o il colore di fabbrica). */
 export function loadPaintFor(id: string, fallback: number): number {
   try {

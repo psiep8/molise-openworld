@@ -61,28 +61,45 @@ persona il vetro scuro nasconde il vuoto, ma in prima persona (se si aggiunge)
 si vedrebbe subito. Costo: asset. Codice: agganciare la telecamera all'abitacolo
 e nascondere il tetto.
 
-### 1.3 Fari e fanalini emissivi (P1, notte)
+### 1.3 Fari e fanalini emissivi (P1, notte) ✅ Fatto
 
 Il gioco aggiunge due `SpotLight` alla carrozzeria esterna, quindi la strada si
 illumina. Ma il fanale del GLB resta un materiale opaco: di notte sembra
-spento. Per la berlina fotorealistica ci sono già `lensRed`, `lensAmb`, `emitW`,
-`lensClear`; per le low-poly niente. Soluzione: in `buildExternal`, cercare i
-materiali con nome che contiene `lens`/`emit` e alzare `emissiveIntensity` con
-`setLights`, come si fa per la carrozzeria procedurale. Costo: mezza giornata.
+spento. Ora `buildExternal` raccoglie i materiali con `lens`/`light`/`fanal`
+(esclusi i trasparenti) e `setLights` ne pilota l'`emissiveIntensity`: 0 di
+giorno, 1,9 di notte, con il colore della lente (bianco davanti, rosso dietro).
+Se il GLB dichiara già un emissivo lo si rispetta. `setLights` gira a ogni
+frame, quindi il materiale si tocca solo quando il valore cambia davvero.
 
-### 1.4 Tinta della carrozzeria (P1)
+Risultato sui sei modelli: Ferrari 2 lenti (`Taillight_Glass`, `Interior_light`),
+Defender 4, Punto 1 (`punto-side_light`), Audi/Cupra/Aventador nessuna lente
+riconoscibile — restano le due `SpotLight`, come prima.
 
-`spec.model` usa il GLB così com'è: la palette del menu non lo tocca
-(`Vehicle.paintable` è `false`). Per la berlina fotorealistica la parte
-`car_sedan_01_paint` è già tintabile nelle istanze del parcheggio; per le
-low-poly la texture è un atlante unico, tingere il materiale colorerebbe tutta
-l'auto. Opzioni:
+### 1.4 Tinta della carrozzeria (P1) ✅ Fatto senza rifare gli asset
 
-1. accettare il colore del GLB (stato attuale, documentato);
-2. rifare le auto con la carrozzeria su un materiale separato, come la berlina;
-3. tingere solo le parti con nome `paint`/`body` e lasciare il resto.
+`spec.model` usava il GLB così com'è: la palette del menu non lo toccava
+(`Vehicle.paintable` era `false`). Tre strade erano sul tavolo: accettare il
+colore del modello, rifare le auto con la scocca su un materiale separato
+(costo: asset), oppure tingere solo i materiali di carrozzeria.
 
-La 2 è l'unica che dà un risultato pulito. Costo: asset.
+La terza funziona perché i GLB **hanno già** un materiale separato per la
+scocca: `..._carpaint` (Audi), `M_CarPaint_NoRV*` (Cupra), `Body_Color`
+(Ferrari), `Body Paint` (Defender), `punto-body` (Punto). `src/gfx/car-paint.ts`
+li riconosce per nome, li clona per istanza (il template è condiviso) e li porta
+a `MeshPhysicalMaterial` con clearcoat 1,0.
+
+Due dettagli che contano:
+
+- **il colore può essere nella texture** (la mappa dell'Audi è blu, quella del
+  Defender grigio-verde): moltiplicare una tinta rossa per una mappa blu dà
+  nero. In quel caso la tinta viene applicata nello shader come
+  `tinta × luminanza`, così il dettaglio resta e il colore è quello scelto;
+- **l'atlante unico** (Aventador: `_BodySG` copre scocca e cerchi) si può solo
+  **desaturare**: `tintable` è `false`, quindi non si colorano le gomme.
+
+La saturazione (0,35–1, predefinita 0,82) è un'uniform condivisa da tutte le
+vernici, regolabile dalle impostazioni e salvata in `localStorage`: è la
+risposta al "rosso da fiammifero" dei GLB.
 
 ### 1.5 LOD e costo (P2)
 
@@ -159,6 +176,16 @@ km, agganciata alla quota media del DEM ai bordi per non avere gradini.
 `Terrain`; materiale non illuminato o con nebbia, `frustumCulled` gestito a
 mano, una sola mesh da ~2k triangoli. Costo: 1 giorno. Rischio: basso.
 
+✅ **Fatto** (24/10): `src/world/far-terrain.ts` costruisce un anello polare
+(34 × 160, ≈ 10.900 triangoli, **una** draw call) da `viewRadius × 0,7` fino a
+11 km. Dentro il DEM campiona la stessa `Heightfield` (nessun gradino al bordo),
+fuori somma un rumore *ridged* che cresce con la distanza dal confine; i colori
+per vertice vanno da prato a faggeta a roccia, con un velo d'aria che aumenta
+con la distanza. La mesh si ricampiona solo ogni 350 m di cammino e sta 2–12 m
+sotto il terreno vero nella fascia di sovrapposizione (la maglia dei chunk è
+più grossa del DEM). La nebbia serena arriva a ~8 km invece di 4, così le vette
+si vedono ancora. Test in `tests/far-terrain.test.ts`.
+
 ### 2.3 `webgpu_compute_particles_rain` — P2, solo se si passa a WebGPU
 
 <https://threejs.org/examples/webgpu_compute_particles_rain.html>
@@ -216,6 +243,12 @@ target, sincronizzare il tempo normalizzato) è un intervento piccolo e visibile
 
 Costo: mezza giornata. Rischio: basso. Priorità alta perché i pedoni sono
 ovunque.
+
+✅ **Fatto** (24/10): `syncStridePhase` in `src/entities/human-model.ts`
+riporta la clip che pesa meno alla **stessa frazione di falcata** della
+principale a ogni frame, quindi durante il blend i piedi non cambiano ritmo a
+metà passo. Il blend dei pesi era già continuo; mancava solo il tempo. Test in
+`tests/human-gait.test.ts`.
 
 ### 2.7 `webgl_animation_skinning_additive_blending` — P2
 
@@ -281,9 +314,10 @@ se in futuro si vuole un secondo percorso "ultra" si può aggiungere
 | ✅ | Vernice fisica + ambiente riflesso (`webgl_materials_car`) | fatto | clearcoat 1,0 e cubemap del cielo con boost per famiglia |
 | ✅ | Ruote separate + ombra di contatto | fatto | separazione a runtime (`car-wheels.ts`), raggio reale |
 | ✅ | Correzione del muso per le auto importate | fatto | pulsante 180° salvato nel browser |
-| P1 | Fari emissivi per i GLB | 0,5 g | la notte è metà del gioco |
-| P1 | Crossfade sincronizzato dei pedoni | 0,5 g | i pedoni sono ovunque |
-| P1 | Cintura di montagne lontane (`webgl_geometry_terrain`) | 1 g | toglie il vuoto oltre il DEM |
+| ✅ | Fari emissivi per i GLB | fatto | `setLights` pilota le lenti del GLB (0 di giorno, 1,9 di notte) |
+| ✅ | Crossfade sincronizzato dei pedoni | fatto | `syncStridePhase` allinea la fase della falcata a ogni frame |
+| ✅ | Cintura di montagne lontane (`webgl_geometry_terrain`) | fatto | `far-terrain.ts`: anello 10,9k triangoli, una draw call, quota DEM al bordo |
+| ✅ | Tinta e saturazione della vernice dei GLB | fatto | `car-paint.ts`, slider nelle impostazioni, atlanti solo desaturati |
 | P1 | Nebbia per quota (`webgpu_custom_fog` portato in WebGL) | 1–2 g | atmosfera da valle |
 | P2 | LOD auto, collisioni per modello | 2–3 g | qualità a distanza |
 | ✅ | Suono per auto | fatto | cilindri/regimi reali dalla scheda |
@@ -299,6 +333,7 @@ se in futuro si vuole un secondo percorso "ultra" si può aggiungere
 - **Non** generare edifici al posto delle impronte OSM.
 - **Non** passare a WebGPU per la pioggia: il costo di migrazione è molto più
   alto del beneficio.
-- **Non** tingere le low-poly del kit a runtime: l'atlante unico colorerebbe
-  anche vetri e gomme.
+- **Non** tingere un materiale con atlante unico (kit low-poly, `_BodySG`
+  dell'Aventador): il colore finirebbe anche su vetri e gomme. Per quelli c'è
+  solo la desaturazione (`tintable: false`).
 - **Non** mettere in repo i GLB del kit: la licenza vieta la ridistribuzione.

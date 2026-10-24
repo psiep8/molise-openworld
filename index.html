@@ -260,10 +260,27 @@
         <div class="setting-row">
           <div class="setting-copy">
             <strong>Colore carrozzeria</strong>
-            <small>Dieci tinte, ricordate per ogni veicolo; le carrozzerie GLB usano i colori del modello.</small>
+            <small>
+              Dieci tinte, ricordate per ogni veicolo. Anche le auto GLB di serie si tingono: la vernice
+              viene riscritta sul materiale della scocca, non su vetri, gomme e cromature.
+            </small>
           </div>
         </div>
         <div id="paint-swatches" class="paint-swatches" role="group" aria-label="Colore carrozzeria"></div>
+
+        <div class="setting-row">
+          <div class="setting-copy">
+            <strong>Saturazione vernice</strong>
+            <small>
+              Molti GLB arrivano con rossi e blu da caramella: qui si abbassa la saturazione della sola
+              carrozzeria. 82% è il valore da auto vera, 100% lascia il colore del modello com'è.
+            </small>
+          </div>
+          <label class="setting-field">
+            <span>Vernice · <b id="paint-sat-value">82%</b></span>
+            <input type="range" id="paint-sat" min="35" max="100" step="1" value="82" />
+          </label>
+        </div>
 
         <div class="setting-row">
           <div class="setting-copy">

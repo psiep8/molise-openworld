@@ -181,6 +181,28 @@ export interface HumanBodyOptions {
   tint?: THREE.Color;
 }
 
+/**
+ * Porta il secondo passo alla stessa frazione di falcata del primo.
+ *
+ * Camminata e corsa sono due clip diverse (durata e falcata diverse): se i pesi
+ * si incrociano senza allineare il tempo, durante il blend i piedi scattano e la
+ * camminata "slitta". Si prende la fase normalizzata (0…1) della clip che pesa
+ * di più e si riporta l'altra su quella fase, come `syncWith` dell'esempio
+ * `webgl_animation_skinning_blending` ma senza dipendere dal warping di three.js.
+ *
+ * Funzione pura: tempi e durate in secondi, ritorna il nuovo tempo della clip
+ * da allineare (`null` se non c'è niente da fare).
+ */
+export function syncStridePhase(
+  duration: number,
+  sourceTime: number,
+  sourceDuration: number,
+): number | null {
+  if (!(duration > 0) || !(sourceDuration > 0) || !Number.isFinite(sourceTime)) return null;
+  const phase = (((sourceTime % sourceDuration) + sourceDuration) % sourceDuration) / sourceDuration;
+  return phase * duration;
+}
+
 export class HumanBody {
   readonly group = new THREE.Group();
   private readonly mixer: THREE.AnimationMixer;
@@ -277,6 +299,26 @@ export class HumanBody {
 
     this.actions.walk.timeScale = Math.min(1.6, Math.max(0.65, speed / GAME.walkSpeed));
     this.actions.run.timeScale = Math.min(1.3, Math.max(0.8, speed / GAME.runSpeed));
+
+    // passo sincronizzato: quando camminata e corsa si sovrappongono, la clip
+    // che pesa meno segue la fase di quella che pesa di più (altrimenti durante
+    // il blend i piedi cambiano ritmo a metà falcata)
+    const walk = this.actions.walk;
+    const run = this.actions.run;
+    const walkWeight = walk.getEffectiveWeight();
+    const runWeight = run.getEffectiveWeight();
+    if (walkWeight > 0.01 && runWeight > 0.01) {
+      const walkDuration = walk.getClip().duration;
+      const runDuration = run.getClip().duration;
+      if (walkWeight >= runWeight) {
+        const aligned = syncStridePhase(runDuration, walk.time, walkDuration);
+        if (aligned !== null) run.time = aligned;
+      } else {
+        const aligned = syncStridePhase(walkDuration, run.time, runDuration);
+        if (aligned !== null) walk.time = aligned;
+      }
+    }
+
     this.mixer.update(dt);
   }
 

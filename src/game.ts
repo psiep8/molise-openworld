@@ -5,6 +5,7 @@ import { loadHeightfield, type Heightfield } from './geo/elevation';
 import { BuildingIndex, loadOsm, RoadIndex, type OsmData } from './geo/osm';
 import { ESRI_WORLD_IMAGERY, ImageryStreamer } from './world/imagery';
 import { Terrain, setCloudShadow } from './world/terrain';
+import { FarTerrain } from './world/far-terrain';
 import { buildBuildings, setWindowGlow } from './world/buildings';
 import { buildChurch } from './world/church';
 import { buildDryStoneWalls } from './world/dry-stone';
@@ -122,6 +123,7 @@ import { MapRenderer } from './ui/minimap';
 import type { CarInput } from './sim/car';
 import { buildRoadGraph, planRoute, type RoadGraph, type RouteResult } from './sim/routing';
 import { PostPipeline } from './gfx/post';
+import { loadPaintSaturation, setPaintSaturation } from './gfx/car-paint';
 import { updateWind } from './gfx/wind';
 import {
   QUALITY_PRESETS,
@@ -284,6 +286,8 @@ export class Game {
   private grassScale = 1;
   /** raggio di streaming corrente: parte dal preset e scende se serve */
   private viewRadius = VIEW_RADIUS;
+  /** montagne lontane oltre il DEM (null finché il mondo non è caricato) */
+  private farTerrain: FarTerrain | null = null;
   private weatherFxOn = true;
   private clouds!: CloudLayer;
   private precipitation!: Precipitation;
@@ -598,6 +602,9 @@ export class Game {
       // scaricava comunque tile z18 (era il vero costo nascosto dei preset bassi)
       this.terrain = new Terrain(heights, imagery, this.renderer, this.quality.maxSatelliteZoom);
       this.scene.add(this.terrain.group);
+      // cintura di montagne oltre il DEM: una mesh, una draw call, nessuna texture
+      this.farTerrain = new FarTerrain(heights);
+      this.scene.add(this.farTerrain.group);
 
       this.spawnAtStart();
       this.hud.setLoading(0.78, 'Carico il terreno intorno a Palata…');
@@ -909,6 +916,13 @@ export class Game {
     qualitySelect?.addEventListener('change', () => {
       if (isQualityLevel(qualitySelect.value)) this.applyQuality(qualitySelect.value);
     });
+    // saturazione della vernice: vale per la carrozzeria di ogni auto, anche GLB
+    const paintSat = document.getElementById('paint-sat') as HTMLInputElement | null;
+    paintSat?.addEventListener('input', () => {
+      const value = setPaintSaturation(Number(paintSat.value) / 100);
+      const label = document.getElementById('paint-sat-value');
+      if (label) label.textContent = `${Math.round(value * 100)}%`;
+    });
 
     const carImport = document.getElementById('car-import') as HTMLInputElement | null;
     carImport?.addEventListener('change', () => {
@@ -1016,7 +1030,7 @@ export class Game {
       const note = document.createElement('small');
       note.className = 'settings-hint';
       note.textContent =
-        'Questa carrozzeria usa i materiali del GLB: il colore si cambia nell\'editor, non da qui.';
+        'Questo modello non dichiara una carrozzeria dipinta: la tinta resterebbe su vetri e gomme, quindi si lascia com\'è.';
       host.append(note);
       return;
     }
@@ -1143,6 +1157,10 @@ export class Game {
     if (vehicleSelect) vehicleSelect.value = this.car.spec.id;
     const qualitySelect = document.getElementById('quality-select') as HTMLSelectElement | null;
     if (qualitySelect) qualitySelect.value = this.qualityLevel;
+    const paintSat = document.getElementById('paint-sat') as HTMLInputElement | null;
+    if (paintSat) paintSat.value = String(Math.round(loadPaintSaturation() * 100));
+    const paintSatValue = document.getElementById('paint-sat-value');
+    if (paintSatValue) paintSatValue.textContent = `${Math.round(loadPaintSaturation() * 100)}%`;
     const qualityCopy = document.getElementById('quality-copy');
     if (qualityCopy) {
       const auto = this.degradeStep > 0 ? ' · ridotta automaticamente per gli fps' : '';
@@ -1989,7 +2007,9 @@ export class Game {
     // a 1–2 km si sciolgono nel bianco. Con pioggia/neve/nebbia restano i valori
     // corti di prima.
     let fogNear = 1800 + (1 - cloud) * 700;
-    let fogFar = 3800 + (1 - cloud) * 2200;
+    // con il cielo sereno la foschia arriva a ~8 km: è quello che lascia vedere
+    // le montagne della cintura lontana invece di un muro bianco a 4 km
+    let fogFar = 4_600 + (1 - cloud) * 3_400;
     if (foggy) {
       fogNear = 18;
       fogFar = 480;
@@ -2617,6 +2637,9 @@ export class Game {
     this.pedestrians?.update(dt, focus);
     this.terrain.update(focus.x, focus.z, this.viewRadius);
     this.terrain.tick();
+    // l'anello lontano parte appena fuori dai chunk caricati
+    this.farTerrain?.setInnerRadius(this.viewRadius * 0.7);
+    this.farTerrain?.update(focus.x, focus.z);
     updateWind(dt);
     this.grass?.update(
       focus.x,
