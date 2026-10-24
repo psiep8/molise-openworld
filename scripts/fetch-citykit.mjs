@@ -63,8 +63,7 @@ const WANTED = [
  * quello che al Realistic City manca. Sono oggetti piccoli e senza dettagli
  * leggibili da vicino (siepe, canneto, rovo, masso, relitto): la sagoma è
  * quella giusta e il costo è 0,4–2k triangoli l'una, quindi non spostano la resa
- * e non pesano. Niente case o auto: lì lo stile low-poly si vedrebbe, e le case
- * di Palata devono restare quelle vere di OSM.
+ * e non pesano.
  */
 const SCENERY = [
   { slug: 'hedgerow-run', role: 'hedge', name: 'Hedgerow Run', note: 'siepi lungo le strade di campagna' },
@@ -88,7 +87,37 @@ const LOWPOLY_CARS = [
   { slug: 'white-sports-convertible', role: 'car-lowpoly', name: 'White Sports Convertible', note: 'due posti low-poly in sosta' },
 ];
 
-const CURATED = [...WANTED, ...SCENERY, ...LOWPOLY_CARS];
+/**
+ * Campagna: case coloniche, rimesse e alberi da frutto/ulivi.
+ *
+ * Le case di Palata restano quelle vere di OSM: questi modelli servono **solo
+ * fuori dal paese**, sparsi lungo le strade di campagna, dove una sagoma
+ * low-poly a 30 m non si distingue da una masseria. Ogni casale viene
+ * registrato nell'indice delle collisioni, quindi il giocatore non ci passa
+ * attraverso e vegetazione ed erba non ci crescono dentro.
+ */
+const RURAL = [
+  { slug: 'farmhouse', role: 'house', name: 'Farmhouse', note: 'casale di campagna' },
+  { slug: 'bungalow-house', role: 'house', name: 'Bungalow House', note: 'casa bassa con veranda' },
+  { slug: 'two-story-house', role: 'house', name: 'Two Story House', note: 'casa a due piani' },
+  { slug: 'ranch-house', role: 'house', name: 'Ranch House', note: 'casa di pietra a un piano' },
+  { slug: 'home-cottage-01', role: 'house', name: 'Home Cottage 01', note: 'cottage piccolo' },
+  { slug: 'home-thatched-house-01', role: 'house', name: 'Home Thatched House 01', note: 'casa dal tetto di paglia' },
+  { slug: 'garden-shed', role: 'shed', name: 'Garden Shed', note: 'rimessa da attrezzi' },
+  { slug: 'garage', role: 'shed', name: 'Garage', note: 'garage di campagna' },
+];
+
+/** Alberi da campo: ulivi, frutteti e conifere, tutti con base a y = 0. */
+const COUNTRY_TREES = [
+  { slug: 'olive-tree', role: 'tree-country', name: 'Olive Tree', note: 'ulivo' },
+  { slug: 'apple-tree', role: 'tree-country', name: 'Apple Tree', note: 'melo da frutto' },
+  { slug: 'birch-tree', role: 'tree-country', name: 'Birch Tree', note: 'betulla' },
+  { slug: 'lineside-pine', role: 'tree-country', name: 'Lineside Pine', note: 'pino di bordo strada' },
+  { slug: 'arborvitae-conifer', role: 'tree-country', name: 'Arborvitae Conifer', note: 'conifera da giardino' },
+  { slug: 'autumn-maple', role: 'tree-country', name: 'Autumn Maple', note: 'acero in autunno' },
+];
+
+const CURATED = [...WANTED, ...SCENERY, ...LOWPOLY_CARS, ...RURAL, ...COUNTRY_TREES];
 
 const args = process.argv.slice(2);
 const has = (flag) => args.includes(flag);

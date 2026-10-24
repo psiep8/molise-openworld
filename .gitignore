@@ -22,3 +22,7 @@ captures/
 # dei file → restano fuori dal repo, si rigenerano con `npm run kit`
 public/citykit/
 public/draco/
+
+# auto di serie su GLB: asset forniti dal proprietario, licenza da verificare
+# prima della distribuzione. Il manifest (slug, muso, misure) è versionato.
+public/cars/*.glb

@@ -86,15 +86,17 @@ aperto un pannello. Dormire porta alle 07:00 del giorno successivo.
 
 ## 5. Veicoli
 
-- Catalogo: `src/sim/vehicle-catalog.ts` (22 modelli: 9 preesistenti + 13 richiesti).
+- Catalogo: `src/sim/vehicle-catalog.ts` (**31 modelli**: 21 procedurali
+  (8 preesistenti + 13 richiesti), 6 auto di serie su GLB e 4 carrozzerie del kit).
 - Ogni modello ha id stabile, nome, categoria/stile, **parametri di guida reali**
-  (cilindrata, potenza, coppia, masse, 0-100, velocità massima) e una **sagoma
-  procedurale originale** (dimensioni, passo, carreggiata, stile carrozzeria).
+  (cilindrata, potenza, coppia, masse, 0-100, velocità massima) e una sagoma
+  (procedurale originale per 21 voci, GLB normalizzato per le altre).
 - I modelli sono selezionabili dal menu `P` o ciclando con `B`, guidabili, con
   collisioni e camera; il colore carrozzeria si cambia dal menu o con `K` ed è
-  salvato per veicolo.
-- Fedeltà dichiarata: **nessun asset GLB di marca**. Le prestazioni sono reali,
-  le forme sono stilizzate e distinguibili (berlina, crossover, SUV, trike).
+  salvato per veicolo (le auto GLB e quelle del kit non sono ritinteggiabili).
+- Fedeltà dichiarata: le **21 sagome procedurali sono originali**, i **6 GLB sono
+  asset forniti dal proprietario** (licenza da verificare). Le prestazioni sono
+  reali per tutte le voci di produzione, riferimenti di segmento per il kit.
 - Sandbox libera: **non implementata** in questa iterazione (vedi roadmap).
 
 ## 6. Casa, garage e interni

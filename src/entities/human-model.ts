@@ -242,16 +242,39 @@ export class HumanBody {
     this.mixer.setTime(options.phase ?? 0);
   }
 
-  /** Avanza la locomozione: blend idle/walk/run in base alla velocità reale. */
+  /**
+   * Avanza la locomozione con un blend continuo idle → camminata → corsa.
+   *
+   * Rispetto al vecchio interruttore a tre stati (che sfumava un'azione alla
+   * volta), qui i pesi seguono la velocità con due smoothstep, come
+   * nell'esempio `webgl_animation_skinning_blending` di Three.js: a 2 m/s il
+   * personaggio è già metà camminata e metà corsa, senza scatti al confine.
+   * I pesi vengono poi rinormalizzati a 1, altrimenti durante la transizione
+   * la posa di riposo traspare e il corpo sembra afflosciarsi.
+   */
   update(dt: number, speed: number): void {
-    const target = speed < 0.35 ? 'idle' : speed > GAME.walkSpeed + 0.7 ? 'run' : 'walk';
-    const blend = 1 - Math.exp(-9 * dt);
-    for (const key of ['idle', 'walk', 'run'] as const) {
-      const action = this.actions[key];
-      const want = key === target ? 1 : 0;
-      const now = action.getEffectiveWeight();
-      action.setEffectiveWeight(now + (want - now) * blend);
-    }
+    const walkIn = THREE.MathUtils.smoothstep(speed, 0.2, 1.1);
+    const runIn = THREE.MathUtils.smoothstep(speed, GAME.walkSpeed * 1.12, GAME.runSpeed * 0.92);
+    const idleWant = 1 - walkIn;
+    const runWant = runIn;
+    const walkWant = Math.max(0, 1 - idleWant - runWant);
+
+    const blend = 1 - Math.exp(-10 * dt);
+    const weights = {
+      idle: this.actions.idle.getEffectiveWeight(),
+      walk: this.actions.walk.getEffectiveWeight(),
+      run: this.actions.run.getEffectiveWeight(),
+    };
+    weights.idle += (idleWant - weights.idle) * blend;
+    weights.walk += (walkWant - weights.walk) * blend;
+    weights.run += (runWant - weights.run) * blend;
+    const sum = weights.idle + weights.walk + weights.run;
+    const norm = sum > 1e-4 ? 1 / sum : 1;
+
+    this.actions.idle.setEffectiveWeight(weights.idle * norm);
+    this.actions.walk.setEffectiveWeight(weights.walk * norm);
+    this.actions.run.setEffectiveWeight(weights.run * norm);
+
     this.actions.walk.timeScale = Math.min(1.6, Math.max(0.65, speed / GAME.walkSpeed));
     this.actions.run.timeScale = Math.min(1.3, Math.max(0.8, speed / GAME.runSpeed));
     this.mixer.update(dt);

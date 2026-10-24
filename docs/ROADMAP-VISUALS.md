@@ -7,9 +7,9 @@ costa e cosa si rischia.
 
 Stato di partenza: il gioco usa **`THREE.WebGLRenderer`** (`src/game.ts`), un DEM
 reale con ortofoto ESRI (`src/world/terrain.ts`, `src/world/imagery.ts`), strade
-e impronte OSM, un city kit PBR (24 asset) e un catalogo di **26 veicoli
-guidabili** (22 di serie + 4 carrozzerie del kit), più le auto importate dal
-garage.
+e impronte OSM, un city kit PBR (**38 asset**, di cui 8 case/rimesse e 6 alberi
+da campo) e un catalogo di **31 veicoli guidabili** (21 procedurali, 6 su GLB e
+4 carrozzerie del kit), più le auto importate dal garage.
 
 ---
 
@@ -99,9 +99,10 @@ dei modelli. Oggi non c'è LOD né per le auto del kit né per quelle importate.
   più stretto della carrozzeria.
 - Non c'è deformazione: l'auto si inclina su 4 punti (`tiltPitch`/`tiltRoll`),
   non ha sospensioni indipendenti né danni.
-- `GameAudio` sintetizza un motore generico: non legge cilindrata, frazionamento
-  o sound del modello. Per le auto importate servirebbe un suono per file o
-  parametri per lo spec.
+- ✅ **Suono per modello (24/10)**: `engineVoice(spec)` ricava cilindri,
+  regimi e peso timbrico dalla scheda; il sintetizzatore usa la frequenza di
+  accensione reale (`rpm/60 × cilindri/2`). Restano da fare i campioni audio
+  dedicati per i sei GLB, se in futuro arriveranno dei file.
 
 ### 1.7 Animazioni (P2)
 
@@ -284,7 +285,8 @@ se in futuro si vuole un secondo percorso "ultra" si può aggiungere
 | P1 | Crossfade sincronizzato dei pedoni | 0,5 g | i pedoni sono ovunque |
 | P1 | Cintura di montagne lontane (`webgl_geometry_terrain`) | 1 g | toglie il vuoto oltre il DEM |
 | P1 | Nebbia per quota (`webgpu_custom_fog` portato in WebGL) | 1–2 g | atmosfera da valle |
-| P2 | LOD auto, collisioni per modello, suono per auto | 2–4 g | qualità a distanza e varietà |
+| P2 | LOD auto, collisioni per modello | 2–3 g | qualità a distanza |
+| ✅ | Suono per auto | fatto | cilindri/regimi reali dalla scheda |
 | P2 | Look-at additivo dei pedoni | 2–3 g | vita nelle piazze |
 | P2 | Pioggia/neve compute, generatore edifici | 3–6 g + WebGPU | rimandare |
 

@@ -8,7 +8,7 @@
 > **Stato, comandi, limiti e prossimi passi:** [HANDOFF.md](HANDOFF.md) — il documento da leggere prima di riprendere il progetto su un'altra macchina.
 > **Specifica completa del simulatore:** [docs/MASTER_PROMPT.md](docs/MASTER_PROMPT.md), con lo stato di avanzamento punto per punto.
 > **Piano di realismo grafico (documento vivo):** [docs/REALISM-PLAN.md](docs/REALISM-PLAN.md) — cosa è fatto, cosa manca e in che ordine.
-> **City kit e auto:** [docs/CITYKIT.md](docs/CITYKIT.md) — cosa si usa e perché; [docs/GARAGE.md](docs/GARAGE.md) — auto fatte in Smooth Voxels; [docs/ROADMAP-VISUALS.md](docs/ROADMAP-VISUALS.md) — cosa manca e gli esempi three.js.
+> **City kit e auto:** [docs/CITYKIT.md](docs/CITYKIT.md) — cosa si usa e perché; [docs/GARAGE.md](docs/GARAGE.md) — auto di serie su GLB e import da Smooth Voxels; [docs/VEHICLE_DATA.md](docs/VEHICLE_DATA.md) — schede tecniche; [docs/ROADMAP-VISUALS.md](docs/ROADMAP-VISUALS.md) — cosa manca e gli esempi three.js.
 
 **Area giocabile:** Palata · Montecilfone · Acquaviva Collecroce · Tavenna · Castelmauro (~14 × 12 km di campagna molisana)
 
@@ -20,7 +20,8 @@
 - **Terreno 3D** a chunk (912 m) con DEM a 10 m, **mosaico Sentinel-2 dell'intera area come base immediata** per ogni chunk, tile Esri z18 entro 500 m, z17 fino a 3200 m e z16 oltre per il dettaglio, e normal map ricavata dal rilievo.
 - **Meteo reale opzionale** (`P` → interruttore): condizioni attuali, nuvole, pioggia/neve e **sole alla posizione e ora vere**, con alba/tramonto del giorno. Aggiornamento ogni 10 minuti, fallback al pomeriggio fisso se lo spegni.
 - **Ora del giorno manuale** (`P` → slider 0–24): alba, mezzogiorno, tramonto e notte, con preset meteo sereno/nuvoloso/pioggia/neve/nebbia. Strada bagnata e fari si accendono da soli quando il sole scende.
-- **Ventidue veicoli procedurali** (`P` → Veicolo, oppure `B` per cambiarli al volo): i nove già presenti (Panda vecchia e nuova, Punto, Renegade, tre ruote, 500X, Captur, C3, Junior) più i tredici richiesti (Cupra Formentor, Alfa Romeo Tonale, Audi Q3, BMW X1, Mercedes-Benz GLA, Dacia Sandero, Toyota Yaris, Kia Picanto, Ford Fiesta, Nissan Qashqai, Fiat 500, Fiat 600, Peugeot 3008). Ognuno ha ingombri, passo, raggio ruota e **prestazioni reali** della versione rappresentata: cilindrata, potenza, coppia, 0-100 e velocità massima vengono dalle schede tecniche (vedi `docs/VEHICLE_DATA.md`). Le **sagome sono procedurali originali**, non modelli ufficiali dei marchi.
+- **Trentuno veicoli in catalogo** (`P` → Veicolo, oppure `B` per cambiarli al volo): ventuno con carrozzeria procedurale, **sei con modello GLB** e quattro carrozzerie low-poly del city kit. Tra i procedurali ci sono gli otto storici (Panda vecchia e nuova, Renegade, tre ruote, 500X, Captur, C3, Junior) e i tredici richiesti (Cupra Formentor, Alfa Romeo Tonale, Audi Q3, BMW X1, Mercedes-Benz GLA, Dacia Sandero, Toyota Yaris, Kia Picanto, Ford Fiesta, Nissan Qashqai, Fiat 500, Fiat 600, Peugeot 3008). Ognuno ha ingombri, passo, raggio ruota e **prestazioni reali** della versione rappresentata: cilindrata, potenza, coppia, 0-100 e velocità massima vengono dalle schede tecniche (vedi `docs/VEHICLE_DATA.md`).
+- **Sei auto di serie su GLB** (`public/cars/`): Fiat Punto, Lamborghini Aventador, Ferrari 458 Spider, Land Rover Defender, Audi R8 V10 Performance e Cupra Terramar. I modelli vengono normalizzati una volta sola (unità di lunghezza, muso a +Z, base a terra), le ruote sono riconosciute per nome o separate geometricamente, e i vetri opachi dei GLB da showroom diventano vetro scuro trasparente. I file restano fuori da git e il manifest versionato dice slug, file, yaw e lunghezza.
 - **Quattro carrozzerie del city kit** guidabili (Familiare, Parigina, Sedan pastello, Spider bianca): usano i GLB low-poly al posto della mesh procedurale, riscalati sulla lunghezza e ruotati col muso nel verso di marcia. Le ruote vengono **separate dalla carrozzeria a runtime** (perno al centro del mozzo, raggio misurato sul modello, quindi il rotolamento combacia col terreno) e sotto c'è un'ombra di contatto. Le prestazioni sono riferimenti di segmento, non schede reali.
 - **Auto personalizzate da Smooth Voxels**: modella un'auto in <https://www.smoothdev.nl/smoothvoxels/>, esportala in GLB e importala dal menu o trascinandola sulla finestra. Ogni auto riceve una scheda tecnica dagli ingombri, è guidabile subito e resta salvata in IndexedDB (max 12 per browser); un pulsante gira il **muso di 180°** se l'export è uscito al contrario. Flusso e convenzioni in `docs/GARAGE.md`.
 - **Vernice con riflessi**: la cubemap del cielo passa ai materiali del veicolo con un boost per famiglia (vernica, vetri, cromature), così il clearcoat ha riflessi veri e non sembra plastica.
@@ -41,6 +42,7 @@
 - **Illuminazione pubblica**: lampioni ogni ~32 m sulle strade asfaltate dei paesi, con braccio verso la carreggiata e vetro emissivo; di notte 7 luci puntuali seguono i lampioni più vicini alla camera.
 - **Paesi** con edifici estrusi dalle impronte OSM, **tetti a falde** (padiglione) in laterizio, **facciate con finestre, persiane e davanzali**, fasce marcapiano, cantonali d'angolo, grondaie e portoni con stipiti e soglia, altezze stimate o da tag.
 - **Boschi, uliveti e filari**: 14.000 alberi instanziati in modo deterministico (stesso seed → stesso paesaggio), con filari lungo le strade e alberi sparsi su campi e crinali per dare profondità alle distanze.
+- **Casali di campagna**: fuori dal paese, lungo le strade rurali, compaiono **masserie, rimesse e ulivi/frutteti** dai GLB del kit (18 case, 11 rimesse e 46 alberi ad alta qualità). La posizione è deterministica e ogni impronta entra nell'indice delle collisioni **prima** di vegetazione ed erba: niente ci passa attraverso e niente ci cresce dentro.
 - **Acqua**: torrenti e specchi d'acqua.
 - **Camminata** in prima/terza persona con collisioni contro gli edifici, corsa, salto.
 - **Guida simulata**: cambio automatico a 5 o 6 marce con strappo e kickdown, curva di coppia/potenza del motore vero, aderenza che limita la partenza (pattinamento), freni da 9–10 m/s², retromarcia inserita col freno, pendenza, off-road più lento e freno a mano. HUD con marcia e giri motore.
@@ -73,10 +75,23 @@ DEM Terrarium, tag OSM) e su come renderli credibili in un motore proprio.
   senza essere ricostruito.
 - **Rilievo che si vede.** Le normal map sono generate dal DEM (128×128 per chunk): anche
   dove la mesh è più grossolana del dato, il sole radente fa emergere crinali e fossi.
-- **Luce e foschia.** Sole a 27°, ombre morbide, esposizione ACES più alta e nebbia
-  spostata più lontano: il paesaggio resta leggibile invece di sparire nel grigio.
+- **Luce e foschia.** Sole a 27°, ombre morbide, esposizione ACES tarata sul terreno e
+  nebbia spostata più lontano. La cupola del cielo viene scalata a parte (`skyRadiance`):
+  il cielo resta un gradiente blu invece di un muro bianco, che era la vera causa
+  dell'abbagliamento.
 - **Post-processing.** Bloom morbido su cielo e tetti, antialiasing SMAA e OutputPass
   per tone mapping/color space corretti; si spegne da solo sui preset più leggeri.
+- **Pioggia, neve e foschia.** Le gocce sono segmenti inclinati dal vento; i fiocchi sono
+  sprite con gradiente morbido e dimensione per particella; la pioggia lascia **anelli di
+  schizzo** sulla superficie vera (asfalto compreso); banchi di **foschia bassa** ancorati
+  al terreno si addensano all'alba, al tramonto, con la nebbia e con la pioggia. Gli spunti
+  vengono dagli esempi Three.js `webgpu_compute_particles_rain`,
+  `webgpu_compute_particles_snow`, `webgpu_custom_fog` e `webgl_geometry_terrain`, riscritti
+  in WebGL classico per girare anche sui PC più modesti.
+- **Animazione del personaggio a pesi continui.** Idle, camminata e corsa si fondono in base
+  alla velocità reale (smoothstep + rinormalizzazione), invece di scattare tra tre stati;
+  il passo accelera con la velocità. È lo schema dell'esempio
+  `webgl_animation_skinning_blending`.
 - **Texture PBR vere.** Asfalto, intonaco, pietra, mattoni, coppi, erba e corteccia sono
   texture **CC0** (Poly Haven/ambientCG) in `public/textures/`, con normal e roughness;
   usura, giunti e grana procedurale si aggiungono sopra (vedi `public/textures/ATTRIBUTION.md`).
@@ -87,8 +102,9 @@ DEM Terrarium, tag OSM) e su come renderli credibili in un motore proprio.
   la pioggia/neve particelle intorno alla camera, la foschia cambia con visibilità e
   precipitazioni. Il dato si aggiorna ogni 10 minuti; se la rete manca resta attivo il
   sole reale e l'ultimo meteo disponibile.
-- **Audio procedurale.** Motore, rotolamento, vento, passi e uccelli sintetizzati con
-  WebAudio, senza file audio; parte al primo click e si spegne con `N`.
+- **Audio procedurale.** Motore con cilindri e regimi veri della scheda in uso (V12, V8,
+  quattro cilindri…), rotolamento, vento, passi e uccelli sintetizzati con WebAudio,
+  senza file audio; parte al primo click e si spegne con `N`.
 - **Qualità scalabile.** Preset bassa/media/alta/ultra scelti in automatico, con
   resolution scaling adattivo per tenere il frame rate: il mondo gira anche su PC modesti.
 - **Radar vero.** La minimappa disegna le tile Esri z17 intorno al giocatore, con le strade
@@ -193,11 +209,16 @@ src/
     surface-textures.ts texture procedurali (asfalto, sterrato, intonaco, coppi)
     weather.ts         meteo Open-Meteo, posizione reale del sole, auto-refresh
     clouds.ts          cupola di nuvole procedurali guidata dalla copertura
-    precipitation.ts   pioggia e neve sintetiche intorno alla camera
+    precipitation.ts   pioggia, neve soffice e schizzi sul terreno
+    mist.ts            banchi di foschia bassa ancorati al terreno
+    citykit.ts         caricamento, normalizzazione e istanze dei GLB del kit
+    city-props.ts      arredo del paese e della campagna (alberi, siepi, auto)
+    farmsteads.ts      casali, rimesse e alberi da campo + impronte di collisione
     grass.ts           campo d'erba instanziato che segue il giocatore
     property.ts        casa/garage scelto sulle impronte OSM + segnalibro
     pedestrians.ts     pedoni umani che camminano sui marciapiedi OSM
     sky.ts             cielo, sole, ombre
+    car-library.ts     auto di serie: GLB, normalizzazione, vetri e ruote
   environment/
     sun-clock.ts       sole per un'ora locale arbitraria + preset meteo
   garage.ts            import GLB, specifica automatica e IndexedDB
@@ -208,7 +229,7 @@ src/
     vehicle.ts         veicoli procedurali o GLB + assetto, tinta e ruote
   sim/
     car.ts             fisica pura e testabile: motore, cambio, freni, aderenza
-    vehicle-catalog.ts 22 veicoli con dati reali + 4 carrozzerie del kit
+    vehicle-catalog.ts 31 veicoli: 21 procedurali, 6 su GLB e 4 carrozzerie del kit
     routing.ts         grafo stradale + A* per l'itinerario scelto sulla mappa
     economy.ts         economia virtuale: contanti, conto, acquisti atomici, movimenti
     needs.ts           fame, energia, divertimento: calo nel tempo ed effetti
@@ -222,7 +243,7 @@ src/
     post.ts            bloom + SMAA + OutputPass (post-processing opzionale)
     quality.ts         preset low/medium/high/ultra + auto-detect
   audio/
-    audio.ts           WebAudio procedurale: motore, vento, passi, uccelli
+    audio.ts           WebAudio procedurale: motore per modello, vento, passi, uccelli
   game.ts              orchestrazione, input, camera, loop
 scripts/
   fetch-geodata.mjs    download e preprocessing OSM/DEM
@@ -244,6 +265,14 @@ scripts/
   (idle, camminata, corsa). La licenza concede uso personale e commerciale **con avatar
   Ready Player Me**, vieta di ridistribuire le animazioni come asset a sé stanti.
   Dettagli in `public/models/ATTRIBUTION.md`.
+- **City kit (threejsassets.com)** — 38 modelli free del pack *Realistic City* e dei pack
+  low-poly (strade, arredo, alberi, case coloniche, auto). Licenza **Free Commercial**:
+  i file non sono versionati e si rigenerano con `npm run kit`. Dettagli e tabella ruoli in
+  `docs/CITYKIT.md`.
+- **Auto di serie su GLB** — modelli forniti dal proprietario in `public/cars/`. I binari
+  restano fuori da git (`.gitignore`); il manifest `public/cars/manifest.json` è versionato
+  e descrive slug, file, yaw e lunghezza. **La licenza dei modelli va verificata prima di
+  una distribuzione pubblica.**
 - **Codice** — MIT (vedi `LICENSE`).
 
 GTA è un marchio dei rispettivi proprietari. Questo progetto non è affiliato né approvato da Rockstar Games e non contiene materiale del gioco.

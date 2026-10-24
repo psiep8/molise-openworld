@@ -145,8 +145,11 @@ nei vertici; i prati sono ciuffi istanziati con una texture di lame disegnata su
 
 `GameAudio` (`src/audio/audio.ts`) sintetizza tutto con WebAudio: vento e rotolamento da
 rumore filtrato, motore con due oscillatori saw e lowpass, passi con burst di rumore
-filtrati, uccelli con chirp sinusoidali. Il contesto parte solo al primo gesto utente
-(click sul pulsante di avvio), segue velocità e modalità, e si silenzia con `N`.
+filtrati, uccelli con chirp sinusoidali. Il motore non è più generico: `engineVoice(spec)`
+legge cilindri e regimi dalla scheda del veicolo e il sintetizzatore usa la frequenza di
+accensione reale (`rpm/60 × cilindri/2`), con filtro e guadagno che seguono il carico.
+Il contesto parte solo al primo gesto utente (click sul pulsante di avvio), segue velocità
+e modalità, e si silenzia con `N`.
 
 ## 12. Meteo reale e sole
 
@@ -165,10 +168,14 @@ filtrati, uccelli con chirp sinusoidali. Il contesto parte solo al primo gesto u
 
 `Game.applyWeatherVisuals` traduce il dato in atmosfera: copertura nuvolosa → cupola
 procedurale (`clouds.ts`) e turbidity/rayleigh del cielo; precipitazione e temperatura →
-pioggia o neve (`precipitation.ts`); visibilità/nebbia → `Fog.near/far`; elevazione del
-sole → colore e intensità della luce, luce lunare di riempimento, esposizione. Il pannello
-`P` salva la scelta in `localStorage` (`molise.realWeather`) e mostra condizioni, alba e
-tramonto. Spegnendo lo switch si ripristinano cielo, luci e nebbia di default.
+pioggia o neve (`precipitation.ts`, con schizzi sul terreno vero) e banchi di foschia
+bassa (`mist.ts`, più densi all'alba/tramonto e con la nebbia); visibilità/nebbia →
+`Fog.near/far`; elevazione del sole → colore e intensità della luce, luce lunare di
+riempimento, esposizione. La cupola visiva e la cubemap PMREM condividono
+`skyRadiance` (0,55) perché lo shader Preetham in HDR altrimenti brucia l'orizzonte;
+`environmentIntensity` viene compensato per non spegnere i materiali PBR. Il pannello
+`P` salva la scelta in `localStorage` (`molise.realWeather`) e mostra condizioni, alba
+e tramonto. Spegnendo lo switch si ripristinano cielo, luci e nebbia di default.
 
 I test in `tests/weather.test.ts` verificano la posizione del sole a equinozio, giugno e
 dicembre a Palata e la traduzione dei codici WMO.

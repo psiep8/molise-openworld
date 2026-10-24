@@ -47,7 +47,13 @@ export type KitRole =
   | 'bush'
   | 'reed'
   | 'rock'
-  | 'wreck';
+  | 'wreck'
+  /* campagna: casali, rimesse e alberi da campo. Stanno fuori dal paese, dove
+   * non ci sono edifici OSM da confrontare; le impronte di case e rimesse
+   * entrano nell'indice delle collisioni. */
+  | 'house'
+  | 'shed'
+  | 'tree-country';
 
 export interface KitSpot {
   x: number;

@@ -11,22 +11,24 @@
 
 1. Il gioco è una ricostruzione di **Palata (CB) e paesi vicini** da OSM + DEM.
    Il mondo resta geografico: **non** si sostituisce con un kit a griglia.
-2. Sono in uso **24 asset free**: i **13 del pack Realistic City** (fotorealistico,
-   scala reale) più **11 low-poly** degli altri pack per siepi, rovi, canneti,
-   pietre, un relitto e quattro berline. Sono già integrati: asfalto,
-   marciapiedi, panchine, cestini, alberi di strada, auto in sosta, margine di
-   campagna, piazza davanti alla chiesa e targhe con i nomi delle vie.
+2. Sono in uso **38 asset free**: i **13 del pack Realistic City** (fotorealistico,
+   scala reale), **11 low-poly** degli altri pack per siepi, rovi, canneti,
+   pietre, un relitto e quattro berline, più **14 rurali** (8 case/rimesse e
+   6 alberi da campo). Sono già integrati: asfalto, marciapiedi, panchine,
+   cestini, alberi di strada, auto in sosta, margine di campagna, **casali di
+   campagna con impronte di collisione**, piazza davanti alla chiesa e targhe
+   con i nomi delle vie.
 3. I GLB **non sono nel repository** (licenza free: uso sì, ridistribuzione no).
    Vanno rigenerati o copiati in `public/citykit/` sulla macchina nuova.
-   In `public/citykit/` ce ne sono **150**: 126 non sono nella lista curata e il
+   In `public/citykit/` ce ne sono **150**: 112 non sono nella lista curata e il
    motore non li carica.
 4. Restano **5 asset free non presi** (fuori contesto) e **4 presi ma non
    piazzati** (semaforo, lampione, incrocio, alberi da parco). Il segnale del
    kit ora è in uso come palo dei cartelli STOP/precedenza/50.
    Il pack completo ha **137 asset premium** ($99): la lista prioritaria è al §6.
-5. **Verifica visiva e fps non sono state eseguite.** Il codice compila
-   (`tsc` pulito); test e build non sono stati rilanciati dopo l'ultimo
-   passaggio. La resa a schermo è da guardare.
+5. **Verifica visiva e fps:** guardata in gioco a preset **high** (18 case,
+   11 rimesse, 46 alberi, nessun errore console). `npm run build` ✅ e
+   `npm test` **193/193** ✅. Resta da ricontrollare a ogni modifica.
 
 ---
 
@@ -133,14 +135,15 @@ a `WANTED` in `scripts/fetch-citykit.mjs`.
 Censimento del catalogo pubblico: **2.288 asset, 937 free**. Oltre a Realistic
 City sono **tutti low-poly stilizzati** (City 23 free, Cozy Village 17,
 Suburban Neighborhood 44, Metropolis 19, Vice Beach 38, Railway 105, ecc.).
-Ne usiamo solo 7, e solo per oggetti dove lo stile non si legge (siepe, canneto,
-rovo, masso, relitto). **Case, negozi, auto e alberi low-poly restano fuori**:
-le case di Palata devono restare le impronte OSM, le auto non hanno parti
-separate e il davanti non è verificabile, le chiome attuali sono card
-fotografiche con vento. Dettaglio e motivazioni in `docs/CITYKIT.md` §1.3.
+Ne usiamo 25, e solo dove lo stile non si legge o resta lontano: siepe, canneto,
+rovo, masso, relitto, quattro berline low-poly e **la campagna** (case coloniche,
+rimesse, ulivi/frutteti fuori dal paese). **Case, negozi e alberi low-poly dentro
+Palata restano fuori**: le case del paese devono restare le impronte OSM, e in
+piazza un albero flat-shaded accanto alle card fotografiche si noterebbe.
+Dettaglio e motivazioni in `docs/CITYKIT.md` §1.4–1.6.
 
-In `public/citykit/` il proprietario ha messo **150 GLB**: i 126 che non sono
-nella lista curata restano su disco ma non entrano nel manifest, quindi non
+In `public/citykit/` il proprietario ha messo **150 GLB**: i **112** che non
+sono nella lista curata restano su disco ma non entrano nel manifest, quindi non
 consumano memoria video né draw call.
 
 ---
@@ -172,8 +175,8 @@ metterli in `public/citykit/` e lanciare:
 npm run kit -- --index
 ```
 
-**Non usa la rete**: legge i GLB presenti, tiene solo i 20 slug della lista
-curata, ricava triangoli/byte/sha256 dal file, scrive `manifest.json`,
+**Non usa la rete**: legge i GLB presenti, tiene solo i **38 slug della lista
+curata**, ricava triangoli/byte/sha256 dal file, scrive `manifest.json`,
 `NOTICE.md` e copia il decodificatore Draco da `node_modules/three` in
 `public/draco/`. Segnala i file assenti e quanti GLB restano fuori, senza
 fallire per un file opzionale mancante.
@@ -189,12 +192,12 @@ sono file dell'asset pack, non opere del progetto. La cartella `public/citykit/`
 
 ```
 ls public/draco                     # draco_decoder.js/.wasm, draco_wasm_wrapper.js
-node -e "console.log(require('./public/citykit/manifest.json').assets.length)"  # 24
+node -e "console.log(require('./public/citykit/manifest.json').assets.length)"  # 38
 npm run kit -- --index             # riscrive il manifest dai file presenti
 ```
 
 Poi `npm run dev` e in console: `window.__molise.kit` deve valere
-`{ assets: 24, trees: >0, cars: >0, hedges: >0, rocks: >0, piazzas: 1 }`;
+`{ assets: 38, trees: >0, cars: >0, hedges: >0, rocks: >0, houses: >0, sheds: >0, countryTrees: >0, piazzas: 1 }`;
 `window.__molise.errors` vuoto.
 
 ---

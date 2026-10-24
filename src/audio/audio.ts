@@ -10,6 +10,47 @@ export interface AudioState {
   speed: number;
   moving: boolean;
   grounded: boolean;
+  /** giri motore reali, per il suono del veicolo in uso */
+  rpm?: number;
+}
+
+/**
+ * Carattere del motore ricavato dalla scheda tecnica. Il suono non usa file:
+ * la frequenza di accensione è quella vera (giri/60 × cilindri/2), quindi un
+ * V12 al minimo ronfa a ~85 Hz e un 1.2 a quattro cilindri a ~27 Hz.
+ */
+export interface EngineVoice {
+  cylinders: number;
+  idleRpm: number;
+  redlineRpm: number;
+  /** 0..1, motori grandi e pieni suonano più gravi e corposi */
+  weight: number;
+}
+
+/** Ricava cilindri e carattere dal testo della scheda (V12, I6, V-twin, …). */
+export function engineVoice(spec: {
+  engine: string;
+  idleRpm: number;
+  redlineRpm: number;
+  displacementCc: number;
+}): EngineVoice {
+  const text = spec.engine;
+  const v = /(?:^|[\s(])V\s*-?\s*(\d+)/i.exec(text);
+  const inline = /(?:^|[\s(])I\s*(\d+)/i.exec(text);
+  const w = /(?:^|[\s(])W\s*(\d+)/i.exec(text);
+  const twin = /twin/i.test(text);
+  let cylinders = 4;
+  if (v) cylinders = Number(v[1]);
+  else if (w) cylinders = Number(w[1]);
+  else if (inline) cylinders = Number(inline[1]);
+  else if (twin) cylinders = 2;
+  cylinders = Math.max(1, Math.min(16, cylinders));
+  return {
+    cylinders,
+    idleRpm: Math.max(500, spec.idleRpm),
+    redlineRpm: Math.max(spec.idleRpm + 500, spec.redlineRpm),
+    weight: Math.max(0.2, Math.min(1, spec.displacementCc / 6500)),
+  };
 }
 
 export class GameAudio {
@@ -25,6 +66,12 @@ export class GameAudio {
   private birdTimer = 9;
   private muted = false;
   private failed = false;
+  private voice: EngineVoice = { cylinders: 4, idleRpm: 800, redlineRpm: 6000, weight: 0.3 };
+
+  /** Cambia il carattere del motore quando si passa a un altro veicolo. */
+  setVoice(voice: EngineVoice): void {
+    this.voice = voice;
+  }
 
   get isMuted(): boolean {
     return this.muted;
@@ -186,12 +233,20 @@ export class GameAudio {
 
     if (this.engine) {
       const { osc1, osc2, gain, filter } = this.engine;
-      const target = driving ? 42 + speed * 2.6 : 34;
-      osc1.frequency.setTargetAtTime(target, t, 0.18);
-      osc2.frequency.setTargetAtTime(target * 1.5 + speed * 0.6, t, 0.18);
-      filter.frequency.setTargetAtTime(300 + speed * 26, t, 0.2);
-      const engineGain = driving ? 0.05 + Math.min(0.05, speed * 0.0025) : 0;
-      gain.gain.setTargetAtTime(engineGain, t, 0.2);
+      const voice = this.voice;
+      const rpm = driving
+        ? Math.max(voice.idleRpm, Math.min(voice.redlineRpm * 1.02, state.rpm ?? voice.idleRpm))
+        : voice.idleRpm;
+      // frequenza di accensione reale: un V12 "batte" sei volte per giro
+      const firing = Math.max(24, (rpm / 60) * (voice.cylinders / 2));
+      const load = driving ? Math.min(1, (rpm - voice.idleRpm) / Math.max(1, voice.redlineRpm - voice.idleRpm)) : 0;
+      osc1.frequency.setTargetAtTime(firing, t, 0.12);
+      osc2.frequency.setTargetAtTime(firing * 1.5 + 1.5, t, 0.12);
+      filter.frequency.setTargetAtTime(220 + firing * 5 + voice.weight * 220 + load * 260, t, 0.16);
+      const engineGain = driving
+        ? 0.028 + voice.weight * 0.028 + Math.min(0.03, speed * 0.0015) + load * 0.012
+        : 0;
+      gain.gain.setTargetAtTime(engineGain, t, 0.18);
     }
 
     this.roadGain?.gain.setTargetAtTime(driving ? Math.min(0.07, speed * 0.006) : 0, t, 0.2);

@@ -5,7 +5,8 @@ import { VEHICLES, getVehicle, loadPaintFor, tuningFor, type VehicleSpec } from 
 import type { Heightfield } from '../geo/elevation';
 import type { BuildingIndex, RoadIndex } from '../geo/osm';
 import type { CityKit } from '../world/citykit';
-import { splitCarWheels } from './car-wheels';
+import type { CarLibrary } from '../world/car-library';
+import { preciseBox, splitCarWheels } from './car-wheels';
 import { clamp } from '../geo/geo';
 import { WORLD } from '../config';
 
@@ -32,6 +33,8 @@ export class Vehicle {
   private tailMat = new THREE.MeshStandardMaterial();
   private paintMat: THREE.MeshPhysicalMaterial | null = null;
   private kit: CityKit | null = null;
+  /** auto di serie su GLB (`public/cars/`), separate dal garage dell'utente. */
+  private carLibrary: CarLibrary | null = null;
   /** GLB importato dal garage: sostituisce la carrozzeria procedurale. */
   private customModel: THREE.Object3D | null = null;
   /** Ruote separate trovate nel GLB (nomi `wheel-fl`, `wheel-fr`, ecc.). */
@@ -62,6 +65,15 @@ export class Vehicle {
   /** Il kit si carica in parallelo alla mappa: arriva dopo il primo build. */
   setKit(kit: CityKit | null): void {
     this.kit = kit;
+    if (this.spec.model && !this.customModel) {
+      this.clear();
+      this.build();
+    }
+  }
+
+  /** Libreria delle auto di serie (GLB in `public/cars/`). */
+  setCarLibrary(library: CarLibrary | null): void {
+    this.carLibrary = library;
     if (this.spec.model && !this.customModel) {
       this.clear();
       this.build();
@@ -448,13 +460,23 @@ export class Vehicle {
   }
 
   /**
-   * Carrozzeria esterna: un GLB importato dal garage oppure, se lo spec lo
-   * indica, un modello del city kit. In entrambi i casi il muso dell'asset è a
-   * +Z, mentre il veicolo gioca con il muso a -Z: la rotazione la fa il build.
+   * Carrozzeria esterna: un GLB importato dal garage, un'auto di serie della
+   * libreria (`public/cars/`) oppure, se lo spec lo indica, un modello del city
+   * kit. In tutti i casi il muso dell'asset è a +Z, mentre il veicolo gioca con
+   * il muso a -Z: la rotazione la fa il build.
    */
   private resolveExternal(): { object: THREE.Object3D; scale: number | null } | null {
     if (this.customModel) return { object: this.customModel, scale: null };
-    if (!this.spec.model || !this.kit) return null;
+    if (!this.spec.model) return null;
+
+    // auto di serie: il template è già normalizzato (lunghezza 1, muso +Z,
+    // ruote con perno) e viene riusato a ogni cambio veicolo
+    const car = this.carLibrary?.cached(this.spec.model) ?? null;
+    if (car) {
+      return { object: car.template, scale: this.spec.length / Math.max(0.001, car.size.z) };
+    }
+
+    if (!this.kit) return null;
     const asset = this.kit.bySlug(this.spec.model);
     if (!asset) return null;
     // la separazione delle ruote si fa una volta sola sul template e poi viene
@@ -482,8 +504,9 @@ export class Vehicle {
     // base a terra e centro sull'asse: un GLB può avere il pivot dove vuole.
     // Il calcolo avviene prima di agganciare il pivot al gruppo: altrimenti il
     // bounding box sarebbe in coordinate mondo e, cambiando auto in movimento,
-    // il modello si sposterebbe della posizione dell'auto.
-    const box = new THREE.Box3().setFromObject(pivot);
+    // il modello si sposterebbe della posizione dell'auto. `preciseBox` conta i
+    // vertici: molti GLB ruotano la scocca dentro i nodi e il box OBB mentirebbe.
+    const box = preciseBox(pivot);
     const center = box.getCenter(new THREE.Vector3());
     pivot.position.set(-center.x, -box.min.y, -center.z);
     this.bodyGroup.add(pivot);
@@ -548,6 +571,9 @@ export class Vehicle {
    * nella carrozzeria: non si possono girare. Se invece le ruote sono oggetti
    * separati chiamati `wheel-fl`, `wheel-fr`, `wheel-rl`, `wheel-rr`, qui si
    * crea un perno sul centro di ciascuna e si fa sterzare/girare quello.
+   *
+   * Il raggio si misura sul perno già in scala: così vale sia per i modelli del
+   * kit (unità reali) sia per i template della libreria (lunghezza 1).
    */
   private collectExternalWheels(source: THREE.Object3D): void {
     source.updateMatrixWorld(true);
@@ -564,29 +590,41 @@ export class Vehicle {
       const tag = match[1].toLowerCase();
       const front = tag === 'fl' || tag === 'fr';
       const splitHub = parent.name.endsWith('-hub') ? parent : null;
-      const radius = Number(splitHub?.userData.wheelRadius ?? 0) || fallback;
+
+      // una ruota può avere sotto-nodi che finiscono con lo stesso tag
+      // (`wheel-fl` > `ALIAS_Wheel_FL`): si gestisce solo il perno più in alto
+      if (!splitHub) {
+        for (let ancestor: THREE.Object3D | null = parent; ancestor; ancestor = ancestor.parent) {
+          if (ancestor.name.endsWith('-hub')) return;
+        }
+      }
 
       // il modello è già stato costruito una volta: il perno esiste e va
       // riusato, altrimenti cambiando auto e tornando indietro le ruote
       // resterebbero ferme
+      let hub: THREE.Object3D;
       if (splitHub) {
-        if (!seen.has(splitHub)) {
-          seen.add(splitHub);
-          found.push({ node: splitHub, front, radius });
-          radiusSum += radius;
-        }
-        return;
+        if (seen.has(splitHub)) return;
+        hub = splitHub;
+      } else {
+        const world = preciseBox(object).getCenter(new THREE.Vector3());
+        const created = new THREE.Group();
+        created.name = `${object.name}-hub`;
+        created.rotation.order = 'YXZ';
+        parent.add(created);
+        created.position.copy(parent.worldToLocal(world));
+        created.updateMatrixWorld(true);
+        created.attach(object);
+        hub = created;
       }
 
-      const world = new THREE.Box3().setFromObject(object).getCenter(new THREE.Vector3());
-      const hub = new THREE.Group();
-      hub.name = `${object.name}-hub`;
-      parent.add(hub);
-      hub.position.copy(parent.worldToLocal(world));
-      hub.rotation.order = 'YXZ';
+      // il raggio è quello dell'ingombro della ruota, non quello dichiarato
+      // nello spec: pneumatici più grandi devono rotolare quanto il terreno
+      hub.rotation.set(0, 0, 0);
+      const size = preciseBox(hub).getSize(new THREE.Vector3());
+      const measured = Math.max(size.x, size.y, size.z) / 2;
+      const radius = measured > 0.08 && measured < 1.6 ? measured : fallback;
       hub.userData.wheelRadius = radius;
-      hub.updateMatrixWorld(true);
-      hub.attach(object);
 
       seen.add(hub);
       found.push({ node: hub, front, radius });

@@ -15,7 +15,8 @@ Beach…): dentro un paese molisano fotorealistico si notano subito e farebbero
 peggio delle mesh procedurali. L'unico pack in **scala reale e PBR** è
 **Realistic City**, e il suo tier free contiene i pezzi che oggi sono più deboli.
 
-**24 asset in uso**, in tre gruppi.
+**38 asset in uso**, in cinque gruppi: 13 fotorealistici, 7 di scenario, 4 auto
+low-poly, **8 edifici rurali** e **6 alberi da campo**.
 
 ### 1.1 Realistic City (13 free, 12,4 MB)
 
@@ -114,26 +115,75 @@ di riferimento di segmento**, non schede tecniche reali (il catalogo lo dice
   è quella che si guarda da vicino e le ruote sono fuse nei materiali
   `rub`/`alloy`; da guidare sembrerebbe un modellino fermo.
 
-### 1.4 Cosa NON usiamo (e perché)
+### 1.4 Edifici rurali (8 free degli altri pack)
 
-- **Case e negozi low-poly** (`farmhouse`, `general-store`, `two-story-house`,
-  `ranch-house`, `deco-shopfront-row`…): le case di Palata hanno l'impronta OSM
-  vera. Sostituirle con mesh finite significa inventare un altro paese; accanto
-  alle facciate procedurali si vedrebbe subito lo stile diverso.
+Sono case coloniche, rimesse e garage low-poly. **Non sostituiscono le case di
+Palata**, che restano quelle vere di OSM: si usano **solo fuori dal paese**,
+lungo le strade di campagna, dove una sagoma a 30 m conta più del dettaglio.
+Sono 1,2–2,4k triangoli l'una, quindi una masseria costa meno di una panchina
+fotorealistica.
+
+| Ruolo | Asset | Triangoli | Note |
+| --- | --- | --- | --- |
+| `house` | Farmhouse | 1.506 | casale classico |
+| `house` | Bungalow House | 1.860 | casa bassa con veranda |
+| `house` | Two Story House | 2.403 | casa a due piani |
+| `house` | Ranch House | 1.621 | pietra a un piano |
+| `house` | Home Cottage 01 | 1.226 | cottage piccolo |
+| `house` | Home Thatched House 01 | 1.378 | tetto di paglia |
+| `shed` | Garden Shed | 1.136 | rimessa da attrezzi |
+| `shed` | Garage | 1.479 | garage di campagna |
+
+### 1.5 Alberi da campo (6 free degli altri pack)
+
+Ulivi, frutteti e conifere da mettere attorno ai casali e lungo i bordi delle
+strade rurali. `olive-tree` è il più caro (22k triangoli) ed è anche il più
+caratteristico del Molise; l'acero autunnale (88k) compare **solo** sui preset
+high/ultra e con peso basso.
+
+| Ruolo | Asset | Triangoli | Note |
+| --- | --- | --- | --- |
+| `tree-country` | Olive Tree | 22.484 | ulivo |
+| `tree-country` | Apple Tree | 568 | melo da frutto |
+| `tree-country` | Birch Tree | 456 | betulla |
+| `tree-country` | Lineside Pine | 452 | pino di bordo strada |
+| `tree-country` | Arborvitae Conifer | 590 | conifera da giardino |
+| `tree-country` | Autumn Maple | 88.062 | acero in autunno (solo high/ultra) |
+
+**Dove finiscono** (`src/world/farmsteads.ts`): fuori dal paese (260–2300 m da
+Palata), a 15–30 m dal ciglio delle strade rurali, con almeno 105 m tra due
+casali e controlli su pendenza, acqua ed edifici. La posizione è deterministica
+(`mulberry32`, seed fisso), quindi il paesaggio è lo stesso a ogni avvio.
+Statistiche ad alta qualità: **18 case, 11 rimesse, 46 alberi**. I limiti
+scendono con i preset (bassa: 5/3/10; media: 11/7/26; ultra: 24/16/64).
+
+**Collisioni**: ogni casa e ogni rimessa registra la propria **impronta
+ruotata** in `BuildingIndex` *prima* che vegetazione, erba e alberi vengano
+costruiti. Così il giocatore non ci passa attraverso e nulla ci cresce dentro.
+Non è un dettaglio cosmetico: senza l'impronta, l'erba alta sarebbe comparsa in
+mezzo al salotto.
+
+### 1.6 Cosa NON usiamo (e perché)
+
+- **Case e negozi low-poly *dentro* Palata** (`general-store`,
+  `deco-shopfront-row`…): le case del paese hanno l'impronta OSM vera.
+  Sostituirle con mesh finite significa inventare un altro paese; accanto alle
+  facciate procedurali si vedrebbe subito lo stile diverso. I modelli rurali
+  sono ammessi solo fuori, dove non c'è un edificio OSM da confrontare.
 - **Furgone** (`van-wav-ramp-01`) e **snowcat**: il primo ha proporzioni da
   mezzo con rampa, il secondo non esiste in Molise. Restano fuori.
-- **Alberi low-poly** (`olive-tree`, `apple-tree`, `birch-tree`, `autumn-maple`,
-  `lineside-pine`…): le chiome attuali sono card fotografiche con alpha e vento;
-  un albero flat-shaded accanto si nota più di quanto aggiunga. `olive-tree` è
-  anche 22k triangoli.
 - **Tile di terreno/strada da 4 × 4 m**: i nastri OSM hanno UV metriche e
   materiali PBR; una griglia a scacchiera si vedrebbe.
 - **Interni, ferrovia, bayou, nuvole, sky dome**: non c'è il posto (Palata non ha
   ferrovia né bayou; il cielo è fisico, le nuvole sono procedurali).
 - **`realistic-brownstone-01`, office tower, canal, subway, sky dome**: free ma
   incoerenti con il posto.
+- **Altri alberi low-poly generici** fuori dai sei scelti: le chiome attuali
+  sono card fotografiche con alpha e vento; un albero flat-shaded accanto alle
+  card si nota. I sei `tree-country` funzionano perché stanno lontano, attorno
+  ai casali.
 
-I **126 GLB restanti** presenti in `public/citykit/` non entrano nel manifest e
+I **112 GLB restanti** presenti in `public/citykit/` non entrano nel manifest e
 non vengono caricati: restano su disco se un giorno servono, senza costare né
 memoria video né draw call.
 
@@ -172,7 +222,7 @@ memoria video né draw call.
 
    ```bash
    npm run kit -- --list   # cosa è free nel pack (nessuna chiave)
-   npm run kit             # scarica i 24 asset + manifest + decodificatore Draco
+   npm run kit             # scarica i 38 asset + manifest + decodificatore Draco
    ```
 
    Non vuoi usare una chiave? Scarica a mano i file free dal sito (pulsante
@@ -183,9 +233,9 @@ memoria video né draw call.
    npm run kit -- --index
    ```
 
-`--index` **non usa la rete**: legge i GLB che trova, tiene solo i 20 slug della
-lista curata, ricava triangoli/byte/sha256 dal file e riscrive manifest e
-NOTICE. Segnala i file assenti e quanti GLB restano fuori dal manifest, ma non
+`--index` **non usa la rete**: legge i GLB che trova, tiene solo i **38 slug
+della lista curata**, ricava triangoli/byte/sha256 dal file e riscrive manifest
+e NOTICE. Segnala i file assenti e quanti GLB restano fuori dal manifest, ma non
 fallisce per un file opzionale mancante. Lo script è idempotente: salta i file
 già presenti e corretti, riscarica con `--force`, accetta `--only=slug,slug`. Una
 richiesta alla volta, come chiede la documentazione delle API (budget più
@@ -213,7 +263,7 @@ piatta.
 | 12 | auto | Realistic Car Sedan 01 | [`realistic-car-sedan-01`](https://threejsassets.com/assets/realistic-car-sedan-01) | 718.416 |
 | 13 | masso | Realistic Rock Boulder 01 | [`realistic-rock-boulder-01`](https://threejsassets.com/assets/realistic-rock-boulder-01) | 509.252 |
 
-### Scenery e auto (11 opzionali, ma senza loro metà dell'effetto svanisce)
+### Scenery, auto e campagna (25 opzionali, ma senza loro metà dell'effetto svanisce)
 
 | Ruolo | Asset | Slug / file |
 | --- | --- | --- |
@@ -228,6 +278,20 @@ piatta.
 | auto | Family Sedan | [`family-sedan`](https://threejsassets.com/assets/family-sedan) |
 | auto | Pastel Sedan | [`pastel-sedan`](https://threejsassets.com/assets/pastel-sedan) |
 | auto | White Sports Convertible | [`white-sports-convertible`](https://threejsassets.com/assets/white-sports-convertible) |
+| casa | Farmhouse | [`farmhouse`](https://threejsassets.com/assets/farmhouse) |
+| casa | Bungalow House | [`bungalow-house`](https://threejsassets.com/assets/bungalow-house) |
+| casa | Two Story House | [`two-story-house`](https://threejsassets.com/assets/two-story-house) |
+| casa | Ranch House | [`ranch-house`](https://threejsassets.com/assets/ranch-house) |
+| casa | Home Cottage 01 | [`home-cottage-01`](https://threejsassets.com/assets/home-cottage-01) |
+| casa | Home Thatched House 01 | [`home-thatched-house-01`](https://threejsassets.com/assets/home-thatched-house-01) |
+| rimessa | Garden Shed | [`garden-shed`](https://threejsassets.com/assets/garden-shed) |
+| rimessa | Garage | [`garage`](https://threejsassets.com/assets/garage) |
+| albero | Olive Tree | [`olive-tree`](https://threejsassets.com/assets/olive-tree) |
+| albero | Apple Tree | [`apple-tree`](https://threejsassets.com/assets/apple-tree) |
+| albero | Birch Tree | [`birch-tree`](https://threejsassets.com/assets/birch-tree) |
+| albero | Lineside Pine | [`lineside-pine`](https://threejsassets.com/assets/lineside-pine) |
+| albero | Arborvitae Conifer | [`arborvitae-conifer`](https://threejsassets.com/assets/arborvitae-conifer) |
+| albero | Autumn Maple | [`autumn-maple`](https://threejsassets.com/assets/autumn-maple) |
 
 Output:
 
@@ -235,7 +299,7 @@ Output:
 public/citykit/
   manifest.json        # ruolo, nome, categoria, triangoli, byte, sha256, licenza
   NOTICE.md            # provenienza + tabella asset
-  *.glb                # 24 modelli indicizzati (e gli altri, ignorati)
+  *.glb                # 38 modelli indicizzati (e gli altri, ignorati)
 public/draco/          # decodificatore Draco copiato da node_modules/three
 ```
 
@@ -296,16 +360,24 @@ sono anche più piccoli del vero: le scale sono decise a mano per ruolo.
   sono ottagono STOP, triangolo "dare precedenza" (punta in basso) e disco 50,
   non la piastra rettangolare dell'asset. Con il kit il cartello sta a 2,52 m,
   sul marciapiede rialzato; senza kit resta il palo procedurale da 2,1 m.
+- **Casali di campagna** (`src/world/farmsteads.ts`): è il pezzo nuovo di questa
+  sessione. Fuori dal paese, a 15–30 m dalle strade rurali, compaiono 18 case,
+  11 rimesse e 46 alberi (preset alto). Ogni casa/rimessa aggiunge la sua
+  impronta ruotata a `BuildingIndex` **prima** di vegetazione, erba e alberi,
+  così il giocatore non ci passa attraverso e nulla ci cresce dentro. La
+  disposizione è deterministica (seed fisso) e tiene conto di pendenza, acqua,
+  strade ed edifici OSM. Dettagli e limiti per preset in §1.4.
 - **Non piazzati di proposito**: semaforo, lampione, incrocio, alberi da parco.
   Sono scaricati e pronti, ma un semaforo in un paese senza semafori o un
   lampione urbano da 8 m al posto delle lanterne da 6,2 m romperebbe la
-  coerenza. Il materiale della piazza invece si usa, per il sagrato.
+  coerenza. Il materiale della piazza invece si usa, per il sagrato. Le case e
+  gli alberi rurali si usano **solo fuori** dal paese.
 
 Tutto è additivo: se `public/citykit/manifest.json` manca (macchina nuova,
 licenza non accettata, rete assente) il motore usa le mesh procedurali e non
 cambia nulla. Diagnostica: `window.__molise.kit` =
-`{ assets, trees, cars, hedges, bushes, reeds, rocks, wrecks, piazzas }` o
-`null`.
+`{ assets, trees, cars, hedges, bushes, reeds, rocks, wrecks, houses, sheds, countryTrees, piazzas }`
+o `null`.
 
 ### Personalizzare macchine, alberi e cartelli
 
@@ -323,6 +395,11 @@ cambia nulla. Diagnostica: `window.__molise.kit` =
 - **Siepi, rovi, canneti**: scala e rotazione casuali per istanza; le varianti
   extra si aggiungono con nuovi slug/ruoli in `SCENERY`
   (`scripts/fetch-citykit.mjs`) senza toccare il codice.
+- **Casali e alberi rurali**: si aggiungono altri modelli con i ruoli `house`,
+  `shed`, `tree-country` nelle liste `RURAL` / `COUNTRY_TREES` di
+  `scripts/fetch-citykit.mjs`. I tetti per preset stanno in `HOUSE_LIMIT`,
+  `SHED_LIMIT`, `TREE_LIMIT` (`src/world/farmsteads.ts`); i pesi delle varianti
+  di albero stanno in `pickTreeVariant`.
 - **Targhe, fari, vetri**: sono parti separate (`..._plateW`, `..._lensClear`,
   `..._glass`), quindi si possono scurire, spegnere o cambiare senza toccare la
   carrozzeria.
@@ -335,7 +412,7 @@ cambia nulla. Diagnostica: `window.__molise.kit` =
 | --- | --- |
 | Censimento catalogo (2.288 asset, 937 free) | ✅ fatto |
 | Script di acquisizione + manifest + licenza | ✅ fatto, `--list`, `--index` e download verificati |
-| Download dei 13 GLB + manifest | ✅ fatto (13/13, indicizzati) |
+| Download dei 13 GLB Realistic City + manifest | ✅ fatto (13/13, indicizzati) |
 | Loader runtime (Draco, pivot, varianti, istanze) | ✅ fatto, `tsc` pulito |
 | Strade, marciapiedi, panchine, cestini, alberi, auto | ✅ integrati nel codice |
 | Siepi, rovi, canneti, pietre, relitto | ✅ integrati nel codice |
@@ -344,10 +421,15 @@ cambia nulla. Diagnostica: `window.__molise.kit` =
 | Segnali su palo del kit, facce italiane | ✅ integrato nel codice |
 | Auto low-poly in sosta | ✅ integrate (davanti a +Z verificato sui GLB) |
 | Auto low-poly guidabili (4) | ✅ integrate nel catalogo e nel rendering |
+| Campagna: 8 case/rimesse + 6 alberi (14 GLB) | ✅ indicizzati e piazzati da `farmsteads.ts` |
+| Impronte di collisione dei casali | ✅ prima di vegetazione ed erba |
 | Garage Smooth Voxels / auto importate | ✅ integrato (`docs/GARAGE.md`) |
-| Verifica visiva e fps | ⏳ **non eseguita** (richiesta di salto test/browser) |
+| Verifica visiva e fps | ✅ guardata in gioco (high): 18 case, 11 rimesse, 46 alberi; nessun errore console |
 
-Niente ✅ dove non c'è una prova: il codice compila e i test precedenti erano
-verdi, ma la resa a schermo e il costo in fps vanno guardati in gioco (in
-particolare la scala del relitto e dei massi, le siepi che non devono entrare
-nelle case, e la piazza che deve appoggiarsi ai gradini della chiesa).
+Le verifiche di questa sessione sono state fatte in gioco a preset **high**
+(`?quality=high`): `npm run build` ✅, `npm test` 193/193 ✅, nessun errore in
+console, conteggi dei casali corretti. Restano da guardare con calma, in una
+cattura dedicata, la scala del relitto e dei massi, le siepi che non devono
+entrare nelle case e la piazza che deve appoggiarsi ai gradini della chiesa.
+Niente ✅ dove non c'è una prova: il codice compila e i test sono verdi, ma la
+resa a schermo e il costo in fps vanno ricontrollati a ogni modifica.

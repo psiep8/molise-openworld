@@ -21,10 +21,13 @@ import { buildChurchPiazza } from './world/piazza';
 import type { PavedArea } from './world/paved';
 import { buildVegetation } from './world/vegetation';
 import { buildCityProps } from './world/city-props';
+import { buildFarmsteads } from './world/farmsteads';
 import { loadCityKit, type CityKit } from './world/citykit';
+import { CarLibrary } from './world/car-library';
 import { DEFAULT_LIGHTING, DEFAULT_SKY, DEFAULT_SUN, createSky, type SkyRig } from './world/sky';
 import { CloudLayer } from './world/clouds';
 import { Precipitation } from './world/precipitation';
+import { GroundMist } from './world/mist';
 import { GrassField } from './world/grass';
 import {
   RealWeather,
@@ -128,7 +131,7 @@ import {
   type QualityLevel,
   type QualityPreset,
 } from './gfx/quality';
-import { GameAudio } from './audio/audio';
+import { GameAudio, engineVoice } from './audio/audio';
 
 interface RoadPose {
   x: number;
@@ -185,7 +188,7 @@ const nextFrame = (): Promise<void> => new Promise((r) => requestAnimationFrame(
 /** Velocità media per stimare i tempi in auto: ~40 km/h sulle strade dei paesi. */
 const ROUTE_DRIVE_SPEED = 11.1;
 /** Esposizione diurna: tarata sui materiali chiari del paese (intonaco, coppi, asfalto). */
-const EXPOSURE_DAY = 0.72;
+const EXPOSURE_DAY = 0.62;
 
 export class Game {
   private readonly canvas: HTMLCanvasElement;
@@ -257,9 +260,12 @@ export class Game {
   private lastQualityCheck = 0;
   private clouds!: CloudLayer;
   private precipitation!: Precipitation;
+  private mist!: GroundMist;
   private grass?: GrassField;
   private streetLights?: StreetLights;
   private kit: CityKit | null = null;
+  /** Auto di serie su GLB (`public/cars/`). */
+  private carLibrary: CarLibrary | null = null;
   /** Auto importate: id dello spec -> scena già normalizzata. */
   private readonly customCars = new Map<string, THREE.Object3D>();
   private cityProps: {
@@ -270,7 +276,21 @@ export class Game {
     reeds: number;
     rocks: number;
     wrecks: number;
-  } = { trees: 0, cars: 0, hedges: 0, bushes: 0, reeds: 0, rocks: 0, wrecks: 0 };
+    houses: number;
+    sheds: number;
+    countryTrees: number;
+  } = {
+    trees: 0,
+    cars: 0,
+    hedges: 0,
+    bushes: 0,
+    reeds: 0,
+    rocks: 0,
+    wrecks: 0,
+    houses: 0,
+    sheds: 0,
+    countryTrees: 0,
+  };
   /** Sagrati lastricati: erba e alberi devono starne fuori. */
   private readonly pavedAreas: PavedArea[] = [];
   private nightFactor = 0;
@@ -369,6 +389,20 @@ export class Game {
         console.warn('city kit non caricato', error);
         return null;
       });
+
+      // auto di serie: il manifest è piccolo e si legge subito; i GLB veri si
+      // scaricano solo quando si sceglie quella macchina (fino a 40 MB l'uno)
+      const carLibrary = new CarLibrary(
+        `${import.meta.env.BASE_URL}cars/`,
+        `${import.meta.env.BASE_URL}draco/`,
+        this.renderer.capabilities.getMaxAnisotropy(),
+      );
+      this.carLibrary = carLibrary;
+      this.car.setCarLibrary(carLibrary);
+      void carLibrary.loadManifest().then((count) => {
+        if (count === 0) console.info('nessuna auto GLB in public/cars: restano le sagome procedurali');
+      });
+
       const [heights, osm, kit] = await Promise.all([loadHeightfield(base), loadOsm(base), kitPromise]);
       this.heights = heights;
       this.osm = osm;
@@ -413,6 +447,21 @@ export class Game {
         }
         this.buildingIndex.add(church.footprint);
       }
+      // casali di campagna: prima di vegetazione ed erba, così le impronte
+      // entrano nell'indice e nessuno ci costruisce sopra
+      let farmsteadStats = { houses: 0, sheds: 0, countryTrees: 0 };
+      if (this.kit) {
+        const farm = buildFarmsteads(
+          osm,
+          heights,
+          this.roadIndex,
+          this.buildingIndex,
+          this.kit,
+          this.qualityLevel,
+        );
+        this.scene.add(farm.group);
+        farmsteadStats = { houses: farm.houses, sheds: farm.sheds, countryTrees: farm.trees };
+      }
       this.scene.add(buildDryStoneWalls(osm, heights, this.roadIndex, this.buildingIndex, this.renderer));
       this.scene.add(buildPowerLines(osm, heights, this.roadIndex, this.buildingIndex));
 
@@ -438,13 +487,20 @@ export class Game {
           reeds: city.reeds,
           rocks: city.rocks,
           wrecks: city.wrecks,
+          ...farmsteadStats,
         };
       }
       this.grass = new GrassField(this.pavedAreas);
       this.scene.add(this.grass.group);
 
       const initial = getVehicle(loadVehicleId());
-      this.car.setSpec(initial, this.customCars.get(initial.id) ?? null);
+      const initialCustom = this.customCars.get(initial.id) ?? null;
+      if (!initialCustom && initial.model && this.carLibrary) {
+        this.hud.setLoading(0.695, `Preparo ${initial.name}…`);
+        await nextFrame();
+        await this.carLibrary.get(initial.model);
+      }
+      this.car.setSpec(initial, initialCustom);
       this.hud.setVehicleName(this.car.spec.name);
       this.hud.setVehicleSpec(vehicleLabel(this.car.spec));
       this.buildPaintSwatches();
@@ -460,7 +516,16 @@ export class Game {
       this.clouds = new CloudLayer();
       this.scene.add(this.clouds.mesh);
       this.precipitation = new Precipitation();
+      // gli schizzi devono cadere sulla superficie vera: l'asfalto sta 20 cm
+      // sopra il DEM, altrimenti l'anello sparisce sotto la strada
+      this.precipitation.setGroundSampler((x, z) => {
+        const base = this.heights.heightAt(x, z);
+        return this.roadIndex.isOnRoad(x, z, 0.12) ? base + 0.25 : base + 0.05;
+      });
       this.scene.add(this.precipitation.group);
+      this.mist = new GroundMist();
+      this.mist.setGroundSampler((x, z) => this.heights.heightAt(x, z));
+      this.scene.add(this.mist.group);
       this.routeBeacon = this.createRouteBeacon();
       this.scene.add(this.routeBeacon);
 
@@ -1079,10 +1144,30 @@ export class Game {
   }
 
   private selectVehicle(id: string): void {
+    void this.applyVehicle(id);
+  }
+
+  /**
+   * Cambio veicolo. Le auto GLB possono pesare decine di MB: si scaricano solo
+   * ora, con un avviso, e la selezione più recente vince se l'utente cambia
+   * idea mentre il file sta arrivando.
+   */
+  private vehicleRequest = 0;
+
+  private async applyVehicle(id: string): Promise<void> {
     const spec = getVehicle(id);
+    if (spec.id === this.car.spec.id) return;
+    const request = ++this.vehicleRequest;
+    const custom = this.customCars.get(spec.id) ?? null;
+    if (!custom && spec.model && this.carLibrary) {
+      if (!this.carLibrary.cached(spec.model)) this.hud.toast(`Carico ${spec.name}…`, 1800);
+      await this.carLibrary.get(spec.model);
+      if (request !== this.vehicleRequest) return;
+    }
     if (spec.id === this.car.spec.id) return;
     this.car.setSpec(spec, this.customCars.get(spec.id) ?? null);
     saveVehicleId(spec.id);
+    this.audio.setVoice(engineVoice(spec));
     if (this.heights) {
       const { x, z, yaw } = this.car.state;
       this.car.reset(x, z, yaw, this.heights);
@@ -1789,9 +1874,11 @@ export class Game {
 
     this.sky.setSun(sun.elevation, 180 - sun.azimuth);
     this.sky.setSkyParams({
-      turbidity: 2 + cloud * 9 + (rain + snow) * 5,
-      rayleigh: Math.max(0.6, 1.6 - cloud * 0.6 + horizon * 1.1),
-      mieCoefficient: 0.003 + cloud * 0.015 + (rain + snow) * 0.008,
+      // cielo più saturo e meno lattiginoso: turbolenza bassa con l'aria serena,
+      // rayleigh più alto per il blu, mie solo quanto basta all'alone del sole
+      turbidity: 1.4 + cloud * 9 + (rain + snow) * 5,
+      rayleigh: Math.max(0.7, 2.0 - cloud * 0.7 + horizon * 1.0),
+      mieCoefficient: 0.0015 + cloud * 0.012 + (rain + snow) * 0.008,
       mieDirectionalG: 0.82,
     });
 
@@ -1799,7 +1886,7 @@ export class Game {
     this.sunTint.lerp(this.tintB.setHex(0xcdd8e2), cloud * 0.7);
     const sunIntensity =
       Math.max(0, Math.sin(THREE.MathUtils.degToRad(Math.max(0, sun.elevation)))) *
-      3.0 *
+      2.6 *
       (1 - 0.7 * cloud) *
       (1 - 0.55 * (rain + snow));
 
@@ -1808,13 +1895,16 @@ export class Game {
       sunIntensity,
       hemiSky: day < 0.2 ? 0x263a58 : cloud > 0.5 ? 0xb2bcc4 : 0xa8c8ee,
       hemiGround: day < 0.2 ? 0x0d1218 : 0x63583f,
-      hemiIntensity: 0.1 + 0.3 * day + 0.1 * cloud,
-      ambientIntensity: 0.04 + 0.1 * day + 0.04 * cloud,
+      hemiIntensity: 0.08 + 0.24 * day + 0.08 * cloud,
+      ambientIntensity: 0.035 + 0.075 * day + 0.03 * cloud,
       moonIntensity: sun.elevation < 0 ? 0.4 : 0,
     });
 
-    let fogNear = 1000 + (1 - cloud) * 500;
-    let fogFar = 3000 + (1 - cloud) * 1600;
+    // Giornata serena: foschia più lontana e meno densa, altrimenti le colline
+    // a 1–2 km si sciolgono nel bianco. Con pioggia/neve/nebbia restano i valori
+    // corti di prima.
+    let fogNear = 1800 + (1 - cloud) * 700;
+    let fogFar = 3800 + (1 - cloud) * 2200;
     if (foggy) {
       fogNear = 18;
       fogFar = 480;
@@ -1830,7 +1920,7 @@ export class Game {
       fogFar *= 0.7;
     }
 
-    this.fogColor.setHex(0x0a131e).lerp(this.tintA.setHex(0xc9d6dd), day);
+    this.fogColor.setHex(0x0a131e).lerp(this.tintA.setHex(0xb9cbd8), day);
     this.fogColor.lerp(this.tintB.setHex(0xe6bd92), horizon * day * 0.35);
     this.fogColor.lerp(this.tintA.setHex(0x9aa7ae), cloud * 0.35 * day);
     if (foggy) this.fogColor.lerp(this.tintA.setHex(0xb9c2c6), 0.5 * day);
@@ -1841,7 +1931,7 @@ export class Game {
       this.scene.fog.far = fogFar;
     }
     this.scene.background = this.fogColor;
-    this.renderer.toneMappingExposure = EXPOSURE_DAY - (1 - day) * 0.1 + cloud * 0.02;
+    this.renderer.toneMappingExposure = EXPOSURE_DAY - (1 - day) * 0.08 - cloud * 0.02;
 
     const windRad = THREE.MathUtils.degToRad(w.windDirection);
     const windX = -Math.sin(windRad) * w.windSpeed * 0.08;
@@ -1854,6 +1944,12 @@ export class Game {
     // stelle e luna
     this.sky.setNightSky(1 - day);
     this.precipitation.update(dt, this.camera, { rain, snow, windX, windZ });
+    // banchi di foschia bassa: soprattutto all'alba/tramonto e con la nebbia.
+    // La neve secca l'aria, quindi li riduce.
+    const horizonMist = 1 - smoothstep(6, 26, Math.abs(sun.elevation));
+    const mistAmount = clamp(horizonMist * 0.72 + rain * 0.16 + (foggy ? 0.62 : 0) - snow * 0.25, 0, 1);
+    this.mist.setColor(this.fogColor);
+    this.mist.update(dt, this.camera, mistAmount, windX, windZ);
 
     // fari accesi quando il sole è basso, strada bagnata con pioggia o neve
     const night = 1 - smoothstep(-3, 10, sun.elevation);
@@ -2076,6 +2172,7 @@ export class Game {
     }
     this.mode = mode;
     this.audio.start();
+    this.audio.setVoice(engineVoice(this.car.spec));
     this.hud.hideStart();
     this.hud.showHud();
     this.hud.setMode(mode);
@@ -2305,6 +2402,7 @@ export class Game {
       speed: moveSpeed,
       moving: Math.abs(moveSpeed) > 0.35,
       grounded: this.mode === 'walk' ? this.player.grounded : true,
+      rpm: this.mode === 'drive' ? this.car.rpm : undefined,
     });
 
     const now = performance.now();

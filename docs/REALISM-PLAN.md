@@ -185,7 +185,10 @@ Priorità massima: è la parte più semplice del gioco e quella che il giocatore
 10. **LOD.** Auto lontane (oltre 80 m) con una versione semplificata del GLB (sotto 5 mila triangoli) o col corpo procedurale; interni solo sotto i 15 m.
 11. **Traffico (fase successiva).** Le stesse auto in `InstancedMesh` quando sono lontane, per riempire le strade senza costo.
 
-**Mappatura dei 22 veicoli in poche famiglie di modello.** Non serve un GLB per ognuno: bastano 5–7 carrozzerie, ricolorate e scalate alla scheda.
+**Mappatura dei veicoli in poche famiglie di modello.** Le sei auto di serie su
+GLB (`public/cars/`) coprono già supercar, SUV e utilitaria con modelli veri;
+per le altre 21 voci procedurali non serve un GLB per ognuna: bastano 5–7
+carrozzerie, ricolorate e scalate alla scheda.
 
 | Famiglia GLB | Veicoli del catalogo (`id`, lunghezza in m) | Note |
 | --- | --- | --- |
@@ -468,6 +471,19 @@ segue il DEM, ma il DEM è a 10 m: sotto questa soglia non si può inventare.
   continuità del ciglio e fluidità in auto (il budget da 4 ms non dovrebbe
   vedersi, ma va confermato su GPU vera).
 
+### 23 ottobre 2026 — auto GLB, campagna, pioggia/neve/foschia
+
+| Voce | Stato | Note |
+| --- | --- | --- |
+| Sei auto di serie su GLB guidabili (Punto, Aventador, 458, Defender, R8, Terramar) | fatto | `public/cars/manifest.json` + `src/world/car-library.ts`; normalizzazione, vetri scuri, ruote riconosciute/separate, preload con generation counter |
+| Cambio a 7 e 8 marce | fatto | `SEVEN_SPEED`, `EIGHT_SPEED` in `src/sim/car.ts`; supercar a 7, Defender a 8 |
+| Campagna popolata: 18 case, 11 rimesse, 46 alberi (high) | fatto | `src/world/farmsteads.ts`; solo fuori dal paese, deterministico, con impronte in `BuildingIndex` prima di erba e vegetazione |
+| Pioggia con schizzi sul terreno vero | fatto | `src/world/precipitation.ts`; pool di 260 anelli, sampler che tiene conto dell'asfalto |
+| Neve soffice | fatto | sprite con gradiente radiale e shader dedicato |
+| Foschia bassa a banchi | fatto | `src/world/mist.ts`; 16 sprite ancorati al mondo, più densi all'alba/tramonto, con nebbia e pioggia |
+| Blend continuo idle/walk/run | fatto | `src/entities/human-model.ts`; smoothstep + rinormalizzazione dei pesi |
+| Verifica | fatto | `npm run build` ✅, `npm test` 193/193 ✅, gioco a preset high senza errori console |
+
 ### Prossimi passi (in ordine)
 
 1. **Verifica a schermo delle priorità del 23/10** (paesaggio, edifici, strade,
@@ -476,13 +492,13 @@ segue il DEM, ma il DEM è a 10 m: sotto questa soglia non si può inventare.
    prima; valutare le strisce di arresto e la continuità dei marciapiedi.
 3. **Look** (Fase 2): provare un tone mapping filmico, una LUT leggera, e
    valutare le shadow cascade solo se la qualità delle ombre lunghe non basta.
-4. **Veicoli** (Fase 1): resta il salto vero, cioè modelli GLB con licenza
-   compatibile (oggi non ce ne sono nel repo, la carrozzeria è procedurale).
-   In alternativa: ruote con `LatheGeometry`, tergicristalli, cornici dei vetri.
+4. **Veicoli** (Fase 1): i sei GLB di serie ci sono (licenza da verificare per la
+   distribuzione); per le 21 voci procedurali restano ruote con `LatheGeometry`,
+   tergicristalli, cornici dei vetri e un LOD per le auto lontane.
 5. **Edifici** (Fase 6): interni finti dietro le finestre. Persiane, davanzali
    e la chiesa con il campanile ci sono già.
-6. **Personaggio** (Fase 7): materiali pelle/capelli, fusione walk/run, IK dei
-   piedi sul terreno.
+6. **Personaggio** (Fase 7): materiali pelle/capelli e IK dei piedi sul terreno;
+   la fusione idle/walk/run continua è già stata fatta.
 7. **Alberi** (Fase 4): LOD vicino con rami veri, ceppaie, alberi caduti.
 8. **Orizzonte** (Fase 5): anello DEM 9–10 e nebbia esponenziale. Non fatto:
    la nebbia lineare attuale (3000–4600 m) copre già il bordo del terreno, e

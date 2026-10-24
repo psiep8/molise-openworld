@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "note": "Auto di serie su GLB. I file non sono versionati: mettili in public/cars/ con questi nomi. yaw è la rotazione attorno a Y (gradi) che porta il muso del modello verso +Z.",
+  "cars": [
+    {
+      "slug": "lamborghini-aventador",
+      "file": "lamborghini-aventador.glb",
+      "name": "Lamborghini Aventador",
+      "yaw": 0,
+      "length": 4.78
+    },
+    {
+      "slug": "ferrari-458",
+      "file": "ferrari.glb",
+      "name": "Ferrari 458 Spider",
+      "yaw": 180,
+      "length": 4.53
+    },
+    {
+      "slug": "fiat-punto",
+      "file": "fiat-punto.glb",
+      "name": "Fiat Punto",
+      "yaw": 0,
+      "length": 3.8
+    },
+    {
+      "slug": "land-rover-defender",
+      "file": "land-rover-defender.glb",
+      "name": "Land Rover Defender",
+      "yaw": 0,
+      "length": 5.02
+    },
+    {
+      "slug": "audi-r8",
+      "file": "audi-r8.glb",
+      "name": "Audi R8 V10 Performance",
+      "yaw": 0,
+      "length": 4.43
+    },
+    {
+      "slug": "cupra-terramar",
+      "file": "cupra-terramar.glb",
+      "name": "Cupra Terramar",
+      "yaw": 90,
+      "length": 4.52
+    }
+  ]
+}

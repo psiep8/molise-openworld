@@ -36,6 +36,44 @@ const MIN_TRIANGLES = 8;
 /** distanza massima tra una ruota e l'angolo a cui viene assegnata */
 const CORNER_TOLERANCE = 0.34;
 
+const boxVertex = new THREE.Vector3();
+
+/**
+ * Bounding box **vera** di un oggetto, calcolata sui vertici trasformati.
+ *
+ * `THREE.Box3.setFromObject` trasforma gli 8 angoli del box locale: se una mesh
+ * ha una rotazione non banale (o un nodo padre ruotato) il risultato è molto
+ * più grande del modello. Succede con i GLB di auto, dove la scocca è ruotata
+ * di 30–40° dentro il nodo: la larghezza dichiarata raddoppia e la
+ * normalizzazione scala l'auto a metà. Qui si trasformano i vertici uno per
+ * uno, con il supporto per le mesh skin-nate.
+ */
+export function preciseBox(object: THREE.Object3D): THREE.Box3 {
+  const box = new THREE.Box3();
+  object.updateWorldMatrix(true, true);
+  object.traverse((child) => {
+    const mesh = child as THREE.Mesh & {
+      isMesh?: boolean;
+      isSkinnedMesh?: boolean;
+      isInstancedMesh?: boolean;
+      applyBoneTransform?: (index: number, target: THREE.Vector3) => THREE.Vector3;
+      skeleton?: THREE.Skeleton;
+    };
+    if (!mesh.isMesh || !mesh.visible || mesh.isInstancedMesh) return;
+    const position = mesh.geometry?.getAttribute('position');
+    if (!position) return;
+    const skinned = mesh.isSkinnedMesh && mesh.applyBoneTransform ? mesh : null;
+    if (skinned) mesh.skeleton?.update();
+    for (let i = 0; i < position.count; i++) {
+      boxVertex.fromBufferAttribute(position, i);
+      if (skinned) skinned.applyBoneTransform!(i, boxVertex);
+      boxVertex.applyMatrix4(mesh.matrixWorld);
+      box.expandByPoint(boxVertex);
+    }
+  });
+  return box;
+}
+
 /** Scala media di una matrice: serve a riportare il raggio della ruota nello spazio del modello. */
 function scaleOf(matrix: THREE.Matrix4): number {
   const sx = new THREE.Vector3().setFromMatrixColumn(matrix, 0).length();
@@ -82,7 +120,7 @@ export function splitCarWheels(source: THREE.Object3D, disposeOriginal = false):
   if (declared >= 4) return null;
 
   source.updateMatrixWorld(true);
-  const carBox = new THREE.Box3().setFromObject(source);
+  const carBox = preciseBox(source);
   if (carBox.isEmpty()) return null;
   const carSize = carBox.getSize(new THREE.Vector3());
 

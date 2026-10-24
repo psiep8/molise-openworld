@@ -1,13 +1,53 @@
-# Garage: auto fatte in Smooth Voxels
+# Garage: auto di serie su GLB e auto importate
 
-Il gioco permette di modellare un'auto in **[Smooth Voxels](https://www.smoothdev.nl/smoothvoxels/)**
-(editor esterno, si apre in una nuova scheda), esportarla in **GLB** e guidarla
-subito. Non serve toccare il codice né ricompilare: il file si importa dal menu
-**Auto personalizzate** o trascinandolo sulla finestra di gioco.
+Il gioco ha **due librerie di auto separate**, che non vanno confuse:
 
-Smooth Voxels **non è incorporato** nel progetto: è un'applicazione web separata,
-con licenza propria. Il gioco fornisce il ponte di importazione e la fisica, non
-l'editor. Il link è nel menu e in cima a questo documento.
+| | Auto di serie (`public/cars/`) | Auto importate (IndexedDB) |
+| --- | --- | --- |
+| Chi le mette | gli sviluppatori, come asset del gioco | il giocatore, dal menu o drag & drop |
+| Dove vivono | file `.glb` + `manifest.json` versionato | IndexedDB del browser, max 12 |
+| Come si scelgono | select **Veicolo**, senza prefisso | select **Veicolo**, prefisso `★` |
+| Si possono eliminare | no | sì, con **Elimina importate** |
+| Fisica | scheda tecnica reale in `vehicle-catalog.ts` | scheda stimata dagli ingombri |
+| Licenza | da verificare prima della distribuzione | dell'utente |
+
+Le auto di serie si caricano una volta e vengono **normalizzate** (unità di
+lunghezza, muso a +Z, base a `y = 0`, centrate in x/z); la scala finale viene
+dalla lunghezza dello spec. La selezione è asincrona e usa un **generation
+counter**: cambiando auto in fretta dal menu non si rischia di applicare un GLB
+vecchio sopra quello nuovo. Se il file manca (repo clonato senza asset), il
+gioco ricade sulla sagoma procedurale dello stesso spec senza errori.
+
+### Modelli di serie
+
+| Nome | Slug / `model` | File | `yaw` | Lunghezza |
+| --- | --- | --- | --- | --- |
+| Fiat Punto | `fiat-punto` | `fiat-punto.glb` | 0 | 3,80 m |
+| Lamborghini Aventador | `lamborghini-aventador` | `lamborghini-aventador.glb` | 0 | 4,78 m |
+| Ferrari 458 Spider | `ferrari-458` | `ferrari.glb` | 180 | 4,53 m |
+| Land Rover Defender | `land-rover-defender` | `land-rover-defender.glb` | 0 | 5,02 m |
+| Audi R8 V10 Performance | `audi-r8` | `audi-r8.glb` | 0 | 4,43 m |
+| Cupra Terramar | `cupra-terramar` | `cupra-terramar.glb` | 90 | 4,52 m |
+
+`yaw` è la rotazione attorno a Y (gradi) che porta il muso del modello verso
+**+Z**: il manifest è l'unico posto da toccare se un modello guarda dalla parte
+sbagliata.
+
+I GLB da showroom avevano **vetri bianchi/opachi** e un'emissive finta: il
+loader riconosce i materiali del vetro per nome, li rende scuri e trasparenti e
+azzera l'emissive. La cubemap del cielo arriva anche a questi materiali, quindi
+la vernice riflette davvero.
+
+Le **ruote** vengono cercate in quest'ordine: nomi dichiarati (`wheel-fl`…) →
+nodo hub più in alto → clustering geometrico agli angoli → separazione
+automatica (`splitCarWheels`). Il raggio è misurato sul modello, così il
+rotolamento combacia col terreno. Dettagli in `src/world/car-library.ts` e
+`src/entities/car-wheels.ts`.
+
+I file `.glb` sono in `.gitignore`, il manifest è versionato. **La licenza dei
+modelli va verificata** prima di una distribuzione pubblica.
+
+Il resto di questo documento riguarda le **auto importate** dall'utente.
 
 ---
 
@@ -200,5 +240,8 @@ Dettaglio e priorità: `docs/ROADMAP-VISUALS.md`.
 - **Non** mettere nel repository i GLB del city kit (`public/citykit/`): la
   licenza Free Commercial vieta la ridistribuzione dei file. Vale anche per le
   auto del kit usate come base.
+- **Auto di serie** (`public/cars/*.glb`): sono file forniti dal proprietario e
+  restano fuori da git. Il manifest è versionato, ma **la licenza dei modelli va
+  verificata** prima di pubblicare il gioco o una build con gli asset inclusi.
 - Smooth Voxels è un servizio esterno: consulta i suoi termini per l'export e
   per l'eventuale uso commerciale dei modelli.

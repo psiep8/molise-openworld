@@ -46,9 +46,9 @@ Stack: TypeScript + Vite + Three.js (WebGL2), Vitest, nessun framework UI.
 | Itinerario | ✅ nuovo | click sulla mappa grande → A* sulla rete OSM, km e tempi, beacon 3D |
 | Post-processing | ✅ aggiornato | bloom con soglia 3,2 (non investe più il cielo) + SSAO + SMAA + OutputPass, disattivabile |
 | Qualità | ✅ nuovo | preset low/medium/high/ultra + resolution scaling adattivo |
-| Audio | ✅ nuovo | WebAudio procedurale: motore, rotolamento, vento, passi, uccelli |
+| Audio | ✅ nuovo | WebAudio procedurale: motore per modello (cilindri/regimi reali), rotolamento, vento, passi, uccelli |
 | Fisica auto | ✅ | modello bicycle puro, testato |
-| Catalogo veicoli | ✅ aggiornato | **26 modelli**: 22 procedurali (9 + 13, prestazioni reali) + 4 carrozzerie del kit; più le auto importate dal garage |
+| Catalogo veicoli | ✅ aggiornato | **31 modelli**: 21 procedurali (8 + 13, prestazioni reali) + **6 auto di serie su GLB** + 4 carrozzerie del kit; più le auto importate dal garage |
 | Economia virtuale | ✅ nuovo | SOLO EURO DI GIOCO: contanti + conto virtuale, acquisti atomici, storico, ATM simulato (`src/sim/economy.ts`) |
 | Luoghi di Palata | ✅ nuovo | catalogo data-driven, stato di verifica esplicito, **nessuno `verified`** (`src/sim/venue-catalog.ts`) |
 | Bisogni + orologio | ✅ nuovo | fame/energia/divertimento, giorno/notte, sonno a casa (`src/sim/needs.ts`) |
@@ -68,12 +68,13 @@ Stack: TypeScript + Vite + Three.js (WebGL2), Vitest, nessun framework UI.
 Dettagli di progetto e stato funzionalità: `docs/LIFE_SIMULATOR.md` e
 `docs/ROADMAP.md`.
 
-Ultime verifiche fatte (macchina Windows, 21/10/2026, rete disponibile):
-`npm ci` ✅, `npm test` 151/151 ✅ (13 file: geo, DEM, OSM, fisica auto, routing,
-tetti, sole, economia, bisogni, catalogo luoghi, salvataggio),
-`npm run build` ✅, `npm run smoke` ✅ con `npm run preview` attivo — nessun errore
-console, auto che avanza con `W`, giocatore che cammina, `textured`/`detailed` ≥ 1,
-screenshot non piatto. Lo smoke che prima falliva (auto ferma a 0,43 m) ha rivelato
+Ultime verifiche fatte (macchina Windows, 24/10/2026, rete disponibile):
+`npm ci` ✅, `npm test` 193/193 ✅ (19 file: geo, DEM, OSM, fisica auto, routing,
+tetti, sole, economia, bisogni, catalogo luoghi, salvataggio, veicoli GLB,
+voce del motore), `npm run build` ✅, gioco verificato dal vivo (Guida,
+meteo pioggia/neve/foschia) senza errori in console — auto che avanza con `W`,
+giocatore che cammina, schizzi di pioggia attivi (~126 anelli), foschia visibile,
+casali e alberi di campagna in scena. Lo smoke che prima falliva (auto ferma a 0,43 m) ha rivelato
 un bug vero: gli fps erano calcolati sul `dt` **limitato** a 50 ms, quindi con frame
 time reale > 50 ms il gioco dichiarava sempre 20 fps e il resolution scaling adattivo
 non poteva mai scattare. Ora `fps` usa il tempo reale e solo la fisica usa il `dt`
@@ -329,7 +330,8 @@ Screenshot smoke: `smoke/shot.png` (ignorato da git). Il profilo Chrome è in
 4. **Verificare i flussi della modalità vita a mano**: `E` vicino a un'attività →
    comprare in contanti e col conto (controllare che il saldo non vada mai negativo
    e che lo storico cresca), ATM simulato, `E` a casa → dormire (giorno +1, 07:00,
-   energia 100), `I` per il portafoglio, e provare su strada i 26 modelli. Segnare
+   energia 100), `I` per il portafoglio, e provare su strada i 31 modelli (i sei
+   GLB e i quattro del kit sono già stati provati in questa sessione). Segnare
    qui l'esito prima di dichiarare la funzione "verificata".
 
 ### P1 — Qualità grafica “quasi AAA”
@@ -907,3 +909,173 @@ realistico soprattutto al contatto con l'asfalto.
   vernice che riflette il cielo, l'auto importata con il muso girato.
 - Restano fermi i precedenti punti: fari emissivi dei GLB, LOD, collisioni per
   modello, suono per auto (vedi `docs/ROADMAP-VISUALS.md`).
+
+---
+
+## 23/10 — Auto GLB guidabili, campagna popolata, pioggia/neve/foschia
+
+Questa sessione ha chiuso tre richieste del proprietario: **le sei auto GLB
+devono essere davvero guidabili**, **i GLB dei due ZIP devono comparire nel
+mondo** (non solo essere indicizzati) e **l'ambiente va migliorato** con gli
+esempi Three.js indicati.
+
+### Auto di serie su GLB (`public/cars/`, `src/world/car-library.ts`)
+
+- **Libreria separata dal garage.** `public/cars/manifest.json` (versionato)
+  elenca slug, file, nome, `yaw` e lunghezza; i `.glb` restano fuori da git.
+  Le auto importate dall'utente continuano a vivere in IndexedDB: sono due
+  sistemi distinti, e `docs/GARAGE.md` ora lo spiega.
+- **Normalizzazione una volta sola**: modello ruotato di `yaw`, riscalato a
+  lunghezza unitaria (`z = 1`), muso verso **+Z**, base a `y = 0`, centrato in
+  x/z. La scala finale viene da `spec.length`. Le misure dell'ingombro usano
+  `preciseBox()` sui vertici, non `Box3.setFromObject` (che include i nodi
+  vuoti e sballa le auto con pivot strani).
+- **Materiali da showroom corretti**: i GLB avevano vetri bianchi/opachi e
+  emissive finte. I vetri riconosciuti per nome diventano trasparenti e scuri;
+  l'emissive dello showroom viene azzerata; la cubemap del cielo arriva anche
+  a questi materiali.
+- **Ruote**: ordine di ricerca — nomi dichiarati → nodo hub più alto →
+  clustering geometrico agli angoli → `splitCarWheels`. Il raggio è misurato
+  sul modello, quindi il rotolamento combacia col terreno.
+- **Cambio esteso**: `SEVEN_SPEED` e `EIGHT_SPEED` in `src/sim/car.ts`;
+  `gears` accetta `1 | 5 | 6 | 7 | 8`. Le supercar hanno rapporti e limitatore
+  coerenti (Aventador, Ferrari 458, Audi R8); il test di velocità massima è
+  stato alzato a 360 km/h.
+- **Selezione asincrona**: l'auto scelta viene precaricata e la selezione usa
+  un **generation counter**, così cambi rapidi dal menu non applicano un GLB
+  vecchio sopra quello nuovo. Se il file manca, si ricade sulla sagoma
+  procedurale dello stesso spec.
+
+Modelli: Fiat Punto, Lamborghini Aventador, Ferrari 458 Spider, Land Rover
+Defender, Audi R8 V10 Performance, Cupra Terramar. Verificati in gioco uno per
+uno; in particolare il vetro posteriore dell'Audi è ora scuro e la Cupra
+Terramar ha muso e scala corretti (`yaw +90` nel manifest).
+
+### City kit: da 24 a 38 asset, campagna vera
+
+- Il kit indicizzato passa a **38 GLB**: 13 Realistic City, 7 scenari, 4 auto
+  low-poly e **14 modelli rurali** (6 case, 2 rimesse, 6 alberi da campo).
+  `scripts/fetch-citykit.mjs` ha le liste `RURAL` e `COUNTRY_TREES`; gli altri
+  112 GLB presenti in `public/citykit/` restano fuori dal manifest.
+- Nuovo `src/world/farmsteads.ts`: i casali vengono messi **solo fuori dal
+  paese** (raggio 260–2300 m), a 15–30 m dalle strade rurali, con distanza
+  minima di 105 m tra loro e controlli su pendenza, acqua e edifici. La
+  posizione è deterministica (`mulberry32`, seed fisso).
+- **Impronte di collisione**: ogni casa e rimessa viene registrata in
+  `BuildingIndex` **prima** di vegetazione, erba e alberi. Così il giocatore
+  non ci passa attraverso e nulla ci cresce dentro. Le impronte sono rettangoli
+  ruotati, non AABB.
+- Statistiche ad alta qualità verificate dal vivo: **18 case, 11 rimesse,
+  46 alberi di campagna**. I limiti scendono con i preset grafici; l'acero
+  autunnale (88k triangoli) compare solo su high/ultra e con peso basso.
+- I ruoli nuovi (`house`, `shed`, `tree-country`) sono nel contratto
+  `KitRole`; `docs/CITYKIT.md` è stato riscritto con la tabella dei 38 asset,
+  il placement e i conteggi.
+
+### Pioggia, neve e foschia (`precipitation.ts`, `mist.ts`)
+
+- **Neve soffice**: sprite con gradiente radiale su canvas e shader dedicato,
+  dimensione per particella e leggero ondeggio; niente più quadrati.
+- **Schizzi di pioggia**: pool di 260 anelli che nascono sulla superficie vera
+  intorno alla camera. Il sampler fornito dal gioco tiene conto dell'asfalto
+  (20 cm sopra il DEM), altrimenti l'anello sparisce sotto la strada. Durata
+  media 0,55 s e budget di 12 nascite per frame: niente picchi.
+- **Foschia bassa** (`src/world/mist.ts`): 16 banchi morbidi a 0,6–7,5 m dal
+  suolo, ancorati al mondo (non alla camera) e riciclati in un box di 720 m.
+  Si addensano all'alba/tramonto, con nebbia e pioggia; la neve secca l'aria e
+  li riduce. Ispirati a `webgpu_custom_fog`.
+- Gli spunti Three.js usati: `webgpu_generator_building`,
+  `webgpu_compute_particles_rain`, `webgpu_compute_particles_snow`,
+  `webgpu_custom_fog`, `webgl_geometry_terrain`,
+  `webgl_animation_skinning_blending`, `webgl_animation_skinning_additive_blending`.
+  Tutto riscritto in WebGL classico: nessun compute shader, nessuna dipendenza
+  WebGPU, così gira anche sui preset bassi.
+
+### Animazione del personaggio (`src/entities/human-model.ts`)
+
+- Il vecchio interruttore idle/walk/run è diventato un **blend continuo**:
+  due `smoothstep` sulla velocità danno i pesi, poi i pesi vengono
+  rinormalizzati a 1 (altrimenti durante la transizione traspare la posa di
+  riposo e il corpo sembra afflosciarsi). Il passo accelera con la velocità.
+  Schema da `webgl_animation_skinning_blending`.
+
+### Verifiche di questa sessione
+
+- `npm run build` ✅ (`tsc --noEmit` + Vite).
+- `npm test` ✅ **189/189** in 18 file.
+- Gioco dal vivo su `npm run preview` (`:4173`): sei auto GLB guidabili,
+  nessun errore console; pioggia con schizzi attivi (~126), neve soffice,
+  foschia visibile, 18 casali / 11 rimesse / 46 alberi in scena.
+- **Nota per chi riprende**: il tool di screenshot del browser può fallire con
+  «Screenshot needs a visible tab». Workaround usato: `renderer.render(...)` +
+  `canvas.toBlob` e POST a un server locale su `:4199`
+  (`%TEMP%\opencode\shot-server.mjs`), immagine in
+  `%TEMP%\opencode\game-shot.png`. Non è un problema del gioco.
+
+## 24/10 — Luce ricalibrata sul cielo, motore sonoro per modello
+
+### La luce era ancora troppo alta: la colpa era della cupola, non del sole
+
+Il proprietario ha chiesto di abbassare la luce. Il primo tentativo (esposizione
+0,72 → 0,58, sole 3,0 → 2,4) scuriva il terreno ma **lasciava il cielo bianco**:
+la cupola Preetham lavora in unità radiometriche e, con l'esposizione tarata
+sull'asfalto, finiva fuori scala. Risultato: terreno nero e orizzonte bruciato,
+cioè l'opposto di una scena leggibile.
+
+Soluzione in due parti:
+
+- **`dimSky()` in `src/world/sky.ts`**: una `skyRadiance = 0.55` moltiplica il
+  colore della cupola visibile **e** di quella fotografata per la cubemap PMREM.
+  Il cielo torna un gradiente blu; il sole e le nuvole restano sopra.
+- **Ambiente compensato**: `scene.environmentIntensity` viene diviso per
+  `SKY_RADIANCE` (`(0,08 + 0,22·day) / 0,55`), così la luce riflessa dal cielo
+  non cala insieme alla cupola e i materiali PBR non si spengono.
+- **Taratura**: `EXPOSURE_DAY = 0,62`, moltiplicatore sole **2,6**, emisferica
+  dinamica `0,08 + 0,24·day`, ambiente `0,035 + 0,075·day`; `DEFAULT_LIGHTING`
+  a sole 2,15 / emisferica 0,7 / ambiente 0,18. Cielo sereno: turbolenza 1,4,
+  rayleigh 2,0, mie 0,0015; foschia 1800–5900 m con colore `#b9cbd8`.
+
+Misure con la pipeline di post-processing attiva (canvas 702×686, ore 10:00
+sereno): **luminanza media 92,6/255** contro 138,1 della vecchia taratura,
+cielo blu invece che bianco. Pioggia 94,4, nebbia 116,4 (con sole basso nel
+fotogramma), tramonto 14,5. Il cielo non è più la fonte di abbagliamento e il
+terreno resta leggibile senza dover alzare l'esposizione.
+
+**Trappola per chi riprende**: catturare con `g.post.render(0.016)` seguito
+subito da `canvas.toBlob`; un semplice `renderer.render` salta bloom/SMAA/OutputPass
+e restituisce colori diversi. Non fermare `g.running`: parte `idle()` e sposta
+la camera in volo.
+
+### Motore sonoro per modello (`src/audio/audio.ts`)
+
+- `engineVoice(spec)` ricava i cilindri dalla sigla (`V12`, `V8`, `W12`, `I6`,
+  `V-twin`), con la trappola delle **valvole**: `1.2 Fire 8V` è un quattro
+  cilindri, non un V8. Peso timbrico dalla cilindrata, regimi da `idleRpm` e
+  `redlineRpm`.
+- Il sintetizzatore usa la **frequenza di accensione reale**:
+  `rpm / 60 × cilindri / 2`. Un V12 al minimo ronfa a ~85 Hz, un 1.2 a ~27 Hz;
+  il filtro e il guadagno seguono carico e giri. Prima il motore era un
+  `42 + speed·2,6` uguale per tutti.
+- `Game.update` passa `car.rpm`; `start()` e `applyVehicle()` chiamano
+  `audio.setVoice(engineVoice(spec))`. Verificato dal vivo: Cupra → 4 cilindri,
+  Aventador → 12.
+- Nuovo test `tests/engine-voice.test.ts` (4 casi): **193/193** in 19 file.
+
+### Verifiche di questa sessione
+
+- `npm run build` ✅, `npm test` ✅ **193/193**.
+- Dal vivo su `:4173` (qualità high): nessun errore console; Cupra e Aventador
+  guidabili, cielo blu a mezzogiorno, pioggia con schizzi, nebbia con foschia
+  bassa, notte con stelle e fari.
+- Catture riuscite: `%TEMP%\opencode\new-10.png`, `new-rain.png`, `new-fog.png`,
+  `new-18.png`, `aven10.png`.
+
+### Cosa resta aperto
+
+- **Licenza dei GLB delle auto**: i file sono del proprietario e non sono
+  versionati; va verificata prima di una distribuzione pubblica.
+- LOD per gli alberi del kit (l'ulivo è 22k triangoli, l'acero 88k), fari
+  emissivi dei GLB, collisioni per modello invece del cerchio.
+- I 112 GLB del kit rimasti fuori dal manifest sono disponibili se servono
+  altri arredi, ma non vanno indicizzati in blocco: il filtro è la coerenza
+  con Palata.

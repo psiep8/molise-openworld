@@ -47,18 +47,40 @@ export const DEFAULT_SKY: SkyParams = {
 };
 export const DEFAULT_LIGHTING: LightingParams = {
   sunColor: 0xffeed2,
-  sunIntensity: 2.35,
+  sunIntensity: 2.15,
   hemiSky: 0xa8c8ee,
   hemiGround: 0x63583f,
-  hemiIntensity: 0.8,
-  ambientIntensity: 0.22,
+  hemiIntensity: 0.7,
+  ambientIntensity: 0.18,
   moonIntensity: 0,
 };
+
+/**
+ * Radianza della cupola. Lo shader Preetham lavora in unità radiometriche:
+ * con l'esposizione tarata sul terreno il cielo finiva fuori scala e diventava
+ * un muro bianco (la "troppa luce" del Molise). Si scala la sola cupola, così
+ * il cielo resta un gradiente blu leggibile senza bruciare l'orizzonte.
+ */
+const SKY_RADIANCE = 0.55;
+
+/** Scala la radianza di una cupola Sky, anche quella usata per la cubemap PMREM. */
+function dimSky(target: Sky): void {
+  const material = target.material as THREE.ShaderMaterial;
+  material.uniforms.skyRadiance = { value: SKY_RADIANCE };
+  material.fragmentShader =
+    'uniform float skyRadiance;\n' +
+    material.fragmentShader.replace(
+      'gl_FragColor = vec4( texColor, 1.0 );',
+      'texColor *= skyRadiance;\n\t\t\tgl_FragColor = vec4( texColor, 1.0 );',
+    );
+  material.needsUpdate = true;
+}
 
 export function createSky(scene: THREE.Scene): SkyRig {
   const sky = new Sky();
   sky.scale.setScalar(7000);
   sky.frustumCulled = false;
+  dimSky(sky);
   const material = sky.material as THREE.ShaderMaterial;
   const uniforms = material.uniforms;
   uniforms.turbidity.value = DEFAULT_SKY.turbidity;
@@ -83,6 +105,7 @@ export function createSky(scene: THREE.Scene): SkyRig {
   const envSky = new Sky();
   envSky.scale.setScalar(90); // deve stare dentro il far (100) di PMREMGenerator
   envSky.frustumCulled = false;
+  dimSky(envSky);
   envScene.add(envSky);
   let pmrem: THREE.PMREMGenerator | null = null;
   let envTarget: THREE.WebGLRenderTarget | null = null;
@@ -240,11 +263,13 @@ export function createSky(scene: THREE.Scene): SkyRig {
     envTarget?.dispose();
     envTarget = pmrem.fromScene(envScene);
     scene.environment = envTarget.texture;
-    // di notte il cielo non deve illuminare: l'intensità segue l'altezza del sole
+    // di notte il cielo non deve illuminare: l'intensità segue l'altezza del sole.
+    // La cubemap è scalata come la cupola (SKY_RADIANCE): si compensa qui, così
+    // l'ambiente riflesso resta quello di prima e non si sommano due bui.
     const day = THREE.MathUtils.clamp((sunDirection.y + 0.05) / 0.4, 0, 1);
     // è questa la luce ambientale principale: emisferica e ambiente restano solo
     // un riempimento piccolo (vedi restoreDefaultAtmosphere) per non sommare due volte
-    scene.environmentIntensity = 0.08 + 0.22 * day;
+    scene.environmentIntensity = (0.08 + 0.22 * day) / SKY_RADIANCE;
   };
 
   return {
