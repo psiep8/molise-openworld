@@ -101,6 +101,10 @@ export class GrassField {
     this.material = new THREE.MeshStandardMaterial({
       map: this.bladeTexture,
       alphaTest: 0.45,
+      // con i target MSAA attivi, l'alpha-to-coverage trasforma il ritaglio
+      // dei fili d'erba in una transizione morbida invece che in un bordo
+      // seghettato: è la differenza più visibile sull'erba da vicino
+      alphaToCoverage: true,
       side: THREE.DoubleSide,
       // il ciuffo è scuro alla base e chiaro in punta (colore per vertice):
       // è quello che toglie l'effetto "foglia ritagliata" e dà profondità
@@ -135,6 +139,7 @@ export class GrassField {
     this.flowerMaterial = new THREE.MeshStandardMaterial({
       map: this.flowerTexture,
       alphaTest: 0.5,
+      alphaToCoverage: true,
       side: THREE.DoubleSide,
       vertexColors: true,
       roughness: 0.9,
@@ -256,7 +261,9 @@ export class GrassField {
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
-    texture.anisotropy = 4;
+    // l'erba si guarda radente mentre si cammina: con anisotropia bassa il
+    // ciuffo lontano diventa una macchia verde sfocata
+    texture.anisotropy = 8;
     texture.needsUpdate = true;
     return texture;
   }
@@ -340,7 +347,9 @@ export class GrassField {
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
-    texture.anisotropy = 4;
+    // l'erba si guarda radente mentre si cammina: con anisotropia bassa il
+    // ciuffo lontano diventa una macchia verde sfocata
+    texture.anisotropy = 8;
     texture.needsUpdate = true;
     return texture;
   }

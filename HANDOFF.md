@@ -1787,3 +1787,55 @@ esisteva già), non un test per ciuffo: `coverAt(i, j)` è una lookup su array.
 - **Non verificato a schermo**: tinta e densità dell'erba nei tre biomi, posizione
   dei quattro pannelli delle frecce sui modelli più stretti (moto) e stop dei
   GLB. Da guardare in gioco.
+
+## 26/10/2026 — Minimappa, antialiasing, confini
+
+Tre richieste del proprietario in un giro: mappa più grande e zoomata mentre ci si
+muove, raggiungibilità delle città fuori valle, antialiasing "nella maniera più
+assoluta" con budget bilanciato.
+
+### Minimappa
+
+- Canvas 440 → **640 px** di backing, CSS 220 → **320 px** (200 su mobile).
+- Scala **automatica** (`src/ui/map-scale.ts`, funzione pura testata): 300 m a piedi,
+  `240 + 4,4 × m/s` in auto (240 m da fermo, 660 m a 100 km/h), clamp 200–720 m,
+  smorzata nel tempo (`minimapMeters` insegue il target a ogni disegno).
+- **Rotella** sopra la mappa: `zoomFactor` 0,45–2,4, persistente in sessione.
+- Tile satellite scelte in base ai metri per pixel: z14–z18, così un pixel di tile
+  copre circa un pixel di canvas (prima z17 fissa → sgranata a 300 m).
+- **Barra di scala** e etichetta del paese più vicino con distanza (`placeAt`).
+- **Destinazioni fuori area**: `FAR_TOWNS` in `src/config.ts` (Termoli, Larino,
+  Campobasso, Montenero di Bisaccia, San Salvo, Vasto) con coordinate reali.
+  Sulla minimappa sono frecce sul bordo con nome e km; si disegnano dalla più vicina
+  e si saltano le direzioni entro 0,42 rad per non sovrapporre le etichette.
+- **Confine**: l'auto era già fermata 24 m prima del bordo del DEM, ma in silenzio.
+  Ora `checkWorldEdge()` avvisa (una volta ogni 18 s) con il nome e la distanza della
+  città più vicina, così il muro invisibile diventa un'informazione.
+
+### Antialiasing
+
+- I target del composer hanno **MSAA** (`msaaSamples` nei preset: 0/0/4/4/4), sopra
+  c'è **SMAA**, poi un **unsharp** che cresce quando la scala di rendering scende.
+  Prima il composer esisteva solo con `post: true`: *media* non aveva alcun AA sui
+  target e il canvas non poteva aiutare.
+- `alphaToCoverage` su erba, fiori e card delle foglie: il ritaglio dell'alphaTest
+  diventa una transizione morbida con MSAA attivo.
+- Ombre `PCFSoftShadowMap`; anisotropia dell'erba 4 → 8.
+- **Scala adattiva riordinata**: sotto i 30 fps si toglie prima un gradino di
+  effetti (ombre, poi erba), la risoluzione cala solo dopo. Fino a 12 Mpx di
+  backing store (4K + DPR 2 = 33 Mpx sarebbero ingiocabili in partenza).
+- Passando a un preset con SSAO la pipeline viene **ricostruita** (`dispose` +
+  `makePost`), invece di restare senza occlusione ambientale.
+
+### Cosa NON è stato fatto, e perché
+
+Guidare fino a Termoli/Larino/Campobasso **non è possibile con i dati attuali**:
+`public/geo/osm.json` e `heights.bin` coprono solo il bbox 41,815–41,925 /
+14,69–14,86 (14,1 × 12,2 km). Termoli è ~21 km a NE, Campobasso ~37 km a S.
+Il clamp al bordo evita crash ma non crea mondo. Serve un'espansione dati:
+`scripts/fetch-geodata.mjs` accetta già un BBOX (16 riquadri Overpass + tile DEM
+Terrarium), poi vanno rigenerati `heights.bin`, `osm.json`, il mosaico Sentinel e
+ritoccati `WORLD`, chunk del terreno, densità di edifici/alberi e mappa grande
+(che è rasterizzata a 1600 px sull'intero mondo). Overpass era saturo (502/406)
+durante questo giro: il fetch va fatto quando risponde, e i file nuovi pesano
+decine di MB.

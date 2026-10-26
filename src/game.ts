@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GAME, HOME, START, VIEW_RADIUS, VILLAGES, WORLD, latLonToWorld, worldToLatLon } from './config';
+import { FAR_TOWNS, GAME, HOME, START, VIEW_RADIUS, VILLAGES, WORLD, latLonToWorld, worldToLatLon } from './config';
 import { clamp, distance2, smoothstep, type Pt } from './geo/geo';
 import { loadHeightfield, type Heightfield } from './geo/elevation';
 import { BuildingIndex, loadOsm, markTownSidewalks, RoadIndex, type OsmData } from './geo/osm';
@@ -318,6 +318,19 @@ export class Game {
   private landcover: Landcover | null = null;
   private sky!: SkyRig;
   private map!: MapRenderer;
+  /**
+   * Destinazioni fuori dal mondo giocabile (Termoli, Larino, Campobasso…):
+   * non hanno geometria, ma la minimappa le indica con direzione e chilometri.
+   */
+  private readonly mapTargets = FAR_TOWNS.map((t) => {
+    const w = latLonToWorld(t.lat, t.lon);
+    return { name: t.name, x: w.x, z: w.z };
+  });
+  /** fattore di zoom manuale della minimappa (rotella del mouse) */
+  private mapZoom = 1;
+  private minimapLabel = '';
+  /** ultimo avviso di confine (ms), per non ripeterlo a ogni frame */
+  private edgeNotice = 0;
   private roadGraph?: RoadGraph;
   private route: RouteResult | null = null;
   private routeDestination: Pt | null = null;
@@ -488,7 +501,9 @@ export class Game {
     // finivano a ridosso del bianco e la scena sembrava lavata.
     this.renderer.toneMappingExposure = EXPOSURE_DAY;
     this.renderer.shadowMap.enabled = this.quality.shadows;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    // PCF morbido: con PCF duro i bordi delle ombre di tetti e alberi sono
+    // scalettati quanto la geometria, e sono metà dello schermo in paese
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     // i contatori di `renderer.info` vengono azzerati a mano a ogni frame: con
     // il post-processing il reset automatico lasciava solo la passata finale
     // (1 draw call, 1 triangolo) e la diagnostica non diceva niente
@@ -516,7 +531,7 @@ export class Game {
 
     // il composer si crea **solo** se il preset lo usa: sui PC deboli i suoi
     // render target costano VRAM e banda anche quando restano spenti
-    if (this.quality.post) this.post = new PostPipeline(this.renderer, this.scene, this.camera, this.quality.bloom);
+    if (this.quality.post || this.quality.postAA) this.post = this.makePost();
     this.applyQuality(this.qualityLevel, false);
 
     // Ripristina la modalità vita (denaro virtuale, bisogni, orologio).
@@ -2239,7 +2254,13 @@ export class Game {
   // grafica / preset
   // -------------------------------------------------------------------------
   private basePixelRatio(): number {
-    return Math.min(window.devicePixelRatio || 1, this.quality.pixelRatio);
+    const dpr = Math.min(window.devicePixelRatio || 1, this.quality.pixelRatio);
+    // Su un 4K con DPR 2 si disegnerebbero 33 milioni di pixel: nessuna GPU
+    // da browser lo tiene a 60 fps e la scala adattiva lo abbasserebbe dopo
+    // due secondi (sfocando). Meglio partire sotto il tetto, con l'AA pieno.
+    const maxPixels = 12_000_000;
+    const pixels = window.innerWidth * window.innerHeight * dpr * dpr;
+    return pixels > maxPixels ? dpr * Math.sqrt(maxPixels / pixels) : dpr;
   }
 
   /** Applica il preset e il resolution scaling adattivo. */
@@ -2250,6 +2271,10 @@ export class Game {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.post?.setPixelRatio(ratio);
     this.post?.setSize(window.innerWidth, window.innerHeight);
+    // se la scala scende, la nitidezza sale: così il dettaglio perso con i
+    // pixel non diventa anche morbidezza
+    const softness = Math.max(0, 1 - this.renderScale);
+    this.post?.setSharpen(this.quality.sharpen * (1 + softness * 1.5));
   }
 
   private applyQuality(level: QualityLevel, announce = true): void {
@@ -2277,11 +2302,20 @@ export class Game {
     this.sky?.setShadowMapSize(this.quality.shadowMapSize);
     this.terrain?.setMaxZoom(this.quality.maxSatelliteZoom);
     this.terrain?.setLandcoverPreset(this.quality.landcover, this.quality.landcoverRadius);
-    if (this.quality.post) {
+    if (this.quality.post || this.quality.postAA) {
+      // l'SSAO è un pass in più: se il preset lo chiede e la pipeline creata
+      // prima non ce l'ha (si è passati da `media` a `alta` in gioco), va
+      // ricostruita — aggiungere un pass a un composer già avviato costa
+      // quanto rifarlo, e i render target vanno liberati comunque
+      if (this.quality.post && this.quality.ssao && this.post && !this.post.hasSSAO) {
+        this.post.dispose();
+        this.post = undefined;
+      }
       const post = this.ensurePost();
       post.setEnabled(!this.stereo);
-      post.setBloom(this.quality.bloom);
-      post.setSSAO(this.quality.ssao && !this.stereo);
+      post.setBloom(this.quality.post ? this.quality.bloom : 0);
+      post.setSSAO(this.quality.post && this.quality.ssao && !this.stereo);
+      post.setSharpen(this.quality.sharpen);
     } else {
       this.post?.setEnabled(false);
       this.post?.setSSAO(false);
@@ -2294,7 +2328,8 @@ export class Game {
       this.terrain.update(focus.x, focus.z, this.viewRadius, true);
     }
     if (announce) {
-      const fx = this.quality.post ? ` · bloom${this.quality.ssao ? ' + SSAO' : ''}` : '';
+      const aa = this.quality.msaaSamples > 0 ? ` · MSAA ${this.quality.msaaSamples}x + SMAA` : '';
+      const fx = `${aa}${this.quality.post ? ` · bloom${this.quality.ssao ? ' + SSAO' : ''}` : ''}`;
       // alberi e arredo sono costruiti una volta sola: se il preset cambia
       // densità, il mondo resta quello del caricamento. L'erba si adatta subito
       // (si ricostruisce ogni 18 m) e lo diciamo, per non promettere miracoli.
@@ -2306,13 +2341,25 @@ export class Game {
     }
   }
 
-  /** Crea la pipeline di post-processing alla prima richiesta (preset alti). */
+  /**
+   * Costruisce la pipeline con i parametri del preset corrente. MSAA e
+   * nitidezza si possono cambiare a runtime (sono proprietà dei render target
+   * e di un uniform), quindi la stessa istanza serve tutti i preset.
+   */
+  private makePost(): PostPipeline {
+    const post = new PostPipeline(this.renderer, this.scene, this.camera, this.quality.bloom, {
+      samples: this.quality.msaaSamples,
+      sharpen: this.quality.sharpen,
+      ssao: this.quality.ssao,
+    });
+    post.setPixelRatio(Math.max(this.quality.renderScaleFloor, this.basePixelRatio() * this.renderScale));
+    post.setSize(window.innerWidth, window.innerHeight);
+    return post;
+  }
+
+  /** Crea la pipeline di post-processing alla prima richiesta. */
   private ensurePost(): PostPipeline {
-    if (!this.post) {
-      this.post = new PostPipeline(this.renderer, this.scene, this.camera, this.quality.bloom);
-      this.post.setPixelRatio(Math.max(this.quality.renderScaleFloor, this.basePixelRatio() * this.renderScale));
-      this.post.setSize(window.innerWidth, window.innerHeight);
-    }
+    if (!this.post) this.post = this.makePost();
     return this.post;
   }
 
@@ -2355,6 +2402,18 @@ export class Game {
         this.camDistance = clamp(this.camDistance + e.deltaY * 0.01, 5, 18);
       },
       { passive: true },
+    );
+    // rotella sopra la minimappa: stringe o allarga la scala senza toccare
+    // la camera. È l'unico modo per guardare vicino e lontano con lo stesso
+    // strumento, e resta dove lo lasci.
+    const wrap = document.getElementById('minimap-wrap');
+    wrap?.addEventListener(
+      'wheel',
+      (e) => {
+        e.preventDefault();
+        this.mapZoom = clamp(this.mapZoom * (1 + e.deltaY * 0.0012), 0.45, 2.4);
+      },
+      { passive: false },
     );
   }
 
@@ -2730,6 +2789,18 @@ export class Game {
    */
   private tunePerformance(): void {
     const floor = this.quality.renderScaleFloor;
+    // La risoluzione è l'ultima risorsa: abbassarla è il modo più rapido per
+    // riempire lo schermo di scalini. Prima si tolgono ombre ed erba (che non
+    // toccano la nitidezza), poi si scende di pixel: sotto i 30 fps si prova
+    // subito un gradino di qualità, e la risoluzione cala solo se non basta.
+    if (this.fps < 30 && this.degradeStep < 2) {
+      this.slowChecks++;
+      if (this.slowChecks >= 2) {
+        this.slowChecks = 0;
+        this.degrade();
+      }
+      return;
+    }
     if (this.fps < 32 && this.renderScale > floor + 0.001) {
       this.renderScale = Math.max(floor, this.renderScale - 0.15);
       this.applyRenderScale();
@@ -3095,6 +3166,7 @@ export class Game {
         this.obstacles,
       );
       this.updateDriveCamera(dt);
+      this.checkWorldEdge();
     }
 
     const focus = this.mode === 'walk' ? this.player.position : this.car.position;
@@ -3137,6 +3209,7 @@ export class Game {
     if (now - this.lastHud > 100 && this.map) {
       this.lastHud = now;
       const yaw = this.mode === 'walk' ? this.player.yaw : this.car.state.yaw;
+      const speed = this.mode === 'walk' ? Math.hypot(this.player.velocity.x, this.player.velocity.z) : this.car.state.speed;
       this.map.drawMinimap(
         document.getElementById('minimap') as HTMLCanvasElement,
         { x: focus.x, z: focus.z, yaw },
@@ -3144,7 +3217,23 @@ export class Game {
         this.route?.points,
         this.garage,
         VENUES,
+        {
+          mode: this.mode === 'walk' ? 'walk' : 'drive',
+          speed,
+          zoomFactor: this.mapZoom,
+          targets: this.mapTargets,
+        },
       );
+      const place = this.map.placeAt(focus.x, focus.z);
+      const label =
+        place.name === 'Campagna'
+          ? 'Campagna'
+          : `${place.name} · ${place.distance < 950 ? `${Math.round(place.distance)} m` : `${(place.distance / 1000).toFixed(1)} km`}`;
+      if (label !== this.minimapLabel) {
+        this.minimapLabel = label;
+        const el = document.getElementById('minimap-label');
+        if (el) el.textContent = label;
+      }
       if (this.hud.mapVisible) this.drawBigMap();
     }
 
@@ -3153,6 +3242,49 @@ export class Game {
       const moved = distance2(focus.x, focus.z, this.lastRouteOrigin.x, this.lastRouteOrigin.z);
       if (moved > 60 && now - this.lastRouteTime > 2500) this.recomputeRoute();
     }
+  }
+
+  /**
+   * Avviso al confine dell'area rilevata.
+   *
+   * Il mondo è la valle del Biferno (14 × 12 km) intorno a Palata: oltre il
+   * bordo dell'DEM non c'è né terreno giocabile né strade, quindi l'auto è
+   * fermata 24 m prima. Prima lo faceva in silenzio e sembrava un muro
+   * invisibile; qui si dice dov'è il confine e quanto manca alle città vicine.
+   */
+  private checkWorldEdge(): void {
+    const car = this.car.state;
+    const margin = Math.min(WORLD.halfWidth - Math.abs(car.x), WORLD.halfHeight - Math.abs(car.z));
+    if (margin > 70) {
+      this.edgeNotice = 0;
+      return;
+    }
+    const now = performance.now();
+    if (now - this.edgeNotice < 18_000) return;
+    this.edgeNotice = now;
+    let nearest = { name: '', distance: Number.POSITIVE_INFINITY, bearing: '' };
+    for (const town of FAR_TOWNS) {
+      const w = latLonToWorld(town.lat, town.lon);
+      const dx = w.x - car.x;
+      const dz = w.z - car.z;
+      const distance = Math.hypot(dx, dz);
+      if (distance < nearest.distance) {
+        nearest = { name: town.name, distance, bearing: this.bearingLabel(dx, dz) };
+      }
+    }
+    const km = nearest.distance >= 10_000 ? Math.round(nearest.distance / 1000) : (nearest.distance / 1000).toFixed(1);
+    this.hud.toast(
+      `Confine dell'area rilevata (valle del Biferno) · ${nearest.name} ${km} km a ${nearest.bearing}`,
+      5200,
+    );
+  }
+
+  /** Direzione cardinale di un vettore locale (x = est, z = sud). */
+  private bearingLabel(dx: number, dz: number): string {
+    const names = ['NE', 'E', 'SE', 'S', 'SO', 'O', 'NO', 'N'];
+    const angle = Math.atan2(dx, -dz); // 0 = nord, orario
+    const index = Math.round(((angle + Math.PI * 2) % (Math.PI * 2)) / (Math.PI / 4)) % 8;
+    return names[index]!;
   }
 
   private updateSky(focus: THREE.Vector3): void {

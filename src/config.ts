@@ -72,6 +72,21 @@ export const VILLAGES: Village[] = [
   { name: 'Castelmauro', lat: 41.8291, lon: 14.7103, elev: 690 },
 ];
 
+/**
+ * Centri urbani fuori dal mondo giocabile ma dentro il paesaggio che si vede
+ * dall'orizzonte. Non hanno geometria 3D: servono alla mappa (come destinazioni
+ * con distanza e direzione) e all'etichetta sotto la minimappa, così non si
+ * perde l'orientamento verso la costa e il capoluogo.
+ */
+export const FAR_TOWNS: Village[] = [
+  { name: 'Montenero di Bisaccia', lat: 41.9455, lon: 14.786, elev: 260 },
+  { name: 'Larino', lat: 41.8045, lon: 14.918, elev: 400 },
+  { name: 'Termoli', lat: 41.9955, lon: 14.992, elev: 20 },
+  { name: 'San Salvo', lat: 42.0438, lon: 14.7283, elev: 100 },
+  { name: 'Vasto', lat: 42.1116, lon: 14.7071, elev: 140 },
+  { name: 'Campobasso', lat: 41.5604, lon: 14.6628, elev: 700 },
+];
+
 /** Palata è la "casa": il gioco parte sempre dal suo centro. */
 export const HOME = VILLAGES[0];
 

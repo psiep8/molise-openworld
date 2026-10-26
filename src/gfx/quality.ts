@@ -27,6 +27,16 @@ export interface QualityPreset {
   renderScaleFloor: number;
   /** MSAA del contesto WebGL: si fissa alla creazione, non si cambia a runtime */
   antialias: boolean;
+  /**
+   * Campioni MSAA dei render target del composer (0, 2, 4). Con il
+   * post-processing si disegna su una texture, quindi l'antialias del canvas
+   * non basta: senza questo i bordi restano scalettati anche con SMAA.
+   */
+  msaaSamples: 0 | 2 | 4;
+  /** pipeline di post solo per l'antialiasing (SMAA + nitidezza) */
+  postAA: boolean;
+  /** nitidezza dopo l'AA, 0…1 */
+  sharpen: number;
   shadowMapSize: number;
   /** ombre del sole: è la passata più cara, si spegne sui PC deboli */
   shadows: boolean;
@@ -79,6 +89,9 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     pixelRatio: 0.7,
     renderScaleFloor: 0.5,
     antialias: false,
+    msaaSamples: 0,
+    postAA: false,
+    sharpen: 0,
     shadowMapSize: 512,
     shadows: false,
     post: false,
@@ -102,9 +115,12 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     level: 'low',
     label: 'Bassa',
     hint: 'Portatili e GPU integrate recenti: ombre leggere, erba rada, nessun post-processing',
-    pixelRatio: 0.9,
+    pixelRatio: 1,
     renderScaleFloor: 0.55,
     antialias: true,
+    msaaSamples: 2,
+    postAA: false,
+    sharpen: 0,
     shadowMapSize: 1024,
     shadows: true,
     post: false,
@@ -128,9 +144,12 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     level: 'medium',
     label: 'Media',
     hint: 'PC con GPU dedicata di fascia bassa o iGPU potenti',
-    pixelRatio: 1,
+    pixelRatio: 1.15,
     renderScaleFloor: 0.6,
     antialias: true,
+    msaaSamples: 4,
+    postAA: true,
+    sharpen: 0.2,
     shadowMapSize: 1024,
     shadows: true,
     post: false,
@@ -154,9 +173,12 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     level: 'high',
     label: 'Alta',
     hint: 'GPU dedicate recenti: bloom, SSAO, ombre dei alberi e mondo pieno',
-    pixelRatio: 1.35,
+    pixelRatio: 1.5,
     renderScaleFloor: 0.65,
     antialias: true,
+    msaaSamples: 4,
+    postAA: true,
+    sharpen: 0.28,
     shadowMapSize: 2048,
     shadows: true,
     post: true,
@@ -180,9 +202,12 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     level: 'ultra',
     label: 'Ultra',
     hint: 'Il massimo: ogni albero, ogni ciuffo, ombre 4K e post-processing completo',
-    pixelRatio: 1.75,
+    pixelRatio: 2,
     renderScaleFloor: 0.7,
     antialias: true,
+    msaaSamples: 4,
+    postAA: true,
+    sharpen: 0.35,
     shadowMapSize: 4096,
     shadows: true,
     post: true,

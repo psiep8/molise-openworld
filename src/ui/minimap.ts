@@ -1,8 +1,9 @@
-import { HOME, latLonToWorld, VILLAGES, WORLD } from '../config';
-import type { Pt } from '../geo/geo';
+import { CENTER_LAT, HOME, latLonToWorld, VILLAGES, WORLD } from '../config';
+import { clamp, type Pt } from '../geo/geo';
 import type { OsmData } from '../geo/osm';
 import { ESRI_WORLD_IMAGERY, type TileProvider } from '../world/imagery';
 import { SatelliteBasemap, SatelliteTiles } from './satellite';
+import { minimapMeters } from './map-scale';
 
 interface MapRoad {
   pts: number[];
@@ -77,6 +78,26 @@ export interface MapView {
   x: number;
   z: number;
   yaw: number;
+}
+
+/** Luogo lontano da indicare sul bordo della minimappa (km e direzione). */
+export interface MapTarget {
+  name: string;
+  x: number;
+  z: number;
+}
+
+export interface MinimapOptions {
+  /** 'walk' a piedi, 'drive' in auto: cambia la scala automatica */
+  mode?: 'walk' | 'drive';
+  /** velocità in m/s: apre la scala in auto */
+  speed?: number;
+  /** moltiplicatore manuale della scala (rotella sopra la minimappa) */
+  zoomFactor?: number;
+  /** salta lo smorzamento (primo disegno) */
+  snap?: boolean;
+  /** destinazioni fuori dal mondo da mostrare come frecce sul bordo */
+  targets?: readonly MapTarget[];
 }
 
 export class MapRenderer {
@@ -305,7 +326,20 @@ export class MapRenderer {
     }
   }
 
-  /** Minimappa locale (nord in alto), 780 m di lato. */
+  /** Scala corrente della minimappa in metri di lato (smorzata nel tempo). */
+  minimapMeters = 380;
+
+  /**
+   * Scala ideale: a piedi si guarda vicino (~300 m), in auto si apre con la
+   * velocità (240 m da fermo, ~660 m a 100 km/h) così a 90 km/h si vede la
+   * curva dopo invece di scoprirla a metà. La mappa vera e propria insegue
+   * questo valore con uno smorzamento, quindi non salta di scala.
+   */
+  private targetMeters(options: MinimapOptions): number {
+    return minimapMeters(options.mode ?? 'drive', options.speed ?? 0, options.zoomFactor ?? 1);
+  }
+
+  /** Minimappa locale (nord in alto), con scala automatica. */
   drawMinimap(
     canvas: HTMLCanvasElement,
     view: MapView,
@@ -313,14 +347,20 @@ export class MapRenderer {
     route?: Pt[],
     garage?: { x: number; z: number } | null,
     venues?: readonly { x: number; z: number; name: string; color: string; status: string }[],
+    options: MinimapOptions = {},
   ): void {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     const size = canvas.width;
-    const viewMeters = 780;
+    const target = this.targetMeters(options);
+    this.minimapMeters = options.snap
+      ? target
+      : this.minimapMeters + (target - this.minimapMeters) * 0.16;
+    const viewMeters = this.minimapMeters;
     const k = size / viewMeters;
     const cx = size / 2;
     const cy = size / 2;
+    const u = size / 440;
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, size, size);
@@ -332,7 +372,12 @@ export class MapRenderer {
     ctx.fillRect(0, 0, size, size);
 
     if (this.radar) {
-      this.satTiles.draw(ctx, size, view, viewMeters, 17);
+      // zoom delle tile scelto perché un pixel di tile copra ~un pixel di
+      // canvas: a 300 m la z17 mostrava pixel grandi e la strada sembrava
+      // sfocata, a 200 m serviva la z18
+      const mpp = viewMeters / size;
+      const ideal = Math.log2((156543.03392 * Math.cos((CENTER_LAT * Math.PI) / 180)) / mpp);
+      this.satTiles.draw(ctx, size, view, viewMeters, clamp(Math.round(ideal), 14, 18));
     }
 
     const half = viewMeters / 2;
@@ -365,11 +410,11 @@ export class MapRenderer {
       }
       if (this.radar) {
         // sopra la foto aerea bastano poche strade evidenziate
-        ctx.lineWidth = Math.max(1.1, r.width * k * 0.55) * (size / 440);
+        ctx.lineWidth = Math.max(1.1, r.width * k * 0.55) * u;
         ctx.strokeStyle = r.paved ? 'rgba(255, 246, 219, 0.72)' : 'rgba(226, 202, 154, 0.5)';
         ctx.globalAlpha = 0.8;
       } else {
-        ctx.lineWidth = Math.max(1, r.paved ? 2.6 : 1.2) * (size / 440);
+        ctx.lineWidth = Math.max(1, r.paved ? 2.6 : 1.2) * u;
         ctx.strokeStyle = r.paved ? ASPHALT : DIRT;
         ctx.globalAlpha = r.paved ? 0.95 : 0.7;
       }
@@ -381,14 +426,14 @@ export class MapRenderer {
       const project = (x: number, z: number): { x: number; y: number } => ({ x: cx + (x - view.x) * k, y: cy + (z - view.z) * k });
       this.traceRoute(ctx, route, project);
       ctx.strokeStyle = 'rgba(6, 14, 18, 0.85)';
-      ctx.lineWidth = 7 * (size / 440);
+      ctx.lineWidth = 7 * u;
       ctx.stroke();
       this.traceRoute(ctx, route, project);
       ctx.strokeStyle = '#4ad7ff';
-      ctx.lineWidth = 3.4 * (size / 440);
+      ctx.lineWidth = 3.4 * u;
       ctx.stroke();
       const end = project(route[route.length - 1].x, route[route.length - 1].z);
-      if (Math.hypot(end.x - cx, end.y - cy) < size / 2 - 8) this.drawPin(ctx, end.x, end.y, 6 * (size / 440));
+      if (Math.hypot(end.x - cx, end.y - cy) < size / 2 - 8) this.drawPin(ctx, end.x, end.y, 6 * u);
     }
 
     if (car) {
@@ -397,7 +442,7 @@ export class MapRenderer {
       if (Math.hypot(dx - cx, dy - cy) < size / 2) {
         ctx.fillStyle = '#f0c674';
         ctx.beginPath();
-        ctx.arc(dx, dy, 3.4 * (size / 440), 0, Math.PI * 2);
+        ctx.arc(dx, dy, 3.4 * u, 0, Math.PI * 2);
         ctx.fill();
       }
     }
@@ -406,7 +451,7 @@ export class MapRenderer {
       const gx = cx + (garage.x - view.x) * k;
       const gy = cy + (garage.z - view.z) * k;
       if (Math.hypot(gx - cx, gy - cy) < size / 2 - 12) {
-        this.drawGarage(ctx, gx, gy, 7 * (size / 440));
+        this.drawGarage(ctx, gx, gy, 7 * u);
       }
     }
 
@@ -414,7 +459,22 @@ export class MapRenderer {
       const vx = cx + (venue.x - view.x) * k;
       const vy = cy + (venue.z - view.z) * k;
       if (Math.hypot(vx - cx, vy - cy) > size / 2 - 10) continue;
-      this.drawVenue(ctx, vx, vy, 4.2 * (size / 440), venue.color, venue.status);
+      this.drawVenue(ctx, vx, vy, 4.2 * u, venue.color, venue.status);
+    }
+
+    // nomi dei paesi vicini (dentro il ritaglio circolare)
+    ctx.font = `600 ${11 * u}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    for (const v of VILLAGES) {
+      const w = latLonToWorld(v.lat, v.lon);
+      const px = cx + (w.x - view.x) * k;
+      const py = cy + (w.z - view.z) * k;
+      if (Math.hypot(px - cx, py - cy) > size / 2 - 16) continue;
+      ctx.lineWidth = 3 * u;
+      ctx.strokeStyle = 'rgba(8, 12, 10, 0.85)';
+      ctx.strokeText(v.name, px, py + 3);
+      ctx.fillStyle = '#f3e7cf';
+      ctx.fillText(v.name, px, py + 3);
     }
 
     // giocatore
@@ -422,10 +482,10 @@ export class MapRenderer {
     ctx.translate(cx, cy);
     ctx.rotate(-view.yaw);
     ctx.beginPath();
-    ctx.moveTo(0, -9 * (size / 440));
-    ctx.lineTo(6 * (size / 440), 7 * (size / 440));
-    ctx.lineTo(0, 4 * (size / 440));
-    ctx.lineTo(-6 * (size / 440), 7 * (size / 440));
+    ctx.moveTo(0, -9 * u);
+    ctx.lineTo(6 * u, 7 * u);
+    ctx.lineTo(0, 4 * u);
+    ctx.lineTo(-6 * u, 7 * u);
     ctx.closePath();
     ctx.fillStyle = '#ff6b4a';
     ctx.fill();
@@ -434,21 +494,24 @@ export class MapRenderer {
     ctx.stroke();
     ctx.restore();
 
-    // nomi dei paesi vicini (dentro il ritaglio circolare)
-    ctx.font = `600 ${11 * (size / 440)}px system-ui, sans-serif`;
-    ctx.textAlign = 'center';
-    for (const v of VILLAGES) {
-      const w = latLonToWorld(v.lat, v.lon);
-      const px = cx + (w.x - view.x) * k;
-      const py = cy + (w.z - view.z) * k;
-      if (Math.hypot(px - cx, py - cy) > size / 2 - 16) continue;
-      ctx.lineWidth = 3 * (size / 440);
-      ctx.strokeStyle = 'rgba(8, 12, 10, 0.85)';
-      ctx.strokeText(v.name, px, py + 3);
-      ctx.fillStyle = '#f3e7cf';
-      ctx.fillText(v.name, px, py + 3);
+    // destinazioni lontane: freccia sul bordo + chilometri. Si disegnano dalla
+    // più vicina alla più lontana e si salta chi finirebbe sopra un'etichetta
+    // già scritta: Termoli, San Salvo e Vasto stanno quasi sulla stessa
+    // direzione e tre nomi sovrapposti non si leggono.
+    const sorted = [...(options.targets ?? [])]
+      .map((t) => ({ t, dx: t.x - view.x, dz: t.z - view.z }))
+      .map((e) => ({ ...e, distance: Math.hypot(e.dx, e.dz) }))
+      .filter((e) => e.distance >= size / 2 / k)
+      .sort((a, b) => a.distance - b.distance);
+    const used: number[] = [];
+    for (const e of sorted) {
+      const angle = Math.atan2(e.dz, e.dx);
+      if (used.some((a) => Math.abs(((a - angle + Math.PI * 3) % (Math.PI * 2)) - Math.PI) < 0.42)) continue;
+      used.push(angle);
+      this.drawEdgeTarget(ctx, cx, cy, size / 2 - 6, angle, e.t.name, e.distance, u);
     }
 
+    this.drawScaleBar(ctx, cx, cy, size / 2 - 3, viewMeters, u);
     ctx.restore();
 
     // anello esterno: cornice del radar
@@ -457,6 +520,102 @@ export class MapRenderer {
     ctx.lineWidth = Math.max(2, size * 0.009);
     ctx.strokeStyle = 'rgba(12, 18, 14, 0.9)';
     ctx.stroke();
+  }
+
+  /** Freccia+nome di una destinazione fuori dall'inquadratura. */
+  private drawEdgeTarget(
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    radius: number,
+    angle: number,
+    name: string,
+    distance: number,
+    u: number,
+  ): void {
+    const px = cx + Math.cos(angle) * (radius - 10 * u);
+    const py = cy + Math.sin(angle) * (radius - 10 * u);
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(angle);
+    ctx.beginPath();
+    ctx.moveTo(7 * u, 0);
+    ctx.lineTo(-3 * u, -4.6 * u);
+    ctx.lineTo(-3 * u, 4.6 * u);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(255, 244, 226, 0.92)';
+    ctx.strokeStyle = 'rgba(8, 12, 10, 0.85)';
+    ctx.lineWidth = 1.2 * u;
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+
+    const km = distance >= 10_000 ? `${Math.round(distance / 1000)} km` : `${(distance / 1000).toFixed(1)} km`;
+    const label = `${name} ${km}`;
+    const tx = cx + Math.cos(angle) * (radius - 48 * u);
+    const ty = cy + Math.sin(angle) * (radius - 48 * u);
+    ctx.font = `600 ${9.5 * u}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.lineWidth = 3 * u;
+    ctx.strokeStyle = 'rgba(8, 12, 10, 0.85)';
+    ctx.strokeText(label, tx, ty + 3);
+    ctx.fillStyle = 'rgba(255, 244, 226, 0.92)';
+    ctx.fillText(label, tx, ty + 3);
+    ctx.font = `600 ${11 * u}px system-ui, sans-serif`;
+  }
+
+  /** Barra di scala: dice a colpo d'occhio quanti metri copre la minimappa. */
+  private drawScaleBar(
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    radius: number,
+    viewMeters: number,
+    u: number,
+  ): void {
+    const steps = [50, 100, 200, 250, 500, 1000];
+    const maxPx = radius * 0.55;
+    let meters = steps[steps.length - 1]!;
+    for (const step of steps) {
+      if ((step / viewMeters) * radius * 2 <= maxPx) {
+        meters = step;
+        break;
+      }
+    }
+    const px = (meters / viewMeters) * radius * 2;
+    const x = cx - px / 2;
+    const y = cy + radius * 0.72;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + px, y);
+    ctx.strokeStyle = 'rgba(8, 12, 10, 0.75)';
+    ctx.lineWidth = 4 * u;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + px, y);
+    ctx.strokeStyle = 'rgba(255, 244, 226, 0.85)';
+    ctx.lineWidth = 1.6 * u;
+    ctx.stroke();
+    ctx.font = `600 ${9 * u}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.lineWidth = 3 * u;
+    ctx.strokeStyle = 'rgba(8, 12, 10, 0.85)';
+    const text = meters >= 1000 ? `${meters / 1000} km` : `${meters} m`;
+    ctx.strokeText(text, cx, y - 5 * u);
+    ctx.fillStyle = 'rgba(255, 244, 226, 0.9)';
+    ctx.fillText(text, cx, y - 5 * u);
+  }
+
+  /** Luogo abitato più vicino, per l'etichetta sotto la minimappa. */
+  placeAt(x: number, z: number): { name: string; distance: number } {
+    let best = { name: 'Campagna', distance: Number.POSITIVE_INFINITY };
+    for (const v of VILLAGES) {
+      const w = latLonToWorld(v.lat, v.lon);
+      const d = Math.hypot(x - w.x, z - w.z);
+      if (d < best.distance) best = { name: v.name, distance: d };
+    }
+    return best;
   }
 
   /** Da chiamare quando cambiano le tile satellite: la base va rigenerata. */

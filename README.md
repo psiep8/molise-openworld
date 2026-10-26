@@ -81,7 +81,13 @@ DEM Terrarium, tag OSM) e su come renderli credibili in un motore proprio.
   nebbia spostata più lontano. La cupola del cielo viene scalata a parte (`skyRadiance`):
   il cielo resta un gradiente blu invece di un muro bianco, che era la vera causa
   dell'abbagliamento.
-- **Post-processing.** Bloom morbido su cielo e tetti, antialiasing SMAA e OutputPass
+- **Antialiasing vero, non un filtro sopra.** Dal preset *media* in su il gioco disegna
+  dentro il composer, quindi l'antialias del canvas non basta: i render target hanno
+  **MSAA 4×** (2× in *bassa*), sopra passa **SMAA** per gli spigoli sottili e per il
+  fogliame ritagliato, e un **unsharp** leggero restituisce nitidezza senza rimettere gli
+  scalini. Erba, fiori e chiome usano `alphaToCoverage`, così il contorno delle foglie è
+  una transizione morbida invece di una scaletta di pixel verdi. Le ombre sono **PCF morbido**.
+- **Post-processing.** Bloom morbido su cielo e tetti, SSAO in *alta*/*ultra* e OutputPass
   per tone mapping/color space corretti; si spegne da solo sui preset più leggeri.
 - **Pioggia, neve e foschia.** Le gocce sono segmenti inclinati dal vento; i fiocchi sono
   sprite con gradiente morbido e dimensione per particella; la pioggia lascia **anelli di
@@ -112,12 +118,20 @@ DEM Terrarium, tag OSM) e su come renderli credibili in un motore proprio.
   grafica integrata parte in bassa, un portatile molto vecchio o il rendering software in
   **compatibilità**, una GPU dedicata in alta. Il preset non cambia solo la risoluzione:
   decide ombre, erba, alberi, pedoni, arredo, meteo e dettaglio delle facciate. Se gli fps
-  restano bassi il gioco riduce da solo risoluzione, ombre, erba, meteo e raggio del
-  terreno; `G` (o le impostazioni) cambia preset a mano.
-- **Radar vero.** La minimappa disegna le tile Esri z17 intorno al giocatore, con le strade
-  OSM in crema sopra; la mappa grande parte dal mosaico Sentinel locale dell'intera area
-  e usa le tile Esri come fallback. `V` alterna satellite e mappa vettoriale, `M` apre la
-  mappa grande.
+  restano bassi il gioco toglie **prima gli effetti** (ombre, poi erba) e **solo dopo** la
+  risoluzione: abbassare i pixel per primo è il modo più rapido per riempire lo schermo di
+  scalini. Sopra i 12 milioni di pixel (4K con DPR 2) l'immagine viene comunque limitata,
+  perché nessuna GPU da browser li regge a 60 fps; `G` (o le impostazioni) cambia preset.
+- **Radar vero, con scala automatica.** La minimappa (320 px) disegna le tile Esri intorno
+  al giocatore con lo **zoom scelto perché un pixel di tile copra un pixel di schermo**
+  (z18 da vicino, z14 quando è larga), le strade OSM in crema sopra, la barra di scala e
+  l'etichetta del paese più vicino con la distanza. La scala è **300 m a piedi** e si apre
+  in auto con la velocità (240 m da fermo, ~660 m a 100 km/h): a 90 km/h si vede la curva
+  dopo. La rotella sopra la mappa stringe o allarga (0,45×–2,4×) e resta dove lo lasci.
+  Sul bordo compaiono direzione e chilometri di **Termoli, Larino, Campobasso, Montenero
+  di Bisaccia, San Salvo e Vasto**. La mappa grande parte dal mosaico Sentinel locale
+  dell'intera area e usa le tile Esri come fallback. `V` alterna satellite e mappa
+  vettoriale, `M` apre la mappa grande.
 - **Dati locali.** DEM, OSM e mosaico Sentinel sono pre-processati nel repo: il mondo parte
   anche senza rete. Solo le tile di dettaglio arrivano dal provider (e se mancano resta la
   base Sentinel, non un prato verde).
@@ -181,6 +195,7 @@ npm run geo -- --skip-osm
 | `R` | riporta in strada | riporta in strada |
 | mouse | guarda intorno (click per bloccare il puntatore) | orbita la telecamera |
 | rotella | — | allontana/avvicina la telecamera |
+| rotella sulla minimappa | stringe/allarga la mappa | come a piedi |
 
 URL utili: `?autostart=walk` e `?autostart=drive` saltano il menu (usati dallo smoke test).
 

@@ -69,6 +69,10 @@ Questo documento è la fonte di verità sullo stato delle funzionalità. Legenda
 | Cordolo che si sente (scalino 18 cm) | **Fatto** | `curbImpact()`: perdita di velocità e sobbalzo, con test |
 | Meteo reale + sole NOAA | **Fatto** | Open-Meteo, fallback locale |
 | Qualità scalabile low→ultra | **Fatto** | Preset + resolution scaling adattivo |
+| Antialiasing (MSAA 4× + SMAA + unsharp) | **Da verificare** | Target del composer a 2–4 campioni, `alphaToCoverage` su erba/fiori/chiome, ombre PCF morbide |
+| Minimappa a scala automatica | **Da verificare** | 320 px, 240–660 m in auto, 300 m a piedi, rotella 0,45×–2,4×, barra di scala |
+| Destinazioni fuori area | **Parziale** | Termoli, Larino, Campobasso, Montenero, San Salvo, Vasto: direzione e km sulla minimappa, nessuna geometria 3D |
+| Mondo oltre la valle del Biferno | **Pianificato** | Oggi 14 × 12 km: guidare fino a Termoli richiede OSM+DEM del nuovo bbox (vedi HANDOFF) |
 | Audio procedurale | **Fatto** | WebAudio, parte dopo un gesto utente |
 | Traffico e pedoni | **Pianificato** | — |
 | Cache tile offline | **Pianificato** | Solo cache HTTP del browser |

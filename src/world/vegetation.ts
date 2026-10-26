@@ -223,6 +223,10 @@ export function buildVegetation(
     metalness: 0,
     side: THREE.DoubleSide,
     alphaTest: 0.45,
+    // le card delle foglie sono il caso peggiore per l'aliasing: con l'MSAA
+    // dei target, l'alpha-to-coverage ammorbidisce il contorno invece di
+    // lasciare una scaletta di pixel verdi
+    alphaToCoverage: true,
     vertexColors: true,
     normalScale: new THREE.Vector2(0.6, 0.6),
     envMapIntensity: 0.5,

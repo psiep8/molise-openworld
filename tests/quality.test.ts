@@ -118,3 +118,31 @@ describe('classifyQuality', () => {
     expect(classifyQuality({ renderer: 'Mali-G52', cores: 4, memory: 4, mobile: true })).toBe('minimal');
   });
 });
+
+describe('antialiasing nei preset', () => {
+  it('chi ha la pipeline la usa per l’AA, non solo per il bloom', () => {
+    for (const level of QUALITY_ORDER) {
+      const preset = QUALITY_PRESETS[level];
+      if (preset.postAA) {
+        // con il post-processing si disegna su una texture: senza MSAA sui
+        // target l'antialias del canvas non serve a niente
+        expect(preset.msaaSamples).toBeGreaterThan(0);
+        expect(preset.sharpen).toBeGreaterThan(0);
+        expect(preset.antialias).toBe(true);
+      }
+    }
+  });
+
+  it('il preset di compatibilità resta senza MSAA', () => {
+    expect(QUALITY_PRESETS.minimal.msaaSamples).toBe(0);
+    expect(QUALITY_PRESETS.minimal.postAA).toBe(false);
+  });
+
+  it('non promette più pixel del necessario', () => {
+    for (const level of QUALITY_ORDER) {
+      const preset = QUALITY_PRESETS[level];
+      expect(preset.pixelRatio).toBeLessThanOrEqual(2);
+      expect(preset.sharpen).toBeLessThanOrEqual(0.5);
+    }
+  });
+});
