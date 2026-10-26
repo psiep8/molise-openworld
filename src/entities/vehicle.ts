@@ -201,6 +201,7 @@ export class Vehicle {
     this.paintMat = null;
     this.paintTargets.length = 0;
     this.lensMaterials.length = 0;
+    this.rearLenses.length = 0;
     this.bodyGroup.clear();
     for (const child of [...this.group.children]) {
       if (child !== this.bodyGroup) this.group.remove(child);
@@ -928,8 +929,9 @@ export class Vehicle {
   private buildIndicators(spec: VehicleSpec): void {
     const geometry = new THREE.BoxGeometry(0.16, 0.1, 0.06);
     this.geometries.add(geometry);
-    this.materials.add(this.indicatorMats.left);
-    this.materials.add(this.indicatorMats.right);
+    // i materiali delle frecce vivono quanto il veicolo: se entrassero in
+    // `materials`, il cambio modello li disporrebbe e le frecce resterebbero
+    // spente per sempre
     for (const side of ['left', 'right'] as const) {
       const sx = side === 'left' ? -1 : 1;
       for (const end of [-1, 1]) {
