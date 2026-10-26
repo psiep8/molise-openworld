@@ -115,14 +115,16 @@ function pushRuns(
   color: THREE.Color,
   heights: Heightfield,
   blocked: (x: number, z: number) => boolean,
+  allowed: (index: number) => boolean = () => true,
 ): void {
   let run: Pt[] = [];
   const flush = (): void => {
     if (run.length >= 2) pushRibbon(target, run, width, lift, color, heights, 1);
     run = [];
   };
-  for (const p of line) {
-    if (blocked(p.x, p.z)) flush();
+  for (let i = 0; i < line.length; i++) {
+    const p = line[i];
+    if (!allowed(i) || blocked(p.x, p.z)) flush();
     else run.push(p);
   }
   flush();
@@ -131,6 +133,9 @@ function pushRuns(
 /**
  * Tratteggio al centro della carreggiata: di ogni tratto disegna solo il 45%
  * centrale, così la linea si interrompe come sull'asfalto vero.
+ *
+ * `blocked` salta i trattini che finirebbero dentro un altro incrocio: la
+ * mezzeria di una via non attraversa la carreggiata che la incrocia.
  */
 function pushDashes(
   target: RibbonArrays,
@@ -139,6 +144,7 @@ function pushDashes(
   lift: number,
   color: THREE.Color,
   heights: Heightfield,
+  blocked: (x: number, z: number) => boolean = () => false,
 ): void {
   for (let i = 0; i < pts.length - 1; i++) {
     const a = pts[i];
@@ -147,6 +153,7 @@ function pushDashes(
       { x: a.x + (b.x - a.x) * 0.28, z: a.z + (b.z - a.z) * 0.28 },
       { x: a.x + (b.x - a.x) * 0.72, z: a.z + (b.z - a.z) * 0.72 },
     ];
+    if (blocked(dash[0].x, dash[0].z) || blocked(dash[1].x, dash[1].z)) continue;
     pushRibbon(target, dash, width, lift, color, heights, 1);
   }
 }
@@ -230,8 +237,10 @@ function pushCurbWall(
   color: THREE.Color,
   heights: Heightfield,
   blocked: (x: number, z: number) => boolean,
+  allowed: (index: number) => boolean = () => true,
 ): void {
   for (let i = 0; i < pts.length - 1; i++) {
+    if (!allowed(i) || !allowed(i + 1)) continue;
     const a = pts[i];
     const b = pts[i + 1];
     const mx = (a.x + b.x) / 2;
@@ -515,9 +524,14 @@ export function buildRoads(
     // micro offset per evitare z-fighting negli incroci (condiviso con la fisica)
     const lift = roadLift(idx, road.paved);
     pushRibbon(target, pts, road.width, lift, color, heights, 1);
+    // Punto che sta su un'ALTRA strada: è l'incrocio. Qui non vanno cordoli,
+    // marciapiedi né strisce, altrimenti restano delle righe chiare in mezzo
+    // alla carreggiata (era il difetto visibile a ridosso degli incroci).
+    const onJunction = (x: number, z: number): boolean =>
+      roadIndex ? roadIndex.isOnRoad(x, z, 0.35, idx) : false;
     // tratteggio di mezzeria sulle carreggiate larghe
     if (!isDirt && road.width >= 5.4) {
-      pushDashes(markings, pts, 0.14, lift + 0.012, markingColor, heights);
+      pushDashes(markings, pts, 0.14, lift + 0.012, markingColor, heights, onJunction);
     }
 
     // Solo le strade asfaltate hanno marciapiede e cordolo: le sterrate no.
@@ -547,10 +561,33 @@ export function buildRoads(
     // il cordolo parte dal bordo dell'asfalto e occupa 22 cm; il marciapiede
     // inizia dove finisce il cordolo, così nessuno dei due copre l'altro
     const curbWidth = 0.22;
+    // marciapiede e cordolo solo nel costruito: in campagna la provinciale
+    // resta asfalto nudo con il suo ciglio di ghiaia. I punti sono ricampionati
+    // e smussati, quindi la maschera (calcolata sui punti OSM) si riporta qui
+    // prendendo il punto originale più vicino.
+    const spans = road.walkSpans;
+    const town = spans
+      ? pts.map((p) => {
+          let best = Infinity;
+          let bestIndex = 0;
+          for (let k = 0; k < road.points.length; k++) {
+            const q = road.points[k];
+            const d = (q.x - p.x) * (q.x - p.x) + (q.z - p.z) * (q.z - p.z);
+            if (d < best) {
+              best = d;
+              bestIndex = k;
+            }
+          }
+          return spans[bestIndex] === true;
+        })
+      : null;
+    const inTown = (index: number): boolean =>
+      town ? town[Math.min(Math.max(index, 0), town.length - 1)] === true : true;
     for (const side of [-1, 1]) {
-      // cordolo: fascia chiara in cima al rialzo, sempre continua lungo il bordo
+      // cordolo: fascia chiara in cima al rialzo. Si interrompe all'incrocio
+      // (prima ci passava sopra, disegnando una striscia grigia di traverso).
       const curbLine = offsetPolyline(pts, side * (road.width / 2 + curbWidth / 2));
-      pushRibbon(kerb, curbLine, curbWidth, curbTop, curbColor, heights, 1);
+      pushRuns(kerb, curbLine, curbWidth, curbTop, curbColor, heights, onJunction, inTown);
       // faccia verticale del cordolo, a filo dell'asfalto
       pushCurbWall(
         kerb,
@@ -560,11 +597,12 @@ export function buildRoads(
         side,
         curbColor,
         heights,
-        () => false,
+        onJunction,
+        inTown,
       );
-      // marciapiede accostato al cordolo, interrotto solo agli incroci veri
+      // marciapiede accostato al cordolo, interrotto agli incroci veri
       const walkLine = offsetPolyline(pts, side * (road.width / 2 + curbWidth + walkWidth / 2));
-      pushRuns(walkway, walkLine, walkWidth, walkLift, pavementColor, heights, blockedWalk);
+      pushRuns(walkway, walkLine, walkWidth, walkLift, pavementColor, heights, blockedWalk, inTown);
       // bordo esterno del marciapiede: chiude il nastro sul lato verso il prato
       pushCurbWall(
         kerb,
@@ -575,6 +613,7 @@ export function buildRoads(
         curbColor,
         heights,
         blockedWalk,
+        inTown,
       );
     }
 
@@ -616,9 +655,14 @@ export function buildRoads(
         const ul = Math.hypot(ux, uz) || 1;
         ux /= ul;
         uz /= ul;
-        if (tx * ux + tz * uz > 0.93) {
-          pushZebra(markings, b, tx, tz, road.width, lift + 0.011, markingColor, heights);
-          pushStopLine(markings, b, tx, tz, road.width, lift + 0.011, markingColor, heights);
+        // l'attraversamento va PRIMA dell'incrocio, non sopra: disegnato sul
+        // punto di incrocio finiva in mezzo alla carreggiata dell'altra via,
+        // che è un'altra causa delle righe chiare viste agli incroci
+        const setBack = 5.2;
+        const at = { x: b.x - tx * setBack, z: b.z - tz * setBack };
+        if (tx * ux + tz * uz > 0.93 && !onJunction(at.x, at.z)) {
+          pushZebra(markings, at, tx, tz, road.width, lift + 0.011, markingColor, heights);
+          pushStopLine(markings, at, tx, tz, road.width, lift + 0.011, markingColor, heights);
           sinceCross = 0;
         }
       }

@@ -82,6 +82,9 @@ export class GrassField {
       map: this.bladeTexture,
       alphaTest: 0.45,
       side: THREE.DoubleSide,
+      // il ciuffo è scuro alla base e chiaro in punta (colore per vertice):
+      // è quello che toglie l'effetto "foglia ritagliata" e dà profondità
+      vertexColors: true,
       roughness: 0.95,
       metalness: 0,
       envMapIntensity: 0.45,
@@ -111,19 +114,40 @@ export class GrassField {
     this.group.matrixAutoUpdate = false;
   }
 
-  /** Due quad incrociati, con la base a y = 0. */
+  /**
+   * Tre quad incrociati, con la base a y = 0.
+   *
+   * Due soli quad lasciavano vedere il prato "a croce" quando si guarda
+   * radente; il terzo a 45° chiude il ciuffo da ogni angolo, con un costo di
+   * due triangoli per istanza. Il gradiente di colore per vertice (scuro al
+   * suolo, chiaro in punta) simula l'auto-ombreggiatura dei fili d'erba.
+   */
   private static buildGeometry(): THREE.BufferGeometry {
     // ciuffi più larghi: a parità di istanze coprono più suolo e il prato
     // smette di sembrare una griglia di puntini verdi
     const blade = new THREE.PlaneGeometry(0.27, TUFT_HEIGHT, 1, 1);
     blade.translate(0, TUFT_HEIGHT / 2, 0);
-    const crossed = blade.clone();
-    crossed.rotateY(Math.PI / 2);
-    const merged = mergeGeometries([blade, crossed], false);
-    crossed.dispose();
-    if (!merged) return blade;
-    blade.dispose();
-    return merged;
+    const parts: THREE.BufferGeometry[] = [blade];
+    for (const angle of [Math.PI / 3, (Math.PI * 2) / 3]) {
+      const copy = blade.clone();
+      copy.rotateY(angle);
+      parts.push(copy);
+    }
+    const merged = mergeGeometries(parts, false);
+    const geometry = merged ?? blade;
+    for (const part of parts) if (part !== geometry) part.dispose();
+    const position = geometry.getAttribute('position');
+    const colors = new Float32Array(position.count * 3);
+    for (let i = 0; i < position.count; i++) {
+      const t = Math.max(0, Math.min(1, position.getY(i) / TUFT_HEIGHT));
+      // base al 48%, punta piena: il ciuffo non è un quad verde piatto
+      const shade = 0.48 + 0.52 * t;
+      colors[i * 3] = shade;
+      colors[i * 3 + 1] = shade;
+      colors[i * 3 + 2] = shade;
+    }
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    return geometry;
   }
 
   /**
@@ -267,7 +291,9 @@ export class GrassField {
       edgeMesh,
       dummy: new THREE.Object3D(),
       color: new THREE.Color(),
-      palette: [0x8a9a68, 0x93a372, 0x7f9060, 0x9dab7c, 0x879669],
+      // verdi leggermente spenti, con qualche tono più secco: un prato
+      // molisano non è un tappeto da campo da golf
+      palette: [0x7d8f5c, 0x8a9b68, 0x748455, 0x93a26f, 0x7f8f5f, 0x8d9260],
       valid,
       perCell: valid > 0 ? target / valid : 0,
       acc: 0,
@@ -351,9 +377,10 @@ export class GrassField {
       job.edgeMesh.setMatrixAt(job.edges, job.dummy.matrix);
       // erba di bordo più secca e polverosa: è quella che prende lo sporco
       job.color.setHex(
-        job.edges % 3 === 0 ? 0x9b9a6b : job.palette[Math.floor(job.rng() * job.palette.length)]!,
+        job.edges % 3 === 0 ? 0x949167 : job.palette[Math.floor(job.rng() * job.palette.length)]!,
       );
-      job.color.multiplyScalar(0.9 + job.rng() * 0.18);
+      // il ciglio è più chiaro e polveroso, non più verde del prato
+      job.color.multiplyScalar(0.95 + job.rng() * 0.18);
       job.edgeMesh.setColorAt(job.edges, job.color);
       job.edges++;
     });

@@ -399,7 +399,7 @@ Legenda: ✅ implementato · 🟡 parziale · ⬜ non iniziato
 | Meteo reale | ✅ | Open-Meteo, refresh 10 min, sole NOAA locale, fallback offline |
 | Pioggia / neve | ✅ | Particelle riutilizzate, foschia e strada bagnata |
 | Fari notturni | ✅ | Due spot sul veicolo, lampade emissive |
-| Veicoli | ✅ | **31 veicoli** in catalogo: 21 procedurali con dati di fabbrica reali (8 storici + 13 richiesti), **6 auto di serie su GLB** e 4 carrozzerie low-poly del kit (`src/sim/vehicle-catalog.ts`, fonti in `docs/VEHICLE_DATA.md`). I GLB sono normalizzati, con vetri corretti e ruote riconosciute/separate; le **21 sagome procedurali restano originali**, mentre i 6 GLB sono asset forniti dal proprietario con **licenza da verificare** prima della distribuzione |
+| Veicoli | ✅ | **14 veicoli in catalogo, tutti da GLB**: 10 modelli di serie (Punto, Aventador, 458, Defender, R8, Cupra, Porsche, Camaro, MG7, Harley) e 4 carrozzerie low-poly del kit (`src/sim/vehicle-catalog.ts`, fonti in `docs/VEHICLE_DATA.md`). Le 21 sagome procedurali sono state eliminate il 26/10. I GLB sono normalizzati, con vetri corretti e ruote riconosciute/separate; sono asset forniti dal proprietario con **licenza da verificare** prima della distribuzione |
 | Cambio e freni | ✅ | Cambio automatico 5/6 marce con strappo e kickdown, curva coppia/potenza, pattinamento in partenza, frenata 8,8–10,2 m/s², retromarcia; HUD con marcia e giri |
 | Garage / personalizzazione | ✅ | Casa scelta sulle impronte OSM con segnalibro in mappa (`T`/menu, `L` per tornarci), auto parcheggiata lì, cambio veicolo e 10 tinte per veicolo |
 | Personaggio | ✅ | Rig procedurale con ossa, 3 clip base + 2 additive; sesso, altezza, corporatura, carnagione, capelli, barba e 7 outfit con 3 toni, ricostruiti a runtime |

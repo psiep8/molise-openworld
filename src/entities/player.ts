@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GAME } from '../config';
 import type { Heightfield } from '../geo/elevation';
+import type { ObstacleIndex } from '../geo/obstacles';
 import type { BuildingIndex, RoadIndex } from '../geo/osm';
 import { clamp } from '../geo/geo';
 import { fabricNormal, skinNormal } from '../gfx/detail-textures';
@@ -669,7 +670,14 @@ export class Player {
     this.syncMesh();
   }
 
-  update(dt: number, input: MoveInput, heights: Heightfield, buildings: BuildingIndex, roads?: RoadIndex): void {
+  update(
+    dt: number,
+    input: MoveInput,
+    heights: Heightfield,
+    buildings: BuildingIndex,
+    roads?: RoadIndex,
+    obstacles?: ObstacleIndex,
+  ): void {
     const fx = -Math.sin(this.yaw);
     const fz = -Math.cos(this.yaw);
     const rx = Math.cos(this.yaw);
@@ -718,6 +726,16 @@ export class Player {
     if (fixed.hit) {
       this.position.x = fixed.x;
       this.position.z = fixed.z;
+    }
+    // un palo è solido anche a piedi: ci si appoggia, non lo si attraversa
+    if (obstacles) {
+      const pole = obstacles.resolveCircle(this.position.x, this.position.z, RADIUS);
+      if (pole.hit) {
+        this.position.x = pole.x;
+        this.position.z = pole.z;
+        this.velocity.x *= 0.2;
+        this.velocity.z *= 0.2;
+      }
     }
 
     const horizontalSpeed = Math.hypot(this.velocity.x, this.velocity.z);

@@ -197,14 +197,16 @@ export function buildVegetation(
     normalScale: new THREE.Vector2(0.8, 0.8),
     envMapIntensity: 0.4,
   });
-  const coreGeo = new THREE.SphereGeometry(1.3, 8, 6);
-  coreGeo.scale(1, 1.18, 1);
+  // nucleo più piccolo e più scuro: serve solo a dare volume alla chioma
+  // controluce, non a fare la "palla verde" che si vedeva tra le card
+  const coreGeo = new THREE.SphereGeometry(1.12, 8, 6);
+  coreGeo.scale(1, 1.16, 1);
   coreGeo.translate(0, 3.35, 0);
   const coreMat = new THREE.MeshStandardMaterial({
-    color: 0x3d5324,
+    color: 0x33441d,
     roughness: 1,
     metalness: 0,
-    envMapIntensity: 0.35,
+    envMapIntensity: 0.3,
   });
   const leafGeo = buildCrownCards();
   const leafMat = new THREE.MeshStandardMaterial({
@@ -213,6 +215,7 @@ export function buildVegetation(
     metalness: 0,
     side: THREE.DoubleSide,
     alphaTest: 0.45,
+    vertexColors: true,
     normalScale: new THREE.Vector2(0.6, 0.6),
     envMapIntensity: 0.5,
   });
@@ -282,7 +285,18 @@ export function buildVegetation(
     bushParts.push(card);
   }
   const bushGeo = mergeGeometries(bushParts, false) ?? bushParts[0];
-  for (const g of bushParts) g.dispose();
+  for (const g of bushParts) if (g !== bushGeo) g.dispose();
+  // stesso gradiente delle chiome: il cespuglio non è un quad piatto nero
+  const bushPosition = bushGeo.getAttribute('position');
+  const bushColors = new Float32Array(bushPosition.count * 3);
+  for (let i = 0; i < bushPosition.count; i++) {
+    const t = Math.max(0, Math.min(1, bushPosition.getY(i) / 1.3));
+    const shade = 0.62 + 0.4 * t;
+    bushColors[i * 3] = shade;
+    bushColors[i * 3 + 1] = shade;
+    bushColors[i * 3 + 2] = shade;
+  }
+  bushGeo.setAttribute('color', new THREE.BufferAttribute(bushColors, 3));
 
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
@@ -340,21 +354,23 @@ export function buildVegetation(
 }
 
 /**
- * Sei quad da 2,6 m distribuiti a caso dentro un ellissoide: ogni card mostra
- * l'intera texture di foglie, così la chioma sembra finta di rami e non di
- * riquadri ripetuti.
+ * Otto quad da 2,3–3,0 m distribuiti dentro un ellissoide: ogni card mostra
+ * l'intera texture di foglie, così la chioma sembra fatta di rami e non di
+ * riquadri ripetuti. Il colore per vertice scurisce il basso (sotto la chioma
+ * la luce non arriva) e schiarisce la cima: è il trucco che toglie l'aspetto
+ * "cartone" alle foglie viste da sotto.
  */
 function buildCrownCards(): THREE.BufferGeometry {
   const rng = mulberry32(0xc0ffee);
   const parts: THREE.BufferGeometry[] = [];
-  for (let i = 0; i < 6; i++) {
-    const size = 2.4 + rng() * 0.6;
+  for (let i = 0; i < 8; i++) {
+    const size = 2.3 + rng() * 0.7;
     const g = new THREE.PlaneGeometry(size, size);
     // quota: distribuita sulla parte alta del tronco (2.4 m) fino alla cima
     const y = 2.5 + rng() * 1.9;
     // raggio massimo a metà chioma, stretto in cima e in basso
     const bulge = Math.max(0.35, 1 - Math.abs(y - 3.5) / 1.7);
-    const ang = (i / 6) * Math.PI * 2 + rng() * 0.8;
+    const ang = (i / 8) * Math.PI * 2 + rng() * 0.8;
     const rad = (0.25 + rng() * 0.75) * bulge * 1.25;
     g.rotateY(rng() * Math.PI * 2);
     g.rotateX((rng() - 0.5) * 0.7);
@@ -364,6 +380,17 @@ function buildCrownCards(): THREE.BufferGeometry {
   const merged = mergeGeometries(parts, false);
   for (const g of parts) g.dispose();
   if (!merged) return new THREE.PlaneGeometry(2.6, 2.6).translate(0, 3.3, 0);
+  const position = merged.getAttribute('position');
+  const colors = new Float32Array(position.count * 3);
+  for (let i = 0; i < position.count; i++) {
+    // 0,58 al piede della chioma, 1,05 in cima
+    const t = Math.max(0, Math.min(1, (position.getY(i) - 2.0) / 2.4));
+    const shade = 0.58 + 0.47 * t;
+    colors[i * 3] = shade;
+    colors[i * 3 + 1] = shade;
+    colors[i * 3 + 2] = shade;
+  }
+  merged.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   merged.computeBoundingSphere();
   return merged;
 }

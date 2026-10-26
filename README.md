@@ -236,7 +236,7 @@ src/
     vehicle.ts         veicoli procedurali o GLB + assetto, tinta e ruote
   sim/
     car.ts             fisica pura e testabile: motore, cambio, freni, aderenza
-    vehicle-catalog.ts 31 veicoli: 21 procedurali, 6 su GLB e 4 carrozzerie del kit
+    vehicle-catalog.ts 14 veicoli, tutti su GLB (10 di serie + 4 del kit)
     routing.ts         grafo stradale + A* per l'itinerario scelto sulla mappa
     economy.ts         economia virtuale: contanti, conto, acquisti atomici, movimenti
     needs.ts           fame, energia, divertimento: calo nel tempo ed effetti

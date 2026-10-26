@@ -1,6 +1,6 @@
 # HANDOFF — Molise Open World
 
-> Documento di passaggio di consegne. Ultimo aggiornamento: **23 ottobre 2026**.
+> Documento di passaggio di consegne. Ultimo aggiornamento: **26 ottobre 2026**.
 > Leggilo per intero prima di toccare il codice: contiene stato, vincoli, comandi,
 > criteri di qualità e prossimi passi con criteri di accettazione.
 
@@ -48,7 +48,7 @@ Stack: TypeScript + Vite + Three.js (WebGL2), Vitest, nessun framework UI.
 | Qualità | ✅ aggiornato | **5 preset** (compatibilità→ultra) con budget di mondo, auto-detect dalla GPU e **degradazione automatica a gradini** per i PC molto lenti |
 | Audio | ✅ nuovo | WebAudio procedurale: motore per modello (cilindri/regimi reali), rotolamento, vento, passi, uccelli |
 | Fisica auto | ✅ | modello bicycle puro, testato |
-| Catalogo veicoli | ✅ aggiornato | **31 modelli**: 21 procedurali (8 + 13, prestazioni reali) + **6 auto di serie su GLB** + 4 carrozzerie del kit; più le auto importate dal garage |
+| Catalogo veicoli | ✅ aggiornato | **14 modelli, tutti da GLB**: 10 di serie in `public/cars/` (Punto, Aventador, 458, Defender, R8, Cupra, Porsche, Camaro, MG7, Harley) + 4 carrozzerie del kit. Le 21 sagome procedurali sono state **eliminate**; più le auto importate dal garage |
 | Economia virtuale | ✅ nuovo | SOLO EURO DI GIOCO: contanti + conto virtuale, acquisti atomici, storico, ATM simulato (`src/sim/economy.ts`) |
 | Luoghi di Palata | ✅ nuovo | catalogo data-driven, stato di verifica esplicito, **nessuno `verified`** (`src/sim/venue-catalog.ts`) |
 | Bisogni + orologio | ✅ nuovo | fame/energia/divertimento, giorno/notte, sonno a casa (`src/sim/needs.ts`) |
@@ -330,8 +330,8 @@ Screenshot smoke: `smoke/shot.png` (ignorato da git). Il profilo Chrome è in
 4. **Verificare i flussi della modalità vita a mano**: `E` vicino a un'attività →
    comprare in contanti e col conto (controllare che il saldo non vada mai negativo
    e che lo storico cresca), ATM simulato, `E` a casa → dormire (giorno +1, 07:00,
-   energia 100), `I` per il portafoglio, e provare su strada i 31 modelli (i sei
-   GLB e i quattro del kit sono già stati provati in questa sessione). Segnare
+   energia 100), `I` per il portafoglio, e provare su strada i 14 modelli.
+   Segnare
    qui l'esito prima di dichiarare la funzione "verificata".
 
 ### P1 — Qualità grafica “quasi AAA”
@@ -1346,3 +1346,194 @@ Osservazioni oneste:
   restare dietro un interruttore di preset.
 - La strada di campagna mostra già il problema noto della Fase C: marciapiedi e
   cordoli su una provinciale fuori paese. Non è stato toccato in Fase 0.
+
+## 26/10/2026 — Incroci, guida, collisioni, quattro auto nuove, erba e alberi
+
+Blocco di lavoro sulla richiesta del proprietario: mondo e strade prima di
+tutto, poi guida e veicoli. Sotto ci sono le cause dei difetti, non solo i
+sintomi, e in fondo la **lista di cose da fare** aggiornata.
+
+### Strade e incroci: le righe grigie in mezzo alla carreggiata
+
+Le righe viste a ridosso degli incroci avevano **tre cause diverse**, tutte
+corrette in `src/world/roads.ts`:
+
+1. **Cordolo continuo.** La fascia chiara del cordolo (22 cm, tinta 0xd9d6cc)
+   correva lungo tutto il bordo della strada, anche dove un'altra via la
+   attraversava: sul punto di incrocio diventava una striscia grigia di
+   traverso. Ora cordolo, faccia verticale e marciapiede usano
+   `isOnRoad(x, z, 0.35, idx)` e si interrompono sull'altra strada.
+2. **Mezzeria attraverso l'incrocio.** Il tratteggio centrale veniva disegnato
+   anche dentro l'incrocio; ora `pushDashes` salta i trattini che finiscono
+   sull'altra carreggiata.
+3. **Attraversamento pedonale disegnato sull'incrocio.** La zebra e la linea di
+   arresto nascevano sul punto esatto in cui le strade si toccano, cioè in mezzo
+   alla carreggiata dell'altra via. Ora sono arretrate di **5,2 m** prima
+   dell'incrocio, e solo se quel punto è libero.
+
+Insieme: la mezzeria non attraversa più l'asfalto dell'incrocio, il cordolo non
+taglia la strada e la zebra sta dove si fermano davvero le auto.
+
+**Marciapiedi solo nel costruito.** Prima ogni strada asfaltata della mappa
+aveva marciapiede e cordolo, comprese le provinciali in aperta campagna (era il
+difetto noto della Fase 0). Ora `markTownSidewalks()` in `src/geo/osm.ts` segna
+punto per punto dove la strada attraversa il costruito (celle da 32 m con
+margine 30 m attorno alle case) e `src/world/roads.ts` costruisce cordolo,
+faccia verticale e lastre solo lì. **La fisica legge la stessa maschera**:
+`RoadIndex` calcola il rialzo del marciapiede per segmento da `road.walkSpans`,
+quindi in campagna non c'è più un marciapiede invisibile sotto auto e giocatore.
+Effetto collaterale positivo: circa 3 milioni di triangoli in meno (marciapiedi e
+cordoli di ~1.000 strade, la maggior parte fuori dai paesi).
+
+### Guida: retromarcia→prima e sterzata
+
+- **Non si ripartiva avanti dopo la retromarcia.** La condizione era
+  `wantsForward = speed >= -0.25`, quindi bisognava fermarsi a 0 km/h. Ora basta
+  premere il gas (`throttle > 0.05` e freno rilasciato): la prima entra subito,
+  come in un cambio automatico che passa da R a D, e la coppia motore frena da
+  sola l'inerzia all'indietro.
+- **Sterzata troppo larga.** Due limiti si sommavano: il lock calava con
+  `maxSteer / (1 + kmh * 0.075)` e il tetto di imbardata era `5,5 / speed`
+  (accelerazione laterale 5,5 m/s², da tram). A 30 km/h il raggio utile era
+  ~21 m. Ora il lock cala con **0,04** e il tetto è **9,5 m/s²**; a 30 km/h il
+  raggio scende a ~10 m, a 50 km/h a ~14 m. La risposta del volante passa da
+  6 a 8 (più rapida ma ancora addolcita) e il freno a mano continua a far
+  scivolare il posteriore.
+
+### Collisioni con i pali
+
+Nuovo `src/geo/obstacles.ts`: indice spaziale di **cerchi** (griglia 24 m) con
+`resolveCircle` e `hitsCircle`. In `game.ts` vengono registrati i pali di tutti
+i lampioni (raggio 0,16 m), i cartelli (`buildSigns`, 0,09 m) e le targhe delle
+vie (`buildStreetNames`, 0,08 m). Auto e giocatore ora vengono spinti fuori;
+l'auto perde il 70% della velocità all'urto, il pedone il 80% di quella
+laterale. Le case usavano già `BuildingIndex` (impronte poligonali).
+
+### Auto: quattro GLB nuovi, eliminate le carrozzerie procedurali
+
+Copiati dal percorso indicato dal proprietario in `public/cars/` (cartella
+**gitignored**: `public/cars/*.glb` non entra nel repo):
+
+| File originale | Nome in `public/cars/` | Slug catalogo | Note |
+| --- | --- | --- | --- |
+| `car_Mistery_Porsche.glb` | `porsche-mystery.glb` | `porsche-911` | muso a +Z, ruote `wheelFL/FR/BL/BR` |
+| `g1_movie_bumblebee_vehicle_mode_update.glb` | `camaro-bumblebee.glb` | `camaro-ss` | nascosti `Shadow` (piano d'ombra 63×81) e `Cover` |
+| `harledson_XYN.glb` | `harley-xyn.glb` | `harley-xyn` | moto, muso a −Z, due ruote `front_wheel`/`rear_wheel` |
+| `m_mg7.glb` | `mg7.glb` | `mg7` | unità centimetri, fari a +Z |
+
+- `CarManifestEntry` ha un nuovo campo **`hide`**: nodi o materiali tolti prima
+  della normalizzazione. Il Camaro portava un piano d'ombra e una copertura che
+  avrebbero falsato scala e appoggio a terra.
+- `car-library.ts` riconosce anche **due ruote** (`front_wheel`/`rear_wheel`) e
+  crea i perni `wheel-fl`/`wheel-rl`: la moto ha ruote che girano, l'anteriore
+  sterza.
+- **Le 21 voci procedurali sono state eliminate** dal catalogo: `VEHICLES` ora
+  contiene 14 modelli, tutti con `model` (10 GLB di serie + 4 del kit). La
+  carrozzeria procedurale in `vehicle.ts` resta solo come **ripiego** se un GLB
+  non si carica, così un clone senza asset non resta senza auto.
+- Nuove schede in `src/sim/vehicle-catalog.ts`: Porsche 911 Carrera, Chevrolet
+  Camaro SS, Harley XYN, MG7 2.0T. Prestazioni plausibili per il modello, non
+  schede di fabbrica verificate: sono dichiarate come tali nel commento.
+
+> **Licenze delle quattro auto.** Sono file forniti dal proprietario con
+> provenienza non documentata. Porsche, Chevrolet Camaro/Bumblebee e Harley sono
+> marchi di terzi: si possono usare in una build locale, **non ridistribuire**
+> finché non c'è una licenza esplicita. Restano fuori dal repository come gli
+> altri GLB.
+
+### Erba e alberi
+
+- **Erba**: tre quad incrociati per ciuffo (erano due), colore per vertice
+  scuro al suolo e chiaro in punta (0,48 → 1,0), palette più spenta e
+  mediterranea (6 toni, non più verdi da campo da golf). Il gradiente simula
+  l'auto-ombreggiatura: è quello che toglie l'effetto "foglia ritagliata".
+- **Ciglio**: l'erba di bordo è più chiara e polverosa invece che più verde.
+- **Alberi**: otto card per chioma (erano sei), gradiente verticale sulle foglie
+  (0,58 al piede → 1,05 in cima) e nucleo sferico più piccolo e scuro. La chioma
+  non si legge più come una palla verde con dei riquadri attorno.
+- **Cespugli**: stesso gradiente delle chiome (prima sarebbero diventati neri,
+  perché il materiale ora usa `vertexColors`).
+
+### Librerie di terreno indicate dal proprietario
+
+Le quattro librerie sono **tutte MIT** (verificato sui file `LICENSE`):
+three-map-terrain, Giro3D (MIT, non BSD), THREE.Terrain e stylized-components.
+Verdetto, fit e cosa vale la pena adottare in **`docs/TERRAIN-LIBS.md`**.
+Nessuna dipendenza aggiunta: three-map-terrain e Giro3D duplicherebbero lo
+streaming di tile, THREE.Terrain genererebbe un terreno che non è Palata,
+stylized-components è in stile anime + React. Idee adottate subito: più card per
+ciuffo e per chioma, gradiente di colore per le foglie (auto-ombreggiatura) e
+interruzione del manto agli incroci. Scattering con LOD e generazione di ponti
+restano nella lista.
+
+### Verifiche
+
+- `npx tsc --noEmit` ✅
+- `npm test` ✅ **214/214** in 25 file: nuovi test per ostacoli cilindrici,
+  retromarcia→prima, raggio di sterzata e marciapiedi solo nel costruito.
+- `npm run build` ✅ (Vite, 1,1 MB JS, 331 kB gzip)
+- **Non eseguiti**: browser, screenshot, fps. L'unico Chromium presente
+  (Playwright arm64) non parte per la libreria di sistema mancante `libnspr4.so`,
+  quindi niente prova a schermo dei quattro GLB. Da guardare in gioco:
+  muso e appoggio a terra delle 4 auto nuove, ruote della moto, sospetto che la
+  Porsche usi le ossa invece dei nodi `wheel*` (ruote ferme ma modello giusto),
+  incroci senza strisce, cordoli assenti in campagna, sterzo.
+
+### Lista di cose da fare (priorità: mondo e strade)
+
+**P0 — Verifica in gioco (nessun browser in questa macchina)**
+
+1. Provare le 4 auto nuove: muso avanti, ruote a terra, Camaro senza piano
+   d'ombra, MG7 della lunghezza giusta, moto con due ruote che girano.
+2. Incroci: nessuna riga grigia, zebra prima dell'incrocio, mezzeria interrotta.
+3. Campagna: nessun marciapiede/cordolo sulle provinciali, auto e pedone non
+   galleggiano più sul bordo.
+4. Sterzo e retromarcia→prima con la Punto; collisione contro un lampione e una
+   casa a 30 e 70 km/h.
+
+**P1 — Strade (il resto del realismo)**
+
+5. **Angoli degli incroci**: oggi il marciapiede si interrompe, ma l'angolo tra
+   le due carreggiate resta un vuoto a squadro. Servono raccordi d'asfalto e
+   cordoli con **raggio di curvatura** (2–5 m) e racchette direzionali.
+6. **Segnaletica orizzontale completa**: linea di arresto/dare precedenza a
+   tutti gli incroci (oggi solo dove c'è la zebra), frecce di direzione, strisce
+   di bordo sulle provinciali, usura della vernice (alpha/rugosità).
+7. **Fisica del marciapiede**: lo scalino di 18 cm deve farsi sentire (jolt e
+   perdita di velocità, non teletrasporto), rampe ai passaggi pedonali,
+   cordolo che ferma le ruote se preso in traverso.
+8. **Collisioni migliori**: sostituire il cerchio dell'auto con un **OBB a
+   quattro angoli** e risposta a impulso (rimbalzo/rotazione), poi alberi dei
+   filari, muretti a secco e guardrail. Suono dell'urto e scossone di camera.
+9. **Fondo stradale**: spalle in ghiaia, pozzanghere che seguono le depressioni,
+   toppe e crepe già nello shader; valutare la **continuità del manto** tra
+   strade che si toccano (z-fighting/polygon offset).
+10. **Terreno**: micro-rilievo vicino alla camera (il satellite resta piatto a
+    2 m), erba che segue il landcover (verde/Secco), fiori di campo a chiazze.
+
+**P2 — Mondi e vegetazione**
+
+11. **Alberi con LOD**: card ravvicinate + impostor oltre 150 m; oggi 14.000
+    alberi × 8 card pesano sulle iGPU (misurare con `npm run bench`).
+12. **Boschi e filari per specie**: roverella, ulivo, cipresso già distinti;
+    aggiungere pioppo lungo i torrenti e rovi/ginestre sui pendii.
+13. **Prato**: densità maggiore entro 12 m, colori per bioma e stagione.
+14. **Umani**: i due corpi Ready Player Me hanno una sola faccia e una sola
+    maglietta; prossimo passo texture/outfit variabili (richiesta rimandata dal
+    proprietario: «umani vedremo successivamente»).
+
+**P3 — Veicoli**
+
+15. Ruote della Porsche: usare le ossa `bone_wheel_*` o escluderle dal
+    riconoscimento, così i cerchi girano.
+16. Moto: inclinazione in curva e postura, non fisica a quattro ruote.
+17. Fari veri dei GLB (lente emissiva già gestita), luci di stop posteriori,
+    fendinebbia e frecce.
+18. Interni/camera abitacolo per i modelli che hanno l'abitacolo modellato
+    (Porsche e MG7).
+
+**P4 — Prestazioni e misure**
+
+19. Misurare fps e memoria con le 4 auto nuove e l'erba a tre quad; se il costo
+    sfonda, ridurre la densità del preset (non togliere la funzione).
+20. Cache delle texture/GLB in IndexedDB per non riscaricare a ogni avvio.

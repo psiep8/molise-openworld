@@ -2,9 +2,11 @@ import * as THREE from 'three';
 import { GAME, HOME, START, VIEW_RADIUS, VILLAGES, WORLD, latLonToWorld, worldToLatLon } from './config';
 import { clamp, distance2, smoothstep, type Pt } from './geo/geo';
 import { loadHeightfield, type Heightfield } from './geo/elevation';
-import { BuildingIndex, loadOsm, RoadIndex, type OsmData } from './geo/osm';
+import { BuildingIndex, loadOsm, markTownSidewalks, RoadIndex, type OsmData } from './geo/osm';
+import { ObstacleIndex } from './geo/obstacles';
 import { ESRI_WORLD_IMAGERY, ImageryStreamer } from './world/imagery';
 import { Terrain, setCloudShadow } from './world/terrain';
+import { Landcover, monthForGameDay } from './world/landcover';
 import { FarTerrain } from './world/far-terrain';
 import { buildBuildings, setWindowGlow } from './world/buildings';
 import { buildChurch } from './world/church';
@@ -166,6 +168,16 @@ export interface Diagnostics {
   triangles: number;
   /** gradini di degradazione automatica già applicati (0 = nessuno) */
   degraded: number;
+  /** copertura del suolo: modalità effettiva, chunk locali pronti e in attesa */
+  landcover: {
+    mode: 'full' | 'base' | 'off';
+    ready: boolean;
+    local: number;
+    pending: number;
+    radius: number;
+    month: number;
+    chunks: number;
+  } | null;
   route: { distance: number; label: string } | null;
   wallet: { cash: number; account: number; total: number; transactions: number };
   needs: { hunger: number; energy: number; fun: number };
@@ -299,7 +311,10 @@ export class Game {
   private osm!: OsmData;
   private roadIndex!: RoadIndex;
   private buildingIndex!: BuildingIndex;
+  /** pali, cartelli e tronchi: cilindri solidi per auto, pedoni e giocatore */
+  private obstacles = new ObstacleIndex();
   private terrain!: Terrain;
+  private landcover: Landcover | null = null;
   private sky!: SkyRig;
   private map!: MapRenderer;
   private roadGraph?: RoadGraph;
@@ -350,6 +365,8 @@ export class Game {
   private gpuName = '';
   // --- banco prova (`?bench=1`): pose fisse e misurazioni riproducibili ----
   private bench = false;
+  /** sonda A/B del banco: forza `landcover` senza cambiare preset */
+  private lcOverride: 'off' | 'base' | 'full' | null = null;
   private benchViewIndex = -1;
   private benchStats: BenchResult | null = null;
   private benchCollect: {
@@ -388,6 +405,8 @@ export class Game {
   private kit: CityKit | null = null;
   /** Auto di serie su GLB (`public/cars/`). */
   private carLibrary: CarLibrary | null = null;
+  /** Manifest delle auto GLB: va atteso prima di chiedere un modello. */
+  private carManifest: Promise<number> | null = null;
   /** Auto importate: id dello spec -> scena già normalizzata. */
   private readonly customCars = new Map<string, THREE.Object3D>();
   private cityProps: {
@@ -445,7 +464,13 @@ export class Game {
     this.quality = QUALITY_PRESETS[this.qualityLevel];
     // `?bench=1` è il banco prova riproducibile: niente input, niente
     // degradazione adattiva, pose fisse. Non cambia il rendering.
-    this.bench = new URLSearchParams(window.location.search).get('bench') === '1';
+    const params = new URLSearchParams(window.location.search);
+    this.bench = params.get('bench') === '1';
+    // Sonda A/B del solo banco prova (`?bench=1&lc=off|base|full`): permette di
+    // misurare lo stesso build con e senza copertura del suolo, senza toccare i
+    // preset veri. Fuori dal banco non ha effetto.
+    const lc = params.get('lc');
+    if (this.bench && (lc === 'off' || lc === 'base' || lc === 'full')) this.lcOverride = lc;
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: this.quality.antialias,
@@ -541,7 +566,8 @@ export class Game {
       );
       this.carLibrary = carLibrary;
       this.car.setCarLibrary(carLibrary);
-      void carLibrary.loadManifest().then((count) => {
+      this.carManifest = carLibrary.loadManifest();
+      void this.carManifest.then((count) => {
         if (count === 0) console.info('nessuna auto GLB in public/cars: restano le sagome procedurali');
       });
 
@@ -556,8 +582,11 @@ export class Game {
       this.hud.setLoading(0.34, 'Disegno strade, torrenti e paesi…');
       await nextFrame();
 
-      this.roadIndex = new RoadIndex(osm.roads);
       this.buildingIndex = new BuildingIndex(osm.buildings);
+      // prima di costruire l'indice stradale: decide dove esistono davvero
+      // marciapiedi, e la fisica deve leggere la stessa verità della grafica
+      markTownSidewalks(osm.roads, this.buildingIndex);
+      this.roadIndex = new RoadIndex(osm.roads);
       this.roadGraph = buildRoadGraph(osm.roads);
       this.ensureHome();
       this.populateVehicles();
@@ -573,10 +602,12 @@ export class Game {
         this.quality.pointLights,
       );
       this.scene.add(this.streetLights.group);
+      // ogni lampione è un palo vero: si registra come ostacolo cilindrico
+      for (const lamp of streets.lamps) this.obstacles.add(lamp.x, lamp.z, 0.16);
       this.scene.add(buildWater(osm, heights, this.renderer));
 
-      this.scene.add(buildSigns(osm, heights, this.buildingIndex, this.renderer, this.kit));
-      this.scene.add(buildStreetNames(osm, heights, this.buildingIndex));
+      this.scene.add(buildSigns(osm, heights, this.buildingIndex, this.renderer, this.kit, this.obstacles));
+      this.scene.add(buildStreetNames(osm, heights, this.buildingIndex, this.obstacles));
       this.scene.add(buildStreetProps(osm, heights, this.buildingIndex, this.renderer, this.kit, this.qualityLevel));
       // chiusini e caditoie: due InstancedMesh da ~600.000 triangoli in mappa,
       // invisibili da lontano e ininfluenti sulla guida. Sui preset leggeri non si
@@ -657,6 +688,9 @@ export class Game {
       if (!initialCustom && initial.model && this.carLibrary) {
         this.hud.setLoading(0.695, `Preparo ${initial.name}…`);
         await nextFrame();
+        // senza il manifest l'auto non è ancora in libreria e resterebbe la
+        // sagoma di ripiego: il fetch locale è veloce ma non è gratis
+        if (this.carManifest) await this.carManifest;
         await this.carLibrary.get(initial.model);
       }
       this.car.setSpec(initial, initialCustom);
@@ -696,7 +730,22 @@ export class Game {
       // il tetto di zoom va passato **qui**: `applyQuality` gira nel costruttore,
       // prima che il terreno esista, e senza questo argomento ogni preset
       // scaricava comunque tile z18 (era il vero costo nascosto dei preset bassi)
-      this.terrain = new Terrain(heights, imagery, this.renderer, this.quality.maxSatelliteZoom);
+      this.hud.setLoading(0.74, 'Leggo la copertura del suolo…');
+      this.landcover = new Landcover(
+        this.renderer.capabilities.getMaxAnisotropy(),
+        this.quality.landcover,
+        this.quality.landcoverRadius,
+      );
+      // senza i file la promessa si risolve lo stesso e resta il vecchio shader
+      await this.landcover.load();
+      this.landcover.setSeason(monthForGameDay(this.gameDay));
+      this.terrain = new Terrain(
+        heights,
+        imagery,
+        this.renderer,
+        this.quality.maxSatelliteZoom,
+        this.landcover,
+      );
       this.scene.add(this.terrain.group);
       // cintura di montagne oltre il DEM: una mesh, una draw call, nessuna texture
       this.farTerrain = new FarTerrain(heights);
@@ -1375,6 +1424,7 @@ export class Game {
     const custom = this.customCars.get(spec.id) ?? null;
     if (!custom && spec.model && this.carLibrary) {
       if (!this.carLibrary.cached(spec.model)) this.hud.toast(`Carico ${spec.name}…`, 1800);
+      if (this.carManifest) await this.carManifest;
       await this.carLibrary.get(spec.model);
       if (request !== this.vehicleRequest) return;
     }
@@ -2201,6 +2251,13 @@ export class Game {
     const previous = this.quality;
     this.qualityLevel = level;
     this.quality = QUALITY_PRESETS[level];
+    if (this.bench && this.lcOverride) {
+      this.quality = {
+        ...this.quality,
+        landcover: this.lcOverride,
+        landcoverRadius: this.lcOverride === 'full' ? this.quality.landcoverRadius : 0,
+      };
+    }
     saveQuality(level);
     this.renderScale = 1;
     // cambiare preset a mano azzera la degradazione automatica: l'utente ha
@@ -2214,6 +2271,7 @@ export class Game {
     this.applyRenderScale();
     this.sky?.setShadowMapSize(this.quality.shadowMapSize);
     this.terrain?.setMaxZoom(this.quality.maxSatelliteZoom);
+    this.terrain?.setLandcoverPreset(this.quality.landcover, this.quality.landcoverRadius);
     if (this.quality.post) {
       const post = this.ensurePost();
       post.setEnabled(!this.stereo);
@@ -2919,6 +2977,9 @@ export class Game {
       }
     });
     add(this.scene.environment);
+    // le texture della copertura del suolo sono uniform dello shader, non
+    // proprietà di un materiale: senza questo la stima le perderebbe
+    for (const texture of this.landcover?.textures() ?? []) add(texture);
     return bytes / (1024 * 1024);
   }
 
@@ -2946,6 +3007,7 @@ export class Game {
       if (this.gameMinutes >= 1440) {
         this.gameMinutes -= 1440;
         this.gameDay++;
+        this.terrain?.setSeason(monthForGameDay(this.gameDay));
       }
       this.needs = advanceNeeds(this.needs, gameDelta);
     }
@@ -2956,12 +3018,19 @@ export class Game {
     }
 
     if (this.mode === 'walk') {
-      this.player.update(dt, move, this.heights, this.buildingIndex, this.roadIndex);
+      this.player.update(dt, move, this.heights, this.buildingIndex, this.roadIndex, this.obstacles);
       this.player.position.x = clamp(this.player.position.x, -WORLD.halfWidth + 25, WORLD.halfWidth - 25);
       this.player.position.z = clamp(this.player.position.z, -WORLD.halfHeight + 25, WORLD.halfHeight - 25);
       this.updateWalkCamera(dt);
     } else {
-      this.car.update(dt, this.readCarInput(move), this.heights, this.roadIndex, this.buildingIndex);
+      this.car.update(
+        dt,
+        this.readCarInput(move),
+        this.heights,
+        this.roadIndex,
+        this.buildingIndex,
+        this.obstacles,
+      );
       this.updateDriveCamera(dt);
     }
 
@@ -3193,6 +3262,7 @@ export class Game {
       drawCalls: this.renderer.info.render.calls,
       triangles: this.renderer.info.render.triangles,
       degraded: this.degradeStep,
+      landcover: this.terrain?.landcoverStats ?? this.landcover?.stats() ?? null,
       route: this.route ? { distance: Math.round(this.route.distance), label: this.routeLabel } : null,
       wallet: {
         cash: this.wallet.cash,

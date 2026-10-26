@@ -17,6 +17,7 @@ import {
   tintPaint,
 } from '../gfx/car-paint';
 import type { Heightfield } from '../geo/elevation';
+import type { ObstacleIndex } from '../geo/obstacles';
 import type { BuildingIndex, RoadIndex } from '../geo/osm';
 import type { CityKit } from '../world/citykit';
 import type { CarLibrary } from '../world/car-library';
@@ -615,7 +616,13 @@ export class Vehicle {
     // ruote: se la carrozzeria è un pezzo solo vengono separate (perni al mozzo).
     // Per un GLB importato la geometria originale è di sua proprietà e viene
     // liberata; i template del kit restano intatti (sono condivisi).
-    splitCarWheels(source, source === this.customModel);
+    // I template della libreria arrivano già con i perni: rifare l'analisi su
+    // una moto a due ruote rischierebbe di trovare quattro "ruote" fantasma.
+    let hasHubs = false;
+    source.traverse((object) => {
+      if (object.name.endsWith('-hub')) hasHubs = true;
+    });
+    if (!hasHubs) splitCarWheels(source, source === this.customModel);
     this.collectExternalWheels(source);
     this.applyEnvironment();
     // tinta scelta dall'utente (se c'è): altrimenti resta quella del modello
@@ -839,7 +846,14 @@ export class Vehicle {
     this.tiltRoll = 0;
   }
 
-  update(dt: number, input: CarInput, heights: Heightfield, roads: RoadIndex, buildings: BuildingIndex): void {
+  update(
+    dt: number,
+    input: CarInput,
+    heights: Heightfield,
+    roads: RoadIndex,
+    buildings: BuildingIndex,
+    obstacles?: ObstacleIndex,
+  ): void {
     const spec = this.spec;
     const halfTrack = spec.track / 2;
 
@@ -865,6 +879,16 @@ export class Vehicle {
       next.x = fixed.x;
       next.z = fixed.z;
       next.speed *= 0.5;
+    }
+    // pali della luce e cartelli: sono cilindri, non muri. L'auto viene spinta
+    // fuori e perde velocità, ma non si incastra né teletrasporta.
+    if (obstacles) {
+      const pole = obstacles.resolveCircle(next.x, next.z, Math.min(1.15, spec.width * 0.5));
+      if (pole.hit) {
+        next.x = pole.x;
+        next.z = pole.z;
+        next.speed *= 0.3;
+      }
     }
 
     this.state = next;

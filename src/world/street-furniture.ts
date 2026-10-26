@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Heightfield } from '../geo/elevation';
 import { clamp, distanceToSegment2, mulberry32, type Pt } from '../geo/geo';
+import type { ObstacleIndex } from '../geo/obstacles';
 import { CURB_HEIGHT, ROAD_LIFT, type BuildingIndex, type OsmData } from '../geo/osm';
 import { pbr } from '../gfx/textures';
 import type { CityKit } from './citykit';
@@ -187,6 +188,8 @@ export function buildSigns(
   // il kit non serve più per il palo (vedi sotto): resta in firma per non
   // toccare i chiamanti
   _kit?: CityKit | null,
+  // i pali sono ostacoli veri: senza, l'auto li attraversa
+  obstacles?: ObstacleIndex,
 ): THREE.Group {
   const group = new THREE.Group();
   group.name = 'road-signs';
@@ -232,6 +235,7 @@ export function buildSigns(
       const roll = rng();
       const kind: SignKind = roll < 0.34 ? 'stop' : roll < 0.7 ? 'yield' : 'speed';
       placements.push({ x, z, yaw, kind });
+      obstacles?.add(x, z, 0.09);
       if (placements.length > 700) break;
     }
     if (placements.length > 700) break;
@@ -489,6 +493,7 @@ export function buildStreetNames(
   osm: OsmData,
   heights: Heightfield,
   buildings: BuildingIndex,
+  obstacles?: ObstacleIndex,
 ): THREE.Group {
   const group = new THREE.Group();
   group.name = 'street-names';
@@ -539,6 +544,7 @@ export function buildStreetNames(
       // la faccia guarda la strada
       const yaw = Math.atan2(tz * side, -tx * side);
       placed.push({ x, z, yaw, name });
+      obstacles?.add(x, z, 0.08);
       seen.push({ x, z });
       byName.set(name, seen);
       break;

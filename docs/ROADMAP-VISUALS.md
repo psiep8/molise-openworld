@@ -8,7 +8,7 @@ costa e cosa si rischia.
 Stato di partenza: il gioco usa **`THREE.WebGLRenderer`** (`src/game.ts`), un DEM
 reale con ortofoto ESRI (`src/world/terrain.ts`, `src/world/imagery.ts`), strade
 e impronte OSM, un city kit PBR (**38 asset**, di cui 8 case/rimesse e 6 alberi
-da campo) e un catalogo di **31 veicoli guidabili** (21 procedurali, 6 su GLB e
+da campo) e un catalogo di **14 veicoli guidabili** (tutti su GLB: 10 di serie e
 4 carrozzerie del kit), più le auto importate dal garage.
 
 ---

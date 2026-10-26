@@ -43,6 +43,35 @@
       "name": "Cupra Terramar",
       "yaw": 90,
       "length": 4.52
+    },
+    {
+      "slug": "porsche-mystery",
+      "file": "porsche-mystery.glb",
+      "name": "Porsche 911 Carrera (Mistery)",
+      "yaw": 0,
+      "length": 4.52
+    },
+    {
+      "slug": "camaro-bumblebee",
+      "file": "camaro-bumblebee.glb",
+      "name": "Chevrolet Camaro SS",
+      "yaw": 0,
+      "length": 4.78,
+      "hide": ["Shadow", "Cover"]
+    },
+    {
+      "slug": "harley-xyn",
+      "file": "harley-xyn.glb",
+      "name": "Harley XYN",
+      "yaw": 180,
+      "length": 2.25
+    },
+    {
+      "slug": "mg7",
+      "file": "mg7.glb",
+      "name": "MG7 2.0T",
+      "yaw": 0,
+      "length": 4.88
     }
   ]
 }

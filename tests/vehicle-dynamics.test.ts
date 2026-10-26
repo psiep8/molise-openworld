@@ -41,29 +41,33 @@ describe('prestazioni reali dei veicoli', () => {
     });
   }
 
-  it('nessun veicolo va oltre i 360 km/h e il tre ruote non è un missile', () => {
+  it('nessun veicolo va oltre i 360 km/h', () => {
     for (const spec of VEHICLES) {
       expect(drive(spec, gas, 150).speed * 3.6).toBeLessThanOrEqual(360);
     }
-    const trike = VEHICLES.find((v) => v.id === 'trike');
-    expect(trike?.topSpeedKmh).toBeLessThan(200);
   });
 
   it('l’etichetta del menu riporta motore, potenza e velocità reale', () => {
-    const label = vehicleLabel(VEHICLES[1]);
-    expect(label).toContain('1.2 Fire 8V');
-    expect(label).toContain('69 CV');
-    expect(label).toContain('164 km/h');
+    const punto = VEHICLES.find((v) => v.id === 'punto');
+    expect(punto).toBeDefined();
+    const label = vehicleLabel(punto!);
+    expect(label).toContain('1.2 8V');
+    expect(label).toContain('65 CV');
+    expect(label).toContain('155 km/h');
+  });
+
+  it('il catalogo di serie contiene solo modelli con un GLB', () => {
+    for (const spec of VEHICLES) expect(spec.model).toBeTruthy();
   });
 });
 
 describe('cambio, partenza e frenata', () => {
   it('parte in prima e sale di marcia fino all’ultima', () => {
-    const spec = VEHICLES[8]; // Junior, 6 marce
+    const spec = VEHICLES.find((v) => v.id === 'ferrari-458')!; // 7 marce
     const tuning = tuningFor(spec);
     let state = createCarState(0, 0, 0);
     const seen: number[] = [];
-    for (let i = 0; i < 60 * 60; i++) {
+    for (let i = 0; i < 60 * 90; i++) {
       const gear = state.gear;
       state = stepCar(state, gas, road, dt, tuning);
       if (state.gear !== gear) seen.push(state.gear);
@@ -71,12 +75,12 @@ describe('cambio, partenza e frenata', () => {
       expect(state.rpm).toBeGreaterThanOrEqual(spec.idleRpm - 1);
     }
     expect(seen[0]).toBe(2);
-    expect(seen).toEqual([2, 3, 4, 5, 6]);
+    expect(seen).toEqual([2, 3, 4, 5, 6, 7]);
     expect(state.gear).toBe(spec.gears);
   });
 
   it('scala marcia quando si rallenta senza frenare', () => {
-    const spec = VEHICLES[7]; // C3, 5 marce
+    const spec = VEHICLES.find((v) => v.id === 'punto')!; // 5 marce
     const tuning = tuningFor(spec);
     let state = drive(spec, gas, 40);
     expect(state.gear).toBe(5);
@@ -86,8 +90,8 @@ describe('cambio, partenza e frenata', () => {
     expect(state.gear).toBeLessThan(5);
   });
 
-  it('in prima il tre ruote pattina ma non si scompone', () => {
-    const spec = VEHICLES[4];
+  it('in prima una trazione posteriore potente pattina ma non si scompone', () => {
+    const spec = VEHICLES.find((v) => v.id === 'ferrari-458')!;
     const tuning = tuningFor(spec);
     let state = createCarState(0, 0, 0);
     let spun = false;
@@ -128,8 +132,46 @@ describe('cambio, partenza e frenata', () => {
     }
   });
 
+  it('dalla retromarcia si rimette la prima con il gas, senza fermarsi', () => {
+    for (const spec of VEHICLES) {
+      const tuning = tuningFor(spec);
+      // si arriva in retromarcia lanciata...
+      let state = createCarState(0, 0, 0);
+      for (let i = 0; i < 60 * 5; i++) state = stepCar(state, brake, road, dt, tuning);
+      expect(state.gear).toBe(-1);
+      const reverseSpeed = Math.abs(state.speed);
+      expect(reverseSpeed).toBeGreaterThan(0.5);
+      // ...e si preme il gas: la prima entra subito, non a 0 km/h
+      state = stepCar(state, gas, road, dt, tuning);
+      expect(state.gear).toBe(1);
+      for (let i = 0; i < 60 * 6; i++) state = stepCar(state, gas, road, dt, tuning);
+      expect(state.speed).toBeGreaterThan(0);
+    }
+  });
+
+  it('lo sterzo chiude le curve di un’auto vera, non di un tram', () => {
+    const spec = VEHICLES.find((v) => v.id === 'punto')!;
+    const tuning = tuningFor(spec);
+    // 30 km/h, volante a fondo corsa: raggio d'azione sotto i 12 m
+    let state: CarState = { ...createCarState(0, 0, 0), speed: 30 / 3.6, gear: 2 };
+    let travelled = 0;
+    for (let i = 0; i < 60 * 3; i++) {
+      state = stepCar(state, { throttle: 0.4, brake: 0, steer: 1, handbrake: false }, road, dt, tuning);
+      // velocità tenuta a 30 km/h: si misura il raggio di sterzata, non
+      // l'effetto dell'accelerazione sul raggio
+      state = { ...state, speed: 30 / 3.6 };
+      travelled += Math.abs(state.speed) * dt;
+    }
+    const turned = Math.abs(state.yaw);
+    expect(turned).toBeGreaterThan(1.2);
+    // raggio ≈ spazio percorso / angolo (in radianti)
+    const radius = travelled / Math.max(0.001, turned);
+    expect(radius).toBeLessThan(11.5);
+    expect(radius).toBeGreaterThan(4);
+  });
+
   it('fuori strada va più piano che sull’asfalto', () => {
-    const spec = VEHICLES[3];
+    const spec = VEHICLES.find((v) => v.id === 'punto')!;
     const tuning = tuningFor(spec);
     let onRoad = createCarState(0, 0, 0);
     let offRoad = createCarState(0, 0, 0);
@@ -141,8 +183,9 @@ describe('cambio, partenza e frenata', () => {
   });
 
   it('è deterministica a parità di input', () => {
-    const a = drive(VEHICLES[3], gas, 40);
-    const b = drive(VEHICLES[3], gas, 40);
+    const spec = VEHICLES.find((v) => v.id === 'punto')!;
+    const a = drive(spec, gas, 40);
+    const b = drive(spec, gas, 40);
     expect(a).toEqual(b);
   });
 });

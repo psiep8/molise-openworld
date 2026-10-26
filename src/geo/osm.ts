@@ -39,6 +39,47 @@ export interface Road {
   paved: boolean;
   points: Pt[];
   bounds: Bounds;
+  /**
+   * Un valore per punto: il marciapiede esiste solo dove la strada attraversa
+   * il costruito. In campagna la provinciale non ha cordoli né lastre, e la
+   * fisica deve saperlo (altrimenti auto e giocatore galleggiano su un
+   * marciapiede invisibile). Lo riempie `markTownSidewalks`. Se manca, il
+   * marciapiede vale per tutta la strada (comportamento storico).
+   */
+  walkSpans?: boolean[];
+}
+
+/**
+ * Segna, punto per punto, dove una strada asfaltata ha il marciapiede.
+ *
+ * Il criterio è lo stesso delle strisce e dei lampioni: il marciapiede è un
+ * fatto urbano, non un accessorio della carreggiata. Prima nasceva su ogni
+ * strada asfaltata della mappa, comprese le provinciali in mezzo ai campi, e
+ * il risultato erano cordoli in aperta campagna (difetto annotato nel piano
+ * di realismo).
+ */
+export function markTownSidewalks(roads: Road[], buildings: BuildingIndex): void {
+  const cell = 32;
+  const margin = 30;
+  const covered = new Set<number>();
+  const key = (cx: number, cz: number): number => (cx + 4096) * 8192 + (cz + 4096);
+  for (const b of buildings.all) {
+    const minX = b.bounds.minX - margin;
+    const maxX = b.bounds.maxX + margin;
+    const minZ = b.bounds.minZ - margin;
+    const maxZ = b.bounds.maxZ + margin;
+    for (let cx = Math.floor(minX / cell); cx <= Math.floor(maxX / cell); cx++) {
+      for (let cz = Math.floor(minZ / cell); cz <= Math.floor(maxZ / cell); cz++) {
+        covered.add(key(cx, cz));
+      }
+    }
+  }
+  for (const road of roads) {
+    if (!road.paved) continue;
+    road.walkSpans = road.points.map((p) =>
+      covered.has(key(Math.floor(p.x / cell), Math.floor(p.z / cell))),
+    );
+  }
 }
 
 export interface Building {
@@ -233,10 +274,16 @@ export class RoadIndex {
     for (const [index, road] of roads.entries()) {
       const half = road.width / 2;
       const lift = roadLift(index, road.paved);
-      const walk = road.paved ? (road.width >= 6 ? 1.8 : 1.45) : 0;
+      const walkWidth = road.paved ? (road.width >= 6 ? 1.8 : 1.45) : 0;
       for (let i = 1; i < road.points.length; i++) {
         const a = road.points[i - 1];
         const b = road.points[i];
+        // marciapiede solo nel costruito: la fisica deve combaciare col nastro
+        const walk = road.walkSpans
+          ? road.walkSpans[i - 1] || road.walkSpans[i]
+            ? walkWidth
+            : 0
+          : walkWidth;
         const minX = Math.min(a.x, b.x) - half;
         const maxX = Math.max(a.x, b.x) + half;
         const minZ = Math.min(a.z, b.z) - half;

@@ -5,31 +5,21 @@ Il catalogo non è più tarato "a occhio": ogni scheda in
 fabbrica. Il modello fisico (`src/sim/car.ts`) li trasforma in accelerazione,
 cambio, frenata e velocità di punta.
 
-Il catalogo ha **31 voci**: 21 con carrozzeria procedurale, 6 con modello GLB
-(§ *Auto di serie su GLB*) e 4 carrozzerie low-poly del city kit. Le quattro
+Il catalogo ha **14 voci, tutte con un modello GLB**: 10 di serie in
+`public/cars/` e 4 carrozzerie low-poly del city kit. Le 21 voci procedurali
+(con le loro schede) sono state **eliminate il 26/10/2026** su richiesta del
+proprietario: le fonti qui sotto restano solo come archivio storico. Le quattro
 voci del kit non rappresentano un modello reale: la loro scheda è un
 **riferimento di segmento**, non un dato di fabbrica.
 
-## Schede
-
-| id | Veicolo | Motore | Cilindrata | Potenza | Coppia | Massa | 0-100 | Velocità max | Marce |
-|---|---|---|---|---|---|---|---|---|---|
-| `panda-classic` | Fiat Panda (141) | 1.0 Fire 8V | 999 cm³ | 45 CV @ 5000 | 74 Nm @ 3250 | 780 kg | 16,2 s | 140 km/h | 5 |
-| `panda-new` | Fiat Panda (319) | 1.2 Fire 8V | 1242 cm³ | 69 CV @ 5500 | 102 Nm @ 3000 | 1015 kg | 14,2 s | 164 km/h | 5 |
-| `punto` | Fiat Grande Punto | 1.2 8V | 1242 cm³ | 65 CV @ 5500 | 102 Nm @ 3000 | 1020 kg | 14,5 s | 155 km/h | 5 |
-| `renegade` | Jeep Renegade | 1.6 Multijet II | 1598 cm³ | 120 CV @ 3750 | 320 Nm @ 1750 | 1435 kg | 10,2 s | 178 km/h | 6 |
-| `trike` | Trike Touring 1.9 | V-twin 114 ci | 1868 cm³ | 93 CV @ 5020 | 162 Nm @ 2500 | 570 kg | ~7,6 s | ~160 km/h | 6 |
-| `500x` | Fiat 500X | 1.6 E-Torq | 1598 cm³ | 110 CV @ 5500 | 152 Nm @ 4500 | 1320 kg | 11,5 s | 180 km/h | 5 |
-| `captur` | Renault Captur | 1.5 dCi 90 | 1461 cm³ | 90 CV @ 4000 | 220 Nm @ 1750 | 1245 kg | 13,1 s | 171 km/h | 5 |
-| `c3` | Citroën C3 III | 1.2 PureTech 82 | 1199 cm³ | 82 CV @ 5750 | 118 Nm @ 2750 | 1050 kg | 14,2 s | 174 km/h | 5 |
-| `junior` | Alfa Romeo Junior | 1.2 Hybrid 136 | 1199 cm³ | 136 CV @ 5500 | 230 Nm @ 1750 | 1385 kg | 8,9 s | 206 km/h | 6 |
-
 ## Auto di serie su GLB
 
-Sei voci usano un modello in `public/cars/` (manifest versionato, binari fuori
-da git). Le misure e i dati meccanici sono quelli della versione indicata; il
-modello viene normalizzato e scalato sulla lunghezza, quindi la scheda resta la
-fonte di verità anche se il GLB ha proporzioni leggermente diverse.
+Dieci voci usano un modello in `public/cars/` (manifest versionato, binari fuori
+da git). Le misure e i dati meccanici sono quelli della versione indicata per le
+sei voci storiche; per le quattro aggiunte il 26/10 (Porsche, Camaro, Harley,
+MG7) sono **stime plausibili del modello**, non schede di fabbrica verificate.
+Il modello viene normalizzato e scalato sulla lunghezza, quindi la scheda resta
+la fonte di verità anche se il GLB ha proporzioni leggermente diverse.
 
 | id | Veicolo | Motore | Cilindrata | Potenza | Coppia | Massa | 0-100 | Velocità max | Marce |
 |---|---|---|---|---|---|---|---|---|---|
@@ -39,6 +29,12 @@ fonte di verità anche se il GLB ha proporzioni leggermente diverse.
 | `land-rover-defender` | Land Rover Defender | 3.0 I6 turbo MHEV | 2996 cm³ | 400 CV @ 6500 | 550 Nm @ 2000 | 2455 kg | 6,1 s | 191 km/h | 8 |
 | `audi-r8` | Audi R8 V10 Performance | 5.2 V10 FSI | 5204 cm³ | 620 CV @ 8000 | 580 Nm @ 6400 | 1595 kg | 3,1 s | 331 km/h | 7 |
 | `cupra-terramar` | Cupra Terramar | 2.0 TSI | 1984 cm³ | 265 CV @ 5500 | 400 Nm @ 1600 | 1740 kg | 5,9 s | 243 km/h | 7 |
+| `porsche-911` | Porsche 911 Carrera | 3.0 flat-6 biturbo | 2981 cm³ | 394 CV @ 6500 | 450 Nm @ 1950 | 1585 kg | 4,2 s* | 294 km/h | 8 |
+| `camaro-ss` | Chevrolet Camaro SS | 6.2 V8 LS3 | 6162 cm³ | 426 CV @ 5900 | 570 Nm @ 4600 | 1750 kg | 4,6 s* | 250 km/h | 6 |
+| `harley-xyn` | Harley XYN (moto) | 1.9 V-twin | 1868 cm³ | 100 CV @ 5500 | 160 Nm @ 3200 | 250 kg | 5,9 s* | 200 km/h | 6 |
+| `mg7` | MG7 2.0T | 2.0 turbo | 1986 cm³ | 261 CV @ 5500 | 405 Nm @ 1500 | 1620 kg | 6,5 s* | 210 km/h | 8 |
+
+\* stima di segmento: non è un dato di fabbrica verificato.
 
 Note:
 
@@ -144,7 +140,7 @@ codice li stima dai dati dichiarati:
 
 ## Quanto è fedele la simulazione
 
-Verificato da `tests/vehicle-dynamics.test.ts` su **tutte le 31 voci** del
+Verificato da `tests/vehicle-dynamics.test.ts` su **tutte le 14 voci** del
 catalogo (le auto importate dall'utente hanno una scheda stimata e non entrano
 in questo test); `tests/engine-voice.test.ts` copre la voce del motore:
 
@@ -157,5 +153,5 @@ in questo test); `tests/engine-voice.test.ts` copre la voce del motore:
   decelerazione, non supera il limitatore;
 - retromarcia inserita col freno da fermo e limitata alla velocità dichiarata.
 
-Il tre ruote, per esempio, si ferma a 160 km/h come un trike turistico reale:
-niente 200 all'ora.
+La moto, per esempio, si ferma a 200 km/h: nessun veicolo del catalogo supera
+il tetto globale di 360 km/h.

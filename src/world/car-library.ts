@@ -38,6 +38,13 @@ export interface CarManifestEntry {
   yaw?: number;
   /** lunghezza misurata dell'asset, in metri (diagnostica) */
   length?: number;
+  /**
+   * Nodi o materiali da togliere prima di normalizzare: molti GLB da gioco
+   * portano con sé un piano d'ombra finto, una copertura o pezzi della
+   * trasformazione che nel mondo non devono esistere. Si tolgono davvero,
+   * così non entrano né nel box né nella scena.
+   */
+  hide?: string[];
 }
 
 export interface CarAsset {
@@ -75,6 +82,9 @@ export async function loadCarManifest(baseUrl: string): Promise<CarManifestEntry
 }
 
 function tagFromName(name: string): string | null {
+  // moto e modelli con due sole ruote: `front_wheel` / `rear_wheel`
+  if (/(?:^|[-_ ])front[-_ ]?wheel$/i.test(name)) return 'fl';
+  if (/(?:^|[-_ ])rear[-_ ]?wheel$/i.test(name)) return 'rl';
   const direct = WHEEL_TAG.exec(name);
   if (direct) {
     const tag = direct[1].toLowerCase();
@@ -98,6 +108,23 @@ function isInsideHub(object: THREE.Object3D): boolean {
     if (parent.name.endsWith('-hub')) return true;
   }
   return false;
+}
+
+/** Toglie dalla scena i nodi e i materiali elencati nel manifest. */
+function removeHidden(root: THREE.Object3D, hide: readonly string[]): void {
+  if (hide.length === 0) return;
+  const wanted = new Set(hide.map((name) => name.toLowerCase()));
+  const doomed: THREE.Object3D[] = [];
+  root.traverse((object) => {
+    const names = [object.name.toLowerCase()];
+    const mesh = object as THREE.Mesh;
+    if (mesh.isMesh) {
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const material of materials) if (material?.name) names.push(material.name.toLowerCase());
+    }
+    if (names.some((name) => wanted.has(name))) doomed.push(object);
+  });
+  for (const object of doomed) object.parent?.remove(object);
 }
 
 /** Spegne le emissive "da showroom" che usano l'albedo come luce. */
@@ -379,6 +406,7 @@ export class CarLibrary {
 
   private async load(entry: CarManifestEntry): Promise<CarAsset | null> {
     const gltf = await this.loader.loadAsync(`${this.baseUrl}${entry.file}`);
+    removeHidden(gltf.scene, entry.hide ?? []);
     tameMaterials(gltf.scene, this.anisotropy);
     const template = normalize(gltf.scene, entry);
 
@@ -387,7 +415,11 @@ export class CarLibrary {
 
     let wheels = 0;
     const declared = declaredWheels(template);
-    if (declared.length >= 4) {
+    const twoWheeler =
+      declared.length === 2 &&
+      declared.some((wheel) => wheel.tag === 'fl') &&
+      declared.some((wheel) => wheel.tag === 'rl');
+    if (declared.length >= 4 || twoWheeler) {
       for (const { node, tag } of declared) {
         detachBrakeParts(node, template);
         makeHub(template, node, tag);
@@ -399,7 +431,7 @@ export class CarLibrary {
     // ultimo tentativo: ruote fuse nella carrozzeria (Punto e molti GLB
     // esportati da editor voxel). `splitCarWheels` non tocca nulla se non
     // trova quattro ruote plausibili.
-    if (wheels < 4) {
+    if (wheels === 0) {
       const split = splitCarWheels(template, false);
       wheels = split?.wheels ?? 0;
     }

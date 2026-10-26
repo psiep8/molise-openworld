@@ -41,7 +41,7 @@ Questo documento è la fonte di verità sullo stato delle funzionalità. Legenda
 
 | Funzionalità | Stato | Note |
 | --- | --- | --- |
-| 31 modelli in catalogo | **Fatto** | 21 procedurali (8 + 13) + 6 auto di serie su GLB + 4 carrozzerie del kit |
+| 14 modelli in catalogo | **Fatto** | 10 modelli su GLB di serie + 4 carrozzerie del kit; le 21 sagome procedurali sono state eliminate il 26/10 |
 | Selezione e guida di ogni modello | **Fatto** | Select popolata dall'intero catalogo; i 6 GLB e i 4 del kit provati in gioco |
 | Prestazioni reali (dati tecnici) | **Fatto** | cilindrata, potenza, coppia, 0-100, velocità massima; vedi `docs/VEHICLE_DATA.md` |
 | Sagome procedurali originali | **Parziale** | Forme stilizzate e distinguibili; **nessun asset GLB di marca** |
@@ -66,7 +66,7 @@ Questo documento è la fonte di verità sullo stato delle funzionalità. Legenda
 
 1. **Verifica manuale in Chrome** dei flussi nuovi: entrare in un'attività con `E`,
    comprare (contanti e conto), usare l'ATM, dormire a casa, aprire il portafoglio
-   con `I`, e provare su strada i 31 modelli (e un GLB importato dal garage).
+   con `I`, e provare su strada i 14 modelli (e un GLB importato dal garage).
 2. **Fotografia dei luoghi**: per portare un luogo da `needs-review` a `verified`
    servono fonte, data e conferma della posizione. Finché manca, resta `needs-review`.
 3. **Sandbox separato**: modalità di prova libera di tutti i veicoli e gli outfit,

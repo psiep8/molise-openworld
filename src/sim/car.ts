@@ -175,8 +175,12 @@ export function stepCar(
   if (next.shiftTimer > 0) next.shiftTimer = Math.max(0, next.shiftTimer - dt);
 
   // --- selezione marcia: avanti / retromarcia ------------------------------
+  // La retromarcia si inserisce col freno da fermo. Per tornare avanti basta
+  // il gas, anche se l'auto sta ancora arretrando: è quello che fa un cambio
+  // automatico quando si passa da R a D, e prima costringeva a fermarsi del
+  // tutto (a 0 km/h) prima di poter ripartire.
   const wantsReverse = next.speed <= 0.25 && input.throttle < 0.05 && input.brake > 0.4;
-  const wantsForward = next.speed >= -0.25 && input.throttle > 0.05;
+  const wantsForward = input.throttle > 0.05 && input.brake < 0.05;
   if (next.gear < 0 && wantsForward) {
     next.gear = 1;
     next.shiftTimer = tuning.shiftTime;
@@ -260,16 +264,19 @@ export function stepCar(
 
   // --- sterzo (bicycle model) ---------------------------------------------
   // La tastiera dà tutto lo sterzo in un colpo: la risposta va addolcita e il
-  // lock va ridotto con la velocità. A 50 km/h il volante girava di ~190°/s e
-  // sembrava un kart; ora c'è anche un tetto di accelerazione laterale.
+  // lock va ridotto con la velocità. La riduzione era però troppo aggressiva
+  // (a 30 km/h il volante restava quasi dritto e ogni curva richiedeva di
+  // rallentare a passo d'uomo): ora il lock cala più lentamente e il tetto di
+  // accelerazione laterale è quello di un'auto con gomme buone, non di un
+  // tram. A 30 km/h il raggio d'azione resta intorno ai 9 m, a 50 km/h ai 16.
   const steerTarget = clamp(input.steer, -1, 1);
-  const steerLerp = 1 - Math.exp(-6 * dt);
+  const steerLerp = 1 - Math.exp(-8 * dt);
   next.steer += (steerTarget - next.steer) * steerLerp;
 
   const kmh = Math.abs(next.speed) * 3.6;
-  const lock = tuning.maxSteer / (1 + kmh * 0.075);
+  const lock = tuning.maxSteer / (1 + kmh * 0.04);
   let yawRate = (next.speed / tuning.wheelbase) * Math.tan(next.steer * lock);
-  const yawCap = Math.abs(next.speed) > 0.5 ? Math.min(2.4, 5.5 / Math.abs(next.speed)) : 2.4;
+  const yawCap = Math.abs(next.speed) > 0.5 ? Math.min(2.6, 9.5 / Math.abs(next.speed)) : 2.6;
   yawRate = clamp(yawRate, -yawCap, yawCap);
   if (input.handbrake) yawRate *= 1.9;
   // fuori strada il posteriore scivola un po' di più

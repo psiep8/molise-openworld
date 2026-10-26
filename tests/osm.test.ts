@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { BuildingIndex, RoadIndex, roadSurface, roadWidth, type Building, type Road } from '../src/geo/osm';
+import {
+  BuildingIndex,
+  RoadIndex,
+  markTownSidewalks,
+  roadSurface,
+  roadWidth,
+  type Building,
+  type Road,
+} from '../src/geo/osm';
 import { isRealJunction } from '../src/world/roads';
 
 function building(x: number, z: number, size = 10, height = 6): Building {
@@ -138,6 +146,30 @@ describe('indice strade', () => {
       expect(Math.abs(Math.abs(p.z) - 2.78)).toBeLessThan(1e-6);
       expect(Math.abs(p.x)).toBeLessThanOrEqual(40);
     }
+  });
+});
+
+describe('marciapiedi solo nel costruito', () => {
+  it('segna i punti vicini alle case e lascia nuda la provinciale', () => {
+    const road500 = road('residential', [
+      { x: -200, z: 0 },
+      { x: -100, z: 0 },
+      { x: 0, z: 0 },
+      { x: 100, z: 0 },
+      { x: 200, z: 0 },
+    ]);
+    const buildings = new BuildingIndex([building(0, 20)]);
+    markTownSidewalks([road500], buildings);
+    const spans = road500.walkSpans!;
+    expect(spans).toHaveLength(5);
+    expect(spans[2]).toBe(true);
+    expect(spans[4]).toBe(false);
+
+    const index = new RoadIndex([road500]);
+    // dentro il paese il ciglio rialzato c'è (asfalto 20 cm + cordolo 18 cm)
+    expect(index.surfaceOffset(0, 3.3)).toBeGreaterThan(0.3);
+    // in aperta campagna no: nessun marciapiede invisibile sotto i piedi
+    expect(index.surfaceOffset(200, 3.3)).toBe(0);
   });
 });
 
