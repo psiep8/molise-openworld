@@ -41,6 +41,9 @@ const ASSETS = {
   rock: 'rock_face',
   bark: 'bark_brown_02',
   concrete: 'concrete_floor',
+  // suolo per la copertura del suolo (Fase A del piano realismo)
+  ploughed: 'farm_furrows',
+  woodland: 'forest_ground_05',
 };
 
 /** mappa Poly Haven → nome file locale */

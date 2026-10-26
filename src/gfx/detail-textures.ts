@@ -94,3 +94,14 @@ export function fabricNormal(): THREE.CanvasTexture {
   fabric ??= normalTexture(128, 0x2f77, 18, 1.1, 14);
   return fabric;
 }
+
+/**
+ * Micro-rilievo del terreno: zolle, sassi e peli d'erba sotto il metro.
+ * Si campiona in coordinate mondo (rettangolo di 0,8 m, vedi terrain.ts),
+ * quindi `repeat` resta 1 e il filtro è ripetuto ai bordi.
+ */
+let terrainMicro: THREE.CanvasTexture | null = null;
+export function terrainMicroNormal(): THREE.CanvasTexture {
+  terrainMicro ??= normalTexture(256, 0x7a31, 12, 1.3, 1);
+  return terrainMicro;
+}

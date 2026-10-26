@@ -1,9 +1,10 @@
 import * as THREE from 'three';
-import { CHUNK_SIZE, TERRAIN_SEGMENTS, VIEW_RADIUS } from '../config';
+import { CHUNK_SIZE, TERRAIN_SEGMENTS, VIEW_RADIUS, WORLD } from '../config';
 import type { Heightfield } from '../geo/elevation';
 import { pbrColor } from '../gfx/textures';
 import { chunkCenter, chunkIndex, chunkKey, chunkOrigin } from './chunks';
 import { zoomForDistance, type ImageryStreamer } from './imagery';
+import type { Landcover, LandcoverMode } from './landcover';
 
 interface Chunk {
   cx: number;
@@ -17,6 +18,8 @@ interface Chunk {
   loadingZoom?: number;
   hasTexture: boolean;
   disposed: boolean;
+  /** true se il chunk ha una texture di copertura locale da rilasciare */
+  landcoverLocal: boolean;
 }
 
 const NORMAL_MAP_SIZE = 128;
@@ -209,6 +212,173 @@ float cloudNoise( vec2 p ) {
   material.customProgramCacheKey = () => 'terrain-detail-v3';
 }
 
+interface LandcoverUniformState {
+  uLcBase: { value: THREE.Texture };
+  uLcLocal: { value: THREE.Texture };
+  uLcFields: { value: THREE.Texture };
+  uLcDetail: { value: THREE.Texture };
+  uLcNormal: { value: THREE.Texture };
+  uLocalReady: { value: number };
+  uFieldsReady: { value: number };
+  uMicroReady: { value: number };
+  uBaseScale: { value: THREE.Vector2 };
+  uBaseOffset: { value: THREE.Vector2 };
+  uLocalOrigin: { value: THREE.Vector2 };
+  uLocalScale: { value: number };
+  uSeasonGlobal: { value: THREE.Vector3 };
+}
+
+/**
+ * Shader della Fase A: la copertura del suolo (coltivo/prato/bosco/roccia)
+ * decide colore e grana, il satellite resta la base fotografica.
+ *
+ * Il dettaglio a 60 m e 6 m **non** è più calcolato per pixel: è cotto una
+ * volta sola in `landcover.ts` in una texture di modulazione RGB (2 m/px locale,
+ * 12 m/px globale), con le tinte relative di classe già dentro. Qui si fa un
+ * solo campione e si moltiplica. La scala da 0,8 m resta dove serve davvero:
+ * micro-rilievo normale sotto i 32 m e solchi delle parcelle sotto i 95 m.
+ * La misura che ha imposto questa scelta è in `HANDOFF.md`: tre campioni di
+ * dettaglio per pixel quasi dimezzavano gli fps sulla iGPU di prova.
+ */
+function applyLandcoverDetail(
+  material: THREE.MeshStandardMaterial,
+  landcover: Landcover,
+  cx: number,
+  cz: number,
+): LandcoverUniformState {
+  const base = landcover.baseTexture;
+  if (!base) throw new Error('landcover senza overlay globale');
+  const uniforms: LandcoverUniformState = {
+    uLcBase: { value: base },
+    // segnaposto finché il chunk non ha la sua overlay a 2 m/px: uLocalReady=0
+    uLcLocal: { value: base },
+    uLcFields: { value: landcover.fieldsTexture ?? base },
+    uLcDetail: { value: landcover.detailTexture ?? base },
+    uLcNormal: { value: landcover.microNormal },
+    uLocalReady: { value: 0 },
+    uFieldsReady: { value: landcover.fieldsTexture ? 1 : 0 },
+    uMicroReady: { value: landcover.detailTexture ? 1 : 0 },
+    uBaseScale: { value: new THREE.Vector2(1 / WORLD.width, 1 / WORLD.height) },
+    uBaseOffset: { value: new THREE.Vector2(WORLD.halfWidth / WORLD.width, WORLD.halfHeight / WORLD.height) },
+    uLocalOrigin: { value: new THREE.Vector2(chunkOrigin(cx), chunkOrigin(cz)) },
+    uLocalScale: { value: 1 / CHUNK_SIZE },
+    // stesso Vector3 mutato da `setSeason`: nessun rebuild dei materiali
+    uSeasonGlobal: { value: landcover.seasonGlobalUniform },
+  };
+  material.userData.lc = uniforms;
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms, {
+      uCloudShadow: cloudShadowUniform,
+      uCloudDrift: cloudDriftUniform,
+    });
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        '#include <common>\nvarying vec3 vDetailWorld;\nvarying vec3 vDetailNormal;',
+      )
+      .replace(
+        '#include <begin_vertex>',
+        '#include <begin_vertex>\nvDetailWorld = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;\nvDetailNormal = normalize( mat3( modelMatrix ) * objectNormal );',
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+varying vec3 vDetailWorld;
+varying vec3 vDetailNormal;
+uniform sampler2D uLcBase;
+uniform sampler2D uLcLocal;
+uniform sampler2D uLcFields;
+uniform sampler2D uLcDetail;
+uniform sampler2D uLcNormal;
+uniform float uLocalReady;
+uniform float uFieldsReady;
+uniform float uMicroReady;
+uniform vec2 uBaseScale;
+uniform vec2 uBaseOffset;
+uniform vec2 uLocalOrigin;
+uniform float uLocalScale;
+uniform vec3 uSeasonGlobal;
+uniform float uCloudShadow;
+uniform vec2 uCloudDrift;
+
+float lcHash( vec2 p ) {
+  return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 );
+}
+float lcNoise( vec2 p ) {
+  vec2 i = floor( p );
+  vec2 f = fract( p );
+  f = f * f * ( 3.0 - 2.0 * f );
+  float a = lcHash( i );
+  float b = lcHash( i + vec2( 1.0, 0.0 ) );
+  float c = lcHash( i + vec2( 0.0, 1.0 ) );
+  float d = lcHash( i + vec2( 1.0, 1.0 ) );
+  return mix( mix( a, b, f.x ), mix( c, d, f.x ), f.y );
+}`,
+      )
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+        float lcDist = length( vDetailWorld - cameraPosition );
+        vec2 lcBaseUV = vDetailWorld.xz * uBaseScale + uBaseOffset;
+        // overaly cotta: RGB = modulazione * tinta relativa / 2, A = peso coltivo.
+        // Locale a 2 m/px quando c'è, altrimenti la globale a 12 m/px.
+        vec4 lc = uLocalReady > 0.5
+          ? texture2D( uLcLocal, ( vDetailWorld.xz - uLocalOrigin ) * uLocalScale )
+          : texture2D( uLcBase, lcBaseUV );
+        // i bordi della mappa possono essere a zero: in quel caso non toccare
+        float lcLum = max( lc.r, max( lc.g, lc.b ) );
+        if ( lcLum > 0.004 ) {
+          diffuseColor.rgb *= max( vec3( 0.0 ), lc.rgb * 2.0 * uSeasonGlobal );
+          // dettaglio di colore a 0,8 m: un solo campione dei quattro canali
+          // (coltivo/prato/bosco/roccia) scelto dal peso del coltivo in A.
+          // Solo da vicino: a 150 m è mipmap e non aggiunge nulla.
+          if ( uMicroReady > 0.5 && lcDist < 45.0 ) {
+            vec4 dm = texture2D( uLcDetail, vDetailWorld.xz / 0.8 );
+            float micro = mix( dm.g, dm.r, lc.a );
+            float microFade = 1.0 - smoothstep( 18.0, 45.0, lcDist );
+            diffuseColor.rgb *= 1.0 + ( micro - 0.5 ) * 0.55 * microFade;
+          }
+        }
+
+        // solchi: direzione e forza della parcella, solo da vicino e sul coltivo
+        if ( uFieldsReady > 0.5 && lcDist < 95.0 && lc.a > 0.02 ) {
+          vec4 fld = texture2D( uLcFields, lcBaseUV );
+          vec2 fdir = fld.rg * 2.0 - 1.0;
+          float flen = length( fdir );
+          fdir = flen > 0.01 ? fdir / flen : vec2( 1.0, 0.0 );
+          float along = dot( vDetailWorld.xz, fdir );
+          // ai piedi del campo la direzione è quasi radente: senza questa
+          // soglia sulle derivate i solchi da 0,55 m diventano un moiré
+          float aa = 1.0 - smoothstep( 0.12, 0.55, fwidth( along ) );
+          float stripe = mix( 0.5, sin( along * 11.4 ) * 0.5 + 0.5, aa );
+          float furrow = fld.b * fld.a * ( 1.0 - smoothstep( 18.0, 95.0, lcDist ) ) * lc.a;
+          diffuseColor.rgb *= 1.0 + ( stripe - 0.5 ) * 0.34 * furrow;
+          float clod = lcNoise( vDetailWorld.xz * 2.7 + fdir * along * 0.08 );
+          diffuseColor.rgb *= 1.0 + ( clod - 0.5 ) * 0.12 * furrow;
+        }
+
+        if ( uCloudShadow > 0.01 ) {
+          vec2 cp = vDetailWorld.xz * 0.0016 + uCloudDrift;
+          float n = lcNoise( cp ) * 0.65 + lcNoise( cp * 2.7 + 13.0 ) * 0.35;
+          float shade = smoothstep( 0.42, 0.78, n );
+          diffuseColor.rgb *= 1.0 - 0.34 * uCloudShadow * shade;
+        }`,
+      )
+      .replace(
+        '#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>
+        if ( lcDist < 38.0 ) {
+          vec3 mn = texture2D( uLcNormal, vDetailWorld.xz / 0.8 ).xyz * 2.0 - 1.0;
+          float mf = 1.0 - smoothstep( 12.0, 38.0, lcDist );
+          normal = normalize( normal + vec3( mn.xy, 0.0 ) * 0.38 * mf );
+        }`,
+      );
+  };
+  material.customProgramCacheKey = () => 'terrain-landcover-v2';
+  return uniforms;
+}
+
 /**
  * Streaming del terreno a chunk: geometria dal DEM, ritaglio del mosaico
  * Sentinel come base immediata per ogni chunk e tile Esri z17/z16 per il
@@ -221,6 +391,7 @@ export class Terrain {
   private readonly queue: { cx: number; cz: number; d: number }[] = [];
   private readonly heightfield: Heightfield;
   private readonly imagery: ImageryStreamer;
+  private readonly landcover: Landcover | null;
   private readonly maxBuildPerFrame = 2;
   private readonly maxTextureLoads = 5;
   private readonly inflight = new Set<string>();
@@ -237,11 +408,41 @@ export class Terrain {
     imagery: ImageryStreamer,
     private readonly renderer: THREE.WebGLRenderer,
     maxZoom = 18,
+    landcover: Landcover | null = null,
   ) {
     this.heightfield = heightfield;
     this.imagery = imagery;
+    this.landcover = landcover;
     this.maxZoom = Math.max(15, Math.min(18, maxZoom));
     this.group.name = 'terrain';
+  }
+
+  /** Copertura del suolo per la diagnostica e il banco prova. */
+  get landcoverStats(): ReturnType<Landcover['stats']> | null {
+    return this.landcover?.stats() ?? null;
+  }
+
+  /**
+   * Cambia modalità/raggio della copertura a runtime (tasto G). Se cambia lo
+   * shader o l'insieme delle texture locali, i chunk si ricostruiscono: la
+   * geometria è la stessa, quindi il costo è una sola passata di build.
+   */
+  setLandcoverPreset(mode: LandcoverMode, radius: number): void {
+    const lc = this.landcover;
+    if (!lc) return;
+    const beforeMode = lc.effectiveMode;
+    const beforeRadius = lc.radiusMeters;
+    lc.configure(mode, radius);
+    if (lc.effectiveMode === beforeMode && lc.radiusMeters === beforeRadius) return;
+    for (const [key, chunk] of [...this.chunks]) this.disposeChunk(chunk, key);
+    this.queue.length = 0;
+    this.lastCx = Number.NaN;
+    this.lastCz = Number.NaN;
+  }
+
+  /** Tinta stagionale (1..12); ottobre è la stagione di partenza. */
+  setSeason(month: number): void {
+    this.landcover?.setSeason(month);
   }
 
   /** Cambia il tetto di dettaglio a runtime (tasto G / preset qualità). */
@@ -426,7 +627,13 @@ export class Terrain {
       // sembra ghiaccio invece che prato/asfalto
       envMapIntensity: 0.35,
     });
-    applyTerrainDetail(material, this.renderer);
+    const landcoverMode = this.landcover?.effectiveMode ?? 'off';
+    let landcoverUniforms: LandcoverUniformState | null = null;
+    if (landcoverMode !== 'off' && this.landcover) {
+      landcoverUniforms = applyLandcoverDetail(material, this.landcover, cx, cz);
+    } else {
+      applyTerrainDetail(material, this.renderer);
+    }
 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(centerX, 0, centerZ);
@@ -443,7 +650,24 @@ export class Terrain {
       textureZoom: 0,
       hasTexture: false,
       disposed: false,
+      landcoverLocal: false,
     };
+
+    // copertura locale a 2 m/px: arriva in asincrono, il chunk intanto usa la
+    // mappa globale (12 m/px). Fuori dal raggio del preset non si scarica nulla.
+    if (landcoverMode === 'full' && this.landcover && landcoverUniforms) {
+      const lc = this.landcover;
+      if (lc.covers(cx, cz, this.focusX, this.focusZ)) {
+        chunk.landcoverLocal = true;
+        const uniforms = landcoverUniforms;
+        lc.acquire(cx, cz, (texture) => {
+          if (chunk.disposed) return;
+          uniforms.uLcLocal.value = texture;
+          uniforms.uLocalReady.value = 1;
+          material.needsUpdate = true;
+        });
+      }
+    }
 
     // prima il ritaglio Sentinel locale (immediato), poi l'affinamento Esri
     const base = this.imagery.baseChunkTexture(cx, cz);
@@ -462,6 +686,7 @@ export class Terrain {
     chunk.material.dispose();
     chunk.normalMap.dispose();
     chunk.texture?.dispose();
+    if (chunk.landcoverLocal) this.landcover?.release(chunk.cx, chunk.cz);
   }
 
   dispose(): void {

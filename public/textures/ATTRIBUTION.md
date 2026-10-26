@@ -21,7 +21,9 @@ normal GL, roughness, ambient occlusion e opacity dove presente).
 | rock | [rock_face](https://polyhaven.com/a/rock_face) | CC0 1.0 | https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rock_face/ |
 | bark | [bark_brown_02](https://polyhaven.com/a/bark_brown_02) | CC0 1.0 | https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/bark_brown_02/ |
 | concrete | [concrete_floor](https://polyhaven.com/a/concrete_floor) | CC0 1.0 | https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/concrete_floor/ |
+| ploughed | [farm_furrows](https://polyhaven.com/a/farm_furrows) | CC0 1.0 | https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/farm_furrows/ |
+| woodland | [forest_ground_05](https://polyhaven.com/a/forest_ground_05) | CC0 1.0 | https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/forest_ground_05/ |
 | foliage | [Leaf003](https://ambientcg.com/a/leaf003) | CC0 1.0 | https://ambientcg.com/get?file=Leaf003_1K-JPG.zip |
 | water | [waternormals.jpg](https://github.com/mrdoob/three.js/blob/dev/examples/textures/waternormals.jpg) | MIT | three.js examples |
 
-Totale scaricato in questa esecuzione: 9.0 MB (12 file).
+Totale scaricato in questa esecuzione: 6.3 MB (8 file).

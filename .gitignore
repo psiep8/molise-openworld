@@ -8,6 +8,8 @@ dist-ssr
 Thumbs.db
 smoke/*.png
 .geo-cache
+# copertura del suolo derivata (WorldCover CC BY + OSM ODbL): si rigenera
+public/geo/landcover/
 smoke/*.html
 smoke/profile
 smoke/dbg

@@ -59,8 +59,12 @@ const WIDTH = Number(arg('width', 1280));
 const HEIGHT = Number(arg('height', 800));
 const SECONDS = Number(arg('seconds', 20));
 const VIEWS = arg('views', '0,1,2').split(',').map((v) => Number(v.trim()));
+/** parametri extra di query, es. `--params=lcdebug=base` (solo per sonde) */
+const PARAMS = arg('params', '');
 /** `--poses=x:z:yaw[:pitch],...` salta la misura e fa solo scatti di prova. */
 const POSES = arg('poses', '');
+/** attesa dopo il teletrasporto, per lasciar cuocere le overlay locali */
+const DWELL = Number(arg('dwell', 2500));
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log('[bench]', ...a);
@@ -186,7 +190,7 @@ async function main() {
   let exitCode = 1;
   try {
     await waitForChrome();
-    const url = `${BASE_URL}/?bench=1&quality=${QUALITY}`;
+    const url = `${BASE_URL}/?bench=1&quality=${QUALITY}${PARAMS ? `&${PARAMS}` : ''}`;
     log(`apro ${url}`);
     const target = await newTarget(url);
     const cdp = await connect(target);
@@ -235,10 +239,20 @@ async function main() {
       const list = POSES.split(',').map((s) => s.split(':').map(Number));
       for (let n = 0; n < list.length; n++) {
         const [x, z, yaw, pitch = 0] = list[n];
+        // `benchViewIndex=-1` ferma il benchTick: altrimenti riporta il focus
+        // della vista fissa e i chunk della posa non si caricano mai.
         await evalJs(
-          `(()=>{const g=window.moliseGame; g.player.spawn(${x},${z},${yaw},g.heights); g.player.pitch=${pitch}; g.player.avatar.visible=false; g.snapWalkCamera(); return true;})()`,
+          `(async()=>{const g=window.moliseGame; g.benchViewIndex=-1; g.mode='walk'; g.grass && (g.grass.group.visible=false);` +
+            `g.player.spawn(${x},${z},${yaw},g.heights); g.player.pitch=${pitch}; g.player.avatar.visible=false;` +
+            `g.snapWalkCamera(); await g.terrain.preload(${x},${z},Math.min(1600,g.viewRadius));` +
+            `g.terrain.update(${x},${z},g.viewRadius,true); return true;})()`,
         );
-        await sleep(2500);
+        for (let i = 0; i < 60; i++) {
+          const d = await evalJs('JSON.parse(JSON.stringify(window.__molise))').catch(() => null);
+          if (d && (d.landcover?.pending ?? 0) === 0) break;
+          await sleep(500);
+        }
+        await sleep(DWELL);
         const shot = await cdp.send('Page.captureScreenshot', { format: 'png' });
         const buf = Buffer.from(shot.data, 'base64');
         const file = `pose-${n}.png`;
@@ -263,13 +277,19 @@ async function main() {
       for (let i = 0; i < 90; i++) {
         await sleep(500);
         const d = await evalJs('JSON.parse(JSON.stringify(window.__molise))');
-        const ready = d.chunks > 0 && d.textured >= d.chunks && d.detailed === (prev?.detailed ?? d.detailed);
+        const lcPending = d.landcover?.pending ?? 0;
+        const ready = d.chunks > 0 && d.textured >= d.chunks && lcPending === 0 && d.detailed === (prev?.detailed ?? d.detailed);
         if (ready && d.chunks === (prev?.chunks ?? -1)) stable++;
         else stable = 0;
         prev = d;
         if (stable >= 6) break;
       }
-      log(`assestato: ${prev?.chunks ?? 0} chunk · ${prev?.textured ?? 0} texture · ${prev?.detailed ?? 0} dettagliati`);
+      log(
+        `assestato: ${prev?.chunks ?? 0} chunk, ${prev?.textured ?? 0} texture, ${prev?.detailed ?? 0} dettagliati, ` +
+          `copertura ${prev?.landcover?.mode ?? 'assente'} (${prev?.landcover?.local ?? 0} locali, ` +
+          `${prev?.landcover?.pending ?? 0} in attesa, ${prev?.landcover?.bakes ?? 0} cotte in ` +
+          `${prev?.landcover?.bakeMs ?? 0} ms)`,
+      );
 
       await evalJs(`window.moliseGame.benchStart(${SECONDS})`);
       let result = null;
@@ -303,6 +323,7 @@ async function main() {
       gpu: diag.gpu,
       qualityDetected: diag.quality,
       renderScale: diag.renderScale,
+      landcover: diag.landcover ?? null,
       textureMBScope: 'stima delle immagini di scena (esclude i render target del post)',
       results,
       errors,

@@ -61,6 +61,14 @@ export interface QualityPreset {
   drainage: boolean;
   /** raggio di streaming del terreno in metri */
   viewRadius: number;
+  /**
+   * Copertura del suolo (Fase A): `full` = mappa globale + chunk a 2 m/px
+   * entro `landcoverRadius`; `base` = solo la mappa globale a 12 m/px (nessun
+   * download locale); `off` = vecchio shader erba/roccia, nessuna texture in più.
+   */
+  landcover: 'full' | 'base' | 'off';
+  /** raggio (m) dei chunk di copertura a 2 m/px; 0 con `base`/`off` */
+  landcoverRadius: number;
 }
 
 export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
@@ -87,6 +95,8 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     buildingDetail: 'simple',
     drainage: false,
     viewRadius: 1500,
+    landcover: 'off',
+    landcoverRadius: 0,
   },
   low: {
     level: 'low',
@@ -111,6 +121,8 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     buildingDetail: 'simple',
     drainage: false,
     viewRadius: 2200,
+    landcover: 'base',
+    landcoverRadius: 0,
   },
   medium: {
     level: 'medium',
@@ -135,6 +147,8 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     buildingDetail: 'full',
     drainage: true,
     viewRadius: 2600,
+    landcover: 'full',
+    landcoverRadius: 1400,
   },
   high: {
     level: 'high',
@@ -159,6 +173,8 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     buildingDetail: 'full',
     drainage: true,
     viewRadius: 3100,
+    landcover: 'full',
+    landcoverRadius: 1900,
   },
   ultra: {
     level: 'ultra',
@@ -183,6 +199,8 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     buildingDetail: 'full',
     drainage: true,
     viewRadius: 3100,
+    landcover: 'full',
+    landcoverRadius: 2300,
   },
 };
 

@@ -20,7 +20,9 @@ export type TextureKey =
   | 'grass'
   | 'rock'
   | 'bark'
-  | 'concrete';
+  | 'concrete'
+  | 'ploughed'
+  | 'woodland';
 
 export interface PbrSet {
   map?: THREE.Texture;

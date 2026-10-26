@@ -46,6 +46,21 @@ describe('preset grafici', () => {
     expect(minimal.drainage).toBe(false);
     expect(minimal.trees).toBeGreaterThan(1000);
     expect(minimal.renderScaleFloor).toBeLessThan(QUALITY_PRESETS.ultra.renderScaleFloor);
+    // la copertura del suolo costa campioni: sul preset di compatibilità è spenta
+    expect(minimal.landcover).toBe('off');
+    expect(minimal.landcoverRadius).toBe(0);
+  });
+
+  it('accende la copertura del suolo solo dove c’è margine', () => {
+    expect(QUALITY_PRESETS.low.landcover).toBe('base');
+    expect(QUALITY_PRESETS.low.landcoverRadius).toBe(0);
+    for (const level of ['medium', 'high', 'ultra'] as const) {
+      expect(QUALITY_PRESETS[level].landcover).toBe('full');
+      expect(QUALITY_PRESETS[level].landcoverRadius).toBeGreaterThanOrEqual(1400);
+    }
+    // il raggio non scende mai salendo di preset
+    expect(QUALITY_PRESETS.high.landcoverRadius).toBeGreaterThanOrEqual(QUALITY_PRESETS.medium.landcoverRadius);
+    expect(QUALITY_PRESETS.ultra.landcoverRadius).toBeGreaterThanOrEqual(QUALITY_PRESETS.high.landcoverRadius);
   });
 
   it('il tasto G fa il giro completo e torna al minimo', () => {
