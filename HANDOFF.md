@@ -1647,3 +1647,81 @@ alto che largo.
 5. Alberi: impostor veri oltre i 150 m (oggi si spengono solo le card) e specie
    lungo i torrenti.
 6. Rampe ai passaggi pedonali e cordolo che ferma le ruote se preso in traverso.
+
+## 26/10/2026 — Il feeling di Slow Roads: autopilota, spinta, visuali, spline
+
+Confronto con l'analisi di Slow Roads (gioco di guida procedurale in Three.js) e
+lavoro sui punti che ci mancavano davvero. Il mondo resta geografico, non
+procedurale: è la differenza che non si tocca (Palata non è un rumore di
+Perlin), ma tutto ciò che riguarda **come si guida e come si guarda** è stato
+avvicinato a quel modello.
+
+### Cosa avevamo già in comune
+
+- **Chunk** di terreno con LOD, DEM reale, normal map ricavate dall'altimetria.
+- **Streaming progressivo** delle immagini: mosaico Sentinel-2 subito, tile Esri
+  z16-z18 solo vicino (Slow Roads genera i colori nello shader; noi abbiamo la
+  foto vera, che è meglio per un luogo reale).
+- **InstancedMesh** per alberi, cespugli, erba e fiori; niente 14.000 oggetti
+  singoli.
+- **Fisica arcade scritta a mano**, senza Ammo.js/Cannon.js, con sterzo che si
+  chiude con la velocità.
+- **Reset** (`R`) e **qualità scalabile** su cinque preset.
+
+### Cosa è stato aggiunto adesso
+
+- **Autopilota di strada** (`O` in auto, `src/sim/autopilot.ts`): insegue un
+  punto sulla centerline 12 m avanti (più lontano con la velocità), non la
+  tangente del segmento — così non oscilla a ogni vertice OSM. Rallenta in curva
+  (la crociera scende fino al 45%) e si spegne con `Spazio` o se non trova
+  strada. Il verso di marcia è quello dell'auto: molte vie OSM sono disegnate al
+  contrario, senza il segno l'autopilota farebbe inversione.
+- **Spinta** (`Shift` in auto): +25% di forza e velocità massima, +18% di
+  aderenza disponibile. È limitata dalle gomme, non è un teletrasporto.
+- **Tre visuali di guida** (`C`): inseguitrice, alta da cartolina, cofano. La
+  posa si calcola in un punto solo (`placeDriveCamera`) e il FOV si apre fino a
+  +7° con la velocità: è la sensazione di corsa, senza motion blur.
+- **Meteo e ora rapidi**: `Q` cicla i preset meteo, `E` in auto sposta il giorno
+  di 2 ore (a piedi `E` resta "interagisci"). Come in Slow Roads, il meteo
+  manuale accende da solo l'atmosfera manuale.
+- **Strade a spline**: `splineThrough()` è una Catmull-Rom **centripeta**
+  campionata a 5 m, al posto delle due passate di media pesata. Passa per i nodi
+  OSM (la strada non si stacca dagli incroci) e toglie le cuspidi a ogni
+  vertice: è la parte che si sente nel volante.
+- **Collisioni OBB a sei sonde**: quattro angoli più i due lati lunghi, con
+  raggio delle sonde pari a metà larghezza, così l'inviluppo misura esattamente
+  lunghezza × larghezza. Prima i due cerchi coprivano muso e coda ma non i
+  fianchi: strisciando contro un muro l'auto ci entrava di lato. La perdita di
+  velocità usa la penetrazione **più profonda**, non la somma (altrimenti lo
+  stesso muro veniva pagato tre volte).
+
+### Cosa non copiamo
+
+- **Mondo infinito procedurale**: il valore qui è che la strada esista davvero e
+  porti a Palata, non che il paesaggio sia casuale.
+- **Fisica con un solo numero di velocità**: la nostra ha cambio, coppia,
+  aderenza e pendenza; semplificarla sarebbe un passo indietro.
+- **Boost come cheat puro**: qui resta dentro i limiti di aderenza.
+
+### Verifiche
+
+- `npx tsc --noEmit` ✅
+- `npm test` ✅ **236/236** in 27 file: nuovi test per autopilota, punto di
+  inseguimento, spline centripeta e OBB (incluso il caso "fianco contro muro").
+- `npm run build` ✅
+- **Non eseguiti**: browser, screenshot, fps. Da provare a mano: autopilota su
+  una provinciale con curve e su un incrocio, spinta in salita, le tre visuali,
+  il cambio di FOV, il nuovo tracciato delle curve (cordoli e marciapiedi
+  seguono la spline, quindi vanno guardati insieme).
+
+### Prossimi passi
+
+1. **Autopilota più intelligente**: limite di velocità per tipo di strada,
+   rallentamento prima delle curve (non dentro), stop agli incroci, ripresa dopo
+   un urto.
+2. **Verifica a schermo** di spline, raccordi, fiori, LOD e visuali.
+3. **Sospensioni**: oscillazione della carrozzeria su cordoli e dossi (oggi solo
+   sobbalzo verticale del cordolo), rollio in curva più marcato.
+4. **Meteo guidato**: pioggia che bagna l'asfalto (uniforme `uRoadWet` già
+   pronta), foglie e fiori piegati dal vento più forte.
+5. **Fari e frecce** dei GLB, luci di stop più evidenti, abbaglianti.

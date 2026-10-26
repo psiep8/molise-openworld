@@ -54,6 +54,12 @@ Questo documento è la fonte di verità sullo stato delle funzionalità. Legenda
 | Funzionalità | Stato | Note |
 | --- | --- | --- |
 | Terreno/edifici/strade da dati aperti | **Fatto** | OSM + DEM, licenze aperti |
+| Autopilota di strada | **Fatto** | `O` in auto: insegue la centerline, rallenta in curva; `Spazio` lo spegne |
+| Spinta (boost) | **Fatto** | `Shift` in auto: +18% aderenza, +25% forza e velocità massima |
+| Visuali di guida | **Fatto** | `C`: inseguitrice, alta, cofano; FOV che si apre con la velocità |
+| Meteo e ora rapidi | **Fatto** | `Q` meteo successivo, `E` in auto +2 ore |
+| Curve stradali a spline | **Fatto** | Catmull-Rom centripeta (`splineThrough`) al posto della media pesata |
+| Collisioni dell'auto | **Fatto** | OBB a sei sonde (4 angoli + fianchi), perdita di velocità sulla penetrazione |
 | Segnaletica orizzontale | **Fatto** | Stop/dare precedenza a ogni incrocio, frecce, linea di margine, vernice usurata |
 | Raccordi d'angolo dei cordoli | **Da verificare** | `filletCorner()`; da guardare a schermo, soprattutto negli incroci a T |
 | Spalla in ghiaia e ciglio delle provinciali | **Fatto** | Solo fuori dal paese; stessa quota per la fisica |

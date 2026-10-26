@@ -123,6 +123,7 @@ import {
 import { advanceClock, formatGameClock, loadLifeSave, saveLifeSave, type LifeSave } from './sim/save';
 import { MapRenderer } from './ui/minimap';
 import type { CarInput } from './sim/car';
+import { autopilotInput, followTarget } from './sim/autopilot';
 import { buildRoadGraph, planRoute, type RoadGraph, type RouteResult } from './sim/routing';
 import { PostPipeline } from './gfx/post';
 import { loadPaintSaturation, setPaintSaturation } from './gfx/car-paint';
@@ -351,6 +352,10 @@ export class Game {
   private camYawOffset = 0;
   private camPitch = 0;
   private camDistance = 8.8;
+  /** 0 inseguitrice · 1 alta da cartolina · 2 cofano */
+  private driveCam = 0;
+  /** Autopilota di strada (tasto O): l'auto segue la carreggiata da sola. */
+  private autopilot = false;
   private bobPhase = 0;
   private idleAngle = 2.2;
   private lastHud = 0;
@@ -2384,9 +2389,25 @@ export class Game {
 
     switch (e.code) {
       case 'KeyE':
-        if (this.mode === 'walk') this.interact();
-        else this.hud.toast('Scendi dall\'auto per entrare nell\'attività', 2400);
+        // in auto E non ha un'attività da aprire: fa scorrere il giorno, come
+        // il ciclo giorno/notte di Slow Roads. A piedi resta "interagisci".
+        if (this.mode === 'walk') {
+          this.interact();
+        } else {
+          if (!this.manualTime) this.setManualTime(true);
+          this.setManualHour((this.manualHour + 2) % 24);
+          this.hud.toast(`Ora ${this.formatHour(this.manualHour)}`, 1600);
+        }
         break;
+      case 'KeyQ': {
+        const order: WeatherPreset[] = ['auto', 'clear', 'cloudy', 'rain', 'fog', 'snow'];
+        const next = order[(order.indexOf(this.manualWeather) + 1) % order.length] ?? 'auto';
+        // il meteo manuale si vede subito solo con l'atmosfera manuale attiva:
+        // accenderla evita il tasto che sembra non fare nulla sotto il sole
+        if (!this.manualTime) this.setManualTime(true);
+        this.setManualWeather(next);
+        break;
+      }
       case 'KeyI':
         this.showWallet(!this.walletVisible);
         break;
@@ -2400,7 +2421,30 @@ export class Game {
           this.player.avatar.visible = this.thirdPerson;
           this.snapWalkCamera();
           this.hud.toast(this.thirdPerson ? 'Visuale in terza persona' : 'Visuale in prima persona');
+        } else {
+          this.driveCam = (this.driveCam + 1) % 3;
+          this.snapDriveCamera();
+          this.hud.toast(
+            this.driveCam === 0
+              ? 'Visuale inseguitrice'
+              : this.driveCam === 1
+                ? 'Visuale alta'
+                : 'Visuale dal cofano',
+          );
         }
+        break;
+      case 'KeyO':
+        if (this.mode !== 'drive') {
+          this.hud.toast("L'autopilota si accende solo alla guida", 2200);
+          break;
+        }
+        this.autopilot = !this.autopilot;
+        this.hud.toast(
+          this.autopilot
+            ? 'Autopilota attivo: segue la strada · O per riprendere il volante'
+            : 'Autopilota disattivato',
+          3200,
+        );
         break;
       case 'KeyM':
         this.toggleMap();
@@ -2524,7 +2568,10 @@ export class Game {
       this.camYawOffset = 0;
       this.camPitch = 0;
       this.snapDriveCamera();
-      this.hud.toast('W accelera · S frena/retro · A/D sterza · Spazio freno a mano · F scendi', 5200);
+      this.hud.toast(
+        'W accelera · S frena/retro · A/D sterza · Shift spinta · C visuale · O autopilota · F scendi',
+        6200,
+      );
     } else {
       this.player.avatar.visible = this.thirdPerson;
       this.camera.fov = 68;
@@ -3025,7 +3072,7 @@ export class Game {
     } else {
       this.car.update(
         dt,
-        this.readCarInput(move),
+        this.autopilot ? this.autoDriveInput() : this.readCarInput(move),
         this.heights,
         this.roadIndex,
         this.buildingIndex,
@@ -3113,7 +3160,34 @@ export class Game {
       brake: move.forward < 0 ? 1 : 0,
       steer: -move.strafe,
       handbrake: move.jump,
+      boost: move.sprint,
     };
+  }
+
+  /**
+   * Comandi dell'autopilota: insegue un punto sulla centerline 12 m avanti
+   * (più lontano man mano che si va veloce) e tiene una crociera da turismo.
+   * Il freno a mano o l'assenza di strada nelle vicinanze lo spengono: meglio
+   * ridare il volante che trascinare l'auto fuori carreggiata.
+   */
+  private autoDriveInput(): CarInput {
+    const car = this.car.state;
+    if (this.key('Space')) {
+      this.autopilot = false;
+      this.hud.toast('Autopilota disattivato', 1800);
+      return this.readCarInput(this.readMoveInput());
+    }
+    const segment = this.roadIndex.nearestSegment(car.x, car.z, 26);
+    if (!segment) {
+      this.autopilot = false;
+      this.hud.toast('Autopilota: strada non trovata, riprendi il volante', 3000);
+      return { throttle: 0, brake: 0.5, steer: 0, handbrake: false };
+    }
+    const lookahead = 12 + Math.abs(car.speed) * 0.55;
+    const target = followTarget(segment, car.x, car.z, car.yaw, lookahead);
+    // strade larghe = provinciali: si può andare più sciolti
+    const cruise = segment.w * 2 >= 5.8 ? 18 : 13.5;
+    return autopilotInput(car, { x: target.x, z: target.z, cruise });
   }
 
   private key(code: string): boolean {
@@ -3142,20 +3216,59 @@ export class Game {
   }
 
   private updateDriveCamera(dt: number): void {
-    const car = this.car.state;
-    const yaw = car.yaw + this.camYawOffset;
-    const desired = this.tmp1.set(
-      car.x + Math.sin(yaw) * this.camDistance,
-      this.car.position.y + 2.9 + this.camPitch * 3.4,
-      car.z + Math.cos(yaw) * this.camDistance,
-    );
-    desired.y = Math.max(desired.y, this.heights.heightAt(desired.x, desired.z) + 1.1);
-    this.camera.position.lerp(desired, 1 - Math.exp(-7.5 * dt));
+    this.placeDriveCamera(dt, false);
+  }
 
+  /**
+   * Tre visuali di guida, come in Slow Roads: inseguitrice, alta da cartolina e
+   * dal cofano. La posizione si calcola in un punto solo, così il cambio con C
+   * non fa saltare l'inquadratura (`snap = true` la piazza subito).
+   */
+  private placeDriveCamera(dt: number, snap: boolean): void {
+    const car = this.car.state;
     const fx = -Math.sin(car.yaw);
     const fz = -Math.cos(car.yaw);
-    const target = this.tmp2.set(car.x + fx * 3.2, this.car.position.y + 1.2, car.z + fz * 3.2);
-    this.camera.lookAt(target);
+    const blend = snap ? 1 : 1 - Math.exp(-7.5 * dt);
+
+    if (this.driveCam === 2) {
+      // cofano: bassa, davanti al parabrezza, sguardo lungo la strada
+      const desired = this.tmp1.set(
+        car.x + fx * 0.85,
+        this.car.position.y + this.car.spec.height * 0.72,
+        car.z + fz * 0.85,
+      );
+      if (snap) this.camera.position.copy(desired);
+      else this.camera.position.lerp(desired, 1 - Math.exp(-18 * dt));
+      this.camera.lookAt(
+        this.tmp2.set(car.x + fx * 28, this.car.position.y + 1.05 + this.camPitch * 6, car.z + fz * 28),
+      );
+      return;
+    }
+
+    // FOV che si apre con la velocità: è la sensazione di corsa che in Slow
+    // Roads dà il paesaggio che scorre, senza aggiungere motion blur
+    const fov = 62 + Math.min(1, Math.abs(car.speed) / 30) * 7 + (this.driveCam === 1 ? 2 : 0);
+    if (Math.abs(this.camera.fov - fov) > 0.05) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
+
+    const high = this.driveCam === 1;
+    const yaw = car.yaw + this.camYawOffset;
+    const dist = this.camDistance * (high ? 1.75 : 1);
+    const desired = this.tmp1.set(
+      car.x + Math.sin(yaw) * dist,
+      this.car.position.y + (high ? 5.8 : 2.9) + this.camPitch * (high ? 5 : 3.4),
+      car.z + Math.cos(yaw) * dist,
+    );
+    desired.y = Math.max(desired.y, this.heights.heightAt(desired.x, desired.z) + 1.1);
+    if (snap) this.camera.position.copy(desired);
+    else this.camera.position.lerp(desired, blend);
+
+    const ahead = high ? 6 : 3.2;
+    this.camera.lookAt(
+      this.tmp2.set(car.x + fx * ahead, this.car.position.y + 1.2, car.z + fz * ahead),
+    );
   }
 
   private snapWalkCamera(): void {
@@ -3174,13 +3287,7 @@ export class Game {
   }
 
   private snapDriveCamera(): void {
-    const car = this.car.state;
-    this.camera.position.set(
-      car.x + Math.sin(car.yaw) * this.camDistance,
-      this.car.position.y + 3,
-      car.z + Math.cos(car.yaw) * this.camDistance,
-    );
-    this.camera.lookAt(car.x, this.car.position.y + 1.2, car.z);
+    this.placeDriveCamera(0, true);
   }
 
   private updateHud(x: number, z: number): void {

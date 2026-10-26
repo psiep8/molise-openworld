@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Pt } from '../src/geo/geo';
-import { filletCorner, giveWayTriangles, roundCorners } from '../src/world/roads';
+import { filletCorner, giveWayTriangles, roundCorners, splineThrough } from '../src/world/roads';
 
 /** Segmento dritto: nessun angolo, la polilinea non deve cambiare. */
 const straight: Pt[] = [
@@ -106,5 +106,54 @@ describe('dare precedenza', () => {
     // le punte coprono la carreggiata senza sovrapporsi
     const centres = tris.map((t) => (t[0]!.z + t[1]!.z) / 2).sort((a, b) => a - b);
     for (let i = 1; i < centres.length; i++) expect(centres[i]!).toBeGreaterThan(centres[i - 1]!);
+  });
+});
+
+describe('spline centripeta', () => {
+  it('passa per i nodi OSM e campiona fitto', () => {
+    const nodes: Pt[] = [
+      { x: 0, z: 0 },
+      { x: 10, z: 0 },
+      { x: 20, z: 4 },
+      { x: 30, z: 0 },
+    ];
+    const out = splineThrough(nodes, 5);
+    expect(out.length).toBeGreaterThan(nodes.length * 2);
+    // primo e ultimo restano quelli veri: la strada non si stacca dall'incrocio
+    expect(out[0]!.x).toBeCloseTo(nodes[0]!.x, 9);
+    expect(out[0]!.z).toBeCloseTo(nodes[0]!.z, 9);
+    const last = out[out.length - 1]!;
+    expect(last.x).toBeCloseTo(nodes[nodes.length - 1]!.x, 9);
+    expect(last.z).toBeCloseTo(nodes[nodes.length - 1]!.z, 9);
+    // ogni nodo compare nella polilinea campionata
+    for (const node of nodes) {
+      const hit = out.some((p) => Math.hypot(p.x - node.x, p.z - node.z) < 1e-6);
+      expect(hit).toBe(true);
+    }
+  });
+
+  it('su un rettilineo non inventa curve', () => {
+    const out = splineThrough(
+      [
+        { x: 0, z: 0 },
+        { x: 10, z: 0 },
+        { x: 20, z: 0 },
+      ],
+      4,
+    );
+    for (const p of out) expect(Math.abs(p.z)).toBeLessThan(1e-9);
+  });
+
+  it('regge polilinee degeneri con punti coincidenti', () => {
+    const out = splineThrough(
+      [
+        { x: 0, z: 0 },
+        { x: 0, z: 0 },
+        { x: 5, z: 0 },
+      ],
+      5,
+    );
+    for (const p of out) expect(Number.isFinite(p.x) && Number.isFinite(p.z)).toBe(true);
+    expect(splineThrough([{ x: 1, z: 1 }], 5)).toHaveLength(1);
   });
 });

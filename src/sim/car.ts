@@ -38,6 +38,11 @@ export interface CarInput {
   /** -1..1 — positivo a sinistra */
   steer: number;
   handbrake: boolean;
+  /**
+   * Spinta temporanea (Shift): più aderenza disponibile e velocità massima
+   * più alta. Non è un tasto magico: resta comunque limitata dalle gomme.
+   */
+  boost?: boolean;
 }
 
 export interface CarEnv {
@@ -169,7 +174,8 @@ export function stepCar(
   const next: CarState = { ...state };
   const gearCount = tuning.gearRatios.length;
   const surface = env.onRoad ? 1 : tuning.offroadSpeedFactor;
-  const maxSpeed = tuning.maxSpeed * surface;
+  // la spinta allunga anche il rapporto finale: +25% di velocità massima
+  const maxSpeed = tuning.maxSpeed * surface * (input.boost ? 1.25 : 1);
   const reverseMax = tuning.reverseSpeed * surface;
 
   if (next.shiftTimer > 0) next.shiftTimer = Math.max(0, next.shiftTimer - dt);
@@ -199,13 +205,18 @@ export function stepCar(
   const gearForce = (torque * ratio * tuning.finalDrive * tuning.drivetrainEfficiency) / tuning.wheelRadius;
 
   const normalLoad = tuning.mass * tuning.gravity;
-  const tractionLimit = tuning.grip * (env.onRoad ? 1 : tuning.offroadGrip) * normalLoad * tuning.tractionShare;
+  // la spinta alza un po' l'aderenza disponibile e allunga il rapporto finale:
+  // senza questo, con la coppia già oltre il limite di aderenza non cambierebbe
+  // nulla fino a metà della scala di velocità
+  const boostGrip = input.boost ? 1.18 : 1;
+  const tractionLimit =
+    tuning.grip * (env.onRoad ? 1 : tuning.offroadGrip) * normalLoad * tuning.tractionShare * boostGrip;
 
   // in retromarcia è il freno a dare gas all'indietro
   const driveInput = forward ? input.throttle : input.brake;
   const driveSign = forward ? 1 : -1;
   const shiftCut = next.shiftTimer > 0 ? 0 : 1;
-  const demand = gearForce * driveInput * driveSign * shiftCut;
+  const demand = gearForce * driveInput * driveSign * shiftCut * (input.boost ? 1.25 : 1);
   const force = clamp(demand, -tractionLimit, tractionLimit);
   next.wheelspin = Math.abs(demand) > tractionLimit * 1.05 && driveInput > 0.25;
 

@@ -1,13 +1,15 @@
 /**
- * Collisioni dell'auto come corpo a due cerchi.
+ * Collisioni dell'auto come corpo orientato (OBB).
  *
  * Un cerchio solo al centro lasciava passare muri e pali attraverso il muso e
- * il retrotreno: l'auto si fermava quando l'ostacolo era già a metà carrozzeria.
- * Due cerchi (avantreno e retrotreno) approssimano il rettangolo della vettura
- * con un costo trascurabile e senza cambiare la fisica pura di `stepCar`.
+ * il retrotreno. Due cerchi (avantreno/retrotreno) hanno risolto il problema
+ * frontale ma lasciavano scoperti i fianchi: strisciando contro un muro
+ * l'auto ci entrava di lato. Qui il rettangolo è approssimato da sei sonde
+ * circolari — quattro angoli e due metà dei lati lunghi — disposte in modo che
+ * l'inviluppo misuri esattamente lunghezza × larghezza.
  *
  * Il modulo è volutamente senza Three.js e senza DOM: la risoluzione si testa
- * con due resolver finti, come la fisica dell'auto.
+ * con resolver finti, come la fisica dell'auto.
  */
 
 export interface CircleResolver {
@@ -24,11 +26,12 @@ export interface BodyCollision {
 }
 
 /**
- * Risolve avantreno e retrotreno contro edifici e ostacoli cilindrici.
+ * Risolve il rettangolo dell'auto contro edifici e ostacoli cilindrici.
  *
- * `halfLength` è la distanza dal centro ai due cerchi (circa metà passo),
- * `radius` il mezzo ingombro trasversale. La velocità cala in proporzione alla
- * penetrazione: un urto di striscio costa poco, uno frontale ferma l'auto.
+ * `halfLength` è metà lunghezza, `halfWidth` metà larghezza (compresi gli
+ * specchietti). La velocità cala in proporzione alla penetrazione più profonda:
+ * un urto di striscio costa poco, uno frontale ferma l'auto. Sommare le
+ * penetrazioni di più sonde farebbe pagare tre volte lo stesso muro.
  */
 export function resolveBody(
   x: number,
@@ -36,22 +39,39 @@ export function resolveBody(
   yaw: number,
   speed: number,
   halfLength: number,
-  radius: number,
+  halfWidth: number,
   resolvers: readonly (CircleResolver | null | undefined)[],
 ): BodyCollision {
   const fx = -Math.sin(yaw);
   const fz = -Math.cos(yaw);
+  const rx = Math.cos(yaw);
+  const rz = -Math.sin(yaw);
+
+  // raggio delle sonde: metà larghezza (o meno), così l'inviluppo combacia
+  const r = Math.min(halfWidth * 0.5, 0.5);
+  const long = Math.max(0, halfLength - r);
+  const wide = Math.max(0, halfWidth - r);
+  const probes: [number, number][] = [
+    [long, wide],
+    [long, -wide],
+    [-long, wide],
+    [-long, -wide],
+    [0, wide],
+    [0, -wide],
+  ];
+
   let px = x;
   let pz = z;
   let push = 0;
+  let deepest = 0;
   let hit = false;
 
-  for (const along of [halfLength, -halfLength]) {
-    let cx = px + fx * along;
-    let cz = pz + fz * along;
+  for (const [along, side] of probes) {
+    let cx = px + fx * along + rx * side;
+    let cz = pz + fz * along + rz * side;
     for (const resolver of resolvers) {
       if (!resolver) continue;
-      const fixed = resolver.resolveCircle(cx, cz, radius);
+      const fixed = resolver.resolveCircle(cx, cz, r);
       if (!fixed.hit) continue;
       const dx = fixed.x - cx;
       const dz = fixed.z - cz;
@@ -60,14 +80,15 @@ export function resolveBody(
       pz += dz;
       cx = fixed.x;
       cz = fixed.z;
-      push += Math.hypot(dx, dz);
+      const depth = Math.hypot(dx, dz);
+      push += depth;
+      deepest = Math.max(deepest, depth);
       hit = true;
     }
   }
 
   if (!hit) return { x, z, speed, hit: false, push: 0 };
-  // la perdita dipende da quanto è entrato l'ostacolo, non dal tempo di frame:
   // 20 cm di penetrazione tolgono ~36%, un urto pieno quasi tutta la velocità
-  const factor = Math.max(0.15, 1 - push * 1.8);
+  const factor = Math.max(0.15, 1 - deepest * 1.8);
   return { x: px, z: pz, speed: speed * factor, hit: true, push };
 }

@@ -156,12 +156,14 @@ npm run geo -- --skip-osm
 | Tasto | A piedi | In auto |
 | --- | --- | --- |
 | `W A S D` | muoviti | accelera / sterza / frena-retro |
-| `Shift` | corri | — |
-| `Spazio` | salta | freno a mano |
+| `Shift` | corri | spinta (più aderenza e velocità massima) |
+| `Spazio` | salta | freno a mano (spegne l'autopilota) |
 | `F` | entra in auto (se vicino) | scendi |
-| `E` | entra nell'attività vicina / dormi e salva a casa | — |
+| `E` | entra nell'attività vicina / dormi e salva a casa | +2 ore (ciclo giorno/notte) |
+| `Q` | meteo successivo | meteo successivo |
+| `O` | — | autopilota di strada |
 | `I` | portafoglio virtuale e movimenti | portafoglio virtuale e movimenti |
-| `C` | prima/terza persona | — |
+| `C` | prima/terza persona | inseguitrice → alta → cofano |
 | `M` | mappa grande (click = itinerario) | mappa grande (click = itinerario) |
 | `X` | annulla l'itinerario | annulla l'itinerario |
 | `V` | radar satellite / mappa | radar satellite / mappa |

@@ -537,6 +537,32 @@ export class RoadIndex {
     return walk;
   }
 
+  /**
+   * Segmento di strada più vicino, entro `reach` metri.
+   *
+   * Serve all'autopilota: la polilinea intera costringerebbe a scandire ogni
+   * punto di ogni via, mentre la griglia trova il tratto giusto in una manciata
+   * di celle.
+   */
+  nearestSegment(
+    x: number,
+    z: number,
+    reach = 24,
+  ): { ax: number; az: number; bx: number; bz: number; w: number; road: number } | null {
+    let bestD = Infinity;
+    let best: RoadSegment | null = null;
+    this.forEachSegmentNear(x, z, reach, (s) => {
+      const d = distanceToSegment2(x, z, s.ax, s.az, s.bx, s.bz);
+      if (d < bestD) {
+        bestD = d;
+        best = s;
+      }
+    });
+    if (!best) return null;
+    const seg: RoadSegment = best;
+    return { ax: seg.ax, az: seg.az, bx: seg.bx, bz: seg.bz, w: seg.w, road: seg.road };
+  }
+
   /** Punto stradale più vicino, per far comparire auto e giocatore in strada. */
   nearest(x: number, z: number): { x: number; z: number; road: Road } | null {
     let best: { x: number; z: number; road: Road; d: number } | null = null;

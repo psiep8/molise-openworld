@@ -103,6 +103,50 @@ export function smoothPolyline(points: Pt[], passes = 2, strength = 0.55): Pt[] 
 }
 
 /**
+ * Catmull-Rom **centripeta** campionata a passo regolare.
+ *
+ * È il passaggio che mancava per avere curve da videogioco invece che da
+ * spezzata OSM: la polilinea ricampionata e smussata resta fatta di segmenti
+ * dritti con una piccola cuspide a ogni vertice, e in auto si sente. La spline
+ * passa esattamente per i punti dati (a differenza della media pesata) e la
+ * parametrizzazione centripeta evita i cappi che una Catmull-Rom uniforme fa
+ * nei tornanti stretti.
+ */
+export function splineThrough(points: Pt[], step = 5): Pt[] {
+  if (points.length < 3) return points.slice();
+  const out: Pt[] = [points[0]!];
+  // parametrizzazione centripeta: distanza^0.5 fra i nodi
+  const knot = (a: Pt, b: Pt): number => Math.max(1e-4, Math.sqrt(Math.hypot(b.x - a.x, b.z - a.z)));
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)]!;
+    const p1 = points[i]!;
+    const p2 = points[i + 1]!;
+    const p3 = points[Math.min(points.length - 1, i + 2)]!;
+    const len = Math.hypot(p2.x - p1.x, p2.z - p1.z);
+    const n = Math.max(1, Math.ceil(len / step));
+    const t0 = 0;
+    const t1 = t0 + knot(p0, p1);
+    const t2 = t1 + knot(p1, p2);
+    const t3 = t2 + knot(p2, p3);
+    for (let k = 1; k <= n; k++) {
+      const t = t1 + ((t2 - t1) * k) / n;
+      const a1 = lerpPt(p0, p1, (t1 - t) / (t1 - t0), (t - t0) / (t1 - t0));
+      const a2 = lerpPt(p1, p2, (t2 - t) / (t2 - t1), (t - t1) / (t2 - t1));
+      const a3 = lerpPt(p2, p3, (t3 - t) / (t3 - t2), (t - t2) / (t3 - t2));
+      const b1 = lerpPt(a1, a2, (t2 - t) / (t2 - t0), (t - t0) / (t2 - t0));
+      const b2 = lerpPt(a2, a3, (t3 - t) / (t3 - t1), (t - t1) / (t3 - t1));
+      out.push(lerpPt(b1, b2, (t2 - t) / (t2 - t1), (t - t1) / (t2 - t1)));
+    }
+  }
+  return out;
+}
+
+const lerpPt = (a: Pt, b: Pt, wa: number, wb: number): Pt => ({
+  x: a.x * wa + b.x * wb,
+  z: a.z * wa + b.z * wb,
+});
+
+/**
  * Spinge una polilinea a pezzi, saltando i tratti in cui `blocked` è vero.
  * Serve ai marciapiedi: davanti agli incroci si interrompono invece di
  * attraversare l'altra strada con una striscia di cemento.
@@ -739,10 +783,11 @@ export function buildRoads(
   osm.roads.forEach((road, idx) => {
     // angoli smussati, poi due passate di media pesata: senza lo smussamento
     // vero l'asfalto resta una spezzata con cuspidi a ogni vertice OSM
-    const pts = smoothPolyline(
+    // angoli secchi smussati, poi spline centripeta: l'asfalto passa per i
+    // nodi OSM ma senza le cuspidi che facevano "scattare" il volante
+    const pts = splineThrough(
       roundCorners(resample(road.points, road.paved ? 7 : 6), road.paved ? 24 : 30),
-      2,
-      0.55,
+      road.paved ? 5 : 6,
     );
     const isDirt = !road.paved;
     const target = isDirt ? dirt : asphalt;
