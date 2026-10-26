@@ -564,4 +564,19 @@ Verifiche di questa sessione: `tsc --noEmit` ✅, `vitest run` **233/233** ✅,
 2,55 M triangoli, nessun errore console). Resta da guardare a schermo su GPU
 vera: colore delle auto dopo la tinta, montagne all'orizzonte, fari di notte.
 
+### 26 ottobre 2026 — Fase 0: banco prova e misure di partenza
+
+| Voce | Stato | Note |
+| --- | --- | --- |
+| Banco prova `?bench=1` | fatto | ora 16:00, meteo sereno, niente HUD/input, niente degradazione adattiva, pose fisse; non altera il rendering |
+| Script `scripts/bench.mjs` | fatto, verificato su GPU vera | Chromium hardware via CDP (`--use-angle=d3d11`), 20 s per vista, screenshot + `results.json`; sceglie Chrome/Brave/Edge |
+| Script `scripts/bench-analyze.mjs` | fatto | sceglie le pose dai dati OSM/DEM: strada con pendenza laterale, crinale aperto, piazza |
+| Tre viste fisse | fatto | SS 157 a ~1 km da Palata; crinale a est (2.377,4 / −1.842,8); Piazza del Popolo (865,8 / −2.298,2) |
+| Misure di partenza | fatto | `captures/baseline/<preset>/`: minimal 100 fps, low 50, medium 25–27, high 16 sulla Adreno X1-45 |
+| Metodo fps minimi | fatto | media su finestre da 1 s, non singolo frame |
+| Memoria texture | fatto, stimata | conteggio `renderer.info` + stima byte immagini di scena; render target esclusi |
+
+La Fase 0 non cambia il mondo: è solo infrastruttura di misura. La Fase A parte
+da questi numeri con un "prima" rifatto subito prima delle modifiche.
+
 > Aggiornare questa tabella e il registro a ogni blocco di lavoro completato, con la data.

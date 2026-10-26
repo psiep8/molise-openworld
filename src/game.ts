@@ -201,6 +201,86 @@ const ROUTE_DRIVE_SPEED = 11.1;
 /** Esposizione diurna: tarata sui materiali chiari del paese (intonaco, coppi, asfalto). */
 const EXPOSURE_DAY = 0.62;
 
+/**
+ * Pose fisse del banco prova (`?bench=1`).
+ *
+ * Servono a confrontare prima/dopo ogni fase del piano realismo con la stessa
+ * inquadratura, la stessa ora (16:00) e lo stesso meteo (sereno). Le coordinate
+ * sono state scelte dai dati OSM/DEM reali:
+ * - `road`: Strada Statale 157 della Valle del Biferno, tratto di campagna a
+ *   ~1 km da Palata, con pendenza laterale di ~2,5 m su 20 m (camera inseguitrice);
+ * - `hilltop`: crinale aperto a est di Palata, ~1550 m dal centro, 536 m slm;
+ * - `piazza`: Piazza del Popolo a Palata, 20 m dal punto di partenza.
+ */
+export interface BenchView {
+  id: 'road' | 'hilltop' | 'piazza';
+  label: string;
+  mode: Mode;
+  x: number;
+  z: number;
+  yaw: number;
+  pitch?: number;
+}
+
+export const BENCH_VIEWS: readonly BenchView[] = [
+  {
+    id: 'road',
+    label: 'Strada di campagna · 80 km/h · camera inseguitrice',
+    mode: 'drive',
+    x: -63.2606,
+    z: -2647.6485,
+    yaw: 0.2444709,
+  },
+  {
+    id: 'hilltop',
+    label: 'Crinale aperto a est di Palata · a piedi · 360°',
+    mode: 'walk',
+    x: 2377.4,
+    z: -1842.8,
+    yaw: 1.29,
+    pitch: -0.03,
+  },
+  {
+    id: 'piazza',
+    label: 'Piazza del Popolo, Palata · a piedi',
+    mode: 'walk',
+    x: 865.8,
+    z: -2298.2,
+    yaw: -2.26,
+    pitch: 0,
+  },
+];
+
+export interface BenchResult {
+  view: BenchView['id'];
+  label: string;
+  mode: Mode;
+  quality: QualityLevel;
+  gpu: string;
+  seconds: number;
+  frames: number;
+  fpsAvg: number;
+  fpsMin: number;
+  fpsP5: number;
+  drawCallsAvg: number;
+  drawCallsMax: number;
+  trianglesAvg: number;
+  trianglesMax: number;
+  textures: number;
+  textureMB: number;
+  renderScale: number;
+  pixelRatio: number;
+  bufferWidth: number;
+  bufferHeight: number;
+  chunks: number;
+  textured: number;
+  detailed: number;
+  degraded: number;
+  x: number;
+  z: number;
+  yaw: number;
+}
+
 export class Game {
   private readonly canvas: HTMLCanvasElement;
   private readonly renderer: THREE.WebGLRenderer;
@@ -268,6 +348,17 @@ export class Game {
   private quality: QualityPreset = QUALITY_PRESETS.high;
   /** stringa della GPU, solo per la diagnostica */
   private gpuName = '';
+  // --- banco prova (`?bench=1`): pose fisse e misurazioni riproducibili ----
+  private bench = false;
+  private benchViewIndex = -1;
+  private benchStats: BenchResult | null = null;
+  private benchCollect: {
+    startAt: number;
+    endAt: number;
+    frames: number[];
+    calls: number[];
+    tris: number[];
+  } | null = null;
   private post?: PostPipeline;
   private renderScale = 1;
   private lastQualityCheck = 0;
@@ -352,6 +443,9 @@ export class Game {
     this.gpuName = gpu.renderer ?? '';
     this.qualityLevel = loadQuality(gpu);
     this.quality = QUALITY_PRESETS[this.qualityLevel];
+    // `?bench=1` è il banco prova riproducibile: niente input, niente
+    // degradazione adattiva, pose fisse. Non cambia il rendering.
+    this.bench = new URLSearchParams(window.location.search).get('bench') === '1';
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: this.quality.antialias,
@@ -633,6 +727,21 @@ export class Game {
       await nextFrame();
       this.hud.hideLoading();
       this.loaded = true;
+
+      // Banco prova: stessa ora, stesso meteo, niente HUD e niente input.
+      // Il rendering è identico a una partita normale.
+      if (this.bench) {
+        this.setManualTime(true);
+        this.setManualWeather('clear');
+        this.setManualHour(16);
+        this.hud.hideStart();
+        this.hud.hideLoading();
+        document.getElementById('hud')?.classList.add('hidden');
+        document.getElementById('attribution')?.classList.add('hidden');
+        this.running = true;
+        void this.benchView(0);
+        return;
+      }
 
       const params = new URLSearchParams(window.location.search);
       const autostart = params.get('autostart');
@@ -2461,12 +2570,16 @@ export class Game {
       this.fpsElapsed = 0;
       if (this.lastQualityCheck >= 2 && this.running) {
         this.lastQualityCheck = 0;
-        this.tunePerformance();
+        // nel banco prova la qualità deve restare quella scelta: niente
+        // degradazione adattiva che falserebbe il confronto prima/dopo
+        if (!this.bench) this.tunePerformance();
       }
     }
 
-    if (this.running && this.loaded) this.update(dt);
-    else this.idle(dt);
+    if (this.running && this.loaded) {
+      if (this.bench) this.benchTick(dt);
+      else this.update(dt);
+    } else this.idle(dt);
 
     if (this.sky) {
       this.sky.dome.position.copy(this.camera.position);
@@ -2482,6 +2595,7 @@ export class Game {
     else if (this.post) this.post.render(dt);
     else this.renderer.render(this.scene, this.camera);
     this.publishDiagnostics();
+    if (this.benchCollect) this.collectBenchFrame(perfDt);
   };
 
   /**
@@ -2592,6 +2706,220 @@ export class Game {
     }
     renderer.setScissorTest(false);
     renderer.setViewport(0, 0, w, h);
+  }
+
+  // -------------------------------------------------------------------------
+  // banco prova riproducibile (`?bench=1`)
+  // -------------------------------------------------------------------------
+
+  /** Camera e mondo restano fermi: si aggiorna solo ciò che serve al rendering. */
+  private benchTick(dt: number): void {
+    const view = BENCH_VIEWS[this.benchViewIndex];
+    if (!view) return;
+    const focus = this.tmp1.set(view.x, this.heights.heightAt(view.x, view.z), view.z);
+    this.terrain.update(view.x, view.z, this.viewRadius);
+    this.terrain.tick();
+    this.farTerrain?.setInnerRadius(this.viewRadius * 0.7);
+    this.farTerrain?.update(view.x, view.z);
+    updateWind(dt);
+    this.grass?.update(
+      view.x,
+      view.z,
+      this.heights,
+      this.roadIndex,
+      this.buildingIndex,
+      this.quality.grassDensity * this.grassScale,
+    );
+    this.applyManualAtmosphere(dt, focus);
+    this.updateSky(focus);
+    this.streetLights?.update(this.camera.position, this.nightFactor);
+  }
+
+  /**
+   * Porta il gioco su una delle tre pose fisse. È `async` perché attende il
+   * preload dei chunk di terreno attorno alla posa: senza questo la prima
+   * misura pagherebbe lo streaming e non sarebbe confrontabile.
+   */
+  async benchView(index: number): Promise<{ index: number; id: BenchView['id']; label: string } | null> {
+    const view = BENCH_VIEWS[index];
+    if (!this.loaded || !this.heights || !view) return null;
+    this.benchViewIndex = index;
+    this.benchStats = null;
+    this.benchCollect = null;
+    this.mode = view.mode;
+    this.running = true;
+    this.grassScale = 1;
+    this.hud.setMode(view.mode);
+
+    if (view.mode === 'drive') {
+      this.car.reset(view.x, view.z, view.yaw, this.heights);
+      // 80 km/h: la posa è ferma per riproducibilità, ma velocità e camera
+      // sono quelle della vista in movimento richiesta dal brief.
+      this.car.state.speed = 80 / 3.6;
+      this.camDistance = 8.8;
+      this.camYawOffset = 0;
+      this.camPitch = 0;
+      this.camera.fov = 62;
+      this.camera.updateProjectionMatrix();
+      this.snapDriveCamera();
+    } else {
+      this.player.spawn(view.x, view.z, view.yaw, this.heights);
+      this.player.pitch = view.pitch ?? 0;
+      this.player.avatar.visible = false;
+      this.camera.fov = 68;
+      this.camera.updateProjectionMatrix();
+      this.snapWalkCamera();
+    }
+
+    await this.terrain.preload(view.x, view.z, Math.min(1600, this.viewRadius));
+    this.applyManualAtmosphere(0, this.tmp1.set(view.x, this.heights.heightAt(view.x, view.z), view.z));
+    this.updateSky(this.tmp1);
+    return { index, id: view.id, label: view.label };
+  }
+
+  /**
+   * Avvia la misura. I primi 1,2 s sono di assestamento (shader, tile, ombre);
+   * poi si campionano gli fps e i contatori di `renderer.info`.
+   */
+  benchStart(seconds = 8): boolean {
+    if (this.benchViewIndex < 0) return false;
+    const now = performance.now();
+    this.benchStats = null;
+    this.benchCollect = {
+      startAt: now + 1200,
+      endAt: now + 1200 + Math.max(1, seconds) * 1000,
+      frames: [],
+      calls: [],
+      tris: [],
+    };
+    return true;
+  }
+
+  benchResult(): BenchResult | null {
+    return this.benchStats;
+  }
+
+  benchInfo(): {
+    ready: boolean;
+    view: BenchView | null;
+    gpu: string;
+    quality: QualityLevel;
+    renderScale: number;
+  } {
+    return {
+      ready: this.loaded,
+      view: BENCH_VIEWS[this.benchViewIndex] ?? null,
+      gpu: this.gpuName,
+      quality: this.qualityLevel,
+      renderScale: this.renderScale,
+    };
+  }
+
+  private collectBenchFrame(perfDt: number): void {
+    const c = this.benchCollect;
+    if (!c) return;
+    const now = performance.now();
+    if (now < c.startAt) return;
+    if (perfDt > 0.0001) c.frames.push(1 / perfDt);
+    c.calls.push(this.renderer.info.render.calls);
+    c.tris.push(this.renderer.info.render.triangles);
+    if (now >= c.endAt) this.finishBench();
+  }
+
+  private finishBench(): void {
+    const c = this.benchCollect;
+    const view = BENCH_VIEWS[this.benchViewIndex];
+    if (!c || !view) return;
+    this.benchCollect = null;
+
+    const sumTime = c.frames.reduce((s, fps) => s + 1 / fps, 0);
+    // minimi su finestre da 1 s: il minimo di un singolo frame è dominato da
+    // uno stutter di streaming e non dice niente sulla fluidità percepita
+    const buckets: number[] = [];
+    let bucketTime = 0;
+    let bucketFrames = 0;
+    for (const fps of c.frames) {
+      bucketTime += 1 / fps;
+      bucketFrames++;
+      if (bucketTime >= 1) {
+        buckets.push(bucketFrames / bucketTime);
+        bucketTime = 0;
+        bucketFrames = 0;
+      }
+    }
+    if (bucketFrames > 0 && bucketTime > 0) buckets.push(bucketFrames / bucketTime);
+    buckets.sort((a, b) => a - b);
+    const calls = c.calls.length ? c.calls : [0];
+    const tris = c.tris.length ? c.tris : [0];
+    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+
+    this.benchStats = {
+      view: view.id,
+      label: view.label,
+      mode: view.mode,
+      quality: this.qualityLevel,
+      gpu: this.gpuName,
+      seconds: sumTime,
+      frames: c.frames.length,
+      fpsAvg: sumTime > 0 ? c.frames.length / sumTime : 0,
+      fpsMin: buckets[0] ?? 0,
+      fpsP5: buckets[Math.max(0, Math.floor(buckets.length * 0.05) - 1)] ?? 0,
+      drawCallsAvg: calls.reduce((s, v) => s + v, 0) / calls.length,
+      drawCallsMax: Math.max(...calls),
+      trianglesAvg: tris.reduce((s, v) => s + v, 0) / tris.length,
+      trianglesMax: Math.max(...tris),
+      textures: this.renderer.info.memory.textures,
+      textureMB: this.estimateTextureMB(),
+      renderScale: this.renderScale,
+      pixelRatio: this.renderer.getPixelRatio(),
+      bufferWidth: size.x,
+      bufferHeight: size.y,
+      chunks: this.terrain?.loadedChunks ?? 0,
+      textured: this.terrain?.texturedChunks ?? 0,
+      detailed: this.terrain?.detailedChunks ?? 0,
+      degraded: this.degradeStep,
+      x: view.x,
+      z: view.z,
+      yaw: view.yaw,
+    };
+  }
+
+  /**
+   * Stima della memoria texture della scena (solo immagini, non render target):
+   * `renderer.info.memory` conta le texture ma non dice quanti byte occupano.
+   */
+  private estimateTextureMB(): number {
+    const seen = new Set<THREE.Texture>();
+    let bytes = 0;
+    const add = (t: THREE.Texture | null | undefined): void => {
+      if (!t || seen.has(t)) return;
+      seen.add(t);
+      const image = t.image as { width?: number; height?: number } | undefined;
+      const w = image?.width ?? 0;
+      const h = image?.height ?? 0;
+      if (w <= 0 || h <= 0) return;
+      bytes += w * h * 4 * (t.generateMipmaps ? 4 / 3 : 1);
+    };
+
+    this.scene.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const list = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const raw of list) {
+        const m = raw as THREE.MeshStandardMaterial;
+        add(m.map);
+        add(m.normalMap);
+        add(m.roughnessMap);
+        add(m.metalnessMap);
+        add(m.emissiveMap);
+        add(m.aoMap);
+        add(m.alphaMap);
+        add(m.bumpMap);
+        add(m.envMap);
+      }
+    });
+    add(this.scene.environment);
+    return bytes / (1024 * 1024);
   }
 
   private idle(dt: number): void {

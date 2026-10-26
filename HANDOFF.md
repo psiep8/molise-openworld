@@ -1258,3 +1258,91 @@ con mappa 4K; slider → etichetta 50% e `localStorage` `0.5`.
 **Non verificato**: una GPU vera non c'è su questa macchina, quindi resta da
 guardare a schermo il colore delle auto dopo la tinta e le montagne lontane
 all'orizzonte.
+
+## 26/10 — Fase 0: banco prova riproducibile e misure di partenza
+
+Prima di toccare il paesaggio è stato costruito il banco prova richiesto dal
+brief (`?bench=1` + `scripts/bench.mjs`). Serve a confrontare prima/dopo ogni
+fase con la stessa inquadratura, la stessa ora e lo stesso meteo, su GPU vera.
+
+### Come si usa
+
+```bash
+# server già attivo (npm run dev, oppure npm run preview)
+npm run bench -- --quality medium --out captures/fase-a/prima
+npm run bench -- --quality low    --out captures/fase-a/prima-low
+# solo misure, 20 s per vista, tre viste di default
+```
+
+- `?bench=1` spegne HUD e input, blocca ora 16:00 e meteo sereno, disattiva la
+  degradazione adattiva e usa `rise/run` di camera fissi. **Non cambia il
+  rendering**: il percorso di draw è quello normale.
+- `scripts/bench.mjs` lancia Chromium **con GPU hardware** (`--use-angle=d3d11`,
+  niente SwiftShader) via CDP, stampa la stringa del renderer e salva
+  `results.json` + uno screenshot per vista. Richiede un Chromium installato:
+  Chrome, Brave o Edge. Su questa macchina usa Brave.
+- Le pose sono in `BENCH_VIEWS` (`src/game.ts`); le coordinate sono state scelte
+  dai dati OSM/DEM con `scripts/bench-analyze.mjs`:
+  1. **Strada di campagna** — SS 157 della Valle del Biferno a ~1 km da Palata,
+     tratto con pendenza laterale ~2,5 m su 20 m e campi aperti, camera
+     inseguitrice a 8,8 m. La posa è ferma per riproducibilità, ma auto e camera
+     sono quelle della vista a 80 km/h.
+  2. **Crinale aperto** — 2.377,4 / −1.842,8, ~1.575 m a est di Palata, 535 m
+     slm, 34 m dalla strada più vicina e 55 m dalla casa più vicina. Sguardo
+     verso Palata.
+  3. **Piazza del Popolo** — centro OSM della piazza a Palata (865,8 / −2.298,2),
+     sguardo verso le case e la direttrice della chiesa.
+- Gli fps minimi sono medie su finestre da 1 s (non il singolo frame), perché
+  uno stutter di streaming non dice niente sulla fluidità percepita. La memoria
+  texture è `renderer.info.memory.textures` (conteggio) + una stima dei byte
+  delle immagini di scena; i render target del post-processing sono esclusi.
+
+### Verifica su GPU vera
+
+Renderer letto dal driver in Brave headless con GPU hardware:
+
+```
+ANGLE (Qualcomm, Qualcomm(R) Adreno(TM) X1-45 GPU (0x37314430)
+       Direct3D11 vs_5_0 ps_5_0, D3D11)
+```
+
+Quindi le misure qui sotto sono **renderizzate dalla GPU vera**, non da
+SwiftShader. Resta un limite: la finestra headless non è quella che vede
+l'utente, e le misure possono variare di ~20% con carico di background e stato
+termico della macchina. Per questo ogni fase avrà un "prima" e un "dopo"
+eseguiti uno dietro l'altro nelle stesse condizioni, oltre ai numeri di
+riferimento salvati qui.
+
+### Misure di partenza (20 s per vista, 1280×800, DPR 1)
+
+| Preset | Vista | fps medi | fps min 1 s | draw call | triangoli | texture (stima MB) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `minimal` | strada | 100,6 | 90,4 | 131 | 2,63 M | 84 (~209) |
+| `minimal` | crinale | 102,2 | 96,7 | 217 | 2,95 M | 110 (~209) |
+| `minimal` | piazza | 102,5 | 98,9 | 96 | 2,61 M | 121 (~209) |
+| `low` | strada | 50,5 | 40,6 | 295 | 4,60 M | 129 (~251) |
+| `low` | crinale | 50,3 | 42,3 | 373 | 5,30 M | 159 (~248) |
+| `low` | piazza | 54,0 | 41,9 | 297 | 4,58 M | 172 (~248) |
+| `medium` | strada | 26,7 | 23,6 | 343 | 11,89 M | 146 (~395) |
+| `medium` | crinale | 24,3 | 21,4 | 422 | 13,09 M | 179 (~416) |
+| `medium` | piazza | 24,9 | 20,4 | 353 | 12,99 M | 198 (~416) |
+| `high` | strada | 16,2 | 12,5 | 772 | 36,23 M | 195 (~456) |
+| `high` | crinale | 15,9 | 15,8 | 915 | 36,96 M | 215 (~490) |
+| `high` | piazza | 15,8 | 15,7 | 782 | 36,81 M | 238 (~490) |
+
+Screenshot: `captures/baseline/<preset>/<road|hilltop|piazza>.png`; dati
+completi in `captures/baseline/<preset>/results.json`.
+
+Osservazioni oneste:
+
+- Su questa iGPU `medium` sta già a ~25 fps e `high` a ~16 fps: il margine del
+  -10% è **1–2 fps**, quindi ogni fase andrà misurata prima/dopo e, se il costo
+  reale sfonda, si riduce la densità del preset (come da brief), non si toglie
+  la funzione.
+- `high` paga soprattutto ombre e post-processing: 36,9 M triangoli contro
+  13,1 M di `medium` e 915 draw call contro 422. È il primo posto da guardare
+  se una fase sfora.
+- `minimal` e `low` hanno molto margine; i nuovi shader dovranno comunque
+  restare dietro un interruttore di preset.
+- La strada di campagna mostra già il problema noto della Fase C: marciapiedi e
+  cordoli su una provinciale fuori paese. Non è stato toccato in Fase 0.

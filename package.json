@@ -14,6 +14,7 @@
     "textures": "node scripts/fetch-textures.mjs",
     "kit": "node scripts/fetch-citykit.mjs",
     "smoke": "node scripts/smoke.mjs",
+    "bench": "node scripts/bench.mjs",
     "streets": "node scripts/check-street-imagery.mjs"
   },
   "dependencies": {
