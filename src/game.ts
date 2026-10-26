@@ -11,7 +11,7 @@ import { FarTerrain } from './world/far-terrain';
 import { buildBuildings, setWindowGlow } from './world/buildings';
 import { buildChurch } from './world/church';
 import { buildDryStoneWalls } from './world/dry-stone';
-import { buildFieldBoundaries } from './world/field-boundaries';
+import { buildFieldBoundaries, loadParcels, type Parcels } from './world/field-boundaries';
 import { buildPowerLines } from './world/power-lines';
 import { buildRoads, buildWater } from './world/roads';
 import {
@@ -310,6 +310,8 @@ export class Game {
   private stereo = false;
 
   private heights!: Heightfield;
+  /** confini di campo dal landcover (null se parcels.json manca) */
+  private parcels: Parcels | null = null;
   private osm!: OsmData;
   private roadIndex!: RoadIndex;
   private buildingIndex!: BuildingIndex;
@@ -592,9 +594,15 @@ export class Game {
         if (count === 0) console.info('nessuna auto GLB in public/cars: restano le sagome procedurali');
       });
 
-      const [heights, osm, kit] = await Promise.all([loadHeightfield(base), loadOsm(base), kitPromise]);
+      const [heights, osm, kit, parcels] = await Promise.all([
+        loadHeightfield(base),
+        loadOsm(base),
+        kitPromise,
+        loadParcels(base),
+      ]);
       this.heights = heights;
       this.osm = osm;
+      this.parcels = parcels;
       this.kit = kit;
       this.car.setKit(kit);
       this.hud.setLoading(0.32, 'Apro il garage delle auto importate…');
@@ -669,7 +677,9 @@ export class Game {
       this.scene.add(buildDryStoneWalls(osm, heights, this.roadIndex, this.buildingIndex, this.renderer));
       // confini di campo: muretti su bosco/prato, recinzioni su vigne e aie,
       // fossi sui corsi d'acqua minori — la geometria che il DEM non ha
-      this.scene.add(buildFieldBoundaries(osm, heights, this.roadIndex, this.buildingIndex, this.renderer));
+      this.scene.add(
+        buildFieldBoundaries(osm, heights, this.roadIndex, this.buildingIndex, this.renderer, this.parcels),
+      );
       this.scene.add(buildPowerLines(osm, heights, this.roadIndex, this.buildingIndex));
 
       this.hud.setLoading(0.5, 'Costruisco le case…');

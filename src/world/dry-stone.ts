@@ -50,7 +50,10 @@ export function buildDryStoneWalls(
       const tz = (b.z - a.z) / seg;
       const px = -tz;
       const pz = tx;
-      const yaw = Math.atan2(tx, tz);
+      // il concio è lungo 2,5 m sull'asse X: per allinearlo alla tangente
+      // (tx, tz) serve atan2(-tz, tx). Con atan2(tx, tz) i blocchi stavano
+      // ruotati di 90°: muri di denti staccati invece che una linea continua
+      const yaw = Math.atan2(-tz, tx);
 
       // un concio ogni 2,4 m, con qualche vuoto (tratti crollati)
       for (let s = 0; s < seg; s += 2.4) {

@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { Heightfield } from '../src/geo/elevation';
 import type { Pt } from '../src/geo/geo';
-import { boundaryRings, boundarySamples, buildDitchGeometry } from '../src/world/field-boundaries';
+import {
+  boundaryRings,
+  boundarySamples,
+  buildDitchGeometry,
+  polylineSamples,
+} from '../src/world/field-boundaries';
 
 const square: Pt[] = [
   { x: 0, z: 0 },
@@ -59,12 +64,27 @@ describe('boundarySamples', () => {
     ]);
   });
 
-  it('assegna il yaw del lato per cui si cammina', () => {
+  it('ruota il box lungo X in direzione del lato (yaw corretto)', () => {
     const samples = boundarySamples(square, 5);
-    // primo lato va +x: yaw = atan2(1, 0) = π/2
-    expect(samples[0]!.yaw).toBeCloseTo(Math.PI / 2, 6);
-    // secondo lato va +z: yaw = atan2(0, 1) = 0
-    expect(samples.find((s) => s.x === 10)!.yaw).toBeCloseTo(0, 6);
+    // lato +x: il box deve restare lungo x → rotation.y = 0
+    expect(samples[0]!.yaw).toBeCloseTo(0, 6);
+    // lato +z: box lungo z → atan2(-tz, tx) = atan2(-1, 0) = -π/2
+    expect(samples.find((s) => s.x === 10)!.yaw).toBeCloseTo(-Math.PI / 2, 6);
+  });
+});
+
+describe('polylineSamples', () => {
+  it('non chiude il giro come farebbe un anello', () => {
+    const path: Pt[] = [
+      { x: 0, z: 0 },
+      { x: 10, z: 0 },
+      { x: 10, z: 10 },
+    ];
+    const samples = polylineSamples(path, 2.5);
+    // solo i due lati (4 + 4), nessun ritorno in origine
+    expect(samples).toHaveLength(8);
+    expect(samples[7]!.x).toBeCloseTo(10, 6);
+    expect(samples[7]!.z).toBeCloseTo(7.5, 6);
   });
 });
 

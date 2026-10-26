@@ -11,10 +11,10 @@ import { resample } from './roads';
  *
  * Tre famiglie, tutte derivate da dati reali (nessuna invenzione):
  *
- * - **muretti a secco** lungo i confini di campo e di bosco (`meadow`,
- *   `grassland`, `wood`, `scrub`): sono i muri che in Molise segnano i
- *   confini tra un appezzamento e l'altro, lo stesso concio del modulo
- *   `dry-stone` ma piazzato sui bordi dei poligoni invece che sulle strade;
+ * - **muretti a secco** sui confini di campo: gli anelli OSM (`meadow`,
+ *   `grassland`, `wood`, `scrub`) e i confini estratti dal landcover
+ *   (`parcels.json`, dove la classe di copertura cambia senza poligone OSM)
+ *   — stessi conci del modulo `dry-stone`;
  * - **recinzioni** attorno a vigne, frutteti e aie (`vineyard`, `orchard`,
  *   `farmyard`): pali in legno con due fili, tipici dei poderi;
  * - **fossi** lungo i corsi d'acqua minori (`waterway=ditch`): una sezione a
@@ -26,7 +26,10 @@ import { resample } from './roads';
  * starebbe in piedi. Le tre mesh sono tre draw call totali.
  */
 
-export const MAX_WALL_BLOCKS = 6000;
+// 24.000 conci = ~290k triangoli in una draw call: il cordolo stradale da solo
+// ne fa 600k, quindi il budget c'è — e un cap più basso troncherebbe i muri
+// a metà confine invece di tagliarne interi
+export const MAX_WALL_BLOCKS = 24000;
 export const MAX_POSTS = 4000;
 export const MAX_RAILS = 8000;
 
@@ -38,8 +41,46 @@ const FENCE_KINDS = new Set(['vineyard', 'orchard', 'farmyard']);
 export interface BoundarySample {
   x: number;
   z: number;
-  /** angolo del lato per cui si cammina (yaw three.js) */
+  /**
+   * `rotation.y` che allinea un box lungo sull'asse X alla direzione di
+   * marcia del lato: `atan2(-tz, tx)`. (Non `atan2(tx, tz)`: quella mette
+   * il box di traverso rispetto al lato — vedi dry-stone.ts.)*
+   */
   yaw: number;
+}
+
+/**
+ * Confini di campo estratti da `npm run landcover` (parcels.json): celle
+ * della griglia fusa a 4 m dove la classe di copertura cambia. Ogni
+ * elemento di `w`/`f` è una tripla `[i, j, d]`: il segmento è il bordo condiviso
+ * tra la cella (i,j) e la sua destra (d=0) o la sua sotto (d=1), in unità
+ * di griglia. `w` = confine con il bosco (muretto), `f` = confine tra campi.
+ */
+export interface Parcels {
+  generatedAt?: string;
+  cell: number;
+  originX: number;
+  originZ: number;
+  w: number[];
+  f: number[];
+}
+
+/**
+ * Carica i confini di campo se esistono (opzionale: senza landcover il gioco
+ * parte lo stesso e i muretti restano quelli degli anelli OSM).
+ */
+export async function loadParcels(base = './geo/'): Promise<Parcels | null> {
+  try {
+    const res = await fetch(`${base}landcover/parcels.json`);
+    if (!res.ok) return null;
+    const json = (await res.json()) as Parcels;
+    if (typeof json?.cell !== 'number' || !Array.isArray(json?.w) || !Array.isArray(json?.f)) {
+      return null;
+    }
+    return json;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -60,23 +101,25 @@ export function boundaryRings(
 }
 
 /**
- * Campiona l'intero perimetro di un anello con passo costante, chiudendo
- * l'ultimo lato sul primo vertice e portando il resto del passo da un lato
- * al successivo (così due anelli adiacenti con lati sfasati restano comunque
- * uniformi). Funzione pura, testata in `tests/field-boundaries.test.ts`.
+ * Campione un tratto di percorso a passo costante. `closed` chiude l'ultimo
+ * lato sul primo vertice (anello); altrimenti il residuo del passo si perde
+ * alla fine (polilinea aperta). Il residuo passa da un lato al successivo,
+ * così i campioni restano uniformi anche tra lati di lunghezza diversa.
  */
-export function boundarySamples(ring: readonly Pt[], step: number): BoundarySample[] {
+function walkPath(points: readonly Pt[], step: number, closed: boolean): BoundarySample[] {
   const out: BoundarySample[] = [];
-  const n = ring.length;
+  const n = points.length;
+  const edges = closed ? n : n - 1;
   let next = 0; // distanza del prossimo campione dall'inizio del lato corrente
-  for (let i = 0; i < n; i++) {
-    const a = ring[i]!;
-    const b = ring[(i + 1) % n]!;
+  for (let i = 0; i < edges; i++) {
+    const a = points[i]!;
+    const b = points[(i + 1) % n]!;
     const seg = Math.hypot(b.x - a.x, b.z - a.z);
     if (seg < 1e-6) continue;
     const tx = (b.x - a.x) / seg;
     const tz = (b.z - a.z) / seg;
-    const yaw = Math.atan2(tx, tz);
+    // rotazione che allinea il box (lungo X) al lato: vedi BoundarySample
+    const yaw = Math.atan2(-tz, tx);
     let s = next;
     while (s < seg - 1e-6) {
       out.push({ x: a.x + tx * s, z: a.z + tz * s, yaw });
@@ -85,6 +128,21 @@ export function boundarySamples(ring: readonly Pt[], step: number): BoundarySamp
     next = s - seg;
   }
   return out;
+}
+
+/**
+ * Campiona l'intero perimetro di un anello con passo costante, chiudendo
+ * l'ultimo lato sul primo vertice e portando il resto del passo da un lato
+ * al successivo (così due anelli adiacenti con lati sfasati restano comunque
+ * uniformi). Funzione pura, testata in `tests/field-boundaries.test.ts`.
+ */
+export function boundarySamples(ring: readonly Pt[], step: number): BoundarySample[] {
+  return walkPath(ring, step, true);
+}
+
+/** Come `boundarySamples` ma per una polilinea aperta (non chiude il giro). */
+export function polylineSamples(path: readonly Pt[], step: number): BoundarySample[] {
+  return walkPath(path, step, false);
 }
 
 /** Griglia grezza per il controllo di duplicato tra anelli confinanti. */
@@ -139,6 +197,7 @@ export function buildFieldBoundaries(
   roads: RoadIndex,
   buildings: BuildingIndex,
   renderer: THREE.WebGLRenderer,
+  parcels: Parcels | null = null,
 ): THREE.Group {
   const group = new THREE.Group();
   group.name = 'field-boundaries';
@@ -154,28 +213,70 @@ export function buildFieldBoundaries(
   const stoneBase = new THREE.Color(0xd6cab4);
   const woodBase = new THREE.Color(0x6f5f4a);
 
-  // ---- muretti a secco sui confini ---------------------------------------
+  // ---- muretti a secco: prima sugli anelli OSM, poi sui confini ----------
+  // stessa `wallCells` per entrambe le sorgenti: dove i due confini si
+  // sovrappongono il secondo viene buttato invece di piazzare un concio doppio
+  const placeWall = (s: BoundarySample): void => {
+    if (walls.length >= MAX_WALL_BLOCKS) return;
+    const key = cellKey(s.x, s.z);
+    if (wallCells.has(key)) return;
+    if (roads.isOnRoad(s.x, s.z, 1.0)) return;
+    if (buildings.hitsCircle(s.x, s.z, 1.1)) return;
+    if (heights.slopeAt(s.x, s.z) > 26) return;
+    wallCells.add(key);
+    if (rng() < 0.14) return; // tratti crollati, come su strada
+    const y = heights.heightAt(s.x, s.z);
+    dummy.position.set(s.x, y + 0.3, s.z);
+    dummy.rotation.set(
+      (rng() - 0.5) * 0.06,
+      s.yaw + (rng() - 0.5) * 0.1,
+      (rng() - 0.5) * 0.05,
+    );
+    const h = 0.82 + rng() * 0.26;
+    dummy.scale.set(0.94 + rng() * 0.12, h / 0.8, 0.9 + rng() * 0.2);
+    dummy.updateMatrix();
+    pushInstance(walls, dummy, tint.copy(stoneBase).multiplyScalar(0.78 + rng() * 0.36), MAX_WALL_BLOCKS);
+  };
+
   for (const ring of boundaryRings(osm.areas, WALL_KINDS)) {
-    for (const s of boundarySamples(ring, 2.4)) {
+    for (const s of boundarySamples(ring, 2.4)) placeWall(s);
+  }
+
+  // confini estratti dal landcover: segmenti assi-allineati lunghi `cell`.
+  // L'ordine di scansione del file darebbe tutti i muri all'angolo in alto a
+  // sinistra della mappa una volta raggiunto il cap, quindi i segmenti vengono
+  // prima mescolati con un RNG a seme fisso (copertura uniforme e
+  // riproducibile a ogni run).
+  if (parcels) {
+    const { cell, originX, originZ } = parcels;
+    const segs: [number, number, number, number][] = [];
+    for (const list of [parcels.w, parcels.f]) {
+      for (let n = 0; n + 2 < list.length; n += 3) {
+        const i = list[n]!;
+        const j = list[n + 1]!;
+        const d = list[n + 2]!;
+        const x1 = originX + (d === 0 ? (i + 1) * cell : i * cell);
+        const z1 = originZ + (d === 0 ? j * cell : (j + 1) * cell);
+        segs.push([x1, z1, d === 0 ? x1 : x1 + cell, d === 0 ? z1 + cell : z1]);
+      }
+    }
+    for (let i = segs.length - 1; i > 0; i--) {
+      const k = Math.floor(rng() * (i + 1));
+      const t = segs[i]!;
+      segs[i] = segs[k]!;
+      segs[k] = t;
+    }
+    for (const [x1, z1, x2, z2] of segs) {
       if (walls.length >= MAX_WALL_BLOCKS) break;
-      const key = cellKey(s.x, s.z);
-      if (wallCells.has(key)) continue;
-      if (roads.isOnRoad(s.x, s.z, 1.0)) continue;
-      if (buildings.hitsCircle(s.x, s.z, 1.1)) continue;
-      if (heights.slopeAt(s.x, s.z) > 26) continue;
-      wallCells.add(key);
-      if (rng() < 0.14) continue; // tratti crollati, come su strada
-      const y = heights.heightAt(s.x, s.z);
-      dummy.position.set(s.x, y + 0.3, s.z);
-      dummy.rotation.set(
-        (rng() - 0.5) * 0.06,
-        s.yaw + (rng() - 0.5) * 0.1,
-        (rng() - 0.5) * 0.05,
-      );
-      const h = 0.82 + rng() * 0.26;
-      dummy.scale.set(0.94 + rng() * 0.12, h / 0.8, 0.9 + rng() * 0.2);
-      dummy.updateMatrix();
-      pushInstance(walls, dummy, tint.copy(stoneBase).multiplyScalar(0.78 + rng() * 0.36), MAX_WALL_BLOCKS);
+      for (const s of polylineSamples(
+        [
+          { x: x1, z: z1 },
+          { x: x2, z: z2 },
+        ],
+        2.4,
+      )) {
+        placeWall(s);
+      }
     }
   }
 
@@ -207,7 +308,7 @@ export function buildFieldBoundaries(
         const dz = s.z - lastPost.z;
         const gap = Math.hypot(dx, dz);
         if (gap >= 0.8 && gap <= 4.2) {
-          const yaw = Math.atan2(dx / gap, dz / gap);
+          const yaw = Math.atan2(-dz / gap, dx / gap);
           const midY = (y + lastPost.y) / 2;
           for (const railH of [0.42, 0.86]) {
             if (rails.length >= MAX_RAILS) break;

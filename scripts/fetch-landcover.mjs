@@ -16,6 +16,7 @@
  *      R = coltivo secco/stoppie, G = prato, B = sottobosco, A = roccia/terra
  *  - public/geo/landcover/base.png         mappa globale a 12 m/px (fallback lontano)
  *  - public/geo/landcover/fields.png       direzione dei solchi + parcella, 12 m/px
+ *  - public/geo/landcover/parcels.json     confini di campo a 4 m (muretti nel gioco)
  *  - public/geo/landcover/preview.png      anteprima a colori per il controllo umano
  *  - public/geo/landcover/meta.json        legenda, griglia, statistiche
  *
@@ -462,7 +463,7 @@ function sampleWorldWeights(weights, nx, nz, originX, originZ, cell, x, z, out, 
 // ---------------------------------------------------------------------------
 const FIELD_CELL = 190;
 
-function buildFieldSeeds(heightGrid, slope, nx, nz, originX, originZ) {
+function buildFieldSeeds(heightGrid, slope, nx, nz, originX, originZ, step) {
   const cols = Math.ceil(WORLD_WIDTH / FIELD_CELL);
   const rows = Math.ceil(WORLD_HEIGHT / FIELD_CELL);
   const seeds = new Array(cols * rows);
@@ -470,12 +471,12 @@ function buildFieldSeeds(heightGrid, slope, nx, nz, originX, originZ) {
     for (let c = 0; c < cols; c++) {
       const x = -HALF_WIDTH + (c + 0.5 + (hash2(c, r, 1) - 0.5) * 0.76) * FIELD_CELL;
       const z = -HALF_HEIGHT + (r + 0.5 + (hash2(c, r, 2) - 0.5) * 0.76) * FIELD_CELL;
-      const hx = (x - originX) / 10;
-      const hz = (z - originZ) / 10;
+      const hx = (x - originX) / step;
+      const hz = (z - originZ) / step;
       const deg = sampleChannel(slope, nx, nz, hx, hz, 0, 1) * 90;
       const hAt = (ix, iz) => heightGrid[clamp(iz, 0, nz - 1) * nx + clamp(ix, 0, nx - 1)] / 10;
-      const gx = (hAt(Math.floor(hx) + 1, Math.floor(hz)) - hAt(Math.floor(hx) - 1, Math.floor(hz))) / 20;
-      const gz = (hAt(Math.floor(hx), Math.floor(hz) + 1) - hAt(Math.floor(hx), Math.floor(hz) - 1)) / 20;
+      const gx = (hAt(Math.floor(hx) + 1, Math.floor(hz)) - hAt(Math.floor(hx) - 1, Math.floor(hz))) / (2 * step);
+      const gz = (hAt(Math.floor(hx), Math.floor(hz) + 1) - hAt(Math.floor(hx), Math.floor(hz) - 1)) / (2 * step);
       let angle = hash2(c, r, 3) * Math.PI * 2;
       if (deg > 4 && hash2(c, r, 4) < 0.7) {
         // solchi di contorno: perpendicolari alla massima pendenza
@@ -527,8 +528,8 @@ function buildFieldTexture(fields, heights, slope, wcClasses, osmClasses, nx4, n
   const png = new PNG({ width, height });
   const { nx, nz, originX, originZ } = heights;
   const wcAt = (x, z) => {
-    const hx = clamp(Math.floor((x - originX) / 10), 0, nx - 1);
-    const hz = clamp(Math.floor((z - originZ) / 10), 0, nz - 1);
+    const hx = clamp(Math.floor((x - originX) / heights.step), 0, nx - 1);
+    const hz = clamp(Math.floor((z - originZ) / heights.step), 0, nz - 1);
     return wcClasses[hz * nx + hx];
   };
   for (let j = 0; j < height; j++) {
@@ -690,7 +691,7 @@ async function main() {
   // direzione dei solchi
   const heightBuf = await readFile(path.join(GEO_DIR, 'heights.bin'));
   const heightDm = new Int16Array(heightBuf.buffer, heightBuf.byteOffset, heightBuf.length >> 1);
-  const fields = buildFieldSeeds(heightDm, slope, heights.nx, heights.nz, heights.originX, heights.originZ);
+  const fields = buildFieldSeeds(heightDm, slope, heights.nx, heights.nz, heights.originX, heights.originZ, heights.step);
   const fieldPng = buildFieldTexture(
     fields,
     heights,
@@ -707,6 +708,116 @@ async function main() {
   );
   await writeFile(path.join(OUT_DIR, 'fields.png'), PNG.sync.write(fieldPng, { colorType: 6 }));
   log(`fields.png ${baseW}×${baseH}`);
+
+  // ---------------------------------------------------------------------
+  // confini di campo → parcels.json
+  //
+  // Dove la classe di copertura cambia tra due celle della griglia fusa
+  // (4 m/px) e il salto è netto, c'è un confine dappezzamento: nei poligoni
+  // OSM il confine lo segna OSM, fuori dai poligoni lo segnala solo
+  // WorldCover. Il gioco ci piazza i muretti (src/world/field-boundaries.ts).
+  //
+  // Due filtri a monte: niente confini entro 5,5 m dalle strade (ci pensano
+  // i muretti di strada di dry-stone.ts) né dentro i centri abitati; un
+  // assottigliamento deterministico per classe tiene il numero di segmenti
+  // sotto il cap di istanze del gioco, con copertura uniforme invece di
+  // tagliare la scansione a un angolo della mappa.
+  // ---------------------------------------------------------------------
+  // Assottigliamento per blocchi di 64 m, non per segmento: il muro si
+  // tiene per tratti continui (la scelta è «questo pezzo di confine sì,
+  // quello accanto no»), altrimenti uscirebbero mozziconi ogni 4 m.
+  const PARCEL_KEEP = { w: 0.02, f: 0.015 };
+  const PARCEL_KEEP_CELL = 64;
+
+  function dominantClass(w, k) {
+    const r = w[k] / 255;
+    const g = w[k + 1] / 255;
+    const b = w[k + 2] / 255;
+    const a = w[k + 3] / 255;
+    const sum = r + g + b + a;
+    if (sum < 0.05) return -1;
+    let m = r;
+    let cls = 0;
+    if (g > m) { m = g; cls = 1; }
+    if (b > m) { m = b; cls = 2; }
+    if (a > m) { m = a; cls = 3; }
+    return m / sum > 0.45 ? cls : -1;
+  }
+
+  // classe dominante per cella, calcolata una volta (la griglia è 10,8 M di celle)
+  const dom = new Int8Array(nx4 * nz4);
+  for (let n = 0; n < dom.length; n++) dom[n] = dominantClass(weights, n * 4);
+  const domAt = (ci, cj) => (ci < 0 || cj < 0 || ci >= nx4 || cj >= nz4 ? -1 : dom[cj * nx4 + ci]);
+
+  const parcelW = [];
+  const parcelF = [];
+  let skipRoad = 0;
+  let skipTown = 0;
+  let skipIsland = 0;
+  for (let j = 0; j < nz4; j++) {
+    for (let i = 0; i < nx4; i++) {
+      const ca = dom[j * nx4 + i];
+      if (ca < 0) continue;
+      for (const [ni, nj, d] of [
+        [i + 1, j, 0],
+        [i, j + 1, 1],
+      ]) {
+        if (ni >= nx4 || nj >= nz4) continue;
+        const cb = dom[nj * nx4 + ni];
+        if (cb < 0 || ca === cb) continue;
+        const k = (j * nx4 + i) * 4;
+        const k2 = (nj * nx4 + ni) * 4;
+        const l1 =
+          (Math.abs(weights[k] - weights[k2]) +
+            Math.abs(weights[k + 1] - weights[k2 + 1]) +
+            Math.abs(weights[k + 2] - weights[k2 + 2]) +
+            Math.abs(weights[k + 3] - weights[k2 + 3])) /
+          255;
+        if (l1 <= 0.4) continue;
+        // almeno uno dei due lati deve proseguire oltre la cella: se no è
+        // un isolotto di un pixel, e un muretto chiuso attorno a un pixel
+        // sembra un errore, non un confine
+        const contA = d === 0 ? domAt(i - 1, j) === ca : domAt(i, j - 1) === ca;
+        const contB = d === 0 ? domAt(i + 2, j) === cb : domAt(i, j + 2) === cb;
+        if (!contA && !contB) {
+          skipIsland++;
+          continue;
+        }
+        const di = sampleRoadDistance(osmRasters.distance, nx4, nz4, i, j);
+        const dj = sampleRoadDistance(osmRasters.distance, nx4, nz4, ni, nj);
+        if (di < 5.5 || dj < 5.5) {
+          skipRoad++;
+          continue;
+        }
+        if (osmRasters.classes[j * nx4 + i] === 6 || osmRasters.classes[nj * nx4 + ni] === 6) {
+          skipTown++;
+          continue;
+        }
+        const type = ca === 2 || cb === 2 ? 'w' : 'f';
+        const bx = Math.floor((originX4 + i * CELL4) / PARCEL_KEEP_CELL);
+        const bz = Math.floor((originZ4 + j * CELL4) / PARCEL_KEEP_CELL);
+        if (hash2(bx, bz, type === 'w' ? 31 : 37) >= PARCEL_KEEP[type]) continue;
+        if (type === 'w') parcelW.push(i, j, d);
+        else parcelF.push(i, j, d);
+      }
+    }
+  }
+  await writeFile(
+    path.join(OUT_DIR, 'parcels.json'),
+    JSON.stringify({
+      generatedAt: new Date().toISOString(),
+      source: 'fusione landcover 4 m/px (WorldCover + OSM + pendenza)',
+      cell: CELL4,
+      originX: originX4,
+      originZ: originZ4,
+      w: parcelW,
+      f: parcelF,
+    }),
+  );
+  log(
+    `parcels.json: ${parcelW.length / 3} confini con bosco, ${parcelF.length / 3} confini tra campi ` +
+      `(scartati ${skipRoad} vicino a strade, ${skipTown} in centro abitato, ${skipIsland} isolotti)`,
+  );
 
   // anteprima leggibile: classi + strade + casa
   const preview = new PNG({ width: baseW, height: baseH });
@@ -810,6 +921,12 @@ async function main() {
     },
     base: { file: 'base.png', width: baseW, height: baseH, metersPerPixel: BASE_MPP },
     fields: { file: 'fields.png', width: baseW, height: baseH, metersPerPixel: BASE_MPP },
+    parcels: {
+      file: 'parcels.json',
+      cell: CELL4,
+      wood: parcelW.length / 3,
+      field: parcelF.length / 3,
+    },
     legend: {
       r: 'coltivo secco/stoppie',
       g: 'prato',
