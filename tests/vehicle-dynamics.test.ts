@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bodyLean, createCarState, curbImpact, stepCar, type CarEnv, type CarInput, type CarState } from '../src/sim/car';
+import { blinkOn, bodyLean, createCarState, curbImpact, stepCar, type CarEnv, type CarInput, type CarState } from '../src/sim/car';
 import { VEHICLES, tuningFor, vehicleLabel, type VehicleSpec } from '../src/sim/vehicle-catalog';
 
 const road: CarEnv = { onRoad: true, groundHeight: () => 100 };
@@ -37,6 +37,23 @@ describe('scalino del cordolo', () => {
   });
 });
 
+
+
+describe('lampeggio delle frecce', () => {
+  it('si accende e si spegne a 1,4 Hz', () => {
+    // periodo ~0,714 s: acceso per il primo 55%, spento per il resto
+    expect(blinkOn(0)).toBe(true);
+    expect(blinkOn(0.3)).toBe(true);
+    expect(blinkOn(0.6)).toBe(false);
+    // 0,75 s = 1,05 periodi: di nuovo nella fase accesa
+    expect(blinkOn(0.75)).toBe(true);
+  });
+
+  it('regge tempi negativi senza invertire il ritmo', () => {
+    expect(blinkOn(-0.1)).toBe(false);
+    expect(blinkOn(-0.6)).toBe(true);
+  });
+});
 
 describe('inclinazione della carrozzeria', () => {
   it('si corica verso l’esterno in curva', () => {

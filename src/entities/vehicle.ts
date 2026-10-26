@@ -1,6 +1,15 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { bodyLean, createCarState, curbImpact, speedKmh, stepCar, type CarInput, type CarState } from '../sim/car';
+import {
+  blinkOn,
+  bodyLean,
+  createCarState,
+  curbImpact,
+  speedKmh,
+  stepCar,
+  type CarInput,
+  type CarState,
+} from '../sim/car';
 import { resolveBody } from '../sim/collision';
 import {
   VEHICLES,
@@ -56,6 +65,20 @@ export class Vehicle {
   private readonly paintTargets: { material: THREE.MeshPhysicalMaterial; tintable: boolean }[] = [];
   /** fari e fanalini dei GLB: materiali da accendere quando scende la notte */
   private readonly lensMaterials: { material: THREE.MeshStandardMaterial; base: number }[] = [];
+  /** solo le lenti posteriori: si accendono anche di giorno in frenata */
+  private readonly rearLenses: { material: THREE.MeshStandardMaterial; base: number }[] = [];
+  /** frecce: due materiali ambra, uno per lato */
+  private readonly indicatorMats = {
+    left: new THREE.MeshStandardMaterial({ color: 0x3a2a12, emissive: 0xff9a1e, emissiveIntensity: 0, roughness: 0.45 }),
+    right: new THREE.MeshStandardMaterial({ color: 0x3a2a12, emissive: 0xff9a1e, emissiveIntensity: 0, roughness: 0.45 }),
+  };
+  private readonly indicatorLamps: THREE.Mesh[] = [];
+  private indicator: 'off' | 'left' | 'right' = 'off';
+  private lampClock = 0;
+  /** frenata corrente, 0…1: serve alle lenti posteriori dei GLB */
+  private braking = 0;
+  /** fari accesi anche di giorno (`J`) */
+  private headlightOverride = false;
   private kit: CityKit | null = null;
   /** auto di serie su GLB (`public/cars/`), separate dal garage dell'utente. */
   private carLibrary: CarLibrary | null = null;
@@ -173,6 +196,8 @@ export class Vehicle {
     this.externalWheelRadius = null;
     this.envBoost.clear();
     this.headlights.length = 0;
+    this.indicatorLamps.length = 0;
+    this.indicator = 'off';
     this.paintMat = null;
     this.paintTargets.length = 0;
     this.lensMaterials.length = 0;
@@ -619,7 +644,12 @@ export class Vehicle {
         // se il GLB non dichiara un emissivo, la lente prende il proprio colore
         // (bianco davanti, rosso dietro); se lo dichiara, si rispetta l'autore
         if (standard.emissive.getHex() === 0x000000) standard.emissive.copy(standard.color);
-        this.lensMaterials.push({ material: standard, base: standard.emissiveIntensity ?? 1 });
+        // le posteriori si accendono anche di giorno in frenata: se stessero
+        // nella lista comune, il colpo di stop verrebbe sovrascritto dal livello
+        // notturno a ogni frame
+        const entry = { material: standard, base: standard.emissiveIntensity ?? 1 };
+        if (/(tail|rear|stop|fanal|brake)/i.test(record.name)) this.rearLenses.push(entry);
+        else this.lensMaterials.push(entry);
       }
     }
 
@@ -669,6 +699,7 @@ export class Vehicle {
       this.group.add(beam.target);
       this.headlights.push(beam);
     }
+    this.buildIndicators(spec);
     // se si cambia auto di notte, i fari del nuovo modello devono accendersi
     // subito invece di aspettare il prossimo cambio di luce
     this.setLights(this.nightLevel);
@@ -831,19 +862,88 @@ export class Vehicle {
 
   /** `amount` 0 = giorno, 1 = notte piena. */
   setLights(amount: number): void {
-    const on = clamp(amount, 0, 1);
-    this.nightLevel = on;
+    this.nightLevel = clamp(amount, 0, 1);
+    // con i fari accesi a mano basta mezza intensità: di giorno servono a
+    // farsi vedere, non a illuminare la strada
+    const on = this.headlightOverride
+      ? Math.max(0.55, this.nightLevel)
+      : this.nightLevel;
     for (const beam of this.headlights) beam.intensity = 42 * on;
     this.lampMat.emissiveIntensity = 0.5 + 2.6 * on;
     this.tailMat.emissiveIntensity = 0.3 + 1.2 * on;
-    // fari e fanalini del GLB: di giorno spenti, di notte accesi. `setLights`
-    // gira a ogni frame, quindi si tocca il materiale solo quando il valore
-    // cambia davvero (un `needsUpdate` per frame rifarebbe il programma).
-    const lensLevel = on * 1.9;
+    this.applyLenses(on);
+  }
+
+  /**
+   * Lenti dei GLB: di notte accese, più le posteriori che si accendono in
+   * frenata. `setLights` gira a ogni frame, quindi si tocca il materiale solo
+   * quando il valore cambia davvero.
+   */
+  private applyLenses(on: number): void {
+    const level = on * 1.9;
     for (const lens of this.lensMaterials) {
-      const target = lens.base * lensLevel;
+      const target = lens.base * level;
       if (Math.abs(lens.material.emissiveIntensity - target) < 0.01) continue;
       lens.material.emissiveIntensity = target;
+    }
+    const stop = this.braking * 1.8;
+    for (const lens of this.rearLenses) {
+      const target = lens.base * level + stop * lens.base;
+      if (Math.abs(lens.material.emissiveIntensity - target) < 0.01) continue;
+      lens.material.emissiveIntensity = target;
+    }
+  }
+
+  /** Frecce: `left`/`right` accendono il lato, lo stesso tasto lo spegne. */
+  setIndicator(direction: 'left' | 'right'): void {
+    this.indicator = this.indicator === direction ? 'off' : direction;
+    for (const lamp of this.indicatorLamps) {
+      lamp.visible = this.indicator !== 'off' && lamp.name.endsWith(`-${this.indicator}`);
+    }
+    if (this.indicator === 'off') {
+      this.indicatorMats.left.emissiveIntensity = 0;
+      this.indicatorMats.right.emissiveIntensity = 0;
+    }
+  }
+
+  get indicators(): 'off' | 'left' | 'right' {
+    return this.indicator;
+  }
+
+  /** Fari accesi anche di giorno; restituisce lo stato nuovo. */
+  toggleHeadlights(): boolean {
+    this.headlightOverride = !this.headlightOverride;
+    this.setLights(this.nightLevel);
+    return this.headlightOverride;
+  }
+
+  /**
+   * Frecce disegnate come quattro pannelli emissivi agli angoli.
+   *
+   * I GLB non hanno un nodo "freccia" comune: agganciare la luce alla
+   * carrozzeria noleggiata significherebbe cercare nomi diversi per ogni auto.
+   * Quattro quad piccoli agli angoli, presi dalle misure della scheda, si
+   * vedono su tutti i modelli e non toccano l'asset.
+   */
+  private buildIndicators(spec: VehicleSpec): void {
+    const geometry = new THREE.BoxGeometry(0.16, 0.1, 0.06);
+    this.geometries.add(geometry);
+    this.materials.add(this.indicatorMats.left);
+    this.materials.add(this.indicatorMats.right);
+    for (const side of ['left', 'right'] as const) {
+      const sx = side === 'left' ? -1 : 1;
+      for (const end of [-1, 1]) {
+        const lamp = new THREE.Mesh(geometry, this.indicatorMats[side]);
+        lamp.position.set(
+          sx * (spec.width / 2 - 0.1),
+          spec.height * 0.52,
+          end * (spec.length / 2 - 0.09),
+        );
+        lamp.name = `indicator-${side}`;
+        lamp.visible = false;
+        this.bodyGroup.add(lamp);
+        this.indicatorLamps.push(lamp);
+      }
     }
   }
 
@@ -856,6 +956,10 @@ export class Vehicle {
     this.tiltRoll = 0;
     this.leanPitch = 0;
     this.leanRoll = 0;
+    this.indicator = 'off';
+    for (const lamp of this.indicatorLamps) lamp.visible = false;
+    this.indicatorMats.left.emissiveIntensity = 0;
+    this.indicatorMats.right.emissiveIntensity = 0;
   }
 
   update(
@@ -974,6 +1078,18 @@ export class Vehicle {
     const reversing = next.gear < 0;
     this.tailMat.emissive.setHex(reversing ? 0xfff3dd : 0x5a0d0a);
     this.tailMat.emissiveIntensity = 0.3 + 1.1 * this.nightLevel + (reversing ? 1.4 : 0) + 2.6 * braking;
+
+    // lenti posteriori dei GLB: lo stop si vede anche di giorno
+    this.braking = braking;
+    const lightLevel = this.headlightOverride ? Math.max(0.55, this.nightLevel) : this.nightLevel;
+    this.applyLenses(lightLevel);
+
+    // frecce: lampeggio a 1,4 Hz, il lato scelto resta acceso finché non si
+    // preme di nuovo lo stesso tasto
+    this.lampClock += dt;
+    if (this.indicator !== 'off') {
+      this.indicatorMats[this.indicator].emissiveIntensity = blinkOn(this.lampClock) ? 3.4 : 0.08;
+    }
   }
 
   /** Seleziona un modello per id (usato dal garage). */

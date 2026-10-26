@@ -64,6 +64,8 @@ Questo documento è la fonte di verità sullo stato delle funzionalità. Legenda
 | Segnaletica orizzontale | **Fatto** | Stop/dare precedenza a ogni incrocio, frecce, linea di margine, vernice usurata |
 | Raccordi d'angolo dei cordoli | **Da verificare** | `filletCorner()`; da guardare a schermo, soprattutto negli incroci a T |
 | Spalla in ghiaia e ciglio delle provinciali | **Fatto** | Solo fuori dal paese; stessa quota per la fisica |
+| Erba per copertura del suolo | **Da verificare** | Bosco rada/scura, coltivo bassa e gialla, macchia secca; fiori solo nei prati |
+| Frecce e fari manuali | **Da verificare** | `,`/`.` frecce a 1,4 Hz, `J` fari diurni; lenti posteriori accese in frenata |
 | Cordolo che si sente (scalino 18 cm) | **Fatto** | `curbImpact()`: perdita di velocità e sobbalzo, con test |
 | Meteo reale + sole NOAA | **Fatto** | Open-Meteo, fallback locale |
 | Qualità scalabile low→ultra | **Fatto** | Preset + resolution scaling adattivo |

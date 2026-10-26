@@ -2433,6 +2433,21 @@ export class Game {
           );
         }
         break;
+      case 'Comma':
+      case 'Period':
+        if (this.mode !== 'drive') break;
+        this.car.setIndicator(e.code === 'Comma' ? 'left' : 'right');
+        this.hud.toast(
+          this.car.indicators === 'off' ? 'Frecce spente' : `Freccia ${e.code === 'Comma' ? 'sinistra' : 'destra'}`,
+          1600,
+        );
+        break;
+      case 'KeyJ':
+        this.hud.toast(
+          this.car.toggleHeadlights() ? 'Fari accesi anche di giorno' : 'Fari in automatico (notte)',
+          2200,
+        );
+        break;
       case 'KeyO':
         if (this.mode !== 'drive') {
           this.hud.toast("L'autopilota si accende solo alla guida", 2200);
@@ -2834,6 +2849,7 @@ export class Game {
       this.roadIndex,
       this.buildingIndex,
       this.quality.grassDensity * this.grassScale,
+      this.osm.areas,
     );
     this.applyManualAtmosphere(dt, focus);
     this.updateSky(focus);
@@ -3096,6 +3112,7 @@ export class Game {
       this.roadIndex,
       this.buildingIndex,
       this.quality.grassDensity * this.grassScale,
+      this.osm.areas,
     );
     if (this.manualTime) this.applyManualAtmosphere(dt, focus);
     else if (this.realWeatherEnabled) this.applyWeatherVisuals(dt, focus);

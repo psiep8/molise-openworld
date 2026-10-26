@@ -161,6 +161,8 @@ npm run geo -- --skip-osm
 | `F` | entra in auto (se vicino) | scendi |
 | `E` | entra nell'attività vicina / dormi e salva a casa | +2 ore (ciclo giorno/notte) |
 | `Q` | meteo successivo | meteo successivo |
+| `,` `.` | — | freccia sinistra / destra |
+| `J` | — | fari accesi anche di giorno |
 | `O` | — | autopilota di strada |
 | `I` | portafoglio virtuale e movimenti | portafoglio virtuale e movimenti |
 | `C` | prima/terza persona | inseguitrice → alta → cofano |

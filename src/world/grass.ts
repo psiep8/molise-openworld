@@ -2,9 +2,9 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Heightfield } from '../geo/elevation';
 import { mulberry32 } from '../geo/geo';
-import type { BuildingIndex, RoadIndex } from '../geo/osm';
+import type { Area, BuildingIndex, RoadIndex } from '../geo/osm';
 import { windTimeUniform } from '../gfx/wind';
-import { GroundMask } from './ground-mask';
+import { COVER_CROP, COVER_DRY, COVER_WOOD, GroundMask } from './ground-mask';
 import type { PavedArea } from './paved';
 
 /** Raggio del tappeto d'erba intorno al giocatore (m). */
@@ -16,6 +16,15 @@ const REBUILD_DISTANCE = 18;
 const TUFT_HEIGHT = 0.17;
 /** Altezza del fiore in metri: sotto l'erba alta, si vede solo da vicino. */
 const FLOWER_HEIGHT = 0.32;
+
+/**
+ * Tinta dell'erba per copertura del suolo: nel bosco è più scura e fredda, nel
+ * coltivo più gialla, sulla macchia più secca. Era il pezzo che mancava perché
+ * il prato sembrasse sempre lo stesso tappeto anche sotto i querceti.
+ */
+const WOOD_TINT = new THREE.Color(0.72, 0.85, 0.66);
+const CROP_TINT = new THREE.Color(1.06, 0.98, 0.72);
+const DRY_TINT = new THREE.Color(1.02, 0.9, 0.64);
 
 /**
  * Lavoro di ricostruzione spezzato sui frame.
@@ -344,6 +353,7 @@ export class GrassField {
     roads: RoadIndex,
     buildings: BuildingIndex,
     density: number,
+    areas: readonly Area[] = [],
   ): void {
     const d = Math.max(0, Math.min(1, density));
     if (d <= 0.01) {
@@ -365,7 +375,7 @@ export class GrassField {
       if (stale) this.cancelJob();
     }
     if (!this.job && (!this.mesh || moved > REBUILD_DISTANCE || Math.abs(d - this.density) > 0.1)) {
-      this.startJob(x, z, heights, roads, buildings, d);
+      this.startJob(x, z, heights, roads, buildings, d, areas);
     }
     // La costruzione è spezzata su più frame: il picco da ~40 ms (matrici e
     // colori di 82.000 istanze) diventa un budget di 4 ms per frame. Il campo
@@ -381,6 +391,7 @@ export class GrassField {
     roads: RoadIndex,
     buildings: BuildingIndex,
     density: number,
+    areas: readonly Area[] = [],
   ): void {
     this.originX = x;
     this.originZ = z;
@@ -388,7 +399,7 @@ export class GrassField {
 
     // una sola rasterizzazione di strade/edifici/pendio: le 480.000 query
     // per rifiuto casuale diventano una lookup su array
-    this.mask.build(x, z, heights, roads, buildings, 2.7, 0.5, this.paved);
+    this.mask.build(x, z, heights, roads, buildings, 2.7, 0.5, this.paved, areas);
     const n = this.mask.n;
     let valid = 0;
     for (let j = 0; j < n; j++) {
@@ -471,19 +482,28 @@ export class GrassField {
         // ciglio (2,7 m) è al 55%, da 6 m in poi è piena
         const roadDist = this.mask.roadDistance(i, j);
         const verge = 0.55 + 0.45 * Math.min(1, Math.max(0, (roadDist - 2.7) / 3.3));
+        // copertura del suolo: nel bosco l'erba è rada e corta, nel coltivo
+        // bassa e giallastra, sulla macchia più secca
+        const cover = this.mask.coverAt(i, j);
+        if (cover === COVER_WOOD) count = Math.max(1, Math.round(count * 0.55));
+        else if (cover === COVER_CROP) count = Math.max(1, Math.round(count * 0.8));
+        const coverScale = cover === COVER_CROP ? 0.6 : cover === COVER_WOOD || cover === COVER_DRY ? 0.74 : 1;
         for (let k = 0; k < count; k++) {
           const px = baseX + job.rng() * cell;
           const pz = baseZ + job.rng() * cell;
           const py = this.mask.heightAt(px, pz);
           job.dummy.position.set(px, py - 0.02, pz);
           job.dummy.rotation.set(0, job.rng() * Math.PI, 0);
-          const scale = (0.6 + job.rng() * 0.45) * verge;
+          const scale = (0.6 + job.rng() * 0.45) * verge * coverScale;
           job.dummy.scale.set(scale, scale * (0.8 + job.rng() * 0.6), scale);
           job.dummy.updateMatrix();
           job.mesh.setMatrixAt(job.placed, job.dummy.matrix);
           job.color
             .setHex(job.palette[Math.floor(job.rng() * job.palette.length)]!)
             .multiplyScalar(0.92 + job.rng() * 0.16);
+          if (cover === COVER_WOOD) job.color.multiply(WOOD_TINT);
+          else if (cover === COVER_CROP) job.color.multiply(CROP_TINT);
+          else if (cover === COVER_DRY) job.color.multiply(DRY_TINT);
           job.mesh.setColorAt(job.placed, job.color);
           job.placed++;
         }
@@ -502,6 +522,10 @@ export class GrassField {
         const j = (idx - i) / n;
         // sul ciglio battuto e sulle pendenze forti non crescono fiori
         if (this.mask.roadDistance(i, j) < 3.2) continue;
+        // nel bosco e nei campi lavorati i fiori di campo non ci sono
+        const cover = this.mask.coverAt(i, j);
+        if (cover === COVER_WOOD && job.rng() < 0.85) continue;
+        if (cover === COVER_CROP && job.rng() < 0.95) continue;
         const px = this.mask.originX + (i + job.rng()) * cell;
         const pz = this.mask.originZ + (j + job.rng()) * cell;
         if (job.heights.slopeAt(px, pz) > 26) continue;

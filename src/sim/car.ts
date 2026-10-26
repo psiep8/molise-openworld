@@ -335,6 +335,18 @@ export function bodyLean(
   return { roll, pitch };
 }
 
+/**
+ * Fase del lampeggio delle frecce: 1,4 Hz, acceso per il 55% del periodo.
+ *
+ * È lo stesso ritmo delle frecce vere (1–2 Hz) e sta fuori dal modello 3D per
+ * poterlo testare: la luce deve spegnersi, non solo cambiare intensità, altrimenti
+ * di giorno sembra sempre accesa.
+ */
+export function blinkOn(time: number, hz = 1.4): boolean {
+  const phase = ((time * hz) % 1 + 1) % 1;
+  return phase < 0.55;
+}
+
 export function curbImpact(
   previousLift: number,
   lift: number,

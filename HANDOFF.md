@@ -1745,3 +1745,45 @@ Tre aggiunte piccole ma che si sentono, dopo la prima prova del nuovo assetto:
 Resta da guardare a schermo: il rollio in una curva stretta a 50 km/h, l'anticipo
 dell'autopilota su una provinciale con tornanti e la crociera ridotta entrando a
 Palata.
+
+## 26/10/2026 — Erba per copertura del suolo e luci dell'auto
+
+### Erba che sa dove cresce
+
+Il prato era identico dappertutto: sotto un querceto, in mezzo a un campo di
+grano e sul ciglio di una provinciale la stessa erba, la stessa altezza, gli
+stessi fiori. Ora la maschera del terreno (`GroundMask`) rasterizza anche le
+**aree OSM** in una classe di copertura per cella da 0,5 m (`coverClass`:
+bosco, coltivo, macchia, prato), con priorità bosco > coltivo > macchia.
+
+- **Bosco**: 55% dei ciuffi, scala 0,74, tinta più scura e fredda; i fiori
+  restano fuori all'85%.
+- **Coltivo**: ciuffi all'80%, scala 0,60, tinta giallastra; fiori quasi
+  assenti (95% scartati).
+- **Macchia**: scala 0,74, tinta secca.
+- **Prato**: come prima, fiori compresi.
+
+Il costo è una passata di poligoni per ricostruzione del campo (la maschera
+esisteva già), non un test per ciuffo: `coverAt(i, j)` è una lookup su array.
+
+### Luci
+
+- **Frecce** (`,` sinistra, `.` destra): quattro pannelli emissivi agli angoli
+  della carrozzeria, presi dalle misure della scheda, con lampeggio a 1,4 Hz
+  (`blinkOn`, 55% acceso). Non dipendono dal GLB: cercare un nodo "freccia" in
+  dieci modelli diversi non avrebbe funzionato. Lo stesso tasto spegne.
+- **Lenti posteriori dei GLB**: separate dalle anteriori per nome
+  (`tail|rear|stop|fanal|brake`); si accendono anche **di giorno** in frenata,
+  mentre prima il livello notturno sovrascriveva lo stop a ogni frame.
+- **Fari diurni** (`J`): override manuale, mezza intensità di giorno, e resta
+  acceso anche quando cala la notte. Frecce spente al reset dell'auto.
+
+### Verifiche
+
+- `npx tsc --noEmit` ✅
+- `npm test` ✅ **241/241** in 27 file: copertura del suolo (mappatura classi,
+  rasterizzazione, priorità) e lampeggio delle frecce.
+- `npm run build` ✅
+- **Non verificato a schermo**: tinta e densità dell'erba nei tre biomi, posizione
+  dei quattro pannelli delle frecce sui modelli più stretti (moto) e stop dei
+  GLB. Da guardare in gioco.

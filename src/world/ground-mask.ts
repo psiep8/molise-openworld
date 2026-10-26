@@ -1,6 +1,6 @@
 import { distanceToSegment2, pointInPolygon } from '../geo/geo';
 import type { Heightfield } from '../geo/elevation';
-import type { BuildingIndex, RoadIndex } from '../geo/osm';
+import type { Area, BuildingIndex, RoadIndex } from '../geo/osm';
 import { insidePaved, pavedBounds, type PavedArea } from './paved';
 
 /**
@@ -23,18 +23,58 @@ const VERGE_FULL = 6.4;
 /** 0…255 sulla distanza dal ciglio: 40 unità per metro (6,375 m a fondo scala). */
 const ROAD_DIST_SCALE = 40;
 
+/**
+ * Copertura del suolo sotto il ciuffo, dalla mappa OSM delle aree.
+ *
+ * Non è un colore da shader: serve a decidere **come** cresce l'erba. In un
+ * querceto è corta, scura e rada, in un campo coltivato è bassa e giallastra, in
+ * un prato è alta e fitta. Prima era identica ovunque e il bosco sembrava un
+ * prato con gli alberi sopra.
+ */
+export type CoverClass = 0 | 1 | 2 | 3;
+export const COVER_MEADOW: CoverClass = 0;
+export const COVER_WOOD: CoverClass = 1;
+export const COVER_CROP: CoverClass = 2;
+export const COVER_DRY: CoverClass = 3;
+
+/** Quanto una classe "vince" sulle altre quando i poligoni si sovrappongono. */
+const COVER_PRIORITY: Record<CoverClass, number> = { 0: 0, 1: 3, 2: 2, 3: 1 };
+
+/** Classe di copertura per una `kind` OSM (`wood`, `farmland`, `scrub`…). */
+export function coverClass(kind: string): CoverClass {
+  switch (kind) {
+    case 'wood':
+    case 'forest':
+      return COVER_WOOD;
+    case 'farmland':
+    case 'farm':
+    case 'orchard':
+    case 'vineyard':
+    case 'allotments':
+      return COVER_CROP;
+    case 'scrub':
+    case 'heath':
+    case 'quarry':
+      return COVER_DRY;
+    default:
+      return COVER_MEADOW;
+  }
+}
+
 export class GroundMask {
   readonly n: number;
   originX = 0;
   originZ = 0;
   private readonly blocked: Uint8Array;
   private readonly road: Uint8Array;
+  private readonly cover: Uint8Array;
   private heights: Float32Array = new Float32Array(0);
 
   constructor(private readonly radius: number) {
     this.n = Math.ceil((radius * 2) / CELL);
     this.blocked = new Uint8Array(this.n * this.n);
     this.road = new Uint8Array(this.n * this.n);
+    this.cover = new Uint8Array(this.n * this.n);
   }
 
   get cellSize(): number {
@@ -51,6 +91,7 @@ export class GroundMask {
     roadTolerance: number,
     buildingRadius: number,
     paved: readonly PavedArea[] = [],
+    areas: readonly Area[] = [],
   ): void {
     const n = this.n;
     const ox = cx - this.radius;
@@ -59,6 +100,7 @@ export class GroundMask {
     this.originZ = oz;
     this.blocked.fill(0);
     this.road.fill(255);
+    this.cover.fill(COVER_MEADOW);
 
     // quote ai vertici della griglia: servono per pendenza e quota dei ciuffi
     const h = new Float32Array((n + 1) * (n + 1));
@@ -125,6 +167,34 @@ export class GroundMask {
       }
     }
 
+    // copertura del suolo: rasterizzata una volta, così ogni ciuffo sa se sta
+    // in un bosco, in un campo o in un prato senza test di poligono per punto
+    for (const area of areas) {
+      const cls = coverClass(area.kind);
+      if (cls === COVER_MEADOW) continue;
+      if (
+        area.bounds.maxX < ox ||
+        area.bounds.minX > ox + n * CELL ||
+        area.bounds.maxZ < oz ||
+        area.bounds.minZ > oz + n * CELL
+      ) {
+        continue;
+      }
+      const i0 = Math.max(0, Math.floor((area.bounds.minX - ox) / CELL));
+      const i1 = Math.min(n - 1, Math.floor((area.bounds.maxX - ox) / CELL));
+      const j0 = Math.max(0, Math.floor((area.bounds.minZ - oz) / CELL));
+      const j1 = Math.min(n - 1, Math.floor((area.bounds.maxZ - oz) / CELL));
+      for (let j = j0; j <= j1; j++) {
+        const pz = oz + (j + 0.5) * CELL;
+        for (let i = i0; i <= i1; i++) {
+          const k = j * n + i;
+          if (COVER_PRIORITY[cls] <= COVER_PRIORITY[this.cover[k] as CoverClass]) continue;
+          const px = ox + (i + 0.5) * CELL;
+          if (pointInPolygon(px, pz, area.points)) this.cover[k] = cls;
+        }
+      }
+    }
+
     // edifici: stessa regola di `hitsCircle`, ma testata solo sulle celle
     // dell'impronta invece di rifare la ricerca spaziale per ogni cella
     for (const b of buildings.near(cx, cz)) {
@@ -159,6 +229,11 @@ export class GroundMask {
 
   isBlocked(i: number, j: number): boolean {
     return this.blocked[j * this.n + i] === 1;
+  }
+
+  /** Copertura del suolo della cella (vedi `coverClass`). */
+  coverAt(i: number, j: number): CoverClass {
+    return (this.cover[j * this.n + i] ?? 0) as CoverClass;
   }
 
   /** Distanza dal ciglio della strada più vicina (m), saturata a ~6,4 m. */
