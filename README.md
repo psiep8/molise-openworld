@@ -187,6 +187,7 @@ npm test          # proiezione, DEM, OSM, fisica auto, itinerari, tetti, sole e 
 npm run build     # typecheck + build di produzione
 npm run preview   # serve dist/ su :4173
 npm run smoke     # Chrome headless: carica, guida, cammina, itinerario, controlla il PNG
+npm run check:cars # legge i GLB delle auto: unità, proporzioni, pezzi staccati
 
 node scripts/capture.mjs --out captures/x --quality high --hour 15   # scatti riproducibili del mondo
 node scripts/shot.mjs --url "http://127.0.0.1:5173/harness.html?view=head" --out captures/head.png --ready __harnessReady

@@ -8,6 +8,14 @@ import { foliageSet, pbr } from '../gfx/textures';
 import { windTimeUniform } from '../gfx/wind';
 import { insidePaved, type PavedArea } from './paved';
 
+/**
+ * Oltre questa distanza le card di foglie non si distinguono più dal nucleo
+ * scuro: a 150 m una chioma è larga pochi pixel, quindi l'alphaTest su tutte le
+ * istanze costa fill rate senza dare nulla in più alla sagoma. Tronco e nucleo
+ * restano sempre disegnati, così l'albero non scompare all'orizzonte.
+ */
+export const LEAF_LOD_RADIUS = 150;
+
 const TREE_KINDS = new Set(['wood', 'forest', 'scrub', 'orchard', 'park']);
 const FOLIAGE_COLORS = [0x8ba86a, 0x9cb477, 0xa8bd82, 0x7f9a5f, 0xb2c48e];
 /** Ulivi: fogliame grigio-verde, quello che rende riconoscibile un uliveto. */
@@ -301,6 +309,81 @@ export function buildVegetation(
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
 
+  /**
+   * Foglie solo entro `LEAF_LOD_RADIUS` dalla camera.
+   *
+   * Le altre parti del set (tronco e nucleo) restano piene: sono loro a tenere
+   * la sagoma da lontano. Qui si conservano posizione e colore di ogni albero
+   * e si riempiono le istanze solo per quelli vicini; il ricalcolo avviene
+   * quando la camera si è spostata di più di 40 m, altrimenti costerebbe più
+   * del fill rate risparmiato. La matrice si ricava dai dati di piazzamento
+   * invece di tenerne una copia per albero: 14.000 `Matrix4` in più non
+   * servono a nulla.
+   */
+  const applyLeafLod = (
+    mesh: THREE.InstancedMesh,
+    list: typeof placements,
+    scale: [number, number, number],
+    slot: number,
+  ): void => {
+    const total = list.length;
+    const xs = new Float32Array(total);
+    const zs = new Float32Array(total);
+    const reach = new Float32Array(total);
+    const colors = new Float32Array(total * 3);
+    const tint = new THREE.Color();
+    for (let i = 0; i < total; i++) {
+      const p = list[i]!;
+      xs[i] = p.x;
+      zs[i] = p.z;
+      // il raggio include la chioma: l'albero appena oltre il limite deve
+      // avere le foglie finché la corona può ancora entrare in campo
+      reach[i] = LEAF_LOD_RADIUS + 3.4 * p.s;
+      tint
+        .setHex(p.color)
+        .multiplyScalar(0.9 + ((i * 7 + slot) % 17) / 90);
+      colors[i * 3] = tint.r;
+      colors[i * 3 + 1] = tint.g;
+      colors[i * 3 + 2] = tint.b;
+    }
+
+    const transform = new THREE.Object3D();
+    const lastX = { value: Number.NaN };
+    const lastZ = { value: Number.NaN };
+    mesh.frustumCulled = false;
+
+    const refresh = (camera: THREE.Camera): void => {
+      // la passata d'ombra usa una camera ortografica: rifare il filtro anche
+      // per lei significa ricalcolare due volte per frame
+      if (!(camera as THREE.PerspectiveCamera).isPerspectiveCamera) return;
+      const cx = camera.position.x;
+      const cz = camera.position.z;
+      if (Math.abs(cx - lastX.value) < 40 && Math.abs(cz - lastZ.value) < 40) return;
+      lastX.value = cx;
+      lastZ.value = cz;
+
+      let count = 0;
+      for (let i = 0; i < total; i++) {
+        const dx = xs[i]! - cx;
+        const dz = zs[i]! - cz;
+        if (dx * dx + dz * dz > reach[i]! * reach[i]!) continue;
+        const p = list[i]!;
+        transform.position.set(p.x, p.y - 0.15, p.z);
+        transform.rotation.set(0, p.rot, 0);
+        transform.scale.set(p.s * scale[0], p.s * scale[1], p.s * scale[2]);
+        transform.updateMatrix();
+        mesh.setMatrixAt(count, transform.matrix);
+        tint.setRGB(colors[i * 3]!, colors[i * 3 + 1]!, colors[i * 3 + 2]!);
+        mesh.setColorAt(count, tint);
+        count++;
+      }
+      mesh.count = count;
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    };
+    mesh.onBeforeRender = (_renderer, _scene, camera) => refresh(camera);
+  };
+
   /** Riempie le matrici di un gruppo di istanze e restituisce le mesh. */
   const buildSet = (
     list: typeof placements,
@@ -330,6 +413,13 @@ export function buildVegetation(
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     }
+    // le foglie delle chiome (latifoglie e ulivi, non i cespugli) hanno il LOD
+    parts.forEach((part, k) => {
+      if (part.geo !== leafGeo) return;
+      const mesh = meshes[k];
+      if (!mesh) return;
+      applyLeafLod(mesh, list, part.scale ?? [1, 1, 1], k);
+    });
     return meshes;
   };
 

@@ -14,6 +14,8 @@ const MAX_TUFTS = 82000;
 const REBUILD_DISTANCE = 18;
 /** Altezza del ciuffo in metri: la geometria base è alta 0,6. */
 const TUFT_HEIGHT = 0.17;
+/** Altezza del fiore in metri: sotto l'erba alta, si vede solo da vicino. */
+const FLOWER_HEIGHT = 0.32;
 
 /**
  * Lavoro di ricostruzione spezzato sui frame.
@@ -28,19 +30,23 @@ interface GrassJob {
   density: number;
   target: number;
   edgeTarget: number;
+  flowerTarget: number;
   rng: () => number;
   mesh: THREE.InstancedMesh;
   edgeMesh: THREE.InstancedMesh;
+  flowerMesh: THREE.InstancedMesh;
   dummy: THREE.Object3D;
   color: THREE.Color;
   palette: number[];
+  flowerPalette: number[];
   valid: number;
   perCell: number;
   acc: number;
   cursor: number;
   placed: number;
   edges: number;
-  phase: 'tufts' | 'edges';
+  flowers: number;
+  phase: 'tufts' | 'flowers' | 'edges';
   heights: Heightfield;
   roads: RoadIndex;
   buildings: BuildingIndex;
@@ -61,8 +67,12 @@ export class GrassField {
   private readonly geometry: THREE.BufferGeometry;
   private readonly material: THREE.MeshStandardMaterial;
   private readonly bladeTexture: THREE.CanvasTexture;
+  private readonly flowerGeometry: THREE.BufferGeometry;
+  private readonly flowerMaterial: THREE.MeshStandardMaterial;
+  private readonly flowerTexture: THREE.CanvasTexture;
   private mesh: THREE.InstancedMesh | null = null;
   private edge: THREE.InstancedMesh | null = null;
+  private flowers: THREE.InstancedMesh | null = null;
   private originX = Number.NaN;
   private originZ = Number.NaN;
   private density = -1;
@@ -76,7 +86,8 @@ export class GrassField {
   constructor(private readonly paved: readonly PavedArea[] = []) {
     this.geometry = GrassField.buildGeometry();
     this.bladeTexture = GrassField.buildBladeTexture();
-
+    this.flowerGeometry = GrassField.buildFlowerGeometry();
+    this.flowerTexture = GrassField.buildFlowerTexture();
     const uTime = windTimeUniform();
     this.material = new THREE.MeshStandardMaterial({
       map: this.bladeTexture,
@@ -109,6 +120,38 @@ export class GrassField {
         );
     };
     this.material.customProgramCacheKey = () => 'grass-wind-v1';
+
+    // i fiori ondeggiano con la stessa formula dei ciuffi, ma partendo dalla
+    // propria altezza: il gambo si piega, la corolla resta su
+    this.flowerMaterial = new THREE.MeshStandardMaterial({
+      map: this.flowerTexture,
+      alphaTest: 0.5,
+      side: THREE.DoubleSide,
+      vertexColors: true,
+      roughness: 0.9,
+      metalness: 0,
+      envMapIntensity: 0.4,
+    });
+    this.flowerMaterial.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = uTime;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nuniform float uTime;')
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+          #ifdef USE_INSTANCING
+            vec3 flowerPos = vec3( instanceMatrix[ 3 ][ 0 ], instanceMatrix[ 3 ][ 1 ], instanceMatrix[ 3 ][ 2 ] );
+          #else
+            vec3 flowerPos = vec3( 0.0 );
+          #endif
+          float flowerBend = clamp( position.y / ${FLOWER_HEIGHT.toFixed(2)}, 0.0, 1.0 );
+          float flowerPhase = flowerPos.x * 0.42 + flowerPos.z * 0.31;
+          float flowerSway = sin( uTime * 1.9 + flowerPhase ) * 0.05 + sin( uTime * 3.4 + flowerPhase * 1.7 ) * 0.018;
+          transformed.x += flowerSway * flowerBend * flowerBend;
+          transformed.z += flowerSway * 0.6 * flowerBend * flowerBend;`,
+        );
+    };
+    this.flowerMaterial.customProgramCacheKey = () => 'grass-flower-wind-v1';
 
     this.group.name = 'grass';
     this.group.matrixAutoUpdate = false;
@@ -209,6 +252,90 @@ export class GrassField {
     return texture;
   }
 
+  /**
+   * Fiori di campo: tre quad incrociati piccoli, base a y = 0.
+   *
+   * Il gambo è alto quanto basta perché la corolla esca dall'erba bassa; il
+   * gradiente per vertice scurisce la base, così il fiore non sembra un
+   * adesivo colorato appoggiato sul prato.
+   */
+  private static buildFlowerGeometry(): THREE.BufferGeometry {
+    const petal = new THREE.PlaneGeometry(0.2, FLOWER_HEIGHT, 1, 1);
+    petal.translate(0, FLOWER_HEIGHT / 2, 0);
+    const parts: THREE.BufferGeometry[] = [petal];
+    for (const angle of [Math.PI / 3, (Math.PI * 2) / 3]) {
+      const copy = petal.clone();
+      copy.rotateY(angle);
+      parts.push(copy);
+    }
+    const merged = mergeGeometries(parts, false);
+    const geometry = merged ?? petal;
+    for (const part of parts) if (part !== geometry) part.dispose();
+    const position = geometry.getAttribute('position');
+    const colors = new Float32Array(position.count * 3);
+    for (let i = 0; i < position.count; i++) {
+      const t = Math.max(0, Math.min(1, position.getY(i) / FLOWER_HEIGHT));
+      // il gambo in ombra, la corolla in piena luce
+      const shade = 0.58 + 0.42 * t;
+      colors[i * 3] = shade;
+      colors[i * 3 + 1] = shade;
+      colors[i * 3 + 2] = shade;
+    }
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    return geometry;
+  }
+
+  /**
+   * Texture del fiore: gambo verde e corolle quasi bianche, perché la tinta
+   * arriva dal colore per istanza (bianco, giallo, viola, papavero). Se le
+   * corolle fossero già colorate nella texture, il colore per istanza le
+   * moltiplicherebbe e i fiori uscirebbero tutti spenti.
+   */
+  private static buildFlowerTexture(): THREE.CanvasTexture {
+    const size = 64;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('canvas 2d non disponibile');
+    ctx.clearRect(0, 0, size, size);
+    const rng = mulberry32(0xf10e);
+
+    // gambo: due fili sottili che partono dal basso, mai perfettamente dritti
+    for (const lean of [-4, 5]) {
+      ctx.strokeStyle = 'rgba(58, 84, 40, 0.95)';
+      ctx.lineWidth = 1.6;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(size / 2 + lean * 0.4, size);
+      ctx.quadraticCurveTo(size / 2 + lean * 1.6, size * 0.62, size / 2 + lean * 2.2, size * 0.34);
+      ctx.stroke();
+    }
+    // corolle: petali chiari attorno a un centro appena più saturo
+    for (let i = 0; i < 3; i++) {
+      const cx = size / 2 + (rng() - 0.5) * 20;
+      const cy = size * (0.18 + rng() * 0.24);
+      const r = 4.5 + rng() * 3.5;
+      ctx.fillStyle = 'rgba(255, 252, 240, 0.98)';
+      for (let p = 0; p < 5; p++) {
+        const a = (p / 5) * Math.PI * 2 + rng() * 0.3;
+        ctx.beginPath();
+        ctx.arc(cx + Math.cos(a) * r * 0.62, cy + Math.sin(a) * r * 0.62, r * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(214, 190, 120, 0.95)';
+      ctx.beginPath();
+      ctx.arc(cx, cy, r * 0.34, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 4;
+    texture.needsUpdate = true;
+    return texture;
+  }
+
   /** `density` 0…1 (dal preset grafico). Ricostruisce solo se serve. */
   update(
     x: number,
@@ -223,10 +350,12 @@ export class GrassField {
       if (this.job) this.cancelJob();
       if (this.mesh) this.mesh.visible = false;
       if (this.edge) this.edge.visible = false;
+      if (this.flowers) this.flowers.visible = false;
       return;
     }
     if (this.mesh) this.mesh.visible = true;
     if (this.edge) this.edge.visible = true;
+    if (this.flowers) this.flowers.visible = true;
 
     const moved = Math.hypot(x - this.originX, z - this.originZ);
     if (this.job) {
@@ -280,26 +409,38 @@ export class GrassField {
     edgeMesh.receiveShadow = false;
     edgeMesh.frustumCulled = false;
 
+    // fiori radi: un prato fiorito è chiazze, non un tappeto di corolle
+    const flowerTarget = Math.max(60, Math.round(1400 * density));
+    const flowerMesh = new THREE.InstancedMesh(this.flowerGeometry, this.flowerMaterial, flowerTarget);
+    flowerMesh.castShadow = false;
+    flowerMesh.receiveShadow = false;
+    flowerMesh.frustumCulled = false;
+
     this.job = {
       x,
       z,
       density,
       target,
       edgeTarget,
+      flowerTarget,
       rng: mulberry32(Math.round(x * 31 + z * 17) | 1),
       mesh,
       edgeMesh,
+      flowerMesh,
       dummy: new THREE.Object3D(),
       color: new THREE.Color(),
       // verdi leggermente spenti, con qualche tono più secco: un prato
       // molisano non è un tappeto da campo da golf
       palette: [0x7d8f5c, 0x8a9b68, 0x748455, 0x93a26f, 0x7f8f5f, 0x8d9260],
+      // bianco e giallo sono i più comuni, il papavero è l'accento
+      flowerPalette: [0xf2f0dc, 0xf2f0dc, 0xe8cf63, 0xe8cf63, 0xb08ac0, 0xc4483a],
       valid,
       perCell: valid > 0 ? target / valid : 0,
       acc: 0,
       cursor: 0,
       placed: 0,
       edges: 0,
+      flowers: 0,
       phase: 'tufts',
       heights,
       roads,
@@ -348,6 +489,36 @@ export class GrassField {
         }
         if ((job.cursor & 63) === 0 && performance.now() - t0 > budgetMs) return;
       }
+      job.phase = 'flowers';
+    }
+
+    if (job.phase === 'flowers') {
+      // le celle si pescano a caso su tutte quelle libere: scorrerle in ordine
+      // metterebbe i fiori in un angolo del campo invece che nel prato intero
+      let guard = job.flowerTarget * 8;
+      while (job.flowers < job.flowerTarget && guard-- > 0) {
+        const idx = this.validCells[Math.floor(job.rng() * job.valid)]!;
+        const i = idx % n;
+        const j = (idx - i) / n;
+        // sul ciglio battuto e sulle pendenze forti non crescono fiori
+        if (this.mask.roadDistance(i, j) < 3.2) continue;
+        const px = this.mask.originX + (i + job.rng()) * cell;
+        const pz = this.mask.originZ + (j + job.rng()) * cell;
+        if (job.heights.slopeAt(px, pz) > 26) continue;
+        const py = this.mask.heightAt(px, pz);
+        job.dummy.position.set(px, py - 0.02, pz);
+        job.dummy.rotation.set(0, job.rng() * Math.PI * 2, 0);
+        const scale = 0.7 + job.rng() * 0.6;
+        job.dummy.scale.set(scale, scale * (0.85 + job.rng() * 0.3), scale);
+        job.dummy.updateMatrix();
+        job.flowerMesh.setMatrixAt(job.flowers, job.dummy.matrix);
+        job.color
+          .setHex(job.flowerPalette[Math.floor(job.rng() * job.flowerPalette.length)]!)
+          .multiplyScalar(0.94 + job.rng() * 0.12);
+        job.flowerMesh.setColorAt(job.flowers, job.color);
+        job.flowers++;
+        if ((job.flowers & 63) === 0 && performance.now() - t0 > budgetMs) return;
+      }
       job.phase = 'edges';
       this.buildEdges(job);
     }
@@ -393,6 +564,9 @@ export class GrassField {
     job.edgeMesh.count = job.edges;
     job.edgeMesh.instanceMatrix.needsUpdate = true;
     if (job.edgeMesh.instanceColor) job.edgeMesh.instanceColor.needsUpdate = true;
+    job.flowerMesh.count = job.flowers;
+    job.flowerMesh.instanceMatrix.needsUpdate = true;
+    if (job.flowerMesh.instanceColor) job.flowerMesh.instanceColor.needsUpdate = true;
 
     if (this.mesh) {
       this.group.remove(this.mesh);
@@ -402,10 +576,16 @@ export class GrassField {
       this.group.remove(this.edge);
       this.edge.dispose();
     }
+    if (this.flowers) {
+      this.group.remove(this.flowers);
+      this.flowers.dispose();
+    }
     this.mesh = job.mesh;
     this.edge = job.edgeMesh;
+    this.flowers = job.flowerMesh;
     this.group.add(job.mesh);
     this.group.add(job.edgeMesh);
+    this.group.add(job.flowerMesh);
     this.job = null;
   }
 
@@ -414,6 +594,7 @@ export class GrassField {
     if (!job) return;
     job.mesh.dispose();
     job.edgeMesh.dispose();
+    job.flowerMesh.dispose();
     this.job = null;
   }
 
@@ -429,8 +610,16 @@ export class GrassField {
       this.edge.dispose();
       this.edge = null;
     }
+    if (this.flowers) {
+      this.group.remove(this.flowers);
+      this.flowers.dispose();
+      this.flowers = null;
+    }
     this.geometry.dispose();
     this.material.dispose();
     this.bladeTexture.dispose();
+    this.flowerGeometry.dispose();
+    this.flowerMaterial.dispose();
+    this.flowerTexture.dispose();
   }
 }

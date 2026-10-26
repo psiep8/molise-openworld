@@ -1537,3 +1537,113 @@ restano nella lista.
 19. Misurare fps e memoria con le 4 auto nuove e l'erba a tre quad; se il costo
     sfonda, ridurre la densità del preset (non togliere la funzione).
 20. Cache delle texture/GLB in IndexedDB per non riscaricare a ogni avvio.
+
+## 26/10/2026 — Segnaletica, raccordi d'angolo, cordolo che si sente
+
+Secondo giro sullo stesso blocco: chiusi quattro punti della lista P1 e due di
+P2, più uno strumento per verificare i GLB senza browser.
+
+### Strade: margine, spalle e segnaletica
+
+- **Spalla in ghiaia** (`road-shoulders`): fascia di 72 cm, 5 cm sotto il manto,
+  solo fuori dal paese. Prima l'asfalto finiva a picco sull'erba e si vedeva il
+  taglio; ora la ruota che esce dall'asfalto scende di 15 cm invece di cadere.
+  La fisica legge la stessa quota (`surfaceOffset`, costante `SHOULDER_WIDTH`).
+- **Linea di margine** a 26 cm dal ciglio, solo sulle strade larghe e solo in
+  campagna (dentro il paese ci pensa il cordolo).
+- **Linea di arresto a ogni incrocio reale**, anche in campagna. Il gate ora è
+  `enters` (primo punto dell'area d'incrocio): prima il ciclo passava su più
+  punti ricampionati e poteva disegnare la stessa banda due volte.
+- **Dare precedenza**: dove la via è più stretta della strada che attraversa
+  (`crossingAt` legge il segmento reale da `RoadIndex`), al posto della banda
+  piena ci sono quattro punte col vertice verso chi arriva, come in Italia.
+- **Frecce di direzione**: freccia dritta sulla corsia di marcia 3 m prima
+  dello stop, solo su carreggiate da 5,4 m in su.
+- **Vernice consumata** (`applyPaintWear`): due scale di rumore in coordinate
+  mondo, `discard` dove la vernice è saltata, tinta sporca e rugosità variabile.
+  La segnaletica non è più un bianco perfetto stampato sopra l'asfalto.
+
+### Incroci: raccordo del cordolo
+
+`filletCorner()` calcola l'intersezione delle due linee di cordolo e sostituisce
+lo spigolo con una Bezier quadratica (raggio 0,9 m, 6 segmenti). Si usano i
+segmenti veri della strada che attraversa (`crossingAt`), quindi il raccordo
+segue l'angolo com'è, non come sarebbe su una griglia. Il quarto d'arco resta
+nell'angolo (controllo sul punto medio) e viene disegnato solo nel costruito.
+Restano da valutare a schermo i casi a T, dove il quarto angolo non esiste.
+
+### Cordolo e collisioni
+
+- `curbImpact(previousLift, lift)` in `src/sim/car.ts`: salire lo scalino di 18
+  cm costa il 10% della velocità e dà un sobbalzo di 5 cm alla carrozzeria;
+  scendere è più dolce (3%). Cooldown di 0,35 s per non pagarlo a ogni frame, e
+  primo frame senza colpo (quota iniziale `NaN`).
+- **Collisioni a due cerchi** (`src/sim/collision.ts`): avantreno e retrotreno
+  al posto del cerchio unico, perdita di velocità proporzionale alla
+  penetrazione (un urto di striscio costa poco, uno frontale ferma l'auto).
+  Il modulo è puro e ha i suoi test.
+
+### Vegetazione
+
+- **Fiori di campo** (`grass.ts`): terzo `InstancedMesh` da 1.400 istanze per
+  campo, tre quad incrociati alti 32 cm, texture con gambo e corolle, colore per
+  istanza (bianco e giallo frequenti, viola e papavero come accento). Fase
+  `'flowers'` tra ciuffi e ciglio, budget di 4 ms; niente fiori sul ciglio
+  battuto (`roadDistance < 3,2 m`) né su pendenze oltre 26°.
+- **LOD delle chiome** (`vegetation.ts`): `LEAF_LOD_RADIUS = 150`; le card di
+  foglie si riempiono solo per gli alberi entro 150 m (+ raggio della chioma),
+  tronco e nucleo restano sempre. Ricalcolo quando la camera si muove di 40 m,
+  agganciato a `onBeforeRender` e solo per camere prospettiche (la passata
+  d'ombra non deve raddoppiare il lavoro). I cespugli restano pieni.
+
+### Verifica dei GLB senza browser: `npm run check:cars`
+
+`scripts/check-cars.mjs` legge la testa dei GLB (JSON + accessor POSITION),
+compone la gerarchia dei nodi e misura l'ingombro vero. Riporta unità (metri,
+cm, scala), proporzioni, pezzi già nascosti dal manifest e **pezzi staccati**
+(quelli che in gioco si vedono come pannelli volanti). Risultato sui dieci file:
+
+| modello | lunghezza | larghezza | altezza | unità del file | note |
+| --- | ---: | ---: | ---: | --- | --- |
+| lamborghini-aventador | 4,78 | 2,25 | 1,15 | cm | ✓ |
+| ferrari-458 | 4,53 | 2,26 | 1,24 | metri | ✓ |
+| fiat-punto | 3,80 | 1,85 | 1,33 | 1:41 | 25 pezzi lontani dal corpo |
+| land-rover-defender | 5,02 | 2,31 | 3,13 | 1:1,2 | altezza 3,1 m: dentro ci sono i piani `Screenshot…` |
+| audi-r8 | 4,43 | 4,04 | 1,11 | 1,2× | `detach_skirt_*` larghi 4 m |
+| cupra-terramar | 4,52 | 2,09 | 1,61 | metri | 6 pezzi `ANIM_EXT_TAILGATE` a 3,4 m |
+| porsche-mystery | 4,52 | 4,03 | 1,04 | 1,3× | `detach_door/skirt/wing` fuori posto |
+| camaro-bumblebee | 4,78 | 3,37 | 4,21 | 13,3× | alto 4,2 m: forma da guardare |
+| harley-xyn | 2,25 | 0,99 | 1,21 | 1,2× | ✓ per una moto |
+| mg7 | 4,88 | 2,10 | 1,45 | 1:7,6 | ✓ |
+
+I pezzi `detach_*` di Audi e Porsche sono varianti (sportelli, minigonne,
+alettone) parcheggiate di fianco al corpo: **se in gioco si vedono pannelli
+volanti**, si nascondono dal manifest con `"hide": ["detach_"]`. Non l'ho fatto
+alla cieca perché alcuni di quei pezzi potrebbero essere la carrozzeria vera.
+Il Camaro merita un'occhiata: ha già `Shadow` e `Cover` nascosti, ma resta più
+alto che largo.
+
+### Verifiche
+
+- `npx tsc --noEmit` ✅
+- `npm test` ✅ **224/224** in 26 file: nuovi test per `filletCorner`,
+  `giveWayTriangles`, `curbImpact` e `resolveBody`.
+- `npm run check:cars` ✅ (dieci GLB letti, nessuna proporzione impossibile)
+- `npm run build` ✅
+- **Non eseguiti**: browser, screenshot, fps. `libnspr4.so` manca ancora, quindi
+  niente prova a schermo di raccordi, frecce, vernice usurata, fiori e LOD.
+
+### Prossimi passi (aggiornati)
+
+1. **Verifica a schermo** di raccordi d'angolo (soprattutto incroci a T), punte
+   del dare precedenza, frecce, vernice usurata, spalla in ghiaia, fiori, LOD a
+   150 m e scalino del cordolo a 20-50 km/h.
+2. Nascondere i `detach_*` di Audi/Porsche nel manifest **solo dopo** averli
+   visti in gioco; sistemare il Camaro.
+3. Terreno: micro-rilievo vicino alla camera, erba legata al landcover (oggi il
+   colore è solo rumore), fiori legati alla stagione.
+4. Collisioni: OBB a quattro angoli con impulso e rotazione, alberi dei filari,
+   muretti a secco, guardrail; suono dell'urto e scossone di camera.
+5. Alberi: impostor veri oltre i 150 m (oggi si spengono solo le card) e specie
+   lungo i torrenti.
+6. Rampe ai passaggi pedonali e cordolo che ferma le ruote se preso in traverso.

@@ -342,6 +342,174 @@ export function isRealJunction(roads: RoadIndex | undefined, at: Pt, own: number
   return roads ? roads.isOnRoad(at.x, at.z, 2, own) : false;
 }
 
+/**
+ * "Dare precedenza": fila di triangoli col vertice verso chi arriva, sulla
+ * sola corsia di marcia. In Italia il segnale a terra non è una banda piena
+ * come lo stop: è questa fila di punte, ed è quello che distingue una via
+ * secondaria da una provinciale.
+ *
+ * Restituisce i triangoli in coordinate di pianta: il chiamante li appoggia
+ * al terreno. Puro, così si può testare la geometria senza scena 3D.
+ */
+export function giveWayTriangles(at: Pt, tx: number, tz: number, width: number, count = 4): Pt[][] {
+  const px = -tz;
+  const pz = tx;
+  const lane = width * 0.42;
+  const step = lane / count;
+  const out: Pt[][] = [];
+  for (let i = 0; i < count; i++) {
+    const lat = width * 0.04 + step * (i + 0.5);
+    const cx = at.x - px * lat;
+    const cz = at.z - pz * lat;
+    const half = step * 0.42;
+    const base = 0.05;
+    const apex = 0.95;
+    out.push([
+      { x: cx - px * half + tx * base, z: cz - pz * half + tz * base },
+      { x: cx + px * half + tx * base, z: cz + pz * half + tz * base },
+      { x: cx - tx * apex, z: cz - tz * apex },
+    ]);
+  }
+  return out;
+}
+
+/**
+ * Segmento dell'altra strada che passa per l'incrocio: serve a sapere con che
+ * via si ha a che fare (larghezza e direzione del suo cordolo).
+ */
+interface Crossing {
+  x: number;
+  z: number;
+  /** direzione della strada che attraversa */
+  dx: number;
+  dz: number;
+  /** semilarghezza dell'asfalto */
+  half: number;
+}
+
+function crossingAt(roads: RoadIndex, at: Pt, own: number, reach = 9): Crossing | null {
+  let best: Crossing | null = null;
+  let bestD = Infinity;
+  roads.forEachSegmentNear(at.x, at.z, reach, (s) => {
+    if (s.road === own) return;
+    // punto del segmento più vicino all'incrocio
+    const ex = s.bx - s.ax;
+    const ez = s.bz - s.az;
+    const len2 = ex * ex + ez * ez || 1;
+    const k = clamp(((at.x - s.ax) * ex + (at.z - s.az) * ez) / len2, 0, 1);
+    const px = s.ax + ex * k;
+    const pz = s.az + ez * k;
+    const d = Math.hypot(px - at.x, pz - at.z);
+    if (d > s.w + 1.4 || d >= bestD) return;
+    const len = Math.sqrt(len2);
+    bestD = d;
+    best = { x: px, z: pz, dx: ex / len, dz: ez / len, half: s.w };
+  });
+  return best;
+}
+
+/** Triangolo pieno appoggiato al terreno (punte del dare precedenza). */
+function pushTriangle(
+  target: RibbonArrays,
+  tri: Pt[],
+  lift: number,
+  color: THREE.Color,
+  heights: Heightfield,
+): void {
+  if (tri.length < 3) return;
+  const base = target.positions.length / 3;
+  for (const p of tri) {
+    target.positions.push(p.x, heights.heightAt(p.x, p.z) + lift, p.z);
+    target.normals.push(0, 1, 0);
+    target.colors.push(color.r, color.g, color.b);
+    target.uvs.push(0, 0);
+  }
+  target.indices.push(base, base + 1, base + 2);
+}
+
+/**
+ * Freccia di direzione dritta nella corsia di marcia: gambo sottile e punta
+ * a triangolo. Le frecce vere stanno 10-20 m prima dell'incrocio, sulla corsia
+ * che le riguarda, non al centro della strada.
+ */
+function pushStraightArrow(
+  target: RibbonArrays,
+  at: Pt,
+  tx: number,
+  tz: number,
+  width: number,
+  lift: number,
+  color: THREE.Color,
+  heights: Heightfield,
+): void {
+  const px = -tz;
+  const pz = tx;
+  const lat = width * 0.26;
+  const cx = at.x - px * lat;
+  const cz = at.z - pz * lat;
+  const shaft: Pt[] = [
+    { x: cx + tx * 0.1, z: cz + tz * 0.1 },
+    { x: cx - tx * 2.5, z: cz - tz * 2.5 },
+  ];
+  pushRibbon(target, shaft, 0.18, lift, color, heights, 1);
+  pushTriangle(
+    target,
+    [
+      { x: cx - px * 0.28 - tx * 2.15, z: cz - pz * 0.28 - tz * 2.15 },
+      { x: cx + px * 0.28 - tx * 2.15, z: cz + pz * 0.28 - tz * 2.15 },
+      { x: cx - tx * 3.15, z: cz - tz * 3.15 },
+    ],
+    lift,
+    color,
+    heights,
+  );
+}
+
+/**
+ * Raccordo d'angolo tra due cordoli: quarto d'arco che sostituisce lo spigolo
+ * vivo dove la via secondaria sbocca sulla principale.
+ *
+ * `p1`/`u` sono un punto e la direzione del cordolo della prima strada,
+ * `p2`/`v` quelli della seconda; `center` è il punto d'incrocio delle due
+ * centerline, serve solo a scegliere verso quale lato curvare. Restituisce i
+ * punti dell'arco (Bezier quadratica con controllo sullo spigolo) oppure null
+ * se le due strade sono quasi parallele.
+ */
+export function filletCorner(
+  p1: Pt,
+  u: Pt,
+  p2: Pt,
+  v: Pt,
+  center: Pt,
+  radius = 0.9,
+  steps = 6,
+): Pt[] | null {
+  const den = u.x * v.z - u.z * v.x;
+  if (Math.abs(den) < 0.25) return null;
+  const dx = p2.x - p1.x;
+  const dz = p2.z - p1.z;
+  const t = (dx * v.z - dz * v.x) / den;
+  const corner = { x: p1.x + u.x * t, z: p1.z + u.z * t };
+  const toCenterX = center.x - corner.x;
+  const toCenterZ = center.z - corner.z;
+  const along1 = Math.sign(toCenterX * u.x + toCenterZ * u.z) || -1;
+  const along2 = Math.sign(toCenterX * v.x + toCenterZ * v.z) || -1;
+  const s = { x: corner.x + u.x * along1 * radius, z: corner.z + u.z * along1 * radius };
+  const e = { x: corner.x + v.x * along2 * radius, z: corner.z + v.z * along2 * radius };
+  const out: Pt[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const k = i / steps;
+    const a = (1 - k) * (1 - k);
+    const b = 2 * (1 - k) * k;
+    const c = k * k;
+    out.push({
+      x: a * s.x + b * corner.x + c * e.x,
+      z: a * s.z + b * corner.z + c * e.z,
+    });
+  }
+  return out;
+}
+
 function toGeometry(a: RibbonArrays): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(a.positions, 3));
@@ -468,6 +636,61 @@ float roadCrack;`,
       );
   };
   material.customProgramCacheKey = () => 'road-wear-v3';
+}
+
+/**
+ * Vernice consumata: la segnaletica orizzontale non è mai nuova a parte il
+ * giorno dopo la posa. Nello shader, in coordinate mondo, il bianco perde
+ * pezzi dove passa il rumore: chiazze di asfalto che riaffiorano e tinta
+ * sporca, senza cambiare la geometria.
+ */
+function applyPaintWear(material: THREE.MeshStandardMaterial): void {
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vPaintWorld;')
+      .replace(
+        '#include <begin_vertex>',
+        '#include <begin_vertex>\nvPaintWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;',
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+varying vec3 vPaintWorld;
+
+float paintHash(vec2 p) {
+  p = fract(p * vec2(127.1, 311.7));
+  p += dot(p, p + 34.23);
+  return fract(p.x * p.y);
+}
+
+float paintNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(paintHash(i), paintHash(i + vec2(1.0, 0.0)), f.x),
+             mix(paintHash(i + vec2(0.0, 1.0)), paintHash(i + vec2(1.0, 1.0)), f.x), f.y);
+}`,
+      )
+      .replace(
+        '#include <clipping_planes_fragment>',
+        `#include <clipping_planes_fragment>
+{
+  // due scale di rumore: le macchie larghe sono usura, quelle fini il bordo
+  // sgranato della vernice che si stacca
+  float wear = paintNoise(vPaintWorld.xz * 1.9) * 0.66 + paintNoise(vPaintWorld.xz * 6.3) * 0.34;
+  if (wear < 0.24) discard;
+  // il bianco sporco di polvere, con la tinta che varia da striscia a striscia
+  diffuseColor.rgb *= 0.84 + 0.22 * paintNoise(vPaintWorld.xz * 1.1);
+}`,
+      )
+      .replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+roughnessFactor = clamp(roughnessFactor + 0.12 * paintNoise(vPaintWorld.xz * 1.9), 0.35, 1.0);`,
+      );
+  };
+  material.customProgramCacheKey = () => 'paint-wear-v1';
 }
 
 /**
@@ -658,6 +881,9 @@ export function buildRoads(
     if (!roadIndex) return;
     let sinceCross = 0;
     let sinceLamp = 0;
+    // dentro l'area dell'incrocio si passa su più punti ricampionati: senza
+    // questo stato la linea di arresto veniva disegnata una volta per punto
+    let inJunction = false;
     for (let i = 1; i < pts.length - 1; i++) {
       const a = pts[i - 1];
       const b = pts[i];
@@ -672,10 +898,57 @@ export function buildRoads(
 
       // linea di arresto a OGNI incrocio, arretrata quel tanto che basta per
       // non finire sopra la carreggiata che attraversa
-      if (isRealJunction(roadIndex, b, idx)) {
-        const at = { x: b.x - tx * 4.3, z: b.z - tz * 4.3 };
-        if (!onJunction(at.x, at.z)) {
-          pushStopLine(markings, at, tx, tz, road.width, lift + 0.011, markingColor, heights);
+      const junction = isRealJunction(roadIndex, b, idx);
+      const enters = junction && !inJunction;
+      inJunction = junction;
+      if (enters) {
+        const cross = crossingAt(roadIndex, b, idx);
+        // una via secondaria davanti a una più larga ha il "dare precedenza":
+        // punte a terra invece della banda piena dello stop
+        const minor = cross !== null && cross.half + 0.35 < road.width * 0.5;
+        const gwAt = cross
+          ? { x: b.x - tx * (cross.half + 0.9), z: b.z - tz * (cross.half + 0.9) }
+          : null;
+        if (minor && gwAt && !onJunction(gwAt.x, gwAt.z)) {
+          for (const tri of giveWayTriangles(gwAt, tx, tz, road.width)) {
+            pushTriangle(markings, tri, lift + 0.011, markingColor, heights);
+          }
+        } else {
+          const at = { x: b.x - tx * 4.3, z: b.z - tz * 4.3 };
+          if (!onJunction(at.x, at.z)) {
+            pushStopLine(markings, at, tx, tz, road.width, lift + 0.011, markingColor, heights);
+            // freccia dritta solo dove c'è spazio per leggerla
+            if (road.width >= 5.4) {
+              pushStraightArrow(markings, at, tx, tz, road.width, lift + 0.011, markingColor, heights);
+            }
+          }
+        }
+
+        // --- raccordo del cordolo -------------------------------------------------
+        // In paese il cordolo si interrompeva a squadro sull'asfalto: quattro
+        // spigoli vivi al posto dei quarti d'arco che ha un incrocio vero.
+        if (cross && inTown(i) && road.width >= 4) {
+          const ownCurb = road.width / 2 + 0.11;
+          const crossCurb = cross.half + 0.11;
+          const pOwnX = -tz;
+          const pOwnZ = tx;
+          const pCrossX = -cross.dz;
+          const pCrossZ = cross.dx;
+          for (const s2 of [-1, 1]) {
+            const p1 = { x: b.x + pOwnX * s2 * ownCurb, z: b.z + pOwnZ * s2 * ownCurb };
+            for (const s1 of [-1, 1]) {
+              const p2 = {
+                x: cross.x + pCrossX * s1 * crossCurb,
+                z: cross.z + pCrossZ * s1 * crossCurb,
+              };
+              const arc = filletCorner(p1, { x: tx, z: tz }, p2, { x: cross.dx, z: cross.dz }, b);
+              if (!arc) continue;
+              // l'arco deve restare nell'angolo, non attraversare la carreggiata
+              const mid = arc[Math.floor(arc.length / 2)]!;
+              if (Math.hypot(mid.x - b.x, mid.z - b.z) > ownCurb + crossCurb + 1.6) continue;
+              pushRibbon(kerb, arc, 0.22, curbTop, curbColor, heights, 1);
+            }
+          }
         }
       }
 
@@ -697,7 +970,7 @@ export function buildRoads(
       if (!built) continue;
 
       // un attraversamento ogni ~70 m, ma solo su tratti abbastanza dritti
-      if (sinceCross > 70 && i + 1 < pts.length && isRealJunction(roadIndex, b, idx)) {
+      if (sinceCross > 70 && i + 1 < pts.length && enters) {
         const c = pts[i + 1];
         let ux = c.x - b.x;
         let uz = c.z - b.z;
@@ -857,6 +1130,7 @@ export function buildRoads(
       polygonOffsetFactor: -4,
       polygonOffsetUnits: -4,
     });
+    applyPaintWear(markingMat);
     const mesh = new THREE.Mesh(toGeometry(markings), markingMat);
     mesh.name = 'road-markings';
     mesh.receiveShadow = true;

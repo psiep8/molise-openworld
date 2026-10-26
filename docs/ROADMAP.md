@@ -1,6 +1,6 @@
 # Roadmap e stato reale delle funzionalità
 
-Ultimo aggiornamento: **21 ottobre 2026**.
+Ultimo aggiornamento: **26 ottobre 2026**.
 
 Questo documento è la fonte di verità sullo stato delle funzionalità. Legenda:
 
@@ -44,7 +44,8 @@ Questo documento è la fonte di verità sullo stato delle funzionalità. Legenda
 | 14 modelli in catalogo | **Fatto** | 10 modelli su GLB di serie + 4 carrozzerie del kit; le 21 sagome procedurali sono state eliminate il 26/10 |
 | Selezione e guida di ogni modello | **Fatto** | Select popolata dall'intero catalogo; i 6 GLB e i 4 del kit provati in gioco |
 | Prestazioni reali (dati tecnici) | **Fatto** | cilindrata, potenza, coppia, 0-100, velocità massima; vedi `docs/VEHICLE_DATA.md` |
-| Sagome procedurali originali | **Parziale** | Forme stilizzate e distinguibili; **nessun asset GLB di marca** |
+| Sagome procedurali originali | **Parziale** | Restano come ripiego se un GLB manca; il catalogo usa i GLB |
+| Verifica geometrica dei GLB | **Fatto** | `npm run check:cars`: unità, proporzioni e pezzi staccati senza browser |
 | Tinta carrozzeria per modello | **Fatto** | Salvata per id veicolo; `K` o impostazioni |
 | Fisica pura testata | **Fatto** | `src/sim/car.ts` + `tests/vehicle-dynamics.test.ts` |
 
@@ -53,6 +54,10 @@ Questo documento è la fonte di verità sullo stato delle funzionalità. Legenda
 | Funzionalità | Stato | Note |
 | --- | --- | --- |
 | Terreno/edifici/strade da dati aperti | **Fatto** | OSM + DEM, licenze aperti |
+| Segnaletica orizzontale | **Fatto** | Stop/dare precedenza a ogni incrocio, frecce, linea di margine, vernice usurata |
+| Raccordi d'angolo dei cordoli | **Da verificare** | `filletCorner()`; da guardare a schermo, soprattutto negli incroci a T |
+| Spalla in ghiaia e ciglio delle provinciali | **Fatto** | Solo fuori dal paese; stessa quota per la fisica |
+| Cordolo che si sente (scalino 18 cm) | **Fatto** | `curbImpact()`: perdita di velocità e sobbalzo, con test |
 | Meteo reale + sole NOAA | **Fatto** | Open-Meteo, fallback locale |
 | Qualità scalabile low→ultra | **Fatto** | Preset + resolution scaling adattivo |
 | Audio procedurale | **Fatto** | WebAudio, parte dopo un gesto utente |
