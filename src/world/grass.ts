@@ -8,10 +8,22 @@ import { COVER_CROP, COVER_DRY, COVER_WOOD, GroundMask } from './ground-mask';
 import type { PavedArea } from './paved';
 
 /** Raggio del tappeto d'erba intorno al giocatore (m). */
-const RADIUS = 40;
-const MAX_TUFTS = 82000;
+const RADIUS = 110;
+const MAX_TUFTS = 130000;
 /** Oltre questa distanza il campo viene ricostruito. */
 const REBUILD_DISTANCE = 18;
+
+/**
+ * Densità del tappeto alla distanza data: pieno entro 20 m, poi dirada fino a
+ * un decimo sul bordo dei 110 m. Con un raggio di 40 m l'erba finiva di colpo
+ * e oltre restava solo la foto satellite: il confine si vedeva come un cerchio.
+ */
+function tuftLod(distance: number): number {
+  if (distance <= 20) return 1;
+  const t = Math.min(1, (distance - 20) / (RADIUS - 20));
+  return Math.max(0.07, Math.pow(1 - t, 1.5));
+}
+
 /** Altezza del ciuffo in metri: la geometria base è alta 0,6. */
 const TUFT_HEIGHT = 0.17;
 /** Altezza del fiore in metri: sotto l'erba alta, si vede solo da vicino. */
@@ -410,10 +422,18 @@ export class GrassField {
     // per rifiuto casuale diventano una lookup su array
     this.mask.build(x, z, heights, roads, buildings, 2.7, 0.5, this.paved, areas);
     const n = this.mask.n;
+    const cellSize = this.mask.cellSize;
     let valid = 0;
+    // somma dei pesi di densità: serve a normalizzare `perCell`, altrimenti
+    // allargando il raggio l'erba vicina diventerebbe più rada
+    let weightSum = 0;
     for (let j = 0; j < n; j++) {
       for (let i = 0; i < n; i++) {
-        if (!this.mask.isBlocked(i, j)) this.validCells[valid++] = j * n + i;
+        if (this.mask.isBlocked(i, j)) continue;
+        this.validCells[valid++] = j * n + i;
+        const cx = this.mask.originX + (i + 0.5) * cellSize;
+        const cz = this.mask.originZ + (j + 0.5) * cellSize;
+        weightSum += tuftLod(Math.hypot(cx - x, cz - z));
       }
     }
 
@@ -423,7 +443,7 @@ export class GrassField {
     mesh.receiveShadow = false;
     mesh.frustumCulled = false;
 
-    const edgeTarget = Math.round(4200 * density);
+    const edgeTarget = Math.round(9000 * density);
     const edgeMesh = new THREE.InstancedMesh(this.geometry, this.material, edgeTarget);
     edgeMesh.castShadow = false;
     edgeMesh.receiveShadow = false;
@@ -455,7 +475,7 @@ export class GrassField {
       // bianco e giallo sono i più comuni, il papavero è l'accento
       flowerPalette: [0xf2f0dc, 0xf2f0dc, 0xe8cf63, 0xe8cf63, 0xb08ac0, 0xc4483a],
       valid,
-      perCell: valid > 0 ? target / valid : 0,
+      perCell: weightSum > 0 ? target / weightSum : 0,
       acc: 0,
       cursor: 0,
       placed: 0,
@@ -478,15 +498,16 @@ export class GrassField {
     if (job.phase === 'tufts') {
       while (job.cursor < job.valid && job.placed < job.target) {
         const idx = this.validCells[job.cursor++]!;
-        job.acc += job.perCell;
-        let count = Math.floor(job.acc);
-        job.acc -= count;
-        if (count <= 0) continue;
-        if (count > job.target - job.placed) count = job.target - job.placed;
         const i = idx % n;
         const j = (idx - i) / n;
         const baseX = this.mask.originX + i * cell;
         const baseZ = this.mask.originZ + j * cell;
+        const lod = tuftLod(Math.hypot(baseX + cell * 0.5 - job.x, baseZ + cell * 0.5 - job.z));
+        job.acc += job.perCell * lod;
+        let count = Math.floor(job.acc);
+        job.acc -= count;
+        if (count <= 0) continue;
+        if (count > job.target - job.placed) count = job.target - job.placed;
         // lungo le strade l'erba resta corta e si allunga verso i campi: sul
         // ciglio (2,7 m) è al 55%, da 6 m in poi è piena
         const roadDist = this.mask.roadDistance(i, j);
@@ -503,7 +524,9 @@ export class GrassField {
           const py = this.mask.heightAt(px, pz);
           job.dummy.position.set(px, py - 0.02, pz);
           job.dummy.rotation.set(0, job.rng() * Math.PI, 0);
-          const scale = (0.6 + job.rng() * 0.45) * verge * coverScale;
+          // i ciuffi lontani sono più radi ma leggermente più grandi, così
+          // il passaggio dal tappeto pieno al prato rado non si legge
+          const scale = (0.6 + job.rng() * 0.45) * verge * coverScale * (1 + (1 - lod) * 0.4);
           job.dummy.scale.set(scale, scale * (0.8 + job.rng() * 0.6), scale);
           job.dummy.updateMatrix();
           job.mesh.setMatrixAt(job.placed, job.dummy.matrix);
@@ -537,6 +560,9 @@ export class GrassField {
         if (cover === COVER_CROP && job.rng() < 0.95) continue;
         const px = this.mask.originX + (i + job.rng()) * cell;
         const pz = this.mask.originZ + (j + job.rng()) * cell;
+        // i fiori restano un fatto di primo piano: oltre 50 m sarebbero
+        // puntini bianchi sparsi senza senso
+        if (Math.hypot(px - job.x, pz - job.z) > 50) continue;
         if (job.heights.slopeAt(px, pz) > 26) continue;
         const py = this.mask.heightAt(px, pz);
         job.dummy.position.set(px, py - 0.02, pz);

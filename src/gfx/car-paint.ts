@@ -65,8 +65,8 @@ export function choosePaintMaterials(candidates: readonly PaintCandidate[]): num
 }
 
 const STORAGE_KEY = 'molise.paint.saturation';
-/** 0,82 toglie il "rosso fiammifero" senza spegnere il colore. */
-const DEFAULT_SATURATION = 0.82;
+/** 0,7 toglie il "rosso fiammifero" senza spegnere il colore. */
+const DEFAULT_SATURATION = 0.7;
 
 function readStored(): number | null {
   try {
@@ -190,15 +190,21 @@ export function paintMaterialFrom(source: THREE.MeshStandardMaterial): THREE.Mes
     copyStandard.call(paint, source);
   }
   paint.name = source.name;
+  // La carrozzeria di un GLB da showroom è spesso metalness 0,9 con roughness
+  // 0,1: in gioco diventa uno specchio che rimanda il cielo come una macchia
+  // bianca. La vernice stradale è dielettrica, il riflesso lo dà il clearcoat.
   if (!source.roughnessMap) {
-    paint.roughness = 0.32;
-    paint.metalness = clamp(source.metalness, 0.25, 0.7);
+    paint.roughness = 0.45;
+    paint.metalness = clamp(source.metalness, 0.04, 0.28);
   } else {
-    paint.roughness = clamp(source.roughness, 0.15, 0.6);
-    paint.metalness = clamp(source.metalness, 0.1, 0.9);
+    paint.roughness = clamp(source.roughness, 0.3, 0.72);
+    paint.metalness = clamp(source.metalness, 0.04, 0.35);
   }
   paint.clearcoat = 1;
-  paint.clearcoatRoughness = 0.06;
+  paint.clearcoatRoughness = 0.16;
+  // il boost dell'ambiente arriva da `Vehicle.setEnvironment`: qui si parte
+  // da un valore basso, così nemmeno un GLB con envMapIntensity 3 acceca
+  paint.envMapIntensity = Math.min(paint.envMapIntensity ?? 1, 1);
   applyPaintFinish(paint);
   paint.needsUpdate = true;
   return paint;

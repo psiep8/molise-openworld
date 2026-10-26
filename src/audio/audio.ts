@@ -58,7 +58,15 @@ export class GameAudio {
   private master: GainNode | null = null;
   private noise: AudioBuffer | null = null;
   private engine:
-    | { osc1: OscillatorNode; osc2: OscillatorNode; gain: GainNode; filter: BiquadFilterNode }
+    | {
+        osc1: OscillatorNode;
+        osc2: OscillatorNode;
+        osc3: OscillatorNode;
+        gain: GainNode;
+        filter: BiquadFilterNode;
+        intakeFilter: BiquadFilterNode;
+        intakeGain: GainNode;
+      }
     | null = null;
   private roadGain: GainNode | null = null;
   private windGain: GainNode | null = null;
@@ -151,26 +159,95 @@ export class GameAudio {
     road.start();
     this.roadGain = roadGain;
 
-    // motore: due denti di sega leggermente scordati
+    // ---- motore -------------------------------------------------------
+    // Non due denti di sega scordati: uno scoppio è un impulso, quindi si
+    // costruisce un'onda periodica con tutte le armoniche in fase (somma di
+    // coseni 1/n^0,62) e la si fa suonare alla frequenza di accensione vera.
+    // Il mezzo ordine sotto dà il borbottio dei V8, il quarto il corpo grave;
+    // un waveshaper satura il segnale come il collettore di scarico, e un
+    // rumore filtrato in banda aggiunge l'aspirazione che cresce col carico.
+    const harmonics = 28;
+    const real = new Float32Array(harmonics + 1);
+    for (let n = 1; n <= harmonics; n++) {
+      real[n] = Math.cos(n * 0.23) / Math.pow(n, 0.62);
+    }
+    const wave = ctx.createPeriodicWave(real, new Float32Array(harmonics + 1), {
+      disableNormalization: false,
+    });
+
     const osc1 = ctx.createOscillator();
-    osc1.type = 'sawtooth';
-    osc1.frequency.value = 42;
+    osc1.setPeriodicWave(wave);
+    osc1.frequency.value = 30;
     const osc2 = ctx.createOscillator();
-    osc2.type = 'sawtooth';
-    osc2.frequency.value = 63;
-    osc2.detune.value = 9;
+    osc2.setPeriodicWave(wave);
+    osc2.frequency.value = 15;
+    osc2.detune.value = 7;
+    const osc3 = ctx.createOscillator();
+    osc3.type = 'sine';
+    osc3.frequency.value = 7.5;
+
+    const preGain = ctx.createGain();
+    preGain.gain.value = 0.55;
+    const subGain = ctx.createGain();
+    subGain.gain.value = 0.42;
+    const sub2Gain = ctx.createGain();
+    sub2Gain.gain.value = 0.22;
+
+    // saturazione morbida: dà la ruvidità dello scarico, non un fuzz
+    const shaper = ctx.createWaveShaper();
+    const curve = new Float32Array(2048);
+    for (let i = 0; i < curve.length; i++) {
+      const x = (i / (curve.length - 1)) * 2 - 1;
+      curve[i] = Math.tanh(x * 2.4) / Math.tanh(2.4);
+    }
+    shaper.curve = curve;
+    shaper.oversample = '2x';
+
     const filter = ctx.createBiquadFilter();
     filter.type = 'lowpass';
     filter.frequency.value = 360;
-    filter.Q.value = 1.2;
+    filter.Q.value = 0.9;
+    // cassa di risonanza dello scarico: un picco basso che rende il motore
+    // "corposo" invece che sottile
+    const resonance = ctx.createBiquadFilter();
+    resonance.type = 'peaking';
+    resonance.frequency.value = 140;
+    resonance.Q.value = 1.4;
+    resonance.gain.value = 7;
+
     const gain = ctx.createGain();
     gain.gain.value = 0;
-    osc1.connect(filter);
-    osc2.connect(filter);
-    filter.connect(gain).connect(master);
+
+    osc1.connect(preGain);
+    osc2.connect(subGain).connect(preGain);
+    osc3.connect(sub2Gain).connect(preGain);
+    preGain.connect(shaper).connect(resonance).connect(filter).connect(gain).connect(master);
+
+    // aspirazione / ventola: rumore in banda centrato sugli armonici alti
+    const intake = this.loopNoise();
+    const intakeFilter = ctx.createBiquadFilter();
+    intakeFilter.type = 'bandpass';
+    intakeFilter.frequency.value = 900;
+    intakeFilter.Q.value = 0.8;
+    const intakeGain = ctx.createGain();
+    intakeGain.gain.value = 0;
+    intake.connect(intakeFilter).connect(intakeGain).connect(gain);
+    intake.start();
+
+    // minimo irregolare: un'oscillazione lenta sul volume, è quello che
+    // distingue un motore al minimo da un ronzio elettronico
+    const lope = ctx.createOscillator();
+    lope.type = 'sine';
+    lope.frequency.value = 0.55;
+    const lopeGain = ctx.createGain();
+    lopeGain.gain.value = 0.14;
+    lope.connect(lopeGain).connect(gain.gain);
+    lope.start();
+
     osc1.start();
     osc2.start();
-    this.engine = { osc1, osc2, gain, filter };
+    osc3.start();
+    this.engine = { osc1, osc2, osc3, gain, filter, intakeFilter, intakeGain };
   }
 
   private loopNoise(): AudioBufferSourceNode {
@@ -232,21 +309,32 @@ export class GameAudio {
     const driving = state.mode === 'drive';
 
     if (this.engine) {
-      const { osc1, osc2, gain, filter } = this.engine;
+      const { osc1, osc2, osc3, gain, filter, intakeFilter, intakeGain } = this.engine;
       const voice = this.voice;
       const rpm = driving
         ? Math.max(voice.idleRpm, Math.min(voice.redlineRpm * 1.02, state.rpm ?? voice.idleRpm))
         : voice.idleRpm;
       // frequenza di accensione reale: un V12 "batte" sei volte per giro
-      const firing = Math.max(24, (rpm / 60) * (voice.cylinders / 2));
+      const firing = Math.max(20, (rpm / 60) * (voice.cylinders / 2));
       const load = driving ? Math.min(1, (rpm - voice.idleRpm) / Math.max(1, voice.redlineRpm - voice.idleRpm)) : 0;
-      osc1.frequency.setTargetAtTime(firing, t, 0.12);
-      osc2.frequency.setTargetAtTime(firing * 1.5 + 1.5, t, 0.12);
-      filter.frequency.setTargetAtTime(220 + firing * 5 + voice.weight * 220 + load * 260, t, 0.16);
+      // gli scoppi sono alla frequenza di accensione, il mezzo ordine sotto
+      // dà la periodicità del ciclo a quattro tempi
+      osc1.frequency.setTargetAtTime(firing, t, 0.06);
+      osc2.frequency.setTargetAtTime(firing * 0.5, t, 0.08);
+      osc3.frequency.setTargetAtTime(firing * 0.25, t, 0.1);
+      // il filtro si apre col carico e con i giri: al minimo è cupo, in
+      // accelerazione diventa tagliente
+      filter.frequency.setTargetAtTime(
+        240 + firing * 3.6 + voice.weight * 210 + load * 420 + speed * 1.6,
+        t,
+        0.1,
+      );
+      intakeFilter.frequency.setTargetAtTime(420 + firing * 2.4, t, 0.12);
+      intakeGain.gain.setTargetAtTime(driving ? 0.004 + load * 0.016 : 0, t, 0.15);
       const engineGain = driving
-        ? 0.028 + voice.weight * 0.028 + Math.min(0.03, speed * 0.0015) + load * 0.012
+        ? 0.024 + voice.weight * 0.026 + Math.min(0.016, speed * 0.0009) + load * 0.02
         : 0;
-      gain.gain.setTargetAtTime(engineGain, t, 0.18);
+      gain.gain.setTargetAtTime(engineGain, t, 0.12);
     }
 
     this.roadGain?.gain.setTargetAtTime(driving ? Math.min(0.07, speed * 0.006) : 0, t, 0.2);

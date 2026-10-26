@@ -104,7 +104,7 @@ export const VIEW_RADIUS = 3100;
 export const DETAIL_RADIUS = 950;
 
 /** Densità e limiti della vegetazione. */
-export const TREES_MAX = 14000;
+export const TREES_MAX = 26000;
 
 /** Colori di riferimento (in stile "paesaggio molisano"). */
 export const COLORS = {

@@ -257,16 +257,20 @@ export class Vehicle {
     // lastra di vernice trasparente: riflette il cielo con un alone stretto).
     // L'intensità dell'ambiente la decide `setEnvironment`, con un boost alto:
     // senza riflessi ampi sembra plastica da giocattolo.
+    // La vernice opaca di un'auto stradale non è uno specchio: metalness
+    // 0,5 e ambiente ×2,4 facevano una lastra bianca di cielo sulla fiancata
+    // (il "riflesso luminoso" che si vedeva in giro). Il colore lo dà
+    // l'albedo, il riflesso lo dà il solo clearcoat, stretto e discreto.
     const paint = this.tune(
       this.material({
         color: loadPaintFor(spec.id, spec.paint),
-        roughness: 0.3,
-        metalness: 0.5,
+        roughness: 0.42,
+        metalness: 0.06,
         clearcoat: 1.0,
-        clearcoatRoughness: 0.06,
+        clearcoatRoughness: 0.16,
         envMapIntensity: 1.0,
       }),
-      2.4,
+      1.1,
     );
     this.paintMat = paint;
     // anche la vernice procedurale passa dal ritocco di saturazione: la palette
@@ -274,7 +278,7 @@ export class Vehicle {
     applyPaintFinish(paint);
     const trim = this.tune(this.material({ color: spec.accent, roughness: 0.72, metalness: 0.25, clearcoat: 0.6, clearcoatRoughness: 0.25 }), 1.4);
     const plastic = this.material({ color: 0x1a1c1e, roughness: 0.92, metalness: 0.05 });
-    const chrome = this.tune(this.material({ color: 0xd8dcdf, roughness: 0.14, metalness: 1, clearcoat: 1.0, clearcoatRoughness: 0.05 }), 3.2);
+    const chrome = this.tune(this.material({ color: 0xd8dcdf, roughness: 0.22, metalness: 1, clearcoat: 1.0, clearcoatRoughness: 0.1 }), 1.9);
     // Vetro: trasparenza classica (la `transmission` fisica costa un pass extra
     // di scena e senza environment map risulta sporca).
     const glass = this.tune(
@@ -622,7 +626,7 @@ export class Vehicle {
         // un atlante unico (scocca + cerchi) si può solo desaturare: tingere il
         // fattore di colore colorerebbe anche gomme e vetri
         this.paintTargets.push({ material: paint, tintable: isPaintMaterial(original.name) });
-        this.envBoost.set(paint, 2.2);
+        this.envBoost.set(paint, 1.1);
         for (const mesh of usage.get(original)?.meshes ?? []) {
           mesh.material = Array.isArray(mesh.material)
             ? mesh.material.map((entry) => (entry === original ? paint : entry))
@@ -637,7 +641,7 @@ export class Vehicle {
       if (!(standard as unknown as { isMeshStandardMaterial?: boolean }).isMeshStandardMaterial) continue;
       // i materiali del GLB rispondono all'ambiente come quelli procedurali:
       // carrozzeria e vetri hanno bisogno di più riflesso del resto
-      const boost = /paint|glass|chrome|lens|emit|metal|steel|alloy|rub/i.test(record.name) ? 1.9 : 1.25;
+      const boost = /paint|glass|chrome|lens|emit|metal|steel|alloy|rub/i.test(record.name) ? 1.2 : 1.1;
       this.envBoost.set(standard, boost);
       // fari e fanalini: di notte l'emissivo del materiale si accende, così il
       // fanale si vede senza aggiungere altre luci alla scena

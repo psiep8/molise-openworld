@@ -112,8 +112,8 @@ describe('saturazione della vernice', () => {
     });
   });
 
-  it('parte dall’82%: il rosso da auto, non da fiammifero', () => {
-    expect(loadPaintSaturation()).toBeCloseTo(0.82, 5);
+  it('parte dal 70%: il rosso da auto, non da fiammifero', () => {
+    expect(loadPaintSaturation()).toBeCloseTo(0.7, 5);
   });
 
   it('accetta il valore scelto dalle impostazioni e lo salva', () => {
@@ -141,9 +141,13 @@ describe('finitura della vernice', () => {
     });
     const paint = paintMaterialFrom(source);
     expect(paint.clearcoat).toBe(1);
-    expect(paint.clearcoatRoughness).toBeLessThan(0.1);
-    expect(paint.roughness).toBeCloseTo(0.32, 5);
-    expect(paint.metalness).toBeGreaterThanOrEqual(0.25);
+    // il clearcoat resta lucido ma non è uno specchio: sotto 0,1 il riflesso
+    // del cielo diventa una lastra bianca sulla fiancata
+    expect(paint.clearcoatRoughness).toBeGreaterThan(0.1);
+    expect(paint.clearcoatRoughness).toBeLessThan(0.25);
+    expect(paint.roughness).toBeCloseTo(0.45, 5);
+    // vernice dielettrica: il riflesso lo dà il clearcoat, non il metallo
+    expect(paint.metalness).toBeLessThanOrEqual(0.35);
     expect(paint.color.getHex()).toBe(0xff0000);
     expect(paint).not.toBe(source);
   });

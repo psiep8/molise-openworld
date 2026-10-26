@@ -775,7 +775,9 @@ export function buildRoads(
   // con le texture del kit il colore per vertice deve restare bianco: la tinta
   // arriva dalla foto, non da un secondo colore moltiplicato sopra
   const pavementColor = new THREE.Color(kitWalkMat ? 0xffffff : 0x9c9a92);
-  const curbColor = new THREE.Color(kitKerbMat ? 0xffffff : 0xd9d6cc);
+  // cordolo in cemento consumato, non in plastica bianca: a 0xd9d6cc il
+  // marciapiede diventava una striscia luminosa che tagliava il paese
+  const curbColor = new THREE.Color(kitKerbMat ? 0xffffff : 0xb9b3a6);
   const markingColor = new THREE.Color(0xf4f2e8);
   /** punti in cui piantare un lampione: bordo strada dentro/attorno al paese */
   const lamps: { x: number; z: number; yaw: number }[] = [];
@@ -1107,6 +1109,7 @@ export function buildRoads(
   const fallbackPavement = (): THREE.MeshStandardMaterial =>
     new THREE.MeshStandardMaterial({
       vertexColors: true,
+      color: 0xb6b1a6,
       ...concretePbr,
       normalScale: new THREE.Vector2(0.7, 0.7),
       roughness: 1,

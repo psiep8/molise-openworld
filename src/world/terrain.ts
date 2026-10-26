@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CHUNK_SIZE, TERRAIN_SEGMENTS, VIEW_RADIUS, WORLD } from '../config';
 import type { Heightfield } from '../geo/elevation';
-import { pbrColor } from '../gfx/textures';
+import { pbr, pbrColor } from '../gfx/textures';
 import { chunkCenter, chunkIndex, chunkKey, chunkOrigin } from './chunks';
 import { zoomForDistance, type ImageryStreamer } from './imagery';
 import type { Landcover, LandcoverMode } from './landcover';
@@ -218,6 +218,11 @@ interface LandcoverUniformState {
   uLcFields: { value: THREE.Texture };
   uLcDetail: { value: THREE.Texture };
   uLcNormal: { value: THREE.Texture };
+  /** prato, terra lavorata e roccia: la superficie vera sotto i 90 m */
+  uGroundGrass: { value: THREE.Texture };
+  uGroundSoil: { value: THREE.Texture };
+  uGroundRock: { value: THREE.Texture };
+  uGroundGrassN: { value: THREE.Texture };
   uLocalReady: { value: number };
   uFieldsReady: { value: number };
   uMicroReady: { value: number };
@@ -245,9 +250,17 @@ function applyLandcoverDetail(
   landcover: Landcover,
   cx: number,
   cz: number,
+  renderer: THREE.WebGLRenderer,
 ): LandcoverUniformState {
   const base = landcover.baseTexture;
   if (!base) throw new Error('landcover senza overlay globale');
+  // Superficie vera per il primo piano. La foto aerea resta la base lontana,
+  // ma a un metro da terra 0,45 m/px è una macchia: qui il suolo ha grana,
+  // colore e rilievo di erba/terra/roccia veri, con due scale sovrapposte che
+  // nascondono la ripetizione del tiling.
+  const grassSet = pbr(renderer, 'grass');
+  const soilSet = pbr(renderer, 'ploughed');
+  const rockSet = pbr(renderer, 'rock', { repeat: 1 });
   const uniforms: LandcoverUniformState = {
     uLcBase: { value: base },
     // segnaposto finché il chunk non ha la sua overlay a 2 m/px: uLocalReady=0
@@ -255,6 +268,10 @@ function applyLandcoverDetail(
     uLcFields: { value: landcover.fieldsTexture ?? base },
     uLcDetail: { value: landcover.detailTexture ?? base },
     uLcNormal: { value: landcover.microNormal },
+    uGroundGrass: { value: grassSet.map ?? base },
+    uGroundSoil: { value: soilSet.map ?? base },
+    uGroundRock: { value: rockSet.map ?? base },
+    uGroundGrassN: { value: grassSet.normalMap ?? landcover.microNormal },
     uLocalReady: { value: 0 },
     uFieldsReady: { value: landcover.fieldsTexture ? 1 : 0 },
     uMicroReady: { value: landcover.detailTexture ? 1 : 0 },
@@ -291,6 +308,10 @@ uniform sampler2D uLcLocal;
 uniform sampler2D uLcFields;
 uniform sampler2D uLcDetail;
 uniform sampler2D uLcNormal;
+uniform sampler2D uGroundGrass;
+uniform sampler2D uGroundSoil;
+uniform sampler2D uGroundRock;
+uniform sampler2D uGroundGrassN;
 uniform float uLocalReady;
 uniform float uFieldsReady;
 uniform float uMicroReady;
@@ -328,17 +349,43 @@ float lcNoise( vec2 p ) {
           : texture2D( uLcBase, lcBaseUV );
         // i bordi della mappa possono essere a zero: in quel caso non toccare
         float lcLum = max( lc.r, max( lc.g, lc.b ) );
-        if ( lcLum > 0.004 ) {
-          diffuseColor.rgb *= max( vec3( 0.0 ), lc.rgb * 2.0 * uSeasonGlobal );
-          // dettaglio di colore a 0,8 m: un solo campione dei quattro canali
-          // (coltivo/prato/bosco/roccia) scelto dal peso del coltivo in A.
-          // Solo da vicino: a 150 m è mipmap e non aggiunge nulla.
-          if ( uMicroReady > 0.5 && lcDist < 45.0 ) {
-            vec4 dm = texture2D( uLcDetail, vDetailWorld.xz / 0.8 );
-            float micro = mix( dm.g, dm.r, lc.a );
-            float microFade = 1.0 - smoothstep( 18.0, 45.0, lcDist );
-            diffuseColor.rgb *= 1.0 + ( micro - 0.5 ) * 0.55 * microFade;
-          }
+        // tinta relativa della classe (bosco scuro, coltivo giallo, macchia
+        // secca) moltiplicata per la stagione
+        vec3 lcTint = lcLum > 0.004
+          ? clamp( lc.rgb * 2.0, vec3( 0.0 ), vec3( 1.7 ) ) * uSeasonGlobal
+          : vec3( 1.0 );
+
+        // ---- superficie vera in primo piano -------------------------------
+        // Entro ~90 m il suolo non è più la foto aerea ma erba, terra e
+        // roccia fotografate, campionate in coordinate mondo. Due scale per
+        // strato: quella stretta dà la grana, quella larga le macchie, e
+        // insieme nascondono la periodicità del tiling.
+        float lcNear = 1.0 - smoothstep( 15.0, 96.0, lcDist );
+        if ( lcNear > 0.001 ) {
+          float lcSlope = smoothstep( 0.5, 0.82, 1.0 - clamp( normalize( vDetailNormal ).y, 0.0, 1.0 ) );
+          float lcCrop = clamp( lc.a * 1.35, 0.0, 1.0 );
+          vec2 gp = vDetailWorld.xz;
+          vec3 gNear = mix(
+            texture2D( uGroundGrass, gp * 0.19 ).rgb,
+            texture2D( uGroundGrass, gp * 0.71 ).rgb,
+            0.38
+          );
+          vec3 sNear = mix(
+            texture2D( uGroundSoil, gp * 0.27 ).rgb,
+            texture2D( uGroundSoil, gp * 1.05 ).rgb,
+            0.35
+          );
+          vec3 rNear = texture2D( uGroundRock, gp * 0.15 ).rgb;
+          // macchie larghe: un prato non è mai uniforme
+          float macro = lcNoise( gp * 0.017 ) * 0.62 + lcNoise( gp * 0.061 ) * 0.38;
+          vec3 surf = mix( gNear, sNear, lcCrop );
+          surf = mix( surf, rNear, lcSlope );
+          surf *= 0.84 + macro * 0.3;
+          surf *= mix( vec3( 1.0 ), lcTint, 0.9 );
+          // dalla foto (colore di insieme) alla superficie vera (dettaglio)
+          diffuseColor.rgb = mix( diffuseColor.rgb * lcTint, surf, lcNear );
+        } else {
+          diffuseColor.rgb *= lcTint;
         }
 
         // solchi: direzione e forza della parcella, solo da vicino e sul coltivo
@@ -368,6 +415,12 @@ float lcNoise( vec2 p ) {
       .replace(
         '#include <normal_fragment_maps>',
         `#include <normal_fragment_maps>
+        if ( lcNear > 0.001 ) {
+          // rilievo del manto d'erba vero: peli, zolle e sassi che la foto
+          // aerea non può avere
+          vec3 gn = texture2D( uGroundGrassN, vDetailWorld.xz * 0.6 ).xyz * 2.0 - 1.0;
+          normal = normalize( normal + vec3( gn.xy, 0.0 ) * 1.15 * lcNear );
+        }
         if ( lcDist < 38.0 ) {
           vec3 mn = texture2D( uLcNormal, vDetailWorld.xz / 0.8 ).xyz * 2.0 - 1.0;
           float mf = 1.0 - smoothstep( 12.0, 38.0, lcDist );
@@ -375,7 +428,7 @@ float lcNoise( vec2 p ) {
         }`,
       );
   };
-  material.customProgramCacheKey = () => 'terrain-landcover-v2';
+  material.customProgramCacheKey = () => 'terrain-landcover-v3';
   return uniforms;
 }
 
@@ -630,7 +683,7 @@ export class Terrain {
     const landcoverMode = this.landcover?.effectiveMode ?? 'off';
     let landcoverUniforms: LandcoverUniformState | null = null;
     if (landcoverMode !== 'off' && this.landcover) {
-      landcoverUniforms = applyLandcoverDetail(material, this.landcover, cx, cz);
+      landcoverUniforms = applyLandcoverDetail(material, this.landcover, cx, cz, this.renderer);
     } else {
       applyTerrainDetail(material, this.renderer);
     }

@@ -46,13 +46,15 @@ export class StreetLights {
     }
 
     const metal = pbr(renderer, 'concrete', { color: false, normal: true, rough: true });
+    // palo zincato/cemento chiaro: il grigio quasi nero con metalness 0,55
+    // rifletteva il cielo come un tubo di plastica nera
     const poleMat = new THREE.MeshStandardMaterial({
-      color: 0x2f3437,
-      roughness: 0.62,
-      metalness: 0.55,
+      color: 0x848a8e,
+      roughness: 0.7,
+      metalness: 0.3,
       ...metal,
       normalScale: new THREE.Vector2(0.25, 0.25),
-      envMapIntensity: 0.8,
+      envMapIntensity: 0.55,
     });
     this.headMaterial = new THREE.MeshStandardMaterial({
       color: 0x22262a,

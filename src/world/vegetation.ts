@@ -105,7 +105,7 @@ export function buildVegetation(
     const b = area.bounds;
     // boschi più fitti: con 25 m il crinale restava a chiazze e da lontano si
     // vedeva il terreno nudo dove invece c'è il querceto
-    const step = area.kind === 'orchard' ? 16 : area.kind === 'park' ? 20 : 17;
+    const step = area.kind === 'orchard' ? 13 : area.kind === 'park' ? 16 : 12;
     for (let z = b.minZ; z <= b.maxZ; z += step) {
       for (let x = b.minX; x <= b.maxX; x += step) {
         if (placements.length >= treeLimit) break;
@@ -130,9 +130,9 @@ export function buildVegetation(
       const b = road.points[i];
       const seg = Math.hypot(b.x - a.x, b.z - a.z);
       since += seg;
-      if (since < 34) continue;
+      if (since < 26) continue;
       since = 0;
-      if (rng() > 0.62) continue;
+      if (rng() > 0.52) continue;
       let tx = b.x - a.x;
       let tz = b.z - a.z;
       const len = Math.hypot(tx, tz) || 1;
@@ -149,11 +149,11 @@ export function buildVegetation(
 
   // Alberi sparsi nei campi e sui crinali: riempiono le distanze e rendono il
   // paesaggio tridimensionale anche a 1-2 km, dove il DEM da solo è liscio.
-  const cell = 52;
+  const cell = 40;
   for (let z = -WORLD.halfHeight; z < WORLD.halfHeight; z += cell) {
     for (let x = -WORLD.halfWidth; x < WORLD.halfWidth; x += cell) {
       const roll = rng();
-      if (roll > 0.34) continue;
+      if (roll > 0.42) continue;
       const px = x + (rng() - 0.5) * cell;
       const pz = z + (rng() - 0.5) * cell;
       // sulle pendenze forti gli alberi si diradano, sui crinali restano
