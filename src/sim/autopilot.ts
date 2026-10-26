@@ -67,12 +67,21 @@ export function followTarget(
  * buona approssimazione del raggio: a 12 m di anticipo, 0,4 rad sono già
  * un'imboccatura da 30 m).
  */
-export function autopilotInput(state: CarState, target: RoadTarget): CarInput {
+export function autopilotInput(state: CarState, target: RoadTarget, far?: { x: number; z: number }): CarInput {
   const desired = Math.atan2(-(target.x - state.x), -(target.z - state.z));
   const error = wrapAngle(desired - state.yaw);
   const steer = Math.max(-1, Math.min(1, error * 2.2));
-  // in curva si alza il piede: il fattore scende fino a ~45% della crociera
-  const slow = Math.max(0.45, 1 - Math.abs(error) * 0.9);
+
+  // curva in arrivo: il punto lontano vede la piega prima che sia addosso.
+  // Senza questo si frena con l'auto già dentro la curva, che è il modo
+  // classico di arrivarci lunghi.
+  let curve = Math.abs(error);
+  if (far) {
+    const farDesired = Math.atan2(-(far.x - state.x), -(far.z - state.z));
+    curve = Math.max(curve, Math.abs(wrapAngle(farDesired - state.yaw)) * 0.85);
+  }
+  // il fattore scende fino a ~40% della crociera su una curva stretta
+  const slow = Math.max(0.4, 1 - curve * 1.1);
   const cruise = target.cruise * slow;
 
   let throttle = 0;

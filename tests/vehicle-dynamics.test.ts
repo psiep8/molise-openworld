@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createCarState, curbImpact, stepCar, type CarEnv, type CarInput, type CarState } from '../src/sim/car';
+import { bodyLean, createCarState, curbImpact, stepCar, type CarEnv, type CarInput, type CarState } from '../src/sim/car';
 import { VEHICLES, tuningFor, vehicleLabel, type VehicleSpec } from '../src/sim/vehicle-catalog';
 
 const road: CarEnv = { onRoad: true, groundHeight: () => 100 };
@@ -34,6 +34,28 @@ describe('scalino del cordolo', () => {
   it('l’asfalto non dà colpi, nemmeno sulle giunzioni', () => {
     expect(curbImpact(0.012, 0.02).bump).toBe(0);
     expect(curbImpact(0.02, 0.02)).toEqual({ speedFactor: 1, bump: 0 });
+  });
+});
+
+
+describe('inclinazione della carrozzeria', () => {
+  it('si corica verso l’esterno in curva', () => {
+    // curva a sinistra (imbardata positiva) a 14 m/s: il corpo va a destra
+    const left = bodyLean(14, 0.25, 0);
+    expect(left.roll).toBeLessThan(0);
+    const right = bodyLean(14, -0.25, 0);
+    expect(right.roll).toBeGreaterThan(0);
+  });
+
+  it('resta piatta da ferma e non supera i 6°', () => {
+    expect(bodyLean(0, 1.2, 0).roll).toBeCloseTo(0, 9);
+    expect(Math.abs(bodyLean(30, 1.2, 0).roll)).toBeLessThanOrEqual(0.1);
+  });
+
+  it('affonda il muso in frenata e lo alza in accelerazione', () => {
+    expect(bodyLean(20, 0, -8).pitch).toBeLessThan(0);
+    expect(bodyLean(10, 0, 3).pitch).toBeGreaterThan(0);
+    expect(Math.abs(bodyLean(10, 0, 40).pitch)).toBeLessThanOrEqual(0.035);
   });
 });
 

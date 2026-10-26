@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { createCarState, curbImpact, speedKmh, stepCar, type CarInput, type CarState } from '../sim/car';
+import { bodyLean, createCarState, curbImpact, speedKmh, stepCar, type CarInput, type CarState } from '../sim/car';
 import { resolveBody } from '../sim/collision';
 import {
   VEHICLES,
@@ -79,6 +79,9 @@ export class Vehicle {
   private lastTargetLift = Number.NaN;
   /** Colpo del cordolo ancora da smaltire (m). */
   private bump = 0;
+  /** Rollio e beccheggio della carrozzeria (rad). */
+  private leanRoll = 0;
+  private leanPitch = 0;
   /** Evita di pagare il colpo a ogni frame mentre si resta sul bordo. */
   private curbCooldown = 0;
 
@@ -851,6 +854,8 @@ export class Vehicle {
     this.group.rotation.set(0, yaw, 0);
     this.tiltPitch = 0;
     this.tiltRoll = 0;
+    this.leanPitch = 0;
+    this.leanRoll = 0;
   }
 
   update(
@@ -863,6 +868,7 @@ export class Vehicle {
   ): void {
     const spec = this.spec;
     const halfTrack = spec.track / 2;
+    const before = this.state;
 
     const onRoad = roads.isOnRoad(this.state.x, this.state.z, 0.4);
     // il piano di appoggio include asfalto e marciapiede: la fisica della
@@ -932,12 +938,22 @@ export class Vehicle {
     this.tiltPitch += (targetPitch - this.tiltPitch) * k;
     this.tiltRoll += (targetRoll - this.tiltRoll) * k;
 
+    // carrozzeria che si corica in curva e si siede in frenata: usa le derivate
+    // di imbardata e velocità, non l'accelerazione laterale dell'auto (che la
+    // fisica non espone). Più lento del terreno, come una sospensione.
+    const yawRate = dt > 0 ? (next.yaw - before.yaw) / dt : 0;
+    const accel = dt > 0 ? (next.speed - before.speed) / dt : 0;
+    const lean = bodyLean(next.speed, yawRate, accel);
+    const kLean = 1 - Math.exp(-7 * dt);
+    this.leanRoll += (lean.roll - this.leanRoll) * kLean;
+    this.leanPitch += (lean.pitch - this.leanPitch) * kLean;
+
     // l'asfalto è drappeggiato sopra il DEM e il marciapiede sta 18 cm più su:
     // la carrozzeria sale con la stessa quota del piano calpestabile
     this.surfaceLift += (targetLift - this.surfaceLift) * k;
 
     this.group.position.set(next.x, groundY + this.surfaceLift + this.bump, next.z);
-    this.group.rotation.set(this.tiltPitch, next.yaw, this.tiltRoll);
+    this.group.rotation.set(this.tiltPitch + this.leanPitch, next.yaw, this.tiltRoll + this.leanRoll);
 
     const steerAngle = next.steer * spec.maxSteer * 0.95;
     for (const pivot of this.frontPivots) pivot.rotation.y = steerAngle;

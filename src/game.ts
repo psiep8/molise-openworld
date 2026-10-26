@@ -3185,9 +3185,16 @@ export class Game {
     }
     const lookahead = 12 + Math.abs(car.speed) * 0.55;
     const target = followTarget(segment, car.x, car.z, car.yaw, lookahead);
+    // secondo punto più lontano: serve ad alzare il piede PRIMA della curva
+    const far = followTarget(segment, car.x, car.z, car.yaw, lookahead + 16);
     // strade larghe = provinciali: si può andare più sciolti
-    const cruise = segment.w * 2 >= 5.8 ? 18 : 13.5;
-    return autopilotInput(car, { x: target.x, z: target.z, cruise });
+    let cruise = segment.w * 2 >= 5.8 ? 18 : 13.5;
+    // incrocio davanti (un'ALTRA strada entro 14 m): si arriva cauti, senza
+    // fermarsi — l'autopilota non conosce il traffico ma sa che lì si guarda
+    const ax = car.x - Math.sin(car.yaw) * 14;
+    const az = car.z - Math.cos(car.yaw) * 14;
+    if (this.roadIndex.isOnRoad(ax, az, 2.2, segment.road)) cruise *= 0.6;
+    return autopilotInput(car, { x: target.x, z: target.z, cruise }, far);
   }
 
   private key(code: string): boolean {

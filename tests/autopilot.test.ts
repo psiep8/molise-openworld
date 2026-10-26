@@ -62,6 +62,19 @@ describe('autopilota', () => {
     expect(fasterCurve.throttle).toBe(0);
   });
 
+
+  it('rallenta PRIMA della curva guardando il punto lontano', () => {
+    // il punto vicino è quasi dritto, quello lontano piega: senza anticipo
+    // l'autopilota terrebbe il gas fino a essere dentro la curva
+    const state10 = state({ speed: 12 });
+    const near = { x: 1.5, z: -12, cruise: 18 };
+    const far = { x: -10, z: -26 };
+    const without = autopilotInput(state10, near);
+    const withFar = autopilotInput(state10, near, far);
+    expect(without.throttle).toBe(1);
+    expect(withFar.throttle).toBe(0);
+  });
+
   it('frena se è troppo veloce e si ferma se sta arretrando', () => {
     const fast = autopilotInput(state({ speed: 22 }), { x: 0, z: -12, cruise: 15 });
     expect(fast.brake).toBeGreaterThan(0);

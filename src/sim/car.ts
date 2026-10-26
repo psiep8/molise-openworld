@@ -314,6 +314,27 @@ export function speedKmh(speed: number): number {
  * velocità e dà un colpo alla carrozzeria, scenderne uno più piccolo. La
  * funzione è pura per poterla testare senza scena 3D.
  */
+/**
+ * Inclinazione della carrozzeria: rollio verso l'esterno della curva e beccheggio
+ * di frenata/accelerazione.
+ *
+ * Il rollio nasce dall'accelerazione laterale (velocità × velocità di imbardata):
+ * a 50 km/h in una curva da 30 m sono circa 6,4 m/s², che su una berlina sono
+ * 3–4° di inclinazione. Non è la sospensione vera, ma è quello che l'occhio usa
+ * per capire che l'auto sta curvando.
+ */
+export function bodyLean(
+  speed: number,
+  yawRate: number,
+  accel: number,
+): { roll: number; pitch: number } {
+  const lateral = speed * yawRate;
+  const roll = clamp(-lateral * 0.011, -0.1, 0.1);
+  // frenata = muso giù, accelerazione = muso su (piccolo: non è un dragster)
+  const pitch = clamp(accel * 0.0045, -0.035, 0.035);
+  return { roll, pitch };
+}
+
 export function curbImpact(
   previousLift: number,
   lift: number,

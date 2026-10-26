@@ -1725,3 +1725,23 @@ avvicinato a quel modello.
 4. **Meteo guidato**: pioggia che bagna l'asfalto (uniforme `uRoadWet` già
    pronta), foglie e fiori piegati dal vento più forte.
 5. **Fari e frecce** dei GLB, luci di stop più evidenti, abbaglianti.
+
+### Rifinitura: anticipo, incroci e rollio
+
+Tre aggiunte piccole ma che si sentono, dopo la prima prova del nuovo assetto:
+
+- **Autopilota che anticipa**: oltre al punto a 12 m ne guarda un secondo 16 m
+  più avanti e usa il più chiuso dei due angoli. Prima rallentava con l'auto già
+  dentro la curva; ora alza il piede prima. Vicino a un incrocio (un'altra strada
+  entro 14 m, esclusa la propria) la crociera scende al 60%: non si ferma, ma
+  arriva cauta.
+- **Carrozzeria che si corica**: `bodyLean(speed, yawRate, accel)` ricava il
+  rollio dall'accelerazione laterale (fino a ~6°) e il beccheggio dalle derivate
+  di velocità (±2°). È applicato sopra l'assetto del terreno, con una costante
+  di tempo più lenta: si vede in curva e in frenata senza sembrare una barca.
+- Test nuovi: inclinazione (segno, limiti, caso da ferma) e anticipo della curva
+  nell'autopilota. Totale **240** in 27 file.
+
+Resta da guardare a schermo: il rollio in una curva stretta a 50 km/h, l'anticipo
+dell'autopilota su una provinciale con tornanti e la crociera ridotta entrando a
+Palata.
