@@ -156,6 +156,17 @@ function tameMaterials(root: THREE.Object3D, anisotropy: number): void {
       // dichiarano né alpha né trasmissione: glTF lo lascia bianco e opaco e
       // in gioco sembra un telo steso sul motore. Il nome è l'unica
       // informazione disponibile, quindi si applica un vetro scuro leggero.
+      // Gomme quasi nere (0x0a0a0a) su asfalto scuro: la ruota sparisce nel
+      // manto e l'auto sembra galleggiare. Un grigio-caldo opaco con un filo
+      // di ambiente riflesso stacca il cerchio dalla strada.
+      if (/tyre|tire|rubber|pneumatic|gomma/i.test(standard.name)) {
+        if (!standard.map && standard.color.r + standard.color.g + standard.color.b < 0.25) {
+          standard.color.setHex(0x1f2225);
+        }
+        standard.roughness = Math.max(standard.roughness, 0.82);
+        standard.envMapIntensity = Math.max(standard.envMapIntensity ?? 1, 0.5);
+        standard.needsUpdate = true;
+      }
       const glass = /glass|window|windshield|windscreen|vetro|cristallo|lunotto/i.test(standard.name);
       const physical = standard as THREE.MeshPhysicalMaterial;
       if (glass && !standard.transparent && standard.opacity >= 0.99 && !physical.transmission) {

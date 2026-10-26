@@ -383,7 +383,10 @@ function pushStopLine(
  * Le strisce e lo stop si mettono solo qui; sui tratti dritti non ci sono.
  */
 export function isRealJunction(roads: RoadIndex | undefined, at: Pt, own: number): boolean {
-  return roads ? roads.isOnRoad(at.x, at.z, 2, own) : false;
+  // tolleranza 2 m voleva dire "incrocio" anche per una via che passa a due
+  // metri di distanza: da lì nascevano stop e zebre in mezzo al nulla. Un
+  // incrocio vero ha il punto dentro l'altra carreggiata.
+  return roads ? roads.isOnRoad(at.x, at.z, 0.5, own) : false;
 }
 
 /**
@@ -961,7 +964,10 @@ export function buildRoads(
             pushTriangle(markings, tri, lift + 0.011, markingColor, heights);
           }
         } else {
-          const at = { x: b.x - tx * 4.3, z: b.z - tz * 4.3 };
+          // arretrata oltre la carreggiata che attraversa: a 4,3 m fissi su un
+          // incrocio largo lo stop cadeva dentro l'altra strada
+          const back = cross ? cross.half + 1.5 : 4.3;
+          const at = { x: b.x - tx * back, z: b.z - tz * back };
           if (!onJunction(at.x, at.z)) {
             pushStopLine(markings, at, tx, tz, road.width, lift + 0.011, markingColor, heights);
             // freccia dritta solo dove c'è spazio per leggerla
@@ -993,6 +999,17 @@ export function buildRoads(
               // l'arco deve restare nell'angolo, non attraversare la carreggiata
               const mid = arc[Math.floor(arc.length / 2)]!;
               if (Math.hypot(mid.x - b.x, mid.z - b.z) > ownCurb + crossCurb + 1.6) continue;
+              // e nessun punto può finire dentro l'asfalto dell'altra via: era
+              // questa la "striscia di marciapiede" chiara di traverso
+              // all'incrocio (un quarto d'arco costruito dal lato sbagliato)
+              let onAsphalt = false;
+              for (const p of arc) {
+                if (roadIndex?.isOnRoad(p.x, p.z, -0.15)) {
+                  onAsphalt = true;
+                  break;
+                }
+              }
+              if (onAsphalt) continue;
               pushRibbon(kerb, arc, 0.22, curbTop, curbColor, heights, 1);
             }
           }
@@ -1027,7 +1044,8 @@ export function buildRoads(
         // l'attraversamento va PRIMA dell'incrocio, non sopra: disegnato sul
         // punto di incrocio finiva in mezzo alla carreggiata dell'altra via,
         // che è un'altra causa delle righe chiare viste agli incroci
-        const setBack = 5.2;
+        const crossing = crossingAt(roadIndex, b, idx);
+        const setBack = crossing ? crossing.half + 2.2 : 5.2;
         const at = { x: b.x - tx * setBack, z: b.z - tz * setBack };
         if (tx * ux + tz * uz > 0.93 && !onJunction(at.x, at.z)) {
           pushZebra(markings, at, tx, tz, road.width, lift + 0.011, markingColor, heights);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Pt } from '../src/geo/geo';
-import { filletCorner, giveWayTriangles, roundCorners, splineThrough } from '../src/world/roads';
+import type { RoadIndex } from '../src/geo/osm';
+import { filletCorner, giveWayTriangles, isRealJunction, roundCorners, splineThrough } from '../src/world/roads';
 
 /** Segmento dritto: nessun angolo, la polilinea non deve cambiare. */
 const straight: Pt[] = [
@@ -88,6 +89,23 @@ describe('raccordo d\'angolo tra cordoli', () => {
     expect(
       filletCorner({ x: 0, z: 3 }, { x: 1, z: 0 }, { x: 0, z: 9 }, { x: 1, z: 0 }, center),
     ).toBeNull();
+  });
+});
+
+describe('riconoscimento dell\'incrocio', () => {
+  /** Strada larga 6 m (semilarghezza 3) che corre lungo x. */
+  const stub = {
+    isOnRoad: (_x: number, z: number, tolerance = 0.8) => Math.abs(z) <= 3 + tolerance,
+  } as unknown as RoadIndex;
+
+  it('accetta un punto sulla carreggiata che attraversa', () => {
+    expect(isRealJunction(stub, { x: 0, z: 1 }, 1)).toBe(true);
+  });
+
+  it('rifiuta una via che passa a due metri dal ciglio', () => {
+    // con la vecchia tolleranza di 2 m questo era "incrocio": da lì
+    // arrivavano stop e zebre in mezzo al rettilineo
+    expect(isRealJunction(stub, { x: 0, z: 5 }, 1)).toBe(false);
   });
 });
 

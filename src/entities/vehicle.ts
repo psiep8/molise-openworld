@@ -439,19 +439,23 @@ export class Vehicle {
     }
 
     // ruote: toro per la gomma, disco e razze per il cerchio
+    // 0x121416 era più scura dell'asfalto: la ruota spariva nel manto. La
+    // gomma vera non è nera, è un grigio-caldo opaco, e con un filo di
+    // ambiente riflesso il cerchio si stacca dalla strada.
     const rubber = this.material({
-      color: 0x121416,
-      roughness: 0.95,
+      color: 0x1f2225,
+      roughness: 0.88,
       metalness: 0.05,
-      clearcoat: 0.25,
-      clearcoatRoughness: 0.5,
+      clearcoat: 0.2,
+      clearcoatRoughness: 0.55,
+      envMapIntensity: 0.55,
       // battistrada: solchi veri, non una gomma liscia da modellino
       bumpMap: treadTexture(),
       bumpScale: 0.6,
     });
-    const hub = this.tune(this.material({ color: 0x8e9498, roughness: 0.36, metalness: 0.82, clearcoat: 0.6, clearcoatRoughness: 0.15 }), 2.0);
+    const hub = this.tune(this.material({ color: 0x8e9498, roughness: 0.4, metalness: 0.82, clearcoat: 0.6, clearcoatRoughness: 0.2 }), 1.4);
     // disco freno: si vede attraverso le razze, è quello che fa "auto vera"
-    const discMat = this.tune(this.material({ color: 0x6f7477, roughness: 0.45, metalness: 0.9 }), 1.6);
+    const discMat = this.tune(this.material({ color: 0x6f7477, roughness: 0.45, metalness: 0.9 }), 1.2);
 
     const frontZ = -spec.wheelbase / 2;
     const rearZ = spec.wheelbase / 2;
@@ -514,17 +518,37 @@ export class Vehicle {
     const material = new THREE.MeshBasicMaterial({
       map: contactShadowTexture(),
       transparent: true,
-      opacity: 0.5,
+      opacity: 0.55,
       depthWrite: false,
       color: 0xffffff,
+      // l'asfalto usa polygonOffset -2 e il marciapiede -3: con la sola quota
+      // a 6 mm la macchia finiva sotto la strada e spariva a chiazze. Un
+      // offset più forte la tiene sopra il manto, senza z-fighting.
+      polygonOffset: true,
+      polygonOffsetFactor: -8,
+      polygonOffsetUnits: -8,
     });
     this.materials.add(material);
     for (const spot of spots) {
-      const size = Math.max(0.5, spot.r * 3.4);
-      const shadow = this.mesh(this.bodyGroup, quad, material, spot.x, 0.006, spot.z, false);
+      // 2,2× il raggio: copre la gomma e un filo di asfalto intorno, ma non
+      // sbava sul marciapiede rialzato dove verrebbe tagliata di netto
+      const size = Math.max(0.45, spot.r * 2.2);
+      const shadow = this.mesh(this.bodyGroup, quad, material, spot.x, 0.02, spot.z, false);
       shadow.receiveShadow = false;
+      shadow.renderOrder = 1;
       shadow.scale.set(size, 1, size);
     }
+    // ombra di corpo: una macchia sola, allungata sotto la carrozzeria. Tiene
+    // l'auto appoggiata all'asfalto anche quando il sole è alto e l'ombra
+    // proiettata è corta (a mezzogiorno le quattro macchie delle ruote
+    // sembravano quattro dischi scollegati).
+    const bodyMaterial = material.clone();
+    bodyMaterial.opacity = 0.3;
+    this.materials.add(bodyMaterial);
+    const body = this.mesh(this.bodyGroup, quad, bodyMaterial, 0, 0.014, 0, false);
+    body.receiveShadow = false;
+    body.renderOrder = 0;
+    body.scale.set(this.spec.width * 1.06, 1, this.spec.length * 0.96);
   }
 
   /**

@@ -49,7 +49,7 @@ export const DEFAULT_SKY: SkyParams = {
 };
 export const DEFAULT_LIGHTING: LightingParams = {
   sunColor: 0xffeed2,
-  sunIntensity: 2.15,
+  sunIntensity: 1.8,
   hemiSky: 0xa8c8ee,
   hemiGround: 0x63583f,
   hemiIntensity: 0.7,
@@ -63,18 +63,30 @@ export const DEFAULT_LIGHTING: LightingParams = {
  * un muro bianco (la "troppa luce" del Molise). Si scala la sola cupola, così
  * il cielo resta un gradiente blu leggibile senza bruciare l'orizzonte.
  */
-const SKY_RADIANCE = 0.55;
+const SKY_RADIANCE = 0.42;
 
-/** Scala la radianza di una cupola Sky, anche quella usata per la cubemap PMREM. */
+/**
+ * Scala la radianza di una cupola Sky, anche quella usata per la cubemap PMREM.
+ *
+ * Toglie anche il disco solare analitico dello shader: era un puntino bianco
+ * con un anello scuro, perché il gradiente di Preetham non sa disegnare un
+ * disco di 0,5° a questa esposizione. Il sole vero è uno sprite con alone
+ * (vedi `sunSprite`), morbido e con la dimensione angolare giusta.
+ */
 function dimSky(target: Sky): void {
   const material = target.material as THREE.ShaderMaterial;
   material.uniforms.skyRadiance = { value: SKY_RADIANCE };
   material.fragmentShader =
     'uniform float skyRadiance;\n' +
-    material.fragmentShader.replace(
-      'gl_FragColor = vec4( texColor, 1.0 );',
-      'texColor *= skyRadiance;\n\t\t\tgl_FragColor = vec4( texColor, 1.0 );',
-    );
+    material.fragmentShader
+      .replace(
+        'gl_FragColor = vec4( texColor, 1.0 );',
+        'texColor *= skyRadiance;\n\t\t\tgl_FragColor = vec4( texColor, 1.0 );',
+      )
+      .replace(
+        'vec3 sundiscColor = ( 760.0 * sundisc ) * min( vSunE * Fex, 80.0 );',
+        'vec3 sundiscColor = vec3( 0.0 );',
+      );
   material.needsUpdate = true;
 }
 
@@ -193,6 +205,27 @@ export function createSky(scene: THREE.Scene): SkyRig {
   moon.visible = false;
   scene.add(moon);
 
+  // -------------------------------------------------------------------------
+  // sole: disco vero con alone, al posto del puntino analitico dello shader
+  // -------------------------------------------------------------------------
+  const sunSprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: sunTexture(),
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      fog: false,
+      color: 0xfff4dc,
+      blending: THREE.AdditiveBlending,
+    }),
+  );
+  // a 6.000 m, 260 unità sono ~2,5° di alone: il disco bianco dentro è ~0,6°,
+  // cioè la dimensione angolare del sole vero
+  sunSprite.scale.setScalar(260);
+  sunSprite.frustumCulled = false;
+  sunSprite.visible = false;
+  scene.add(sunSprite);
+
   /** 0 = giorno, 1 = notte piena. */
   const setNightSky = (amount: number): void => {
     const on = THREE.MathUtils.clamp(amount, 0, 1);
@@ -220,6 +253,12 @@ export function createSky(scene: THREE.Scene): SkyRig {
     // uscire dal far plane né mostrare parallasse)
     stars.position.copy(target);
     moon.position.copy(target).addScaledVector(sunDirection, -5200);
+
+    // il sole si spegne appena sotto l'orizzonte, senza scattare
+    const sunAltitude = THREE.MathUtils.clamp((sunDirection.y + 0.015) / 0.09, 0, 1);
+    sunSprite.position.copy(target).addScaledVector(sunDirection, 6000);
+    (sunSprite.material as THREE.SpriteMaterial).opacity = sunAltitude * 0.85;
+    sunSprite.visible = sunAltitude > 0.01;
   };
 
   const setShadowMapSize = (size: number): void => {
@@ -296,6 +335,35 @@ export function createSky(scene: THREE.Scene): SkyRig {
     setNightSky,
     updateEnvironment,
   };
+}
+
+/**
+ * Disco solare: nucleo bianco bruciato e alone caldo che sfuma in trasparenza.
+ * Additivo, quindi sopra il cielo si fonde come la luce vera invece di
+ * ritagliarsi con un bordo.
+ */
+function sunTexture(): THREE.CanvasTexture {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    const c = size / 2;
+    const g = ctx.createRadialGradient(c, c, 0, c, c, c);
+    g.addColorStop(0, 'rgba(255,255,255,1)');
+    g.addColorStop(0.1, 'rgba(255,253,244,1)');
+    g.addColorStop(0.135, 'rgba(255,244,214,0.9)');
+    g.addColorStop(0.2, 'rgba(255,230,182,0.42)');
+    g.addColorStop(0.36, 'rgba(255,218,160,0.14)');
+    g.addColorStop(0.62, 'rgba(255,208,146,0.04)');
+    g.addColorStop(1, 'rgba(255,200,140,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
 
 /**
