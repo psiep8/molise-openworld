@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createCarState, stepCar, type CarEnv, type CarInput, type CarState } from '../src/sim/car';
+import { createCarState, curbImpact, stepCar, type CarEnv, type CarInput, type CarState } from '../src/sim/car';
 import { VEHICLES, tuningFor, vehicleLabel, type VehicleSpec } from '../src/sim/vehicle-catalog';
 
 const road: CarEnv = { onRoad: true, groundHeight: () => 100 };
@@ -16,6 +16,26 @@ function drive(spec: VehicleSpec, input: CarInput, seconds: number, env = road, 
   for (let i = 0; i < Math.round(seconds / dt); i++) state = stepCar(state, input, env, dt, tuning);
   return state;
 }
+
+describe('scalino del cordolo', () => {
+  it('salire sul marciapiede costa velocità e dà un colpo', () => {
+    const impact = curbImpact(0, 0.18);
+    expect(impact.speedFactor).toBeLessThan(1);
+    expect(impact.bump).toBeGreaterThan(0.02);
+  });
+
+  it('scendere è più dolce del salire', () => {
+    const up = curbImpact(0, 0.18);
+    const down = curbImpact(0.18, 0);
+    expect(down.bump).toBeLessThan(up.bump);
+    expect(down.speedFactor).toBeGreaterThan(up.speedFactor);
+  });
+
+  it('l’asfalto non dà colpi, nemmeno sulle giunzioni', () => {
+    expect(curbImpact(0.012, 0.02).bump).toBe(0);
+    expect(curbImpact(0.02, 0.02)).toEqual({ speedFactor: 1, bump: 0 });
+  });
+});
 
 describe('prestazioni reali dei veicoli', () => {
   for (const spec of VEHICLES) {

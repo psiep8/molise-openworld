@@ -295,3 +295,20 @@ export function stepCar(
 export function speedKmh(speed: number): number {
   return Math.abs(speed) * 3.6;
 }
+
+/**
+ * Scalino del cordolo (18 cm) preso in salita o in discesa.
+ *
+ * Il rialzo del marciapiede non è una rampa: salirci con le ruote costa
+ * velocità e dà un colpo alla carrozzeria, scenderne uno più piccolo. La
+ * funzione è pura per poterla testare senza scena 3D.
+ */
+export function curbImpact(
+  previousLift: number,
+  lift: number,
+): { speedFactor: number; bump: number } {
+  const step = lift - previousLift;
+  if (step > 0.12) return { speedFactor: 0.9, bump: Math.min(0.055, step * 0.28) };
+  if (step < -0.12) return { speedFactor: 0.97, bump: Math.min(0.03, -step * 0.14) };
+  return { speedFactor: 1, bump: 0 };
+}

@@ -8,6 +8,8 @@ import { boundsOf, distanceToSegment2, pointInPolygon, type Bounds, type Pt } fr
 export const ROAD_LIFT = 0.2;
 export const DIRT_LIFT = 0.12;
 export const CURB_HEIGHT = 0.18;
+/** Fascia di ghiaia ai bordi delle strade di campagna (m). */
+export const SHOULDER_WIDTH = 0.8;
 
 /** Micro-offset per strada: evita lo z-fighting dei nastri negli incroci. */
 export function roadLift(index: number, paved: boolean): number {
@@ -479,16 +481,20 @@ export class RoadIndex {
     let asphalt = -1;
     let walk = -1;
     let walkRoad = -1;
+    // spalla in ghiaia delle provinciali: 5 cm sotto il manto, 80 cm larga
+    let shoulder = -1;
     for (let ix = cx - 1; ix <= cx + 1; ix++) {
       for (let iz = cz - 1; iz <= cz + 1; iz++) {
         const list = this.grid.get(this.key(ix, iz));
         if (!list) continue;
         for (const s of list) {
+          // la spalla esiste anche dove non c'è marciapiede (`s.walk` vale 0)
+          const reach = Math.max(s.walk, SHOULDER_WIDTH);
           if (
-            x < s.minX - s.walk ||
-            x > s.maxX + s.walk ||
-            z < s.minZ - s.walk ||
-            z > s.maxZ + s.walk
+            x < s.minX - reach ||
+            x > s.maxX + reach ||
+            z < s.minZ - reach ||
+            z > s.maxZ + reach
           ) {
             continue;
           }
@@ -501,6 +507,12 @@ export class RoadIndex {
               walk = top;
               walkRoad = s.road;
             }
+          } else if (s.paved && s.walk === 0 && d <= s.w + SHOULDER_WIDTH) {
+            // fuori dal paese niente marciapiede, ma la spalla in ghiaia
+            // esiste anche per le ruote: senza, l'auto affondava di 15 cm
+            // appena usciva dall'asfalto
+            const top = s.lift - 0.05;
+            if (top > shoulder) shoulder = top;
           }
         }
       }
@@ -508,7 +520,7 @@ export class RoadIndex {
     // l'asfalto vince sul marciapiede: ai bordi degli incroci i due nastri si
     // sovrappongono e il manto stradale è quello che si vede
     if (asphalt >= 0) return asphalt;
-    if (walk < 0) return 0;
+    if (walk < 0) return shoulder >= 0 ? shoulder : 0;
     // il marciapiede si interrompe agli incroci: entro 40 cm dall'asfalto di
     // un'altra strada non c'è pavimentazione, si cammina sul terreno
     for (let ix = cx - 1; ix <= cx + 1; ix++) {

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { createCarState, speedKmh, stepCar, type CarInput, type CarState } from '../sim/car';
+import { createCarState, curbImpact, speedKmh, stepCar, type CarInput, type CarState } from '../sim/car';
+import { resolveBody } from '../sim/collision';
 import {
   VEHICLES,
   getVehicle,
@@ -74,6 +75,12 @@ export class Vehicle {
   private nightLevel = 0;
   /** Quanto i nastri stradali stanno sopra il terreno (m). */
   private surfaceLift = 0;
+  /** Quota del piano calpestabile all'ultimo frame, per sentire lo scalino. */
+  private lastTargetLift = Number.NaN;
+  /** Colpo del cordolo ancora da smaltire (m). */
+  private bump = 0;
+  /** Evita di pagare il colpo a ogni frame mentre si resta sul bordo. */
+  private curbCooldown = 0;
 
   constructor(spec: VehicleSpec = VEHICLES[0]) {
     this.group = new THREE.Group();
@@ -874,22 +881,37 @@ export class Vehicle {
     next.x = clamp(next.x, -clampX, clampX);
     next.z = clamp(next.z, -clampZ, clampZ);
 
-    const fixed = buildings.resolveCircle(next.x, next.z, Math.min(1.4, spec.width * 0.6));
-    if (fixed.hit) {
-      next.x = fixed.x;
-      next.z = fixed.z;
-      next.speed *= 0.5;
+    // Due cerchi (avantreno e retrotreno) invece di uno solo: il muso non
+    // attraversa più muri e pali mentre il centro è ancora in carreggiata.
+    // Il raggio è il mezzo ingombro trasversale, la distanza è metà passo.
+    const body = resolveBody(
+      next.x,
+      next.z,
+      next.yaw,
+      next.speed,
+      Math.min(spec.length * 0.35, spec.wheelbase * 0.62),
+      Math.min(1.05, spec.width * 0.52),
+      [buildings, obstacles],
+    );
+    next.x = body.x;
+    next.z = body.z;
+    next.speed = body.speed;
+
+    // lo scalino del cordolo si sente: la carrozzeria sobbalza e l'auto perde
+    // un po' di velocità, senza teletrasporti
+    const targetLift = roads.surfaceOffset(next.x, next.z);
+    // al primo frame non c'è uno scalino da sentire: si registra e basta
+    const impact = Number.isFinite(this.lastTargetLift)
+      ? curbImpact(this.lastTargetLift, targetLift)
+      : { speedFactor: 1, bump: 0 };
+    this.lastTargetLift = targetLift;
+    this.curbCooldown = Math.max(0, this.curbCooldown - dt);
+    if (impact.bump > 0 && this.curbCooldown === 0 && Math.abs(next.speed) > 0.8) {
+      next.speed *= impact.speedFactor;
+      this.bump = Math.max(this.bump, impact.bump);
+      this.curbCooldown = 0.35;
     }
-    // pali della luce e cartelli: sono cilindri, non muri. L'auto viene spinta
-    // fuori e perde velocità, ma non si incastra né teletrasporta.
-    if (obstacles) {
-      const pole = obstacles.resolveCircle(next.x, next.z, Math.min(1.15, spec.width * 0.5));
-      if (pole.hit) {
-        next.x = pole.x;
-        next.z = pole.z;
-        next.speed *= 0.3;
-      }
-    }
+    this.bump *= Math.exp(-9 * dt);
 
     this.state = next;
 
@@ -912,10 +934,9 @@ export class Vehicle {
 
     // l'asfalto è drappeggiato sopra il DEM e il marciapiede sta 18 cm più su:
     // la carrozzeria sale con la stessa quota del piano calpestabile
-    const targetLift = roads.surfaceOffset(next.x, next.z);
     this.surfaceLift += (targetLift - this.surfaceLift) * k;
 
-    this.group.position.set(next.x, groundY + this.surfaceLift, next.z);
+    this.group.position.set(next.x, groundY + this.surfaceLift + this.bump, next.z);
     this.group.rotation.set(this.tiltPitch, next.yaw, this.tiltRoll);
 
     const steerAngle = next.steer * spec.maxSteer * 0.95;

@@ -495,8 +495,12 @@ export function buildRoads(
   const walkway = emptyRibbon();
   const kerb = emptyRibbon();
   const markings = emptyRibbon();
+  // spalla in ghiaia delle strade di campagna: senza, il bordo dell'asfalto
+  // cade a picco sull'erba e si vede il taglio
+  const shoulder = emptyRibbon();
   const asphaltColor = new THREE.Color(0xffffff);
   const dirtColor = new THREE.Color(0xf6efe6);
+  const shoulderColor = new THREE.Color(0xcdbfa6);
   const kitWalkMat = kit?.material('sidewalk', 'footway_flags', { repeat: [0.55, 0.5], white: true }) ?? null;
   const kitKerbMat = kit?.material('sidewalk', 'granite_kerb', { repeat: [1, 2], white: true }) ?? null;
   const kitAsphaltMat =
@@ -617,8 +621,41 @@ export function buildRoads(
       );
     }
 
-    // attraversamenti pedonali e lampioni solo dove ci sono case a ridosso
-    if (!buildings) return;
+    // --- margine di campagna: linea bianca di bordo e spalla in ghiaia ------
+    // Fuori dal costruito una provinciale ha la linea di margine e un filo di
+    // ghiaia prima dell'erba. Dentro il paese ci pensa il cordolo.
+    const rural = (index: number): boolean => !inTown(index);
+    if (road.width >= 5) {
+      for (const side of [-1, 1]) {
+        pushRuns(
+          markings,
+          offsetPolyline(pts, side * (road.width / 2 - 0.26)),
+          0.11,
+          lift + 0.012,
+          markingColor,
+          heights,
+          onJunction,
+          rural,
+        );
+      }
+    }
+    if (road.width >= 3.6) {
+      for (const side of [-1, 1]) {
+        pushRuns(
+          shoulder,
+          offsetPolyline(pts, side * (road.width / 2 + 0.36)),
+          0.72,
+          lift - 0.05,
+          shoulderColor,
+          heights,
+          onJunction,
+          rural,
+        );
+      }
+    }
+
+    // attraversamenti, stop e lampioni: gli incroci valgono anche in campagna
+    if (!roadIndex) return;
     let sinceCross = 0;
     let sinceLamp = 0;
     for (let i = 1; i < pts.length - 1; i++) {
@@ -627,6 +664,23 @@ export function buildRoads(
       const seg = Math.hypot(b.x - a.x, b.z - a.z);
       sinceCross += seg;
       sinceLamp += seg;
+      let tx = b.x - a.x;
+      let tz = b.z - a.z;
+      const tl = Math.hypot(tx, tz) || 1;
+      tx /= tl;
+      tz /= tl;
+
+      // linea di arresto a OGNI incrocio, arretrata quel tanto che basta per
+      // non finire sopra la carreggiata che attraversa
+      if (isRealJunction(roadIndex, b, idx)) {
+        const at = { x: b.x - tx * 4.3, z: b.z - tz * 4.3 };
+        if (!onJunction(at.x, at.z)) {
+          pushStopLine(markings, at, tx, tz, road.width, lift + 0.011, markingColor, heights);
+        }
+      }
+
+      // il resto (zebra e lampioni) solo dove ci sono case a ridosso
+      if (!buildings) continue;
       const near = buildings.near(b.x, b.z);
       let built = false;
       for (const bd of near) {
@@ -641,11 +695,6 @@ export function buildRoads(
         }
       }
       if (!built) continue;
-      let tx = b.x - a.x;
-      let tz = b.z - a.z;
-      const tl = Math.hypot(tx, tz) || 1;
-      tx /= tl;
-      tz /= tl;
 
       // un attraversamento ogni ~70 m, ma solo su tratti abbastanza dritti
       if (sinceCross > 70 && i + 1 < pts.length && isRealJunction(roadIndex, b, idx)) {
@@ -722,6 +771,19 @@ export function buildRoads(
     polygonOffsetFactor: -2,
     polygonOffsetUnits: -2,
   });
+  // spalla in ghiaia: stessa grana dello sterrato, tinta sabbia compatta
+  const shoulderMat = new THREE.MeshStandardMaterial({
+    color: 0xb7a88c,
+    vertexColors: true,
+    ...dirtPbr,
+    normalScale: new THREE.Vector2(0.7, 0.7),
+    roughness: 1,
+    metalness: 0,
+    side: THREE.DoubleSide,
+    polygonOffset: true,
+    polygonOffsetFactor: -3,
+    polygonOffsetUnits: -3,
+  });
   // marciapiedi e cordoli in cemento: tinta quasi bianca, colore dalla texture
   const concretePbr = pbr(renderer, 'concrete', { repeat: 2, normal: true, rough: true });
   const fallbackPavement = (): THREE.MeshStandardMaterial =>
@@ -765,6 +827,12 @@ export function buildRoads(
   if (dirt.indices.length) {
     const mesh = new THREE.Mesh(toGeometry(dirt), dirtMat);
     mesh.name = 'dirt-roads';
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+  if (shoulder.indices.length) {
+    const mesh = new THREE.Mesh(toGeometry(shoulder), shoulderMat);
+    mesh.name = 'road-shoulders';
     mesh.receiveShadow = true;
     group.add(mesh);
   }

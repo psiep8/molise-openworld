@@ -168,8 +168,12 @@ describe('marciapiedi solo nel costruito', () => {
     const index = new RoadIndex([road500]);
     // dentro il paese il ciglio rialzato c'è (asfalto 20 cm + cordolo 18 cm)
     expect(index.surfaceOffset(0, 3.3)).toBeGreaterThan(0.3);
-    // in aperta campagna no: nessun marciapiede invisibile sotto i piedi
-    expect(index.surfaceOffset(200, 3.3)).toBe(0);
+    // in aperta campagna niente marciapiede: solo la spalla in ghiaia, più bassa
+    const shoulder = index.surfaceOffset(200, 3.3);
+    expect(shoulder).toBeGreaterThan(0.1);
+    expect(shoulder).toBeLessThan(0.25);
+    // oltre la spalla si torna sull'erba
+    expect(index.surfaceOffset(200, 5)).toBe(0);
   });
 });
 
