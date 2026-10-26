@@ -87,7 +87,7 @@ describe.runIf(existsSync(heightPath) && existsSync(binPath))('dati DEM generati
     expect(buffer.byteLength).toBe(realMeta.nx * realMeta.nz * 2);
     expect(realMeta.originX).toBeCloseTo(-((realMeta.nx - 1) * realMeta.step) / 2, 6);
     expect(realMeta.originZ).toBeCloseTo(-((realMeta.nz - 1) * realMeta.step) / 2, 6);
-    expect(realMeta.step).toBe(10);
+    expect(realMeta.step).toBe(5);
   });
 
   it('copre tutto il bbox con un margine di mezzo campione', () => {

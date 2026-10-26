@@ -1,18 +1,18 @@
 {
-  "source": "AWS Terrain Tiles (Terrarium) z14 — SRTM, Copernicus DEM, NASADEM",
+  "source": "AWS Terrain Tiles (Terrarium) z15 — SRTM, Copernicus DEM, NASADEM",
   "license": "Public domain / CC-BY (vedi registry.opendata.aws/terrain-tiles)",
   "attribution": "Elevazione: © AWS Open Data Terrain Tiles",
   "encoding": "int16-le, decimetri",
-  "step": 10,
-  "nx": 1412,
-  "nz": 1222,
+  "step": 5,
+  "nx": 2823,
+  "nz": 2444,
   "originX": -7055,
-  "originZ": -6105,
+  "originZ": -6107.5,
   "lat": 41.87,
   "lon": 14.774999999999999,
   "metersPerDegLat": 111070.7307022502,
   "metersPerDegLon": 83019.14918391156,
   "minElevation": 70,
   "maxElevation": 1033,
-  "generatedAt": "2026-10-21T09:21:16.003Z"
+  "generatedAt": "2026-10-26T16:25:44.559Z"
 }

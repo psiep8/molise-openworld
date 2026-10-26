@@ -11,6 +11,7 @@ import { FarTerrain } from './world/far-terrain';
 import { buildBuildings, setWindowGlow } from './world/buildings';
 import { buildChurch } from './world/church';
 import { buildDryStoneWalls } from './world/dry-stone';
+import { buildFieldBoundaries } from './world/field-boundaries';
 import { buildPowerLines } from './world/power-lines';
 import { buildRoads, buildWater } from './world/roads';
 import {
@@ -666,6 +667,9 @@ export class Game {
         farmsteadStats = { houses: farm.houses, sheds: farm.sheds, countryTrees: farm.trees };
       }
       this.scene.add(buildDryStoneWalls(osm, heights, this.roadIndex, this.buildingIndex, this.renderer));
+      // confini di campo: muretti su bosco/prato, recinzioni su vigne e aie,
+      // fossi sui corsi d'acqua minori — la geometria che il DEM non ha
+      this.scene.add(buildFieldBoundaries(osm, heights, this.roadIndex, this.buildingIndex, this.renderer));
       this.scene.add(buildPowerLines(osm, heights, this.roadIndex, this.buildingIndex));
 
       this.hud.setLoading(0.5, 'Costruisco le case…');

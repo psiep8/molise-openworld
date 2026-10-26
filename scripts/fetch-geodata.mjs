@@ -46,7 +46,11 @@ const M_PER_DEG_LON =
 
 const WORLD_WIDTH = (BBOX.lonMax - BBOX.lonMin) * M_PER_DEG_LON;
 const WORLD_HEIGHT = (BBOX.latMax - BBOX.latMin) * M_PER_DEG_LAT;
-const HEIGHT_STEP = 10; // metri per campione
+// 5 m: a z15 il pixel Terrarium è ~3,5 m a questa latitudine, quindi il
+// passo 10 scartava metà del dato; con 5 il campione è più fine del pixel
+// e la normal map del terreno (128 campioni per chunk) smette di sembrare
+// una griglia di 30 m sotto i piedi
+const HEIGHT_STEP = 5; // metri per campione
 
 const log = (...a) => console.log('[geo]', ...a);
 
@@ -62,7 +66,7 @@ async function exists(p) {
 // ---------------------------------------------------------------------------
 // DEM
 // ---------------------------------------------------------------------------
-const DEM_ZOOM = 14;
+const DEM_ZOOM = 15;
 const TILE_PX = 256;
 
 function mercatorPx(lat, lon, zoom) {
@@ -182,7 +186,7 @@ async function buildHeightmap() {
   }
 
   const meta = {
-    source: 'AWS Terrain Tiles (Terrarium) z14 — SRTM, Copernicus DEM, NASADEM',
+    source: 'AWS Terrain Tiles (Terrarium) z15 — SRTM, Copernicus DEM, NASADEM',
     license: 'Public domain / CC-BY (vedi registry.opendata.aws/terrain-tiles)',
     attribution: 'Elevazione: © AWS Open Data Terrain Tiles',
     encoding: 'int16-le, decimetri',
