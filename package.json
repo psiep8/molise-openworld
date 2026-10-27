@@ -10,14 +10,17 @@
     "preview": "vite preview --host 127.0.0.1 --port 4173",
     "test": "vitest run",
     "geo": "node scripts/fetch-geodata.mjs",
+    "geo:audit": "node scripts/geo-audit.mjs",
     "geo:imagery": "node scripts/fetch-world-imagery.mjs",
+    "canopy": "node scripts/fetch-canopy.mjs",
     "landcover": "node scripts/fetch-landcover.mjs",
     "textures": "node scripts/fetch-textures.mjs",
     "kit": "node scripts/fetch-citykit.mjs",
     "smoke": "node scripts/smoke.mjs",
     "bench": "node scripts/bench.mjs",
     "streets": "node scripts/check-street-imagery.mjs",
-    "check:cars": "node scripts/check-cars.mjs"
+    "check:cars": "node scripts/check-cars.mjs",
+    "cars": "node scripts/cars.mjs"
   },
   "dependencies": {
     "three": "^0.186.1"

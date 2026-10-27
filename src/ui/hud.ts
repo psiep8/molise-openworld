@@ -226,10 +226,16 @@ export class Hud {
     set('need-fun', needs.fun);
   }
 
-  setClock(day: number, minutes: number): void {
+  /**
+   * `overrideHour` serve all'ora manuale: l'orologio in alto deve mostrare
+   * l'ora che il giocatore sta vedendo nel cielo, non quella del tempo di
+   * gioco che continua a scorrere sotto.
+   */
+  setClock(day: number, minutes: number, overrideHour?: number): void {
+    const shown = overrideHour === undefined ? minutes : overrideHour * 60;
     const clock = document.getElementById('clock-value');
     if (clock) {
-      const total = ((Math.floor(minutes) % 1440) + 1440) % 1440;
+      const total = ((Math.floor(shown) % 1440) + 1440) % 1440;
       clock.textContent = `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
     }
     const dayEl = document.getElementById('day-value');

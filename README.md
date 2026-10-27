@@ -17,12 +17,12 @@
 ## Cosa c'è dentro
 
 - **Casa base: Palata.** Il gioco parte dal centro del paese e la mappa segna Palata come "casa".
-- **Terreno 3D** a chunk (912 m) con DEM a 10 m, **mosaico Sentinel-2 dell'intera area come base immediata** per ogni chunk, tile Esri z18 entro 500 m, z17 fino a 3200 m e z16 oltre per il dettaglio, e normal map ricavata dal rilievo.
+- **Terreno 3D** a chunk (912 m) con DEM a 5 m, **mosaico Sentinel-2 dell'intera area come base immediata** per ogni chunk, tile Esri z18 entro 500 m, z17 fino a 3200 m e z16 oltre per il dettaglio, e normal map ricavata dal rilievo.
 - **Meteo reale opzionale** (`P` → interruttore): condizioni attuali, nuvole, pioggia/neve e **sole alla posizione e ora vere**, con alba/tramonto del giorno. Aggiornamento ogni 10 minuti, fallback al pomeriggio fisso se lo spegni.
 - **Ora del giorno manuale** (`P` → slider 0–24): alba, mezzogiorno, tramonto e notte, con preset meteo sereno/nuvoloso/pioggia/neve/nebbia. Strada bagnata e fari si accendono da soli quando il sole scende.
-- **Trentuno veicoli in catalogo** (`P` → Veicolo, oppure `B` per cambiarli al volo): ventuno con carrozzeria procedurale, **sei con modello GLB** e quattro carrozzerie low-poly del city kit. Tra i procedurali ci sono gli otto storici (Panda vecchia e nuova, Renegade, tre ruote, 500X, Captur, C3, Junior) e i tredici richiesti (Cupra Formentor, Alfa Romeo Tonale, Audi Q3, BMW X1, Mercedes-Benz GLA, Dacia Sandero, Toyota Yaris, Kia Picanto, Ford Fiesta, Nissan Qashqai, Fiat 500, Fiat 600, Peugeot 3008). Ognuno ha ingombri, passo, raggio ruota e **prestazioni reali** della versione rappresentata: cilindrata, potenza, coppia, 0-100 e velocità massima vengono dalle schede tecniche (vedi `docs/VEHICLE_DATA.md`).
-- **Sei auto di serie su GLB** (`public/cars/`): Fiat Punto, Lamborghini Aventador, Ferrari 458 Spider, Land Rover Defender, Audi R8 V10 Performance e Cupra Terramar. I modelli vengono normalizzati una volta sola (unità di lunghezza, muso a +Z, base a terra), le ruote sono riconosciute per nome o separate geometricamente, e i vetri opachi dei GLB da showroom diventano vetro scuro trasparente. I file restano fuori da git e il manifest versionato dice slug, file, yaw e lunghezza.
-- **Quattro carrozzerie del city kit** guidabili (Familiare, Parigina, Sedan pastello, Spider bianca): usano i GLB low-poly al posto della mesh procedurale, riscalati sulla lunghezza e ruotati col muso nel verso di marcia. Le ruote vengono **separate dalla carrozzeria a runtime** (perno al centro del mozzo, raggio misurato sul modello, quindi il rotolamento combacia col terreno) e sotto c'è un'ombra di contatto. Le prestazioni sono riferimenti di segmento, non schede reali.
+- **Trenta veicoli in catalogo** (`P` → Veicolo, oppure `B` per cambiarli al volo): tutte le auto e moto dell'archivio `cars.zip`, dai modelli del 1930 alla Ferrari F1 2019. Ogni voce ha ingombri, passo, raggio ruota e **prestazioni reali** della versione rappresentata: cilindrata, potenza, coppia, 0-100 e velocità massima vengono dalle schede tecniche (vedi `docs/VEHICLE_DATA.md`).
+- **Trenta modelli GLB** (`public/cars/`): Audi R8 (2010 e 2023), BMW M4 Competition, M3 E46 e 326 anni '30, Yamaha MT-09 SP, Audi Novulari, Cupra Terramar, DeTomaso P900, Ferrari F1 e LaFerrari, Fiat 500/Abarth/Multipla/Uno/Panda/Punto, Lamborghini Revuelto, Land Rover Defender, MG Cyberster, Porsche 911, SEAT León Cupra, Tesla Cybertruck, Vespa, Aston Martin DB11, Honda Civic RS, Volkswagen Crafter e Golf GTI. I modelli vengono normalizzati una volta sola (unità di lunghezza, muso a +Z, base a terra), le ruote sono riconosciute per nome o separate geometricamente, e i vetri opachi dei GLB da showroom diventano vetro scuro trasparente. I file restano fuori da git e il manifest versionato dice slug, file, yaw e lunghezza; crediti e licenze sono in `ATTRIBUTION.md`.
+- **Pilota sulle due ruote**: Yamaha MT-09 SP e Vespa mostrano il corpo del giocatore seduto in sella, con piega in curva e mani verso il manubrio; a piedi il veicolo parcheggiato resta vuoto.
 - **Auto personalizzate da Smooth Voxels**: modella un'auto in <https://www.smoothdev.nl/smoothvoxels/>, esportala in GLB e importala dal menu o trascinandola sulla finestra. Ogni auto riceve una scheda tecnica dagli ingombri, è guidabile subito e resta salvata in IndexedDB (max 12 per browser); un pulsante gira il **muso di 180°** se l'export è uscito al contrario. Flusso e convenzioni in `docs/GARAGE.md`.
 - **Vernice con riflessi**: la cubemap del cielo passa ai materiali del veicolo con un boost per famiglia (vernica, vetri, cromature), così il clearcoat ha riflessi veri e non sembra plastica.
 - **Modalità vita e negozi di Palata** (`E` vicino a un'attività): catalogo di luoghi (ristorazione, alimentari, abbigliamento, servizi, punti d'interesse), pannello attività con menu simulato, conferma dell'acquisto con costo e saldo residuo, spesa, guardaroba e ATM simulato.
@@ -37,16 +37,17 @@
 - **Erba a istanze** intorno al giocatore: 82.000 ciuffi con lame sottili più 12.000 quad di **tappeto di base** che chiudono i buchi tra un ciuffo e l'altro (densità legata al preset, rispetto di strade ed edifici).
 - **Personaggio con scheletro**: rig umanoide a 21 ossa, clip idle/camminata/corsa e due clip additive (salto e caduta) sommate alla camminata. Testa a misura umana con zigomi, palpebre, occhi con iride e pupilla, capelli con attaccatura sulla fronte, colletto, cintura, polsini, bottoni, tasche e lacci; pelle e tessuto con normal map procedurali.
 - **Radar satellite reale** in minimappa e mappa grande, con strade OSM evidenziate sopra la foto aerea (`V` per passare alla mappa vettoriale).
-- **Strade** ricostruite da OpenStreetMap e drappeggiate sul rilievo (asfalto e sterrati, larghezze per tipo), con curve **smussate in continuo** (`smoothPolyline`), tratteggio di mezzeria, **attraversamenti pedonali** con linea di arresto, marciapiedi larghi 1,45–1,8 m e **cordolo a 18 cm** con faccia verticale.
+- **Strade** ricostruite da OpenStreetMap e drappeggiate sul rilievo (asfalto e sterrati, larghezze per tipo), con curve **smussate in continuo** (`smoothPolyline`), tratteggio di mezzeria, **attraversamenti pedonali** con linea di arresto, marciapiedi larghi 1,15–1,45 m e **cordolo a 18 cm** con faccia verticale.
 - **Segnaletica e arredo urbano**: STOP, dare precedenza e limite 50 su palo zincato (facce disegnate su canvas, nessun asset), panche in legno e ferro.
 - **Illuminazione pubblica**: lampioni ogni ~32 m sulle strade asfaltate dei paesi, con braccio verso la carreggiata e vetro emissivo; di notte 7 luci puntuali seguono i lampioni più vicini alla camera.
 - **Paesi** con edifici estrusi dalle impronte OSM, **tetti a falde** (padiglione) in laterizio, **facciate con finestre, persiane e davanzali**, fasce marcapiano, cantonali d'angolo, grondaie e portoni con stipiti e soglia, altezze stimate o da tag.
 - **Montagne oltre il DEM**: una cintura di rilievi a bassa risoluzione (`src/world/far-terrain.ts`, una mesh e una draw call) continua il paesaggio oltre i 1,5–3,1 km di terreno caricato. Dentro il mondo usa **le stesse quote del DEM**, fuori cresce con rumore frattale a creste: niente più orizzonte tagliato dalla nebbia.
-- **Boschi, uliveti e filari**: 14.000 alberi instanziati in modo deterministico (stesso seed → stesso paesaggio), con filari lungo le strade e alberi sparsi su campi e crinali per dare profondità alle distanze.
+- **Boschi, uliveti e filari**: 14.000 alberi instanziati in modo deterministico (stesso seed → stesso paesaggio), con filari lungo le strade e alberi sparsi su campi e crinali per dare profondità alle distanze. Se `public/geo/canopy.bin` (ETH 10 m) è presente, l'altezza della chioma scala gli alberi e dirada quelli che il satellite non vede; senza il file si torna al comportamento OSM.
+- **Ponti e guardrail**: i tratti OSM `bridge` hanno un impalcato con sponde in cemento e guardrail; la stessa quota è letta dalla fisica, quindi l'auto non passa più sotto il ponte. I guardrail compaiono anche sul lato a valle delle strade di campagna e diventano ostacoli solidi (preset medium+; spenti in minimal/low).
 - **Casali di campagna**: fuori dal paese, lungo le strade rurali, compaiono **masserie, rimesse e ulivi/frutteti** dai GLB del kit (18 case, 11 rimesse e 46 alberi ad alta qualità). La posizione è deterministica e ogni impronta entra nell'indice delle collisioni **prima** di vegetazione ed erba: niente ci passa attraverso e niente ci cresce dentro.
 - **Acqua**: torrenti e specchi d'acqua.
 - **Camminata** in prima/terza persona con collisioni contro gli edifici, corsa, salto.
-- **Guida simulata**: cambio automatico a 5 o 6 marce con strappo e kickdown, curva di coppia/potenza del motore vero, aderenza che limita la partenza (pattinamento), freni da 9–10 m/s², retromarcia inserita col freno, pendenza, off-road più lento e freno a mano. HUD con marcia e giri motore.
+- **Guida simulata**: cambio automatico a 4-8 marce (o una sola per le elettriche) con strappo e kickdown, curva di coppia/potenza del motore vero, aderenza che limita la partenza (pattinamento), freni da 8,8-18 m/s², retromarcia inserita col freno, pendenza, off-road più lento e freno a mano. HUD con marcia e giri motore.
 - **Vernice delle auto**: la carrozzeria dei GLB viene riconosciuta per materiale (`carpaint`, `Body_Color`, `punto-body`…), portata a vernice fisica (clearcoat 1,0) e **tingibile** senza colorare vetri, gomme e cerchi. I modelli che hanno il colore cotto nella texture (Audi R8 blu, Defender grigio) ricevono la tinta nello shader, così il dettaglio resta e il colore non diventa nero. Saturazione della vernice regolabile dalle impostazioni (82% = colore da auto vera). Di notte si accendono anche fari e fanalini dei GLB.
 - **Itinerario scegliendo dalla mappa** (`M`, poi click): percorso più breve sulla rete stradale OSM, distanza e tempi stimati a piedi e in auto, linea in mappa e colonna luminosa sulla destinazione. `X` annulla.
 - **Minimappa** e **mappa grande** dei cinque comuni, con strade, boschi e toponimi.
@@ -161,9 +162,17 @@ I dati geografici sono già committati in `public/geo/`. Per rigenerarli (o camb
 npm run geo              # scarica OSM + DEM e riscrive public/geo/
 npm run geo -- --skip-dem
 npm run geo -- --skip-osm
+npm run geo:audit        # controlla copertura, km, ponti, pendenze e tag OSM
+npm run canopy           # ritaglia ETH Canopy Height 10 m → public/geo/canopy.bin
+npm run landcover        # WorldCover + OSM → public/geo/landcover/ (ignorata da git)
 ```
 
 > Overpass a volte è saturo: lo script divide l'area in 16 riquadri, ruota i mirror e ritenta. Se un riquadro viene perso, rilancia `npm run geo -- --skip-dem`.
+
+Il dataset di copertura del suolo è opzionale ma è quello che dà al paesaggio i
+colori e la grana di coltivo, prato, bosco e roccia: senza, il terreno resta
+sulla sola foto satellitare. La prima esecuzione scarica circa 41 MB di
+WorldCover 10 m (CC BY 4.0) e richiede qualche minuto.
 
 ### Comandi
 
@@ -224,12 +233,15 @@ src/
   geo/
     geo.ts             matematica pura (mercator, poligoni, PRNG)
     elevation.ts       heightfield DEM + campionamento bilineare
+    canopy.ts          altezza chioma ETH (fallback se il file manca)
+    ground.ts          unica quota calpestabile (DEM + strada + ponte)
     osm.ts             tipi OSM, indici spaziali strade/edifici, collisioni
   world/
     chunks.ts          griglia dei chunk
     imagery.ts         streaming tile satellite -> texture per chunk (zoom progressivo)
     terrain.ts         mesh del terreno + LOD texture (z16/z17/z18)
-    roads.ts           nastri stradali drappeggiati + acqua
+    roads.ts           nastri stradali drappeggiati, ponti, cordoli + acqua
+    guardrails.ts      guardrail su ponti e scarpate (con collisione)
     buildings.ts       estrusione edifici + falde del tetto + UV delle facciate
     roof.ts            geometria pura del tetto a padiglione (testata)
     vegetation.ts      alberi instanziati nei boschi
@@ -256,7 +268,7 @@ src/
     vehicle.ts         veicoli procedurali o GLB + assetto, tinta e ruote
   sim/
     car.ts             fisica pura e testabile: motore, cambio, freni, aderenza
-    vehicle-catalog.ts 14 veicoli, tutti su GLB (10 di serie + 4 del kit)
+    vehicle-catalog.ts 30 veicoli, tutti su GLB dell'archivio cars.zip
     routing.ts         grafo stradale + A* per l'itinerario scelto sulla mappa
     economy.ts         economia virtuale: contanti, conto, acquisti atomici, movimenti
     needs.ts           fame, energia, divertimento: calo nel tempo ed effetti
@@ -274,6 +286,8 @@ src/
   game.ts              orchestrazione, input, camera, loop
 scripts/
   fetch-geodata.mjs    download e preprocessing OSM/DEM
+  fetch-canopy.mjs     ritaglio ETH Canopy Height 10 m sul bbox
+  geo-audit.mjs        controllo copertura, strade, ponti e pendenze
   smoke.mjs            test end-to-end con Chrome headless
   check-street-imagery.mjs  censimento copertura Mapillary sul bbox (richiede token)
 ```
@@ -281,7 +295,8 @@ scripts/
 ## Dati e licenze
 
 - **OpenStreetMap** — strade, edifici, aree, toponimi: © OpenStreetMap contributors, licenza **ODbL 1.0**. `public/geo/osm.json` è un'opera derivata: se lo ridistribuisci, resta ODbL.
-- **AWS Terrain Tiles (Terrarium)** — DEM SRTM/Copernicus/NASADEM: dati aperti, vedi [registry.opendata.aws/terrain-tiles](https://registry.opendata.aws/terrain-tiles/).
+- **AWS Terrain Tiles (Terrarium)** - DEM SRTM/Copernicus/NASADEM: dati aperti, vedi [registry.opendata.aws/terrain-tiles](https://registry.opendata.aws/terrain-tiles/).
+- **ETH Global Canopy Height 2020** - altezza della chioma a 10 m usata per la vegetazione (`public/geo/canopy.bin`): Lang, Jetz, Schindler & Wegner (2023), **CC BY 4.0**, [globalcanopyheight](https://langnico.github.io/globalcanopyheight/). Il tile originale resta in `.geo-cache/canopy/`.
 - **Sentinel-2 cloudless 2025** — mosaico satellitare dell'intera area (`public/geo/world-imagery.jpg`): © EOX IT Services GmbH, licenza **CC BY 4.0**, contiene dati Copernicus Sentinel modificati ([s2maps.eu](https://s2maps.eu)). Si rigenera con `npm run geo:imagery`.
 - **Esri World Imagery** — immagini satellite: © Esri, Maxar, Earthstar Geographics. Usate qui per una demo non commerciale con attribuzione. **Per una pubblicazione** usa un provider con licenza esplicita (MapTiler, Mapbox, Bing, o tile self-hosted) cambiando `ESRI_WORLD_IMAGERY` in `src/world/imagery.ts`.
 - **Immagini stradali (opzionale)** — non ancora usate. `npm run streets` conta quante strade dei cinque comuni hanno una foto entro 50 m: interroga **Panoramax** (API pubblica, nessun account) e, se impostato `MAPILLARY_TOKEN` (gratuito, CC BY-SA 4.0), anche Mapillary. Al 21/10/2026 Panoramax non ha foto nel bbox: la copertura Mapillary è l'unica da verificare.
@@ -296,9 +311,8 @@ scripts/
   low-poly (strade, arredo, alberi, case coloniche, auto). Licenza **Free Commercial**:
   i file non sono versionati e si rigenerano con `npm run kit`. Dettagli e tabella ruoli in
   `docs/CITYKIT.md`.
-- **Auto di serie su GLB** — modelli forniti dal proprietario in `public/cars/`. I binari
+- **Auto di serie su GLB** - 30 modelli forniti dal proprietario in `public/cars/`. I binari restano fuori da git (`.gitignore`); il manifest `public/cars/manifest.json` è versionato e descrive slug, file, yaw e lunghezza. Titoli, autori, URL e licenze sono in `ATTRIBUTION.md`: cinque modelli sono fuori dalla lista di 25 crediti e quattro usano **Sketchfab Standard**, quindi non sono ridistribuibili.
   restano fuori da git (`.gitignore`); il manifest `public/cars/manifest.json` è versionato
-  e descrive slug, file, yaw e lunghezza. **La licenza dei modelli va verificata prima di
   una distribuzione pubblica.**
 - **Codice** — MIT (vedi `LICENSE`).
 

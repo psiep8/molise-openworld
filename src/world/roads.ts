@@ -4,7 +4,7 @@ import { pbr, waterNormals } from '../gfx/textures';
 import { registerScroll } from '../gfx/wind';
 import type { Heightfield } from '../geo/elevation';
 import { clamp, hashInt, type Pt } from '../geo/geo';
-import { CURB_HEIGHT, roadLift, type BuildingIndex, type OsmData, type RoadIndex } from '../geo/osm';
+import { CURB_HEIGHT, roadLift, type BuildingIndex, type OsmData, type Road, type RoadIndex } from '../geo/osm';
 import type { CityKit } from './citykit';
 
 interface RibbonArrays {
@@ -226,6 +226,7 @@ function pushRibbon(
   color: THREE.Color,
   heights: Heightfield,
   shade: number,
+  elevations?: number[],
 ): void {
   if (pts.length < 2) return;
   const base = target.positions.length / 3;
@@ -252,9 +253,16 @@ function pushRibbon(
       // nell'asfalto e quello in discesa restava sospeso
       const ex = pts[i].x + px * half * side;
       const ez = pts[i].z + pz * half * side;
-      const h = heights.heightAt(ex, ez) + lift;
-      target.positions.push(ex, h, ez);
-      target.normals.push(n.x / nl, n.y / nl, n.z / nl);
+      if (elevations) {
+        // ponte: il bordo segue l'impalcato, non il fondovalle sotto
+        const h = (elevations[i] ?? elevations[elevations.length - 1] ?? 0) + lift;
+        target.positions.push(ex, h, ez);
+        target.normals.push(0, 1, 0);
+      } else {
+        const h = heights.heightAt(ex, ez) + lift;
+        target.positions.push(ex, h, ez);
+        target.normals.push(n.x / nl, n.y / nl, n.z / nl);
+      }
       target.colors.push(color.r * shade, color.g * shade, color.b * shade);
       // u attraversa la carreggiata, v scorre lungo la strada (~6 m per tile)
       target.uvs.push(side < 0 ? 0 : 1, travelled / 6);
@@ -262,6 +270,67 @@ function pushRibbon(
     if (i > 0) {
       const a = base + (i - 1) * 2;
       target.indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+  }
+}
+
+/**
+ * Quota dell'impalcato per la polilinea già ricampionata.
+ *
+ * `prepareRoadElevations` ha lasciato una quota per ogni punto OSM; qui si
+ * interpola sulla lunghezza della linea grafica. Il nastro e `groundAt`
+ * leggono la stessa campata, quindi la ruota non affonda né resta a mezz'aria.
+ */
+function bridgeElevations(road: Road, pts: Pt[]): number[] | null {
+  const e = road.elevations;
+  if (!e || e.length < 2) return null;
+  let total = 0;
+  const cum = new Array<number>(pts.length).fill(0);
+  for (let i = 1; i < pts.length; i++) {
+    total += Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.z - pts[i - 1]!.z);
+    cum[i] = total;
+  }
+  const first = e[0]!;
+  const last = e[e.length - 1]!;
+  return cum.map((d) => first + (last - first) * (total > 1e-3 ? d / total : 0));
+}
+
+/** Sponde verticali in cemento dell'impalcato, sotto il bordo del ponte. */
+function pushBridgeFascia(
+  target: RibbonArrays,
+  pts: Pt[],
+  width: number,
+  elevations: number[],
+  lift: number,
+  color: THREE.Color,
+): void {
+  if (pts.length < 2) return;
+  for (const side of [-1, 1]) {
+    const base = target.positions.length / 3;
+    for (let i = 0; i < pts.length; i++) {
+      const prev = pts[Math.max(0, i - 1)]!;
+      const next = pts[Math.min(pts.length - 1, i + 1)]!;
+      let tx = next.x - prev.x;
+      let tz = next.z - prev.z;
+      const len = Math.hypot(tx, tz) || 1;
+      tx /= len;
+      tz /= len;
+      const px = -tz;
+      const pz = tx;
+      const x = pts[i]!.x + px * (width / 2) * side;
+      const z = pts[i]!.z + pz * (width / 2) * side;
+      const top = (elevations[i] ?? 0) + lift;
+      const bottom = top - 1.05;
+      const nx = px * side;
+      const nz = pz * side;
+      target.positions.push(x, bottom, z, x, top, z);
+      target.normals.push(nx, 0, nz, nx, 0, nz);
+      target.colors.push(color.r, color.g, color.b, color.r, color.g, color.b);
+      target.uvs.push(0, bottom / 2, 0, top / 2);
+      if (i > 0) {
+        const a = base + (i - 1) * 2;
+        target.indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      }
     }
   }
 }
@@ -492,19 +561,22 @@ function pushStraightArrow(
   const px = -tz;
   const pz = tx;
   const lat = width * 0.26;
-  const cx = at.x - px * lat;
-  const cz = at.z - pz * lat;
+  // nella corsia di marcia (a destra del verso), non in quella opposta
+  const cx = at.x + px * lat;
+  const cz = at.z + pz * lat;
+  // punta verso l'incrocio: prima era disegnata al contrario e sulla corsia
+  // di chi arriva, una delle ragioni per cui gli incroci sembravano casuali
   const shaft: Pt[] = [
+    { x: cx - tx * 2.6, z: cz - tz * 2.6 },
     { x: cx + tx * 0.1, z: cz + tz * 0.1 },
-    { x: cx - tx * 2.5, z: cz - tz * 2.5 },
   ];
   pushRibbon(target, shaft, 0.18, lift, color, heights, 1);
   pushTriangle(
     target,
     [
-      { x: cx - px * 0.28 - tx * 2.15, z: cz - pz * 0.28 - tz * 2.15 },
-      { x: cx + px * 0.28 - tx * 2.15, z: cz + pz * 0.28 - tz * 2.15 },
-      { x: cx - tx * 3.15, z: cz - tz * 3.15 },
+      { x: cx - px * 0.28 + tx * 0.15, z: cz - pz * 0.28 + tz * 0.15 },
+      { x: cx + px * 0.28 + tx * 0.15, z: cz + pz * 0.28 + tz * 0.15 },
+      { x: cx + tx * 1.15, z: cz + tz * 1.15 },
     ],
     lift,
     color,
@@ -800,6 +872,13 @@ export function buildRoads(
     const color = base.clone().multiplyScalar(0.97 + (hashInt(idx, 7) % 60) / 1000);
     // micro offset per evitare z-fighting negli incroci (condiviso con la fisica)
     const lift = roadLift(idx, road.paved);
+    const deck = road.bridge ? bridgeElevations(road, pts) : null;
+    if (deck) {
+      // Il ponte è un impalcato sospeso: niente marciapiede né spalla a terra.
+      pushRibbon(target, pts, road.width, lift, color, heights, 1, deck);
+      pushBridgeFascia(kerb, pts, road.width, deck, lift, curbColor);
+      return;
+    }
     pushRibbon(target, pts, road.width, lift, color, heights, 1);
     // Punto che sta su un'ALTRA strada: è l'incrocio. Qui non vanno cordoli,
     // marciapiedi né strisce, altrimenti restano delle righe chiare in mezzo
@@ -829,12 +908,19 @@ export function buildRoads(
       }
       return;
     }
-    const walkWidth = road.width >= 6 ? 1.8 : 1.45;
+    // marciapiede stretto da centro storico: 1,45/1,15 m. A 1,8 m sembrava un
+    // marciapiede americano e mangiava la carreggiata nelle vie del paese.
+    const walkWidth = road.width >= 6 ? 1.45 : 1.15;
     // cordolo a 18 cm (altezza da marciapiede italiano): è lo scalino che si
     // sente sotto il piede e che stacca la pavimentazione dall'asfalto
     const curbTop = lift + CURB_HEIGHT;
     const walkLift = curbTop + 0.005;
-    const blockedWalk = (x: number, z: number): boolean => (roadIndex ? roadIndex.isOnRoad(x, z, 0.4) : false);
+    // La larghezza del marciapiede conta: fermare il nastro solo quando il
+    // centro è dentro l'altra strada lasciava sporgere mezzo marciapiede
+    // nell'incrocio (le "lingue" chiare viste in paese). Si esclude la strada
+    // corrente e ci si ferma un metro buono prima del ciglio dell'altra.
+    const blockedWalk = (x: number, z: number): boolean =>
+      roadIndex ? roadIndex.isOnRoad(x, z, walkWidth * 0.55 + 0.25, idx) : false;
     // il cordolo parte dal bordo dell'asfalto e occupa 22 cm; il marciapiede
     // inizia dove finisce il cordolo, così nessuno dei due copre l'altro
     const curbWidth = 0.22;
@@ -946,33 +1032,72 @@ export function buildRoads(
       tx /= tl;
       tz /= tl;
 
+      // "costruito" serve sia alle strisce sia alle zebre: si calcola una volta
+      const built = buildings
+        ? buildings.near(b.x, b.z).some(
+            (bd) =>
+              b.x > bd.bounds.minX - 26 &&
+              b.x < bd.bounds.maxX + 26 &&
+              b.z > bd.bounds.minZ - 26 &&
+              b.z < bd.bounds.maxZ + 26,
+          )
+        : false;
+
       // linea di arresto a OGNI incrocio, arretrata quel tanto che basta per
       // non finire sopra la carreggiata che attraversa
       const junction = isRealJunction(roadIndex, b, idx);
       const enters = junction && !inJunction;
       inJunction = junction;
+      let zebraHere = false;
       if (enters) {
         const cross = crossingAt(roadIndex, b, idx);
         // una via secondaria davanti a una più larga ha il "dare precedenza":
         // punte a terra invece della banda piena dello stop
         const minor = cross !== null && cross.half + 0.35 < road.width * 0.5;
-        const gwAt = cross
-          ? { x: b.x - tx * (cross.half + 0.9), z: b.z - tz * (cross.half + 0.9) }
-          : null;
-        if (minor && gwAt && !onJunction(gwAt.x, gwAt.z)) {
-          for (const tri of giveWayTriangles(gwAt, tx, tz, road.width)) {
-            pushTriangle(markings, tri, lift + 0.011, markingColor, heights);
+
+        // attraversamento pedonale solo sulla via principale, su un tratto
+        // dritto e non a ogni incrocio: prima la zebra e lo stop venivano
+        // disegnati nello stesso punto e sembravano due strisce sovrapposte
+        if (cross && built && !minor && sinceCross > 60 && i + 1 < pts.length) {
+          const c = pts[i + 1];
+          let ux = c.x - b.x;
+          let uz = c.z - b.z;
+          const ul = Math.hypot(ux, uz) || 1;
+          ux /= ul;
+          uz /= ul;
+          zebraHere = tx * ux + tz * uz > 0.93;
+        }
+
+        if (minor && cross) {
+          const gwAt = { x: b.x - tx * (cross.half + 0.9), z: b.z - tz * (cross.half + 0.9) };
+          if (!onJunction(gwAt.x, gwAt.z)) {
+            for (const tri of giveWayTriangles(gwAt, tx, tz, road.width)) {
+              pushTriangle(markings, tri, lift + 0.011, markingColor, heights);
+            }
           }
-        } else {
+        } else if (!zebraHere) {
           // arretrata oltre la carreggiata che attraversa: a 4,3 m fissi su un
           // incrocio largo lo stop cadeva dentro l'altra strada
           const back = cross ? cross.half + 1.5 : 4.3;
           const at = { x: b.x - tx * back, z: b.z - tz * back };
           if (!onJunction(at.x, at.z)) {
             pushStopLine(markings, at, tx, tz, road.width, lift + 0.011, markingColor, heights);
-            // freccia dritta solo dove c'è spazio per leggerla
-            if (road.width >= 5.4) {
-              pushStraightArrow(markings, at, tx, tz, road.width, lift + 0.011, markingColor, heights);
+            // freccia dritta dietro lo stop, solo su strade larghe: prima
+            // finiva sopra la linea e sulla corsia opposta
+            if (road.width >= 6.2) {
+              const arrowAt = { x: b.x - tx * (back + 3.4), z: b.z - tz * (back + 3.4) };
+              if (!onJunction(arrowAt.x, arrowAt.z)) {
+                pushStraightArrow(
+                  markings,
+                  arrowAt,
+                  tx,
+                  tz,
+                  road.width,
+                  lift + 0.011,
+                  markingColor,
+                  heights,
+                );
+              }
             }
           }
         }
@@ -1017,40 +1142,44 @@ export function buildRoads(
       }
 
       // il resto (zebra e lampioni) solo dove ci sono case a ridosso
-      if (!buildings) continue;
-      const near = buildings.near(b.x, b.z);
-      let built = false;
-      for (const bd of near) {
-        if (
-          b.x > bd.bounds.minX - 26 &&
-          b.x < bd.bounds.maxX + 26 &&
-          b.z > bd.bounds.minZ - 26 &&
-          b.z < bd.bounds.maxZ + 26
-        ) {
-          built = true;
-          break;
-        }
-      }
       if (!built) continue;
 
-      // un attraversamento ogni ~70 m, ma solo su tratti abbastanza dritti
-      if (sinceCross > 70 && i + 1 < pts.length && enters) {
-        const c = pts[i + 1];
-        let ux = c.x - b.x;
-        let uz = c.z - b.z;
-        const ul = Math.hypot(ux, uz) || 1;
-        ux /= ul;
-        uz /= ul;
-        // l'attraversamento va PRIMA dell'incrocio, non sopra: disegnato sul
-        // punto di incrocio finiva in mezzo alla carreggiata dell'altra via,
-        // che è un'altra causa delle righe chiare viste agli incroci
+      // attraversamento: zebra verso l'incrocio, stop dietro la zebra.
+      // Prima zebra e stop erano allo stesso punto e si sovrapponevano.
+      if (zebraHere) {
         const crossing = crossingAt(roadIndex, b, idx);
-        const setBack = crossing ? crossing.half + 2.2 : 5.2;
-        const at = { x: b.x - tx * setBack, z: b.z - tz * setBack };
-        if (tx * ux + tz * uz > 0.93 && !onJunction(at.x, at.z)) {
-          pushZebra(markings, at, tx, tz, road.width, lift + 0.011, markingColor, heights);
-          pushStopLine(markings, at, tx, tz, road.width, lift + 0.011, markingColor, heights);
-          sinceCross = 0;
+        if (crossing) {
+          const zAt = {
+            x: b.x - tx * (crossing.half + 2.9),
+            z: b.z - tz * (crossing.half + 2.9),
+          };
+          const sAt = {
+            x: b.x - tx * (crossing.half + 5.6),
+            z: b.z - tz * (crossing.half + 5.6),
+          };
+          if (!onJunction(zAt.x, zAt.z) && !onJunction(sAt.x, sAt.z)) {
+            pushZebra(markings, zAt, tx, tz, road.width, lift + 0.011, markingColor, heights);
+            pushStopLine(markings, sAt, tx, tz, road.width, lift + 0.011, markingColor, heights);
+            if (road.width >= 6.2) {
+              const aAt = {
+                x: b.x - tx * (crossing.half + 9.2),
+                z: b.z - tz * (crossing.half + 9.2),
+              };
+              if (!onJunction(aAt.x, aAt.z)) {
+                pushStraightArrow(
+                  markings,
+                  aAt,
+                  tx,
+                  tz,
+                  road.width,
+                  lift + 0.011,
+                  markingColor,
+                  heights,
+                );
+              }
+            }
+            sinceCross = 0;
+          }
         }
       }
       // lampioni ogni ~32 m: due file ai lati, quello che rende un paese un paese

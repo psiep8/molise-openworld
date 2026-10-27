@@ -6,6 +6,7 @@ import {
   createCarState,
   curbImpact,
   speedKmh,
+  steerLock,
   stepCar,
   type CarInput,
   type CarState,
@@ -26,14 +27,105 @@ import {
   paintMaterialFrom,
   tintPaint,
 } from '../gfx/car-paint';
-import type { Heightfield } from '../geo/elevation';
+import type { GroundSampler } from '../geo/ground';
 import type { ObstacleIndex } from '../geo/obstacles';
-import type { BuildingIndex, RoadIndex } from '../geo/osm';
+import type { BuildingIndex } from '../geo/osm';
 import type { CityKit } from '../world/citykit';
 import type { CarLibrary } from '../world/car-library';
 import { preciseBox, splitCarWheels } from './car-wheels';
+import { HumanBody, type HumanAssets } from './human-model';
+import type { Appearance } from './appearance';
 import { clamp } from '../geo/geo';
 import { WORLD } from '../config';
+
+/** Una ruota di un GLB, col suo verso di rotolamento accumulato. */
+interface ExternalWheel {
+  node: THREE.Object3D;
+  front: boolean;
+  /** raggio in metri di gioco (misurato sul perno già in scala) */
+  radius: number;
+  /** rotazione accumulata attorno all'asse trasversale, radianti */
+  spin: number;
+}
+
+/**
+ * Riconosce i nomi delle ruote esportati dai vari editor: `wheel-fl`,
+ * `Wheel_FR`, `wheel_rl.001` (Blender duplica col suffisso) e anche
+ * `wheel-front-left` / `tyre_rear_right`.
+ */
+function wheelTag(name: string): 'fl' | 'fr' | 'rl' | 'rr' | null {
+  const short = /(?:^|[-_ .])wheel[-_ ]?(fl|fr|rl|rr|lf|rf|lr)(?:[-_ .]?\d+)?(?:[-_ ]?hub)?$/i.exec(name);
+  if (short) {
+    const tag = short[1].toLowerCase();
+    if (tag === 'lf') return 'fl';
+    if (tag === 'rf') return 'fr';
+    if (tag === 'lr') return 'rl';
+    return tag as 'fl' | 'fr' | 'rl' | 'rr';
+  }
+  if (/(?:^|[-_ .])(?:front|anteriore)[-_ ]?weel(?:[-_ .]?\d+)?$/i.test(name)) return 'fl';
+  if (/(?:^|[-_ .])(?:rear|back|posteriore)[-_ ]?weel(?:[-_ .]?\d+)?$/i.test(name)) return 'rl';
+  const long = /(?:^|[-_ .])(?:wheel|tyre|tire)[-_ ]?(front|rear)[-_ ]?(left|right)(?:[-_ .]?\d+)?$/i.exec(name);
+  if (!long) return null;
+  return `${long[1][0]}${long[2][0]}`.toLowerCase() as 'fl' | 'fr' | 'rl' | 'rr';
+}
+
+function riderBoneKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .replace(/^mixamorig/, '');
+}
+
+/**
+ * Posa seduta per il pilota. Le rotazioni sono applicate nello spazio del
+ * genitore e non in quello locale dell'osso: Ready Player Me usa un bind
+ * ruotato di 180 gradi sulle cosce, quindi `rotation.x` da sola darebbe un
+ * risultato imprevedibile.
+ */
+function poseSeatedRider(root: THREE.Object3D): void {
+  const bones = new Map<string, THREE.Object3D>();
+  root.traverse((object) => {
+    if (!object.name) return;
+    const key = riderBoneKey(object.name);
+    if (!bones.has(key)) bones.set(key, object);
+  });
+  const xAxis = new THREE.Vector3(1, 0, 0);
+  const zAxis = new THREE.Vector3(0, 0, 1);
+  const turn = (key: string, axis: THREE.Vector3, angle: number): void => {
+    const bone = bones.get(key);
+    if (!bone) return;
+    bone.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(axis, angle));
+  };
+
+  // busto raccolto e testa che guarda avanti
+  turn('spine', xAxis, -0.12);
+  turn('spine1', xAxis, -0.1);
+  turn('spine2', xAxis, 0.04);
+  turn('neck', xAxis, 0.12);
+  turn('head', xAxis, 0.1);
+
+  for (const side of ['left', 'right']) {
+    // coscia in avanti, ginocchio piegato, piede appoggiato sulla pedana
+    turn(`${side}upleg`, xAxis, -1.12);
+    turn(`${side}leg`, xAxis, 1.25);
+    turn(`${side}foot`, xAxis, -0.38);
+    // braccia lungo i fianchi e poi in avanti verso il manubrio
+    turn(`${side}arm`, zAxis, side === 'left' ? 0.98 : -0.98);
+    turn(`${side}arm`, xAxis, -0.56);
+    turn(`${side}forearm`, xAxis, -0.78);
+    turn(`${side}hand`, xAxis, -0.12);
+  }
+}
+
+/**
+ * Fari: candela e portata pensate per guidare di notte a 90–100 km/h.
+ * Con `decay` 1 la luce arriva lontano senza bruciare l'asfalto davanti al
+ * paraurti. Con 150 cd il cono si vedeva appena: 800 cd restano leggibili
+ * sulle facciate delle case ma non le bruciano.
+ */
+const HEADLIGHT_INTENSITY = 800;
+const HEADLIGHT_DISTANCE = 90;
+const HEADLIGHT_ANGLE = Math.PI / 6.4;
 
 /**
  * Veicolo giocabile.
@@ -85,7 +177,7 @@ export class Vehicle {
   /** GLB importato dal garage: sostituisce la carrozzeria procedurale. */
   private customModel: THREE.Object3D | null = null;
   /** Ruote separate trovate nel GLB (nomi `wheel-fl`, `wheel-fr`, ecc.). */
-  private readonly externalWheels: { node: THREE.Object3D; front: boolean; radius: number }[] = [];
+  private readonly externalWheels: ExternalWheel[] = [];
   /** raggio medio delle ruote separate, in metri: il rotolamento deve combaciare col terreno */
   private externalWheelRadius: number | null = null;
   /** environment map del cielo, per vernice e vetri che brillano davvero */
@@ -105,6 +197,11 @@ export class Vehicle {
   /** Rollio e beccheggio della carrozzeria (rad). */
   private leanRoll = 0;
   private leanPitch = 0;
+  /** Pilota visibile sulle due ruote: corpo umano vero, non un manichino. */
+  private riderAssets: HumanAssets | null = null;
+  private riderAppearance: Appearance | null = null;
+  private riderBody: HumanBody | null = null;
+  private riderRoot: THREE.Group | null = null;
   /** Evita di pagare il colpo a ogni frame mentre si resta sul bordo. */
   private curbCooldown = 0;
 
@@ -185,6 +282,18 @@ export class Vehicle {
     this.build();
   }
 
+  /** Fornisce il corpo del giocatore da usare come pilota delle due ruote. */
+  setRider(assets: HumanAssets | null, appearance: Appearance | null): void {
+    this.riderAssets = assets;
+    this.riderAppearance = appearance;
+    this.buildRider();
+  }
+
+  /** In auto il pilota e' dentro l'abitacolo; a piedi resta il veicolo vuoto. */
+  setRiderVisible(visible: boolean): void {
+    if (this.riderRoot) this.riderRoot.visible = visible;
+  }
+
   private clear(): void {
     for (const geometry of this.geometries) geometry.dispose();
     for (const material of this.materials) material.dispose();
@@ -202,6 +311,9 @@ export class Vehicle {
     this.paintTargets.length = 0;
     this.lensMaterials.length = 0;
     this.rearLenses.length = 0;
+    this.riderBody?.dispose();
+    this.riderBody = null;
+    this.riderRoot = null;
     this.bodyGroup.clear();
     for (const child of [...this.group.children]) {
       if (child !== this.bodyGroup) this.group.remove(child);
@@ -488,14 +600,36 @@ export class Vehicle {
 
     // fari veri (due spot, niente ombre)
     for (const side of [-1, 1]) {
-      const beam = new THREE.SpotLight(0xfff0cf, 0, 55, Math.PI / 7, 0.55, 1.2);
+      const beam = new THREE.SpotLight(0xfff0cf, 0, HEADLIGHT_DISTANCE, HEADLIGHT_ANGLE, 0.65, 1.0);
       beam.position.set(side * halfWidth * 0.62, bodyY + 0.06, -halfLength + 0.05);
       beam.castShadow = false;
       this.group.add(beam);
-      beam.target.position.set(side * halfWidth, -0.4, -18);
+      // i due coni convergono appena verso il centro: prima divergono e
+      // lasciavano una V scura davanti al cofano
+      beam.target.position.set(side * halfWidth * 0.25, -0.7, -24);
       this.group.add(beam.target);
+      beam.userData.gain = 1;
       this.headlights.push(beam);
     }
+
+    // riempimento centrale: due fari separati lasciano una V scura davanti al
+    // cofano, che di notte sembra un buco nell'asfalto. Un terzo fascio più
+    // largo e al 45% la chiude senza raddoppiare la luce sui muri.
+    const fill = new THREE.SpotLight(
+      0xfff0cf,
+      0,
+      HEADLIGHT_DISTANCE * 0.85,
+      HEADLIGHT_ANGLE * 1.15,
+      0.9,
+      1.0,
+    );
+    fill.position.set(0, bodyY + 0.02, -halfLength + 0.05);
+    fill.target.position.set(0, -0.9, -20);
+    fill.castShadow = false;
+    fill.userData.gain = 0.45;
+    this.group.add(fill);
+    this.group.add(fill.target);
+    this.headlights.push(fill);
 
     // ombre di contatto sotto le ruote: senza, l'auto sembra "galleggiare"
     // sull'asfalto (le ombre del sole arrivano da lontano e non chiudono il
@@ -505,6 +639,7 @@ export class Vehicle {
     for (const side of [-1, 1]) shadows.push({ x: side * spec.track * 0.5, z: rearZ, r: spec.wheelRadius });
     this.buildContactShadows(shadows);
     this.applyEnvironment();
+    this.buildRider();
   }
 
   /**
@@ -720,18 +855,69 @@ export class Vehicle {
     const halfWidth = spec.width / 2;
     const halfLength = spec.length / 2;
     for (const side of [-1, 1]) {
-      const beam = new THREE.SpotLight(0xfff0cf, 0, 55, Math.PI / 7, 0.55, 1.2);
+      const beam = new THREE.SpotLight(0xfff0cf, 0, HEADLIGHT_DISTANCE, HEADLIGHT_ANGLE, 0.5, 1.0);
       beam.position.set(side * halfWidth * 0.62, spec.height * 0.32, -halfLength + 0.06);
       beam.castShadow = false;
       this.group.add(beam);
-      beam.target.position.set(side * halfWidth, -0.4, -18);
+      beam.target.position.set(side * halfWidth * 0.25, -0.4, -24);
       this.group.add(beam.target);
+      beam.userData.gain = 1;
       this.headlights.push(beam);
     }
+    const fill = new THREE.SpotLight(
+      0xfff0cf,
+      0,
+      HEADLIGHT_DISTANCE * 0.85,
+      HEADLIGHT_ANGLE * 1.15,
+      0.9,
+      1.0,
+    );
+    fill.position.set(0, spec.height * 0.3, -halfLength + 0.06);
+    fill.target.position.set(0, -0.7, -20);
+    fill.castShadow = false;
+    fill.userData.gain = 0.45;
+    this.group.add(fill);
+    this.group.add(fill.target);
+    this.headlights.push(fill);
     this.buildIndicators(spec);
     // se si cambia auto di notte, i fari del nuovo modello devono accendersi
     // subito invece di aspettare il prossimo cambio di luce
     this.setLights(this.nightLevel);
+    this.buildRider();
+  }
+
+  /**
+   * Pilota sulle due ruote.
+   *
+   * Il corpo e' lo stesso `HumanBody` del giocatore (scheletro e texture
+   * condivisi, quindi una sola copia in memoria). La posa seduta si costruisce
+   * sulle ossa standard Ready Player Me: cosce in avanti, ginocchia piegate,
+   * busto leggermente inclinato e mani verso il manubrio. Non e' una clip:
+   * la moto non ha una seduta animata e un'idle in piedi sembrerebbe un
+   * passeggero fantasma.
+   */
+  private buildRider(): void {
+    this.riderBody?.dispose();
+    this.riderBody = null;
+    this.riderRoot = null;
+    const mount = this.spec.rider;
+    if (!mount || !this.riderAssets || !this.riderAppearance) return;
+
+    const body = new HumanBody(this.riderAssets, this.riderAppearance, { shadow: true });
+    // applica la posa di riposo dell'idle una volta: da qui in poi il mixer non
+    // avanza e le rotazioni delle ossa restano quelle della seduta
+    body.update(0, 0);
+    poseSeatedRider(body.root);
+
+    const root = new THREE.Group();
+    root.name = 'vehicle-rider';
+    // il GLB umano guarda verso +Z; il veicolo gioca con il muso a -Z
+    root.rotation.y = Math.PI;
+    root.position.set(0, mount.seatY - 0.56 * this.riderAppearance.height, mount.seatZ);
+    root.add(body.group);
+    this.bodyGroup.add(root);
+    this.riderRoot = root;
+    this.riderBody = body;
   }
 
   /**
@@ -748,25 +934,40 @@ export class Vehicle {
   private collectExternalWheels(source: THREE.Object3D): void {
     source.updateMatrixWorld(true);
     const fallback = this.spec.wheelRadius;
-    const found: { node: THREE.Object3D; front: boolean; radius: number }[] = [];
-    const seen = new Set<THREE.Object3D>();
-    let radiusSum = 0;
+
+    // Prima si raccolgono i candidati, poi si modifica la gerarchia: spostare
+    // i nodi durante `traverse` può far saltare o visitare due volte le ruote.
+    const candidates: { object: THREE.Object3D; tag: 'fl' | 'fr' | 'rl' | 'rr' }[] = [];
     source.traverse((object) => {
       if (!object.name) return;
-      const match = /(?:^|[-_ ])wheel[-_ ]?(fl|fr|rl|rr)$/i.exec(object.name);
-      if (!match) return;
+      const tag = wheelTag(object.name);
+      if (tag) candidates.push({ object, tag });
+    });
+
+    const found: ExternalWheel[] = [];
+    const seen = new Set<THREE.Object3D>();
+    let radiusSum = 0;
+    for (const { object, tag } of candidates) {
       const parent = object.parent;
-      if (!parent) return;
-      const tag = match[1].toLowerCase();
+      if (!parent) continue;
       const front = tag === 'fl' || tag === 'fr';
-      const splitHub = parent.name.endsWith('-hub') ? parent : null;
+      const splitHub = object.name.endsWith('-hub')
+        ? object
+        : parent.name.endsWith('-hub')
+          ? parent
+          : null;
 
       // una ruota può avere sotto-nodi che finiscono con lo stesso tag
       // (`wheel-fl` > `ALIAS_Wheel_FL`): si gestisce solo il perno più in alto
       if (!splitHub) {
+        let nested = false;
         for (let ancestor: THREE.Object3D | null = parent; ancestor; ancestor = ancestor.parent) {
-          if (ancestor.name.endsWith('-hub')) return;
+          if (ancestor.name.endsWith('-hub')) {
+            nested = true;
+            break;
+          }
         }
+        if (nested) continue;
       }
 
       // il modello è già stato costruito una volta: il perno esiste e va
@@ -774,32 +975,41 @@ export class Vehicle {
       // resterebbero ferme
       let hub: THREE.Object3D;
       if (splitHub) {
-        if (seen.has(splitHub)) return;
+        if (seen.has(splitHub)) continue;
         hub = splitHub;
       } else {
+        // Il perno va agganciato alla radice del modello, non al padre della
+        // ruota: molti GLB hanno la scocca dentro nodi ruotati (Z-up, rollio
+        // dell'export) e in quel caso `rotation.x` non è l'asse della ruota,
+        // quindi la gomma sembrava ferma o girava storta. `attach` conserva la
+        // posa mondiale, quindi il modello non si muove.
         const world = preciseBox(object).getCenter(new THREE.Vector3());
         const created = new THREE.Group();
         created.name = `${object.name}-hub`;
         created.rotation.order = 'YXZ';
-        parent.add(created);
-        created.position.copy(parent.worldToLocal(world));
+        source.add(created);
+        created.position.copy(source.worldToLocal(world.clone()));
         created.updateMatrixWorld(true);
         created.attach(object);
         hub = created;
       }
 
       // il raggio è quello dell'ingombro della ruota, non quello dichiarato
-      // nello spec: pneumatici più grandi devono rotolare quanto il terreno
+      // nello spec: pneumatici più grandi devono rotolare quanto il terreno.
+      // La misura però si scarta se è assurda (un cerchio dentro la carrozzeria
+      // o una mesh che include il passaruota): meglio il raggio della scheda
+      // che una ruota che gira a vuoto o sembra immobile.
       hub.rotation.set(0, 0, 0);
       const size = preciseBox(hub).getSize(new THREE.Vector3());
       const measured = Math.max(size.x, size.y, size.z) / 2;
-      const radius = measured > 0.08 && measured < 1.6 ? measured : fallback;
+      const radius =
+        measured > fallback * 0.55 && measured < fallback * 1.4 ? measured : fallback;
       hub.userData.wheelRadius = radius;
 
       seen.add(hub);
-      found.push({ node: hub, front, radius });
+      found.push({ node: hub, front, radius, spin: 0 });
       radiusSum += radius;
-    });
+    }
     this.externalWheels.push(...found);
     if (found.length > 0) this.externalWheelRadius = radiusSum / found.length;
   }
@@ -897,7 +1107,9 @@ export class Vehicle {
     const on = this.headlightOverride
       ? Math.max(0.55, this.nightLevel)
       : this.nightLevel;
-    for (const beam of this.headlights) beam.intensity = 42 * on;
+    for (const beam of this.headlights) {
+      beam.intensity = HEADLIGHT_INTENSITY * on * (beam.userData.gain ?? 1);
+    }
     this.lampMat.emissiveIntensity = 0.5 + 2.6 * on;
     this.tailMat.emissiveIntensity = 0.3 + 1.2 * on;
     this.applyLenses(on);
@@ -977,9 +1189,9 @@ export class Vehicle {
     }
   }
 
-  reset(x: number, z: number, yaw: number, heights: Heightfield): void {
+  reset(x: number, z: number, yaw: number, ground: GroundSampler): void {
     this.state = createCarState(x, z, yaw);
-    const y = heights.heightAt(x, z);
+    const y = ground.heightAt(x, z);
     this.group.position.set(x, y, z);
     this.group.rotation.set(0, yaw, 0);
     this.tiltPitch = 0;
@@ -995,8 +1207,7 @@ export class Vehicle {
   update(
     dt: number,
     input: CarInput,
-    heights: Heightfield,
-    roads: RoadIndex,
+    ground: GroundSampler,
     buildings: BuildingIndex,
     obstacles?: ObstacleIndex,
   ): void {
@@ -1004,14 +1215,14 @@ export class Vehicle {
     const halfTrack = spec.track / 2;
     const before = this.state;
 
-    const onRoad = roads.isOnRoad(this.state.x, this.state.z, 0.4);
-    // il piano di appoggio include asfalto e marciapiede: la fisica della
-    // pendenza deve sentire la stessa quota che si vede
-    const groundAt = (x: number, z: number): number => heights.heightAt(x, z) + roads.surfaceOffset(x, z);
+    const here = ground.sampleAt(this.state.x, this.state.z);
+    const onRoad = here.onRoad;
+    // il piano di appoggio include asfalto, marciapiede e ponte: la fisica
+    // della pendenza deve sentire la stessa quota che si vede
     const next = stepCar(
       this.state,
       input,
-      { onRoad, groundHeight: groundAt },
+      { onRoad, groundHeight: (x, z) => ground.heightAt(x, z) },
       dt,
       tuningFor(spec),
     );
@@ -1039,7 +1250,7 @@ export class Vehicle {
 
     // lo scalino del cordolo si sente: la carrozzeria sobbalza e l'auto perde
     // un po' di velocità, senza teletrasporti
-    const targetLift = roads.surfaceOffset(next.x, next.z);
+    const targetLift = ground.sampleAt(next.x, next.z).lift;
     // al primo frame non c'è uno scalino da sentire: si registra e basta
     const impact = Number.isFinite(this.lastTargetLift)
       ? curbImpact(this.lastTargetLift, targetLift)
@@ -1060,10 +1271,10 @@ export class Vehicle {
     const fz = -Math.cos(next.yaw);
     const rx = Math.cos(next.yaw);
     const rz = -Math.sin(next.yaw);
-    const hFront = heights.heightAt(next.x + fx * spec.wheelbase * 0.5, next.z + fz * spec.wheelbase * 0.5);
-    const hBack = heights.heightAt(next.x - fx * spec.wheelbase * 0.5, next.z - fz * spec.wheelbase * 0.5);
-    const hRight = heights.heightAt(next.x + rx * halfTrack, next.z + rz * halfTrack);
-    const hLeft = heights.heightAt(next.x - rx * halfTrack, next.z - rz * halfTrack);
+    const hFront = ground.heightAt(next.x + fx * spec.wheelbase * 0.5, next.z + fz * spec.wheelbase * 0.5);
+    const hBack = ground.heightAt(next.x - fx * spec.wheelbase * 0.5, next.z - fz * spec.wheelbase * 0.5);
+    const hRight = ground.heightAt(next.x + rx * halfTrack, next.z + rz * halfTrack);
+    const hLeft = ground.heightAt(next.x - rx * halfTrack, next.z - rz * halfTrack);
 
     const groundY = (hFront + hBack + hRight + hLeft) / 4;
     const targetPitch = Math.atan2(hFront - hBack, spec.wheelbase);
@@ -1077,7 +1288,13 @@ export class Vehicle {
     // fisica non espone). Più lento del terreno, come una sospensione.
     const yawRate = dt > 0 ? (next.yaw - before.yaw) / dt : 0;
     const accel = dt > 0 ? (next.speed - before.speed) / dt : 0;
-    const lean = bodyLean(next.speed, yawRate, accel);
+    const lean = bodyLean(
+      next.speed,
+      yawRate,
+      accel,
+      this.spec.leanFactor ?? 1,
+      this.spec.maxLean ?? 0.1,
+    );
     const kLean = 1 - Math.exp(-7 * dt);
     this.leanRoll += (lean.roll - this.leanRoll) * kLean;
     this.leanPitch += (lean.pitch - this.leanPitch) * kLean;
@@ -1089,7 +1306,10 @@ export class Vehicle {
     this.group.position.set(next.x, groundY + this.surfaceLift + this.bump, next.z);
     this.group.rotation.set(this.tiltPitch + this.leanPitch, next.yaw, this.tiltRoll + this.leanRoll);
 
-    const steerAngle = next.steer * spec.maxSteer * 0.95;
+    // le ruote anteriori girano dello stesso angolo calcolato dalla fisica:
+    // prima la grafica usava il lock massimo e a 100 km/h le gomme restavano
+    // sterzate mentre l'auto andava dritta
+    const steerAngle = next.steer * steerLock(spec.maxSteer, next.speed);
     for (const pivot of this.frontPivots) pivot.rotation.y = steerAngle;
     // per le ruote esterne si usa il raggio reale della ruota: se la carrozzeria
     // ha pneumatici più grandi o più piccoli dello spec, il rotolamento deve
@@ -1097,10 +1317,13 @@ export class Vehicle {
     this.wheelSpin += (next.speed / (this.externalWheelRadius ?? spec.wheelRadius)) * dt;
     for (const wheel of this.wheels) wheel.rotation.x = this.wheelSpin;
     // GLB importati: il muso è stato ruotato di 180°, quindi il verso di
-    // rotazione delle ruote è opposto a quello dei modelli procedurali
+    // rotazione delle ruote è opposto a quello dei modelli procedurali.
+    // Ogni ruota accumula il proprio angolo col proprio raggio: un asse
+    // posteriore più grande non può girare come l'anteriore.
     for (const wheel of this.externalWheels) {
       if (wheel.front) wheel.node.rotation.y = steerAngle;
-      wheel.node.rotation.x = -this.wheelSpin;
+      wheel.spin += (next.speed / wheel.radius) * dt;
+      wheel.node.rotation.x = -wheel.spin;
     }
 
     // fanalini: si accendono in frenata e diventano bianchi in retromarcia

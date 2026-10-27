@@ -6,8 +6,8 @@ const flat: CarEnv = { onRoad: true, groundHeight: () => 100 };
 const gas: CarInput = { throttle: 1, brake: 0, steer: 0, handbrake: false };
 
 describe('guida credibile', () => {
-  it('la Panda vecchia non arriva a 100 km/h in pochi secondi', () => {
-    const tuning = tuningFor(getVehicle('panda-classic'));
+  it('la Uno vecchia non arriva a 100 km/h in pochi secondi', () => {
+    const tuning = tuningFor(getVehicle('fiat-uno-1994'));
     let s = createCarState(0, 0, 0);
     let t = 0;
     while (speedKmh(s.speed) < 100 && t < 60) {
@@ -20,7 +20,7 @@ describe('guida credibile', () => {
   });
 
   it('a 50 km/h una sterzata piena non fa girare di 180° in un secondo', () => {
-    const tuning = tuningFor(getVehicle('panda-classic'));
+    const tuning = tuningFor(getVehicle('fiat-uno-1994'));
     let s = { ...createCarState(0, 0, 0), speed: 50 / 3.6 };
     for (let i = 0; i < 60; i++) s = stepCar(s, { ...gas, steer: 1 }, flat, 1 / 60, tuning);
     const deg = Math.abs(s.yaw) * (180 / Math.PI);

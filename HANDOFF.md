@@ -1,6 +1,6 @@
 # HANDOFF — Molise Open World
 
-> Documento di passaggio di consegne. Ultimo aggiornamento: **26 ottobre 2026**.
+> Documento di passaggio di consegne. Ultimo aggiornamento: **27 ottobre 2026**.
 > Leggilo per intero prima di toccare il codice: contiene stato, vincoli, comandi,
 > criteri di qualità e prossimi passi con criteri di accettazione.
 
@@ -31,14 +31,15 @@ Stack: TypeScript + Vite + Three.js (WebGL2), Vitest, nessun framework UI.
 
 | Area | Stato | Note |
 | --- | --- | --- |
-| Dati OSM | ✅ completi | 1.090 strade, 2.193 edifici, 1.337 aree, 96 corsi d'acqua |
-| DEM | ✅ | griglia 10 m, `heights.bin` Int16 in decimetri |
+| Dati OSM | ✅ completi | 1.139 strade (455,2 km, 43 ponti, 6 gallerie), 2.880 edifici, 1.383 aree, 96 corsi d'acqua; tag corsie/superficie/larghezza disponibili |
+| DEM | ✅ | griglia 5 m (2823×2444), 70–1033 m, `heights.bin` Int16 in decimetri |
 | Terreno | ✅ | chunk 912 m, 96 segmenti, streaming raggio 3,1 km |
 | Satellite | ✅ | mosaico Sentinel-2 locale per ogni chunk; tile Esri z18 ≤500 m, z17 fino a 3200 m, z16 oltre |
 | Normal map | ✅ | 128×128 per chunk, generata dal DEM |
-| Strade | ✅ aggiornato | asfalto scuro con mezzeria tratteggiata; **marciapiede rialzato 18 cm con cordolo a faccia verticale**, interrotto agli incroci |
+| Strade | ✅ aggiornato | asfalto scuro con mezzeria tratteggiata; **marciapiede rialzato 18 cm con cordolo a faccia verticale**, interrotto agli incroci; **ponti OSM con impalcato** e **guardrail** su ponti/scarpate |
+| Quota calpestabile | ✅ nuovo | `src/geo/ground.ts`: unica `groundAt` per gioco, giocatore, auto, pedoni, camera e meteo; include strada, marciapiede e ponte |
 | Edifici | ✅ aggiornato | estrusione + tetti a falde + **cornicione, comignolo, pluviali e balconi**; finestre incassate da normal map dedicata |
-| Vegetazione | ✅ aggiornato | tronchi con corteccia PBR, chiome a card fotografiche con `alphaMap`, vento nei vertici, max 7000 alberi |
+| Vegetazione | ✅ aggiornato | tronchi con corteccia PBR, chiome a card fotografiche con `alphaMap`, vento nei vertici; altezza e densità guidate da **ETH Canopy Height 10 m** (fallback OSM se `canopy.bin` manca) |
 | Prati | ✅ aggiornato | 60k ciuffi istanziati, lame sottili su canvas 256 (`alphaTest`), vento; marciapiedi e cordoli restano liberi |
 | Acqua | ✅ aggiornato | nastri torrenti + poligoni laghi con normali scorrevoli e materiale fisico (clearcoat) |
 | Meteo reale | ✅ nuovo | Open-Meteo + sole NOAA, cupola nuvole, pioggia/neve, switch in impostazioni |
@@ -48,7 +49,7 @@ Stack: TypeScript + Vite + Three.js (WebGL2), Vitest, nessun framework UI.
 | Qualità | ✅ aggiornato | **5 preset** (compatibilità→ultra) con budget di mondo, auto-detect dalla GPU e **degradazione automatica a gradini** per i PC molto lenti |
 | Audio | ✅ nuovo | WebAudio procedurale: motore per modello (cilindri/regimi reali), rotolamento, vento, passi, uccelli |
 | Fisica auto | ✅ | modello bicycle puro, testato |
-| Catalogo veicoli | ✅ aggiornato | **14 modelli, tutti da GLB**: 10 di serie in `public/cars/` (Punto, Aventador, 458, Defender, R8, Cupra, Porsche, Camaro, MG7, Harley) + 4 carrozzerie del kit. Le 21 sagome procedurali sono state **eliminate**; più le auto importate dal garage |
+| Catalogo veicoli | ✅ aggiornato | **30 modelli, tutti da GLB**: i 30 file di `cars.zip` in `public/cars/`, con crediti e licenze in `ATTRIBUTION.md`. Le vecchie sagome procedurali sono state **eliminate**; più le auto importate dal garage |
 | Economia virtuale | ✅ nuovo | SOLO EURO DI GIOCO: contanti + conto virtuale, acquisti atomici, storico, ATM simulato (`src/sim/economy.ts`) |
 | Luoghi di Palata | ✅ nuovo | catalogo data-driven, stato di verifica esplicito, **nessuno `verified`** (`src/sim/venue-catalog.ts`) |
 | Bisogni + orologio | ✅ nuovo | fame/energia/divertimento, giorno/notte, sonno a casa (`src/sim/needs.ts`) |
@@ -68,7 +69,15 @@ Stack: TypeScript + Vite + Three.js (WebGL2), Vitest, nessun framework UI.
 Dettagli di progetto e stato funzionalità: `docs/LIFE_SIMULATOR.md` e
 `docs/ROADMAP.md`.
 
-Ultime verifiche fatte (macchina Windows, 24/10/2026, rete disponibile):
+**Ultime verifiche fatte (macchina Windows, 27/10/2026, rete disponibile):**
+`npx tsc --noEmit` ✅, `npm test` **301/301** ✅, `npm run build` ✅,
+`npm run geo:audit` ✅ (DEM 2823×2444 a 5 m, OSM 1.139 way / 455,2 km / 43 ponti /
+6 gallerie), banco `medium` su Radeon RX 580 con i dati nuovi: strada 71,0 fps,
+crinale 62,5 fps, piazza 67,0 fps. Ponte e guardrail controllati a schermo con
+`bench --poses` sul ponte service vicino a Palata. Dettaglio nella sezione
+[27 ottobre 2026](docs/REALISM-PLAN.md#27-ottobre-2026--fase-01-e-primo-passo-verso-slow-roads).
+
+Verifiche del 24/10/2026 (storico):
 `npm ci` ✅, `npm test` 193/193 ✅ (19 file: geo, DEM, OSM, fisica auto, routing,
 tetti, sole, economia, bisogni, catalogo luoghi, salvataggio, veicoli GLB,
 voce del motore), `npm run build` ✅, gioco verificato dal vivo (Guida,
@@ -125,6 +134,9 @@ npm run smoke          # e2e Chrome headless; richiede `npm run preview` attivo
 npm run geo            # riscarica OSM + DEM (rete! attenzione ai DNS)
 npm run geo -- --skip-dem
 npm run geo -- --skip-osm
+npm run geo:audit      # verifica bbox, km, ponti, tag OSM e pendenze
+npm run canopy         # rigenera public/geo/canopy.bin da ETH Canopy Height
+npm run landcover      # rigenera WorldCover + OSM (ignorata da git)
 ```
 
 URL utili:
@@ -163,6 +175,8 @@ URL utili:
 src/
   config.ts              bbox, proiezione lat/lon→x/z, HOME/START, colori, tuning
   game.ts                orchestrazione, input, camera, loop, qualità, audio, HUD
+  geo/ground.ts          unica quota calpestabile (DEM + strada + ponte)
+  geo/canopy.ts          altezza chioma ETH con fallback
   main.ts                bootstrap
   geo/
     geo.ts               mercator, poligoni, PRNG, hash

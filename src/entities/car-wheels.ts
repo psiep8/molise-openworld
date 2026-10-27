@@ -86,12 +86,19 @@ function scaleOf(matrix: THREE.Matrix4): number {
 export function existingWheelHubs(source: THREE.Object3D): SplitWheelsResult | null {
   let wheels = 0;
   let radius = 0;
+  let front = false;
+  let rear = false;
   source.traverse((object) => {
     if (!HUB_PATTERN.test(object.name)) return;
     wheels++;
     radius += Number(object.userData.wheelRadius ?? 0);
+    if (/f[lr]-hub$/i.test(object.name)) front = true;
+    if (/r[lr]-hub$/i.test(object.name)) rear = true;
   });
-  if (wheels < 4) return null;
+  // Due ruote bastano per una moto, ma devono essere una davanti e una
+  // dietro: così uno split rimasto a metà (solo l'avantreno) non viene
+  // scambiato per un modello già pronto.
+  if (wheels < 2 || !front || !rear) return null;
   return { wheels, radius: radius / wheels };
 }
 
@@ -112,12 +119,19 @@ export function splitCarWheels(source: THREE.Object3D, disposeOriginal = false):
   if (existing) return existing;
 
   // ruote già separate dall'editor (nomi `wheel-fl`…): le gestisce Vehicle,
-  // qui si evita di raddoppiarle
+  // qui si evita di raddoppiarle. Anche una moto ha due ruote (una davanti e
+  // una dietro) e non va spezzata di nuovo.
   let declared = 0;
+  let declaredFront = false;
+  let declaredRear = false;
   source.traverse((object) => {
-    if (!HUB_PATTERN.test(object.name) && WHEEL_PATTERN.test(object.name)) declared++;
+    if (HUB_PATTERN.test(object.name)) return;
+    if (!WHEEL_PATTERN.test(object.name)) return;
+    declared++;
+    if (/f[lr]$/i.test(object.name)) declaredFront = true;
+    if (/r[lr]$/i.test(object.name)) declaredRear = true;
   });
-  if (declared >= 4) return null;
+  if (declared >= 4 || (declared >= 2 && declaredFront && declaredRear)) return null;
 
   source.updateMatrixWorld(true);
   const carBox = preciseBox(source);
@@ -161,15 +175,32 @@ export function splitCarWheels(source: THREE.Object3D, disposeOriginal = false):
   // scala del modello rispetto al veicolo: il raggio della ruota deve uscire in
   // metri di gioco, non nelle unità grezze del file
   const sourceScale = scaleOf(source.matrixWorld);
+
+  // Analisi **prima** di toccare la geometria: se non si trovano abbastanza
+  // ruote il modello resta esattamente com'era. Prima lo split veniva fatto e
+  // solo alla fine si scopriva che mancavano due ruote, lasciando macchine a
+  // metà (carrozzeria rifatta, ruote rimaste fuse o ferme).
+  const plan: {
+    mesh: THREE.Mesh;
+    parent: THREE.Object3D;
+    analysis: NonNullable<ReturnType<typeof analyseMesh>>;
+  }[] = [];
+  const cornersFound = new Set<number>();
+  for (const mesh of meshes) {
+    const analysis = analyseMesh(mesh, carBox, carSize, cornerTarget);
+    if (!analysis || analysis.corners.length === 0) continue;
+    for (const corner of analysis.corners) cornersFound.add(corner.index);
+    plan.push({ mesh, parent: mesh.parent as THREE.Object3D, analysis });
+  }
+  // Le auto hanno quattro ruote; moto e tricicli sono stretti e si accontentano
+  // di due/tre. Meglio un modello intatto che un'auto senza due ruote.
+  const minimum = carSize.x < 1.3 ? 2 : 4;
+  if (cornersFound.size < minimum) return null;
+
   let created = 0;
   let radiusSum = 0;
 
-  for (const mesh of meshes) {
-    const parent = mesh.parent;
-    if (!parent) continue;
-    const analysis = analyseMesh(mesh, carBox, carSize, cornerTarget);
-    if (!analysis || analysis.corners.length === 0) continue;
-
+  for (const { mesh, parent, analysis } of plan) {
     const toSource = new THREE.Matrix4().multiplyMatrices(sourceInverse, mesh.matrixWorld);
     const normalMatrix = new THREE.Matrix3().getNormalMatrix(toSource);
     const meshScale = scaleOf(toSource);
@@ -184,7 +215,11 @@ export function splitCarWheels(source: THREE.Object3D, disposeOriginal = false):
       rebuilt.name = mesh.name || 'body';
       rebuilt.castShadow = mesh.castShadow;
       rebuilt.receiveShadow = mesh.receiveShadow;
-      parent.add(rebuilt);
+      // `extract` ha già portato i vertici nello spazio del template: va
+      // agganciato alla radice, non al vecchio padre (che applicherebbe di
+      // nuovo scala e rotazione del GLB). Era il motivo per cui, dopo lo split,
+      // la carrozzeria dell'Audi Novulari spariva o restava rimpicciolita.
+      source.add(rebuilt);
     }
 
     for (const corner of analysis.corners) {
@@ -206,7 +241,7 @@ export function splitCarWheels(source: THREE.Object3D, disposeOriginal = false):
         hub.userData.wheelRadius = Math.max(Number(hub.userData.wheelRadius ?? 0), radius);
       }
 
-      const local = new THREE.Matrix4().makeTranslation(-hub.position.x, -hub.position.y, -hub.position.z);
+      const local = new THREE.Matrix4().makeTranslation(-hub.position.x, -hub.position.y, -hub.position.z).multiply(toSource);
       const wheel = new THREE.Mesh(
         extract(mesh.geometry as THREE.BufferGeometry, corner.triangles, local, normalMatrix),
         material,
@@ -224,7 +259,7 @@ export function splitCarWheels(source: THREE.Object3D, disposeOriginal = false):
     if (disposeOriginal && (usage.get(geometry) ?? 0) <= 1) geometry.dispose();
   }
 
-  if (created < 4) return null;
+  if (created < minimum) return { wheels: created, radius: created > 0 ? radiusSum / created : 0 };
   return { wheels: created, radius: radiusSum / created };
 }
 
@@ -255,15 +290,33 @@ function analyseMesh(
 
   const at = (t: number, k: number): number => (index ? index[t * 3 + k] : t * 3 + k);
 
+  // I vertici del GLB sono nello spazio locale della mesh, mentre `carBox` e
+  // gli angoli di riferimento sono nello spazio del template (dopo yaw, scala
+  // e centratura). Senza questa trasformazione un'auto esportata con l'asse
+  // Z-up veniva analizzata coricata: le ruote finivano tutte oltre la metà
+  // "altezza" e nessuna veniva riconosciuta. Era il motivo per cui Novulari,
+  // Punto e altri modelli restavano con le ruote ferme.
+  const world = new Float32Array(position.count * 3);
+  const point = new THREE.Vector3();
+  for (let i = 0; i < position.count; i++) {
+    point.fromBufferAttribute(position, i).applyMatrix4(mesh.matrixWorld);
+    world[i * 3] = point.x;
+    world[i * 3 + 1] = point.y;
+    world[i * 3 + 2] = point.z;
+  }
+  const wx = (i: number): number => world[i * 3];
+  const wy = (i: number): number => world[i * 3 + 1];
+  const wz = (i: number): number => world[i * 3 + 2];
+
   // weld: triangoli che condividono lo stesso vertice (entro 1 mm) sono
   // collegati, così le ruote isolate vengono fuori come componenti a parte
   const ids = new Int32Array(position.count);
   const weld = new Map<number, number>();
   for (let i = 0; i < position.count; i++) {
     const key =
-      (Math.round(position.getX(i) * 1000) + 8192) * 67108864 +
-      (Math.round(position.getY(i) * 1000) + 8192) * 8192 +
-      (Math.round(position.getZ(i) * 1000) + 8192);
+      (Math.round(wx(i) * 1000) + 8192) * 67108864 +
+      (Math.round(wy(i) * 1000) + 8192) * 8192 +
+      (Math.round(wz(i) * 1000) + 8192);
     let id = weld.get(key);
     if (id === undefined) {
       id = weld.size;
@@ -309,7 +362,7 @@ function analyseMesh(
     for (const t of components) {
       for (let k = 0; k < 3; k++) {
         const i = at(t, k);
-        box.expandByPoint(new THREE.Vector3(position.getX(i), position.getY(i), position.getZ(i)));
+        box.expandByPoint(new THREE.Vector3(wx(i), wy(i), wz(i)));
       }
     }
     const size = box.getSize(new THREE.Vector3());

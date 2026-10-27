@@ -1,4 +1,5 @@
 import { latLonToWorld } from '../config';
+import type { Heightfield } from './elevation';
 import { boundsOf, distanceToSegment2, pointInPolygon, type Bounds, type Pt } from './geo';
 
 /**
@@ -21,7 +22,26 @@ interface RawOsm {
   attribution: string;
   stats: Record<string, number>;
   places: { n: string; k: string; lat: number; lon: number }[];
-  roads: { t: string; n?: string; c: [number, number][] }[];
+  roads: {
+    t: string;
+    n?: string;
+    c: [number, number][];
+    /** ponte */
+    b?: 1;
+    /** galleria */
+    u?: 1;
+    /** layer OSM */
+    y?: number;
+    /** corsie */
+    ln?: number;
+    /** superficie normalizzata */
+    sf?: string;
+    /** una corsia: 1 nel verso del way, -1 nel verso opposto */
+    ow?: 1 | -1;
+    ms?: number;
+    wd?: number;
+    r?: string;
+  }[];
   buildings: { h: number; c: [number, number][] }[];
   areas: { k: string; c: [number, number][] }[];
   waterways: { t: string; c: [number, number][] }[];
@@ -41,6 +61,28 @@ export interface Road {
   paved: boolean;
   points: Pt[];
   bounds: Bounds;
+  /** Ponte carrabile: la carreggiata sta sopra il DEM. */
+  bridge?: boolean;
+  /** Galleria: il piano stradale non è quello del DEM soprastante. */
+  tunnel?: boolean;
+  /** Ordine verticale OSM (utile per incroci ponte/strada). */
+  layer?: number;
+  /** Numero di corsie dichiarato; undefined = non taggato. */
+  lanes?: number;
+  /** Superficie normalizzata (`asphalt`, `gravel`, `stone`, …). */
+  surface?: string;
+  /** Senso unico: 1 nel verso del way, -1 nel verso opposto. */
+  oneway?: 1 | -1;
+  maxspeed?: number;
+  ref?: string;
+  /** Larghezza presa dal tag OSM invece che dalla classe. */
+  tagWidth?: number;
+  /**
+   * Quota assoluta dei punti sul piano stradale per ponti/gallerie. È
+   * riempita da `prepareRoadElevations` e letta sia dalla grafica sia da
+   * `groundAt`, così non esistono due verità diverse.
+   */
+  elevations?: number[];
   /**
    * Un valore per punto: il marciapiede esiste solo dove la strada attraversa
    * il costruito. In campagna la provinciale non ha cordoli né lastre, e la
@@ -61,26 +103,70 @@ export interface Road {
  * di realismo).
  */
 export function markTownSidewalks(roads: Road[], buildings: BuildingIndex): void {
-  const cell = 32;
-  const margin = 30;
-  const covered = new Set<number>();
+  // Griglia dei centri degli edifici: conta quanti edifici ci sono entro 46 m
+  // da ogni punto della strada. Non basta "una casa vicina": un casale isolato
+  // in mezzo ai campi non è un marciapiede. Servono almeno 4 edifici, cioè un
+  // fronte urbano vero (in paese ce ne sono decine).
+  const cell = 48;
+  const radius = 46;
+  const minBuildings = 4;
+  const grid = new Map<number, { x: number; z: number }[]>();
   const key = (cx: number, cz: number): number => (cx + 4096) * 8192 + (cz + 4096);
   for (const b of buildings.all) {
-    const minX = b.bounds.minX - margin;
-    const maxX = b.bounds.maxX + margin;
-    const minZ = b.bounds.minZ - margin;
-    const maxZ = b.bounds.maxZ + margin;
-    for (let cx = Math.floor(minX / cell); cx <= Math.floor(maxX / cell); cx++) {
-      for (let cz = Math.floor(minZ / cell); cz <= Math.floor(maxZ / cell); cz++) {
-        covered.add(key(cx, cz));
-      }
-    }
+    const x = (b.bounds.minX + b.bounds.maxX) * 0.5;
+    const z = (b.bounds.minZ + b.bounds.maxZ) * 0.5;
+    const k = key(Math.floor(x / cell), Math.floor(z / cell));
+    const list = grid.get(k);
+    if (list) list.push({ x, z });
+    else grid.set(k, [{ x, z }]);
   }
+
   for (const road of roads) {
     if (!road.paved) continue;
-    road.walkSpans = road.points.map((p) =>
-      covered.has(key(Math.floor(p.x / cell), Math.floor(p.z / cell))),
-    );
+    const covered = road.points.map((p) => {
+      const cx = Math.floor(p.x / cell);
+      const cz = Math.floor(p.z / cell);
+      let count = 0;
+      for (let ix = cx - 1; ix <= cx + 1 && count < minBuildings; ix++) {
+        for (let iz = cz - 1; iz <= cz + 1 && count < minBuildings; iz++) {
+          const list = grid.get(key(ix, iz));
+          if (!list) continue;
+          for (const b of list) {
+            if ((b.x - p.x) ** 2 + (b.z - p.z) ** 2 <= radius * radius) count++;
+            if (count >= minBuildings) break;
+          }
+        }
+      }
+      return count >= minBuildings;
+    });
+
+    // Un marciapiede non nasce e muore a ogni casa: si allarga di un punto e
+    // si chiudono le buche di uno o due punti, così il nastro resta continuo
+    // lungo la via del paese invece di spezzarsi in frammenti.
+    const spans = covered.slice();
+    const spacing = (i: number): number =>
+      i <= 0 || i >= road.points.length
+        ? Number.POSITIVE_INFINITY
+        : Math.hypot(
+            road.points[i].x - road.points[i - 1].x,
+            road.points[i].z - road.points[i - 1].z,
+          );
+    for (let i = 0; i < covered.length; i++) {
+      if (!covered[i]) continue;
+      // allarga di un punto solo se i due punti sono vicini: nei dati veri il
+      // ricampionamento è a pochi metri, ma un test o un tratto OSM rado non
+      // deve trascinarsi il marciapiede per cento metri
+      if (i > 0 && spacing(i) <= 18) spans[i - 1] = true;
+      if (i + 1 < spans.length && spacing(i + 1) <= 18) spans[i + 1] = true;
+    }
+    let last = -1;
+    for (let i = 0; i < spans.length; i++) {
+      if (spans[i]) {
+        if (last >= 0 && i - last <= 3) for (let j = last + 1; j < i; j++) spans[j] = true;
+        last = i;
+      }
+    }
+    road.walkSpans = spans;
   }
 }
 
@@ -196,11 +282,26 @@ export async function loadOsm(base = './geo/'): Promise<OsmData> {
 
   const roads: Road[] = raw.roads.map((r) => {
     const points = project(r.c);
+    const surface = r.sf ?? (roadSurface(r.t) === 'asphalt' ? 'asphalt' : 'dirt');
+    // Il tag `width` è più preciso della classe, ma un valore assurdo non deve
+    // deformare la mappa: si accetta solo una forbice plausibile.
+    const tagWidth = r.wd && r.wd >= 2 && r.wd <= 14 ? r.wd : undefined;
     return {
       type: r.t,
       name: r.n ?? '',
-      width: roadWidth(r.t),
-      paved: roadSurface(r.t) === 'asphalt',
+      // Senza `width`, le corsie dichiarate sono un indizio migliore della
+      // sola classe: una provinciale a due corsie non è larga come un vicolo.
+      width: tagWidth ?? (r.ln && r.ln >= 2 ? Math.max(roadWidth(r.t), r.ln * 2.75 + 0.8) : roadWidth(r.t)),
+      paved: surface !== 'dirt' && surface !== 'gravel' && surface !== 'grass' && surface !== 'other',
+      surface,
+      tagWidth,
+      bridge: r.b === 1,
+      tunnel: r.u === 1,
+      layer: r.y,
+      lanes: r.ln,
+      oneway: r.ow,
+      maxspeed: r.ms,
+      ref: r.r,
       points,
       bounds: boundsOf(points),
     };
@@ -239,6 +340,64 @@ export async function loadOsm(base = './geo/'): Promise<OsmData> {
   };
 }
 
+export const BRIDGE_CLEARANCE = 0.28;
+
+/**
+ * Quota del piano stradale per ponti e gallerie.
+ *
+ * OSM dice *che* un tratto è un ponte, non a che quota sta il impalcato. Il
+ * DEM ai due imbocchi è invece affidabile: la campata viene interpolata fra le
+ * due testate, con un filo di franco. È la stessa quota usata dal nastro
+ * stradale e da `groundAt`, quindi l'auto non attraversa più il vuoto sotto il
+ * ponte né "scala" il terreno del torrente.
+ */
+export function prepareRoadElevations(roads: Road[], heights: Heightfield): void {
+  for (const road of roads) {
+    if (!road.bridge && !road.tunnel) {
+      road.elevations = undefined;
+      continue;
+    }
+    // Le gallerie non hanno ancora un foro scavato nel terreno: fino a quando
+    // non c'è il portale, il piano stradale resta quello del DEM (la strada si
+    // vede in superficie) invece di far sprofondare il giocatore nel monte.
+    if (road.tunnel && !road.bridge) {
+      road.elevations = undefined;
+      continue;
+    }
+    const n = road.points.length;
+    if (n < 2) continue;
+    const first = road.points[0]!;
+    const last = road.points[n - 1]!;
+    const h0 = heights.heightAt(first.x, first.z);
+    const h1 = heights.heightAt(last.x, last.z);
+    const clearance = road.bridge ? BRIDGE_CLEARANCE : 0;
+    const out = new Array<number>(n);
+    let travelled = 0;
+    const lengths = new Array<number>(n).fill(0);
+    for (let i = 1; i < n; i++) {
+      travelled += Math.hypot(road.points[i]!.x - road.points[i - 1]!.x, road.points[i]!.z - road.points[i - 1]!.z);
+      lengths[i] = travelled;
+    }
+    const total = travelled || 1;
+    for (let i = 0; i < n; i++) {
+      const t = lengths[i]! / total;
+      // Campata rettilinea: la stessa interpolazione è usata dal nastro
+      // grafico, quindi non ci sono due quote diverse a metà ponte.
+      out[i] = h0 + (h1 - h0) * t + clearance;
+    }
+    road.elevations = out;
+  }
+}
+
+/** Quota interpolata del piano stradale preparato, per un punto del way. */
+export function roadElevationAt(road: Road, index: number, t: number): number | undefined {
+  const e = road.elevations;
+  if (!e) return undefined;
+  const a = e[Math.max(0, Math.min(e.length - 1, index))]!;
+  const b = e[Math.max(0, Math.min(e.length - 1, index + 1))]!;
+  return a + (b - a) * t;
+}
+
 /**
  * Segmento stradale indicizzato.
  *
@@ -256,12 +415,31 @@ interface RoadSegment {
   w: number;
   lift: number;
   paved: boolean;
+  surface: string;
+  lanes: number;
   walk: number;
   road: number;
+  index: number;
+  bridge: boolean;
+  tunnel: boolean;
+  /** quota assoluta delle due testate, solo per ponti/gallerie */
+  elevA?: number;
+  elevB?: number;
   minX: number;
   maxX: number;
   minZ: number;
   maxZ: number;
+}
+
+/** Piano calpestabile restituito dall'indice stradale. */
+export interface RoadSurfaceSample {
+  y: number;
+  /** y - terreno: serve al sobbalzo del cordolo e alla camera */
+  lift: number;
+  kind: 'road' | 'shoulder' | 'sidewalk' | 'bridge' | 'tunnel';
+  road: number;
+  paved: boolean;
+  surface: string;
 }
 
 /** Indice spaziale delle strade: serve alla fisica (on/off-road) e allo spawn. */
@@ -270,13 +448,16 @@ export class RoadIndex {
   private readonly grid = new Map<number, RoadSegment[]>();
   private readonly roads: Road[];
 
-  constructor(roads: Road[]) {
+  constructor(roads: Road[], heights?: Heightfield) {
     this.roads = roads;
     let nextId = 0;
     for (const [index, road] of roads.entries()) {
       const half = road.width / 2;
       const lift = roadLift(index, road.paved);
-      const walkWidth = road.paved ? (road.width >= 6 ? 1.8 : 1.45) : 0;
+      // Stessa larghezza del nastro in `roads.ts`: 1,45 m sulle strade larghe
+      // e 1,15 m nei vicoli. Se qui restasse 1,8/1,45 il giocatore camminerebbe
+      // 35 cm fuori dal marciapiede visibile.
+      const walkWidth = road.paved ? (road.width >= 6 ? 1.45 : 1.15) : 0;
       for (let i = 1; i < road.points.length; i++) {
         const a = road.points[i - 1];
         const b = road.points[i];
@@ -290,6 +471,10 @@ export class RoadIndex {
         const maxX = Math.max(a.x, b.x) + half;
         const minZ = Math.min(a.z, b.z) - half;
         const maxZ = Math.max(a.z, b.z) + half;
+        const bridge = road.bridge === true;
+        const tunnel = road.tunnel === true;
+        const elevA = road.elevations?.[i - 1] ?? (heights ? heights.heightAt(a.x, a.z) : undefined);
+        const elevB = road.elevations?.[i] ?? (heights ? heights.heightAt(b.x, b.z) : undefined);
         const seg: RoadSegment = {
           id: nextId++,
           ax: a.x,
@@ -299,8 +484,17 @@ export class RoadIndex {
           w: half,
           lift,
           paved: road.paved,
+          surface: road.surface ?? (road.paved ? 'asphalt' : 'dirt'),
+          lanes: road.lanes ?? (road.width >= 6.5 ? 2 : 1),
           walk,
           road: index,
+          index: i - 1,
+          bridge,
+          tunnel,
+          // La galleria non ha ancora un foro nel terreno: solo il ponte usa
+          // una quota diversa dal DEM. Per la galleria il nastro resta a terra.
+          elevA: bridge ? elevA : undefined,
+          elevB: bridge ? elevB : undefined,
           minX,
           maxX,
           minZ,
@@ -535,6 +729,118 @@ export class RoadIndex {
       }
     }
     return walk;
+  }
+
+  /**
+   * Piano calpestabile con quota assoluta, ponte compreso.
+   *
+   * `surfaceOffset` restituisce solo il dislivello rispetto al DEM; qui serve
+   * la quota vera perché un ponte non può essere `altezza DEM + 20 cm`: il
+   * fiume sotto è decine di metri più in basso. La stessa funzione alimenta
+   * `groundAt`, l'auto, il giocatore, i pedoni e la pioggia.
+   */
+  sampleSurface(x: number, z: number, terrain: number): RoadSurfaceSample | null {
+    const cx = Math.floor(x / this.cell);
+    const cz = Math.floor(z / this.cell);
+    let best: RoadSurfaceSample | null = null;
+    let bestRank = -1;
+    let bestY = -Infinity;
+    const consider = (sample: RoadSurfaceSample, rank: number): void => {
+      // La priorità è la superficie (carreggiata > marciapiede > spalla), non
+      // la quota: il marciapiede sta 18 cm sopra l'asfalto ma non deve
+      // "vincere" quando il punto è ancora in carreggiata.
+      if (rank > bestRank || (rank === bestRank && sample.y > bestY + 0.001)) {
+        best = sample;
+        bestRank = rank;
+        bestY = sample.y;
+      }
+    };
+    for (let ix = cx - 1; ix <= cx + 1; ix++) {
+      for (let iz = cz - 1; iz <= cz + 1; iz++) {
+        const list = this.grid.get(this.key(ix, iz));
+        if (!list) continue;
+        for (const s of list) {
+          const maxReach = Math.max(s.walk, SHOULDER_WIDTH);
+          if (
+            x < s.minX - maxReach ||
+            x > s.maxX + maxReach ||
+            z < s.minZ - maxReach ||
+            z > s.maxZ + maxReach
+          ) {
+            continue;
+          }
+          const dx = s.bx - s.ax;
+          const dz = s.bz - s.az;
+          const len2 = dx * dx + dz * dz || 1e-6;
+          const t = Math.max(0, Math.min(1, ((x - s.ax) * dx + (z - s.az) * dz) / len2));
+          const qx = s.ax + dx * t;
+          const qz = s.az + dz * t;
+          const d = Math.hypot(x - qx, z - qz);
+          if (d > s.w + maxReach) continue;
+
+          if (d <= s.w) {
+            const deck =
+              s.elevA !== undefined && s.elevB !== undefined
+                ? s.elevA + (s.elevB - s.elevA) * t + s.lift
+                : terrain + s.lift;
+            consider(
+              {
+                y: deck,
+                lift: deck - terrain,
+                kind: s.bridge ? 'bridge' : s.tunnel ? 'tunnel' : 'road',
+                road: s.road,
+                paved: s.paved,
+                surface: s.surface,
+              },
+              s.bridge ? 5 : s.tunnel ? 4 : 3,
+            );
+            continue;
+          }
+          if (s.paved && s.walk > 0 && d <= s.w + s.walk) {
+            consider(
+              {
+                y: terrain + s.lift + CURB_HEIGHT,
+                lift: s.lift + CURB_HEIGHT,
+                kind: 'sidewalk',
+                road: s.road,
+                paved: true,
+                surface: s.surface,
+              },
+              2,
+            );
+            continue;
+          }
+          if (s.paved && s.walk === 0 && d <= s.w + SHOULDER_WIDTH) {
+            consider(
+              {
+                y: terrain + s.lift - 0.05,
+                lift: s.lift - 0.05,
+                kind: 'shoulder',
+                road: s.road,
+                paved: true,
+                surface: s.surface,
+              },
+              1,
+            );
+          }
+        }
+      }
+    }
+    return best;
+  }
+
+  /** Strada più vicina che insiste sul punto, per il rendering/guardrail. */
+  roadAt(x: number, z: number, reach = 3): Road | null {
+    let bestD = Infinity;
+    let best: Road | null = null;
+    this.forEachSegmentNear(x, z, reach, (s) => {
+      const d = distanceToSegment2(x, z, s.ax, s.az, s.bx, s.bz);
+      if (d <= s.w + reach && d < bestD) {
+        bestD = d;
+        best = this.roads[s.road] ?? null;
+      }
+    });
+    return best;
   }
 
   /**

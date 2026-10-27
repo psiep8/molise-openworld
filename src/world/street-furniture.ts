@@ -131,7 +131,7 @@ export class StreetLights {
     }
 
     for (let i = 0; i < maxLights; i++) {
-      const light = new THREE.PointLight(0xffd7a0, 0, 34, 2);
+      const light = new THREE.PointLight(0xffd7a0, 0, 48, 2);
       light.visible = false;
       this.group.add(light);
       this.pool.push(light);
@@ -140,8 +140,8 @@ export class StreetLights {
 
   /** `night` 0…1: alza le emissive e accende le lanterne vicine alla camera. */
   update(camera: THREE.Vector3, night: number): void {
-    this.headMaterial.emissiveIntensity = night * 0.55;
-    this.glassMaterial.emissiveIntensity = night * 6.5;
+    this.headMaterial.emissiveIntensity = night * 0.9;
+    this.glassMaterial.emissiveIntensity = night * 9;
     if (this.spots.length === 0) return;
 
     if (night < 0.06) {
@@ -173,7 +173,7 @@ export class StreetLights {
       }
       const s = this.spots[pick.index];
       light.position.set(s.x, s.y - 0.3, s.z);
-      light.intensity = 26 * night;
+      light.intensity = 190 * night;
       light.visible = true;
     }
   }

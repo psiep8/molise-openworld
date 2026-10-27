@@ -12,6 +12,39 @@ export interface AudioState {
   grounded: boolean;
   /** giri motore reali, per il suono del veicolo in uso */
   rpm?: number;
+  /** 0..1: quanto è premuto l'acceleratore (carico reale del motore) */
+  throttle?: number;
+  /** marcia inserita: -1 retromarcia, 0 folle */
+  gear?: number;
+  /** secondi residui di cambio marcia */
+  shiftTimer?: number;
+  /** true se le ruote sono sull'asfalto (cambia il rumore di rotolamento) */
+  onRoad?: boolean;
+  /** 0..1: freno premuto */
+  braking?: number;
+}
+
+/**
+ * Carico del motore 0..1: non è il numero di giri, è quanto gas c'è.
+ * Al minimo è 0, a tavoletta sale coi giri; in rilascio resta un filo di
+ * "overrun" (il motore trascinato continua a pompare).
+ */
+export function engineLoad(
+  throttle: number,
+  rpm: number,
+  idleRpm: number,
+  redlineRpm: number,
+): number {
+  const t = Math.max(0, Math.min(1, throttle));
+  const norm = Math.max(0, Math.min(1, (rpm - idleRpm) / Math.max(1, redlineRpm - idleRpm)));
+  const pull = t * (0.38 + 0.62 * norm);
+  const overrun = (1 - t) * norm * 0.16;
+  return Math.max(0, Math.min(1, pull + overrun));
+}
+
+/** Frequenza di accensione (Hz): un V12 "batte" sei volte per giro. */
+export function firingHz(rpm: number, cylinders: number): number {
+  return Math.max(18, (rpm / 60) * (Math.max(1, cylinders) / 2));
 }
 
 /**
@@ -64,14 +97,23 @@ export class GameAudio {
         osc3: OscillatorNode;
         gain: GainNode;
         filter: BiquadFilterNode;
+        resonance: BiquadFilterNode;
+        resonance2: BiquadFilterNode;
         intakeFilter: BiquadFilterNode;
         intakeGain: GainNode;
+        lope: OscillatorNode;
+        lopeGain: GainNode;
       }
     | null = null;
   private roadGain: GainNode | null = null;
+  private roadFilter: BiquadFilterNode | null = null;
+  private roadLowGain: GainNode | null = null;
   private windGain: GainNode | null = null;
+  private windFilter: BiquadFilterNode | null = null;
   private stepAccum = 0;
   private birdTimer = 9;
+  private crackleTimer = 0;
+  private lastGear = 0;
   private muted = false;
   private failed = false;
   private voice: EngineVoice = { cylinders: 4, idleRpm: 800, redlineRpm: 6000, weight: 0.3 };
@@ -121,7 +163,16 @@ export class GameAudio {
 
     const master = ctx.createGain();
     master.gain.value = this.muted ? 0 : 0.55;
-    master.connect(ctx.destination);
+    // compressore di master: tiene insieme scoppi, vento e strada senza
+    // clipping e dà quel "punch" che a orecchio distingue un motore registrato
+    // da un ronzio di sintesi
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -16;
+    comp.knee.value = 18;
+    comp.ratio.value = 3.5;
+    comp.attack.value = 0.006;
+    comp.release.value = 0.24;
+    master.connect(comp).connect(ctx.destination);
     this.master = master;
 
     // rumore rosa-ish riusato da vento, strada e passi
@@ -140,14 +191,17 @@ export class GameAudio {
     const wind = this.loopNoise();
     const windFilter = ctx.createBiquadFilter();
     windFilter.type = 'lowpass';
-    windFilter.frequency.value = 480;
+    windFilter.frequency.value = 520;
+    windFilter.Q.value = 0.4;
     const windGain = ctx.createGain();
     windGain.gain.value = 0.035;
     wind.connect(windFilter).connect(windGain).connect(master);
     wind.start();
     this.windGain = windGain;
+    this.windFilter = windFilter;
 
-    // rotolamento / asfalto
+    // rotolamento / asfalto: banda alta per il "fruscio" delle gomme e coda
+    // bassa per il rombo del corpo vettura
     const road = this.loopNoise();
     const roadFilter = ctx.createBiquadFilter();
     roadFilter.type = 'bandpass';
@@ -155,9 +209,17 @@ export class GameAudio {
     roadFilter.Q.value = 0.7;
     const roadGain = ctx.createGain();
     roadGain.gain.value = 0;
+    const roadLow = ctx.createBiquadFilter();
+    roadLow.type = 'lowpass';
+    roadLow.frequency.value = 180;
+    const roadLowGain = ctx.createGain();
+    roadLowGain.gain.value = 0;
     road.connect(roadFilter).connect(roadGain).connect(master);
+    road.connect(roadLow).connect(roadLowGain).connect(master);
     road.start();
     this.roadGain = roadGain;
+    this.roadFilter = roadFilter;
+    this.roadLowGain = roadLowGain;
 
     // ---- motore -------------------------------------------------------
     // Non due denti di sega scordati: uno scoppio è un impulso, quindi si
@@ -214,6 +276,13 @@ export class GameAudio {
     resonance.frequency.value = 140;
     resonance.Q.value = 1.4;
     resonance.gain.value = 7;
+    // seconda formante: il "naso" metallico dello scarico, quello che si sente
+    // quando il motore sale di giri
+    const resonance2 = ctx.createBiquadFilter();
+    resonance2.type = 'peaking';
+    resonance2.frequency.value = 520;
+    resonance2.Q.value = 1.1;
+    resonance2.gain.value = 3.2;
 
     const gain = ctx.createGain();
     gain.gain.value = 0;
@@ -221,7 +290,7 @@ export class GameAudio {
     osc1.connect(preGain);
     osc2.connect(subGain).connect(preGain);
     osc3.connect(sub2Gain).connect(preGain);
-    preGain.connect(shaper).connect(resonance).connect(filter).connect(gain).connect(master);
+    preGain.connect(shaper).connect(resonance).connect(resonance2).connect(filter).connect(gain).connect(master);
 
     // aspirazione / ventola: rumore in banda centrato sugli armonici alti
     const intake = this.loopNoise();
@@ -235,19 +304,20 @@ export class GameAudio {
     intake.start();
 
     // minimo irregolare: un'oscillazione lenta sul volume, è quello che
-    // distingue un motore al minimo da un ronzio elettronico
+    // distingue un motore al minimo da un ronzio elettronico. L'ampiezza è
+    // piccola: sul gain del motore un ±0,14 lo faceva "pompare" come un sub.
     const lope = ctx.createOscillator();
     lope.type = 'sine';
     lope.frequency.value = 0.55;
     const lopeGain = ctx.createGain();
-    lopeGain.gain.value = 0.14;
+    lopeGain.gain.value = 0.008;
     lope.connect(lopeGain).connect(gain.gain);
     lope.start();
 
     osc1.start();
     osc2.start();
     osc3.start();
-    this.engine = { osc1, osc2, osc3, gain, filter, intakeFilter, intakeGain };
+    this.engine = { osc1, osc2, osc3, gain, filter, resonance, resonance2, intakeFilter, intakeGain, lope, lopeGain };
   }
 
   private loopNoise(): AudioBufferSourceNode {
@@ -276,6 +346,48 @@ export class GameAudio {
     src.connect(filter).connect(gain).connect(master);
     src.start(now);
     src.stop(now + 0.16);
+  }
+
+  /** Scoppio di scarico: burst di rumore filtrato, breve e irregolare. */
+  private crackle(intensity: number): void {
+    const ctx = this.ctx;
+    const master = this.master;
+    if (!ctx || !master || !this.noise) return;
+    const now = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    src.playbackRate.value = 1.5 + Math.random() * 1.4;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = 1400 + Math.random() * 1900;
+    filter.Q.value = 1.1;
+    const gain = ctx.createGain();
+    const peak = 0.01 + intensity * 0.022;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(peak, now + 0.006);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.035 + Math.random() * 0.035);
+    src.connect(filter).connect(gain).connect(master);
+    src.start(now);
+    src.stop(now + 0.09);
+  }
+
+  /** Colpo sordo del cambio: massa e trasmissione, non un effetto digitale. */
+  private thump(amount: number): void {
+    const ctx = this.ctx;
+    const master = this.master;
+    if (!ctx || !master) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(72, now);
+    osc.frequency.exponentialRampToValueAtTime(38, now + 0.11);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.012 + amount * 0.02, now + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
+    osc.connect(gain).connect(master);
+    osc.start(now);
+    osc.stop(now + 0.16);
   }
 
   private chirp(): void {
@@ -307,38 +419,137 @@ export class GameAudio {
     const t = ctx.currentTime;
     const speed = Math.abs(state.speed);
     const driving = state.mode === 'drive';
+    const onRoad = state.onRoad ?? true;
+    const brake = Math.max(0, Math.min(1, state.braking ?? 0));
 
     if (this.engine) {
-      const { osc1, osc2, osc3, gain, filter, intakeFilter, intakeGain } = this.engine;
+      const {
+        osc1,
+        osc2,
+        osc3,
+        gain,
+        filter,
+        resonance,
+        resonance2,
+        intakeFilter,
+        intakeGain,
+        lope,
+        lopeGain,
+      } = this.engine;
       const voice = this.voice;
       const rpm = driving
         ? Math.max(voice.idleRpm, Math.min(voice.redlineRpm * 1.02, state.rpm ?? voice.idleRpm))
         : voice.idleRpm;
+      const rpmNorm = Math.max(
+        0,
+        Math.min(1, (rpm - voice.idleRpm) / Math.max(1, voice.redlineRpm - voice.idleRpm)),
+      );
+      const throttle = Math.max(
+        0,
+        Math.min(1, state.throttle ?? (driving ? 0.15 + 0.85 * rpmNorm : 0)),
+      );
+      const load = driving ? engineLoad(throttle, rpm, voice.idleRpm, voice.redlineRpm) : 0;
       // frequenza di accensione reale: un V12 "batte" sei volte per giro
-      const firing = Math.max(20, (rpm / 60) * (voice.cylinders / 2));
-      const load = driving ? Math.min(1, (rpm - voice.idleRpm) / Math.max(1, voice.redlineRpm - voice.idleRpm)) : 0;
-      // gli scoppi sono alla frequenza di accensione, il mezzo ordine sotto
-      // dà la periodicità del ciclo a quattro tempi
-      osc1.frequency.setTargetAtTime(firing, t, 0.06);
-      osc2.frequency.setTargetAtTime(firing * 0.5, t, 0.08);
-      osc3.frequency.setTargetAtTime(firing * 0.25, t, 0.1);
+      const firing = firingHz(rpm, voice.cylinders);
+      osc1.frequency.setTargetAtTime(firing, t, 0.055);
+      osc2.frequency.setTargetAtTime(firing * 0.5, t, 0.075);
+      osc3.frequency.setTargetAtTime(firing * 0.25, t, 0.09);
+      // imperfezione ciclo-per-ciclo: al minimo il motore "trema", in pieno
+      // carico la combustione è più regolare. Senza, il suono è un organo.
+      osc2.detune.setTargetAtTime((Math.random() - 0.5) * 9 * (1 - load), t, 0.09);
+      osc3.detune.setTargetAtTime((Math.random() - 0.5) * 5 * (1 - load), t, 0.12);
       // il filtro si apre col carico e con i giri: al minimo è cupo, in
       // accelerazione diventa tagliente
       filter.frequency.setTargetAtTime(
-        240 + firing * 3.6 + voice.weight * 210 + load * 420 + speed * 1.6,
+        250 + firing * 4.2 + voice.weight * 250 + load * 850 + throttle * 380,
         t,
         0.1,
       );
-      intakeFilter.frequency.setTargetAtTime(420 + firing * 2.4, t, 0.12);
-      intakeGain.gain.setTargetAtTime(driving ? 0.004 + load * 0.016 : 0, t, 0.15);
+      resonance.frequency.setTargetAtTime(70 + firing * 1.6, t, 0.2);
+      resonance.gain.setTargetAtTime(4.5 + load * 4.5, t, 0.2);
+      resonance2.frequency.setTargetAtTime(300 + firing * 2.4, t, 0.2);
+      resonance2.gain.setTargetAtTime(1.8 + load * 4, t, 0.2);
+      intakeFilter.frequency.setTargetAtTime(420 + firing * 2.8 + throttle * 900, t, 0.12);
+      intakeGain.gain.setTargetAtTime(driving ? 0.0015 + load * 0.018 + throttle * 0.004 : 0, t, 0.14);
       const engineGain = driving
-        ? 0.024 + voice.weight * 0.026 + Math.min(0.016, speed * 0.0009) + load * 0.02
+        ? 0.014 +
+          voice.weight * 0.021 +
+          Math.min(0.012, speed * 0.0007) +
+          load * 0.028 +
+          throttle * 0.006
         : 0;
-      gain.gain.setTargetAtTime(engineGain, t, 0.12);
+      gain.gain.setTargetAtTime(engineGain, t, 0.1);
+      // il minimo borbotta: la periodicità irregolare dipende dal carico
+      lope.frequency.setTargetAtTime(
+        0.38 + (1 - load) * 0.9 + Math.random() * 0.18,
+        t,
+        1.4,
+      );
+      lopeGain.gain.setTargetAtTime(0.004 + (1 - load) * 0.007, t, 0.4);
     }
 
-    this.roadGain?.gain.setTargetAtTime(driving ? Math.min(0.07, speed * 0.006) : 0, t, 0.2);
-    this.windGain?.gain.setTargetAtTime(0.028 + Math.min(0.05, speed * 0.0018), t, 0.3);
+    if (this.roadGain && this.roadFilter) {
+      const rolling = driving ? Math.min(1, speed / 42) : 0;
+      // asfalto: fruscio alto e regolare. Sterrato/erba: banda più bassa,
+      // più larga e più forte, con il "graniglia" che si sente sotto.
+      this.roadFilter.frequency.setTargetAtTime(
+        onRoad ? 780 + speed * 7 : 320 + speed * 2.4,
+        t,
+        0.2,
+      );
+      this.roadFilter.Q.setTargetAtTime(onRoad ? 0.85 : 0.5, t, 0.2);
+      this.roadGain.gain.setTargetAtTime(
+        driving
+          ? onRoad
+            ? Math.min(0.06, rolling * 0.065)
+            : Math.min(0.1, 0.012 + rolling * 0.1)
+          : 0,
+        t,
+        0.2,
+      );
+      this.roadLowGain?.gain.setTargetAtTime(
+        driving ? Math.min(0.07, rolling * (onRoad ? 0.04 : 0.075)) : 0,
+        t,
+        0.25,
+      );
+    }
+    this.windGain?.gain.setTargetAtTime(0.022 + Math.min(0.08, speed * 0.0024), t, 0.3);
+    this.windFilter?.frequency.setTargetAtTime(380 + Math.min(1500, speed * 30), t, 0.35);
+
+    // scarico in rilascio: scoppiettio irregolare quando si toglie il gas a
+    // giri alti (è il rumore che rende "vera" un'auto sportiva)
+    if (driving && (state.throttle ?? 0) < 0.08 && speed > 3) {
+      const rpmNorm = Math.max(
+        0,
+        Math.min(1, ((state.rpm ?? this.voice.idleRpm) - this.voice.idleRpm) /
+          Math.max(1, this.voice.redlineRpm - this.voice.idleRpm)),
+      );
+      if (rpmNorm > 0.28) {
+        this.crackleTimer -= dt;
+        if (this.crackleTimer <= 0) {
+          this.crackleTimer = 0.07 + Math.random() * 0.22;
+          this.crackle(rpmNorm);
+        }
+      }
+    } else {
+      this.crackleTimer = 0.3 + Math.random() * 0.4;
+    }
+
+    // cambio marcia: un "clunk" sordo, non un bip
+    const gear = state.gear ?? 0;
+    if (driving && this.lastGear !== 0 && gear !== this.lastGear && (state.shiftTimer ?? 0) > 0) {
+      this.thump(Math.min(1, speed / 18));
+    }
+    this.lastGear = driving ? gear : 0;
+
+    // frenata: le gomme "cantano" appena, senza diventare un fischio da film
+    if (this.roadGain && driving && brake > 0.5 && speed > 6 && onRoad) {
+      this.roadGain.gain.setTargetAtTime(
+        Math.min(0.075, 0.03 + brake * 0.03 + speed * 0.0005),
+        t,
+        0.15,
+      );
+    }
 
     if (!driving && state.moving && state.grounded) {
       this.stepAccum += speed * dt;

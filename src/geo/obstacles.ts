@@ -12,6 +12,8 @@ export interface Obstacle {
   z: number;
   /** raggio del fusto, in metri */
   radius: number;
+  /** sorgente opzionale, per poter rimuovere un gruppo (es. guardrail) */
+  tag?: string;
 }
 
 export class ObstacleIndex {
@@ -23,14 +25,23 @@ export class ObstacleIndex {
     return (cx + 4096) * 8192 + (cz + 4096);
   }
 
-  add(x: number, z: number, radius: number): void {
+  add(x: number, z: number, radius: number, tag?: string): void {
     if (!Number.isFinite(x) || !Number.isFinite(z)) return;
-    const obstacle: Obstacle = { x, z, radius: Math.max(0.02, radius) };
+    const obstacle: Obstacle = { x, z, radius: Math.max(0.02, radius), tag };
     this.all.push(obstacle);
     const key = this.key(Math.floor(x / this.cell), Math.floor(z / this.cell));
     const list = this.grid.get(key);
     if (list) list.push(obstacle);
     else this.grid.set(key, [obstacle]);
+  }
+
+  /** Rimuove tutti gli ostacoli di una sorgente (es. guardrail spento). */
+  removeTag(tag: string): void {
+    const kept = this.all.filter((o) => o.tag !== tag);
+    if (kept.length === this.all.length) return;
+    this.all.length = 0;
+    this.grid.clear();
+    for (const o of kept) this.add(o.x, o.z, o.radius, o.tag);
   }
 
   get count(): number {

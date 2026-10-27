@@ -121,6 +121,18 @@ export const CAR: CarTuning = {
 };
 
 const AIR_DENSITY = 1.2;
+/**
+ * Lock dello sterzo a velocità: a 0 km/h tutto, poi cala in modo dolce.
+ * 0,028 per km/h è la taratura "gioco di guida": a 100 km/h resta circa un
+ * quinto della sterzata, abbastanza per una curva d'emergenza ma non per
+ * ribaltarsi. La stessa funzione serve alla grafica delle ruote anteriori, così
+ * quello che si vede combacia con quello che fa la fisica.
+ */
+const STEER_LOCK_FALLOFF = 0.028;
+/** Accelerazione laterale massima (m/s²): ~1,25 g su asfalto asciutto. */
+const LATERAL_GRIP = 12.5;
+/** Tetto di imbardata a bassissima velocità (rad/s). */
+const MAX_YAW_RATE = 2.7;
 
 const clamp = (v: number, a: number, b: number): number => (v < a ? a : v > b ? b : v);
 
@@ -253,14 +265,25 @@ export function stepCar(
   // --- cambio automatico ---------------------------------------------------
   if (forward && next.shiftTimer <= 0) {
     const rpmNow = rpmAt(Math.abs(speed), ratio, tuning);
-    if (rpmNow > tuning.redlineRpm * 0.96 && next.gear < gearCount) {
+    // Si sale vicino al regime di potenza massima, non al limitatore: se si
+    // aspettano i 96% del limitatore, un'auto che in penultima marcia non
+    // arriva a quel regime (la Golf in quinta si fermava a 6523 giri su 6528)
+    // non inserisce mai la marcia piu' lunga e perde 9 km/h di punta.
+    const upshiftRpm = Math.min(tuning.redlineRpm * 0.96, tuning.rpmPower * 1.03);
+    if (rpmNow > upshiftRpm && next.gear < gearCount) {
       next.gear += 1;
       next.shiftTimer = tuning.shiftTime;
     } else if (next.gear > 1 && rpmNow < tuning.redlineRpm * 0.42) {
       next.gear -= 1;
       next.shiftTimer = tuning.shiftTime;
-    } else if (next.gear > 1 && input.throttle > 0.95 && rpmNow < tuning.redlineRpm * 0.48) {
-      // kickdown: piede a tavoletta, il cambio scala
+    } else if (
+      next.gear > 1 &&
+      input.throttle > 0.95 &&
+      rpmNow < Math.min(tuning.redlineRpm * 0.48, tuning.rpmPower * 0.55)
+    ) {
+      // kickdown: piede a tavoletta, il cambio scala. La soglia deve stare
+      // sotto i giri che la marcia superiore ha subito dopo il passaggio,
+      // altrimenti la Uno resta a oscillare fra prima e seconda a 33 km/h.
       next.gear -= 1;
       next.shiftTimer = tuning.shiftTime;
     }
@@ -275,20 +298,23 @@ export function stepCar(
 
   // --- sterzo (bicycle model) ---------------------------------------------
   // La tastiera dà tutto lo sterzo in un colpo: la risposta va addolcita e il
-  // lock va ridotto con la velocità. La riduzione era però troppo aggressiva
-  // (a 30 km/h il volante restava quasi dritto e ogni curva richiedeva di
-  // rallentare a passo d'uomo): ora il lock cala più lentamente e il tetto di
-  // accelerazione laterale è quello di un'auto con gomme buone, non di un
-  // tram. A 30 km/h il raggio d'azione resta intorno ai 9 m, a 50 km/h ai 16.
+  // lock va ridotto con la velocità. Il tetto di accelerazione laterale è
+  // quello di un'auto sportiva stradale (~1,25 g), non di una berlina da
+  // autostrada: è il compromesso che usano anche i giochi di guida, dove la
+  // macchina deve girare senza diventare un tram. A 30 km/h il raggio utile è
+  // ~8 m, a 50 km/h ~15 m, a 100 km/h ~60 m.
   const steerTarget = clamp(input.steer, -1, 1);
-  const steerLerp = 1 - Math.exp(-8 * dt);
+  const steerLerp = 1 - Math.exp(-10 * dt);
   next.steer += (steerTarget - next.steer) * steerLerp;
 
-  const kmh = Math.abs(next.speed) * 3.6;
-  const lock = tuning.maxSteer / (1 + kmh * 0.04);
-  let yawRate = (next.speed / tuning.wheelbase) * Math.tan(next.steer * lock);
-  const yawCap = Math.abs(next.speed) > 0.5 ? Math.min(2.6, 9.5 / Math.abs(next.speed)) : 2.6;
-  yawRate = clamp(yawRate, -yawCap, yawCap);
+  const lock = steerLock(tuning.maxSteer, next.speed);
+  const requested = (next.speed / tuning.wheelbase) * Math.tan(next.steer * lock);
+  // il tetto si applica al modulo: in retromarcia l'imbardata cambia segno da
+  // sola perché `speed` è negativa, come nella realtà
+  const yawCap = Math.abs(next.speed) > 0.5
+    ? Math.min(MAX_YAW_RATE, LATERAL_GRIP / Math.abs(next.speed))
+    : MAX_YAW_RATE;
+  let yawRate = clamp(requested, -yawCap, yawCap);
   if (input.handbrake) yawRate *= 1.9;
   // fuori strada il posteriore scivola un po' di più
   if (!env.onRoad) yawRate *= 1.12;
@@ -305,6 +331,16 @@ export function stepCar(
 
 export function speedKmh(speed: number): number {
   return Math.abs(speed) * 3.6;
+}
+
+/**
+ * Angolo massimo delle ruote anteriori alla velocità corrente (radianti).
+ * Pura: la usano sia `stepCar` sia `Vehicle` per far sterzare i GLB con lo
+ * stesso angolo della fisica (prima la grafica girava troppo e sembrava che
+ * l'auto non seguisse le ruote).
+ */
+export function steerLock(maxSteer: number, speed: number): number {
+  return maxSteer / (1 + Math.abs(speed) * 3.6 * STEER_LOCK_FALLOFF);
 }
 
 /**
@@ -327,9 +363,11 @@ export function bodyLean(
   speed: number,
   yawRate: number,
   accel: number,
+  leanFactor = 1,
+  maxRoll = 0.1,
 ): { roll: number; pitch: number } {
   const lateral = speed * yawRate;
-  const roll = clamp(-lateral * 0.011, -0.1, 0.1);
+  const roll = clamp(-lateral * 0.011 * leanFactor, -maxRoll, maxRoll);
   // frenata = muso giù, accelerazione = muso su (piccolo: non è un dragster)
   const pitch = clamp(accel * 0.0045, -0.035, 0.035);
   return { roll, pitch };

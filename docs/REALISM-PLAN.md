@@ -549,7 +549,7 @@ entro ~40 m è più realistico e toglie la voce più grossa rimasta su `minimal`
 
 | Voce | Stato | Note |
 | --- | --- | --- |
-| Vernice dei GLB riconosciuta per materiale e portata a clearcoat | fatto, verificato headless sui sei modelli | `src/gfx/car-paint.ts`: `isPaintMaterial`, `choosePaintMaterials`, `paintMaterialFrom`; il Ferrari dà `Body_Color` tintabile, clearcoat 1,0, rugosità 0,32 |
+| Vernice dei GLB riconosciuta per materiale e portata a clearcoat | fatto, verificato headless sui modelli GLB | `src/gfx/car-paint.ts`: `isPaintMaterial`, `choosePaintMaterials`, `paintMaterialFrom`; il Ferrari dà `Body_Color` tintabile, clearcoat 1,0, rugosità 0,32 |
 | Tinta della scocca anche sulle auto GLB, clonata per istanza | fatto | `Vehicle.buildExternal` sostituisce il materiale solo sulle mesh della scocca; il template resta pulito |
 | Tinta per i modelli con il colore nella texture (Audi blu, Defender grigio) | fatto, mappa misurata | nello shader `tinta × clamp(0,55 + 1,6 × luminanza)`; moltiplicare il colore per la mappa avrebbe dato nero |
 | Atlanti unici (Aventador scocca + cerchi) solo desaturati | fatto | `tintable: false`, così non si colorano le gomme |
@@ -580,3 +580,30 @@ La Fase 0 non cambia il mondo: è solo infrastruttura di misura. La Fase A parte
 da questi numeri con un "prima" rifatto subito prima delle modifiche.
 
 > Aggiornare questa tabella e il registro a ogni blocco di lavoro completato, con la data.
+
+### 27 ottobre 2026 — fase 0/1 e primo passo verso Slow Roads
+
+| Voce | Stato | Note |
+| --- | --- | --- |
+| Tag OSM estesi: `bridge`, `tunnel`, `layer`, `lanes`, `surface`, `oneway`, `maxspeed`, `width`, `ref` | fatto, dati rigenerati | `scripts/fetch-geodata.mjs` e `src/geo/osm.ts`; campi compatti (`b`, `u`, `y`, `ln`, `sf`, `ow`, `ms`, `wd`, `r`). Query del 27/10: 1.139 way, 455,2 km, 43 ponti, 6 gallerie, 188 corsie, 405 superfici, 70 larghezze |
+| Quota unica `groundAt` | fatto, testato | `src/geo/ground.ts` (`WorldGround`/`GroundSampler`), usata da gioco, giocatore, auto, pedoni, camera e meteo |
+| Ponte carrabile | fatto e visto a schermo | `prepareRoadElevations` interpola la campata fra le testate; nastro, sponde e `groundAt` leggono la stessa quota. Controllato sul ponte service vicino a Palata (x 1791,7 / z −429,2): impalcato e guardrail visibili |
+| Guardrail | fatto e visto a schermo | `src/world/guardrails.ts`, due `InstancedMesh`, solo ponti e scarpate fuori dal paese, collisione a cerchi ravvicinati taggati `guardrail`; spento in `minimal`/`low` e ricostruito quando cambia il preset |
+| Altezza chioma ETH 10 m | fatto, dato generato | `scripts/fetch-canopy.mjs` → `public/geo/canopy.bin` (1,73 MB, griglia 1412×1222); scala gli alberi e dirada quelli fuori bosco, fallback OSM se manca |
+| Audit geodati | fatto | `npm run geo:audit` controlla bbox, km di strada, ponti/gallerie, tag e pendenze DEM |
+| Licenze | fatto | ETH canopy, TINITALY 1.1, IFFI/IdroGEO e AGEA in `ATTRIBUTION.md`; TINITALY/IFFI/AGEA verificati ma non ancora integrati |
+
+Verifica di questa sessione:
+
+- `npx tsc --noEmit` ✅
+- `npm test` **301/301** ✅
+- `npm run build` ✅
+- `npm run geo:audit` ✅ — bbox 41,8150–41,9250 N / 14,6900–14,8600 E, griglia DEM 2823×2444 a 5 m, 70–1033 m; 405 superfici e 188 corsie taggate
+- banco `medium` su Radeon RX 580, dati nuovi: strada 71,0 fps, crinale 62,5 fps, piazza 67,0 fps; 209/288/169 draw call
+- controllo a schermo del ponte vicino a Palata: impalcato e guardrail presenti
+
+Note e limiti:
+
+- 43 ponti sono in gran parte piccoli attraversamenti; il viadotto SS 647 con 44 punti è il caso lungo da ricontrollare quando si passa vicino.
+- Le 6 gallerie sono per ora trattate come strade in superficie: manca ancora il foro/portale nel terreno, quindi la quota resta quella del DEM.
+- 81 way OSM escono dal bbox perché Overpass restituisce la geometria intera della way che interseca il riquadro; il terreno fuori bordo viene clampato.

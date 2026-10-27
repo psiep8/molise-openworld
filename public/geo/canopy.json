@@ -1,0 +1,19 @@
+{
+  "source": "ETH Global Canopy Height 2020 (Lang et al., 2023), 10 m",
+  "license": "CC BY 4.0",
+  "attribution": "Canopy height: Lang, N., Jetz, W., Schindler, K., & Wegner, J. D. (2023). A high-resolution canopy height model of the Earth. Nature Ecology & Evolution. ETH Zurich — CC BY 4.0",
+  "encoding": "uint8, metri (0 = nessuna chioma)",
+  "step": 10,
+  "nx": 1412,
+  "nz": 1222,
+  "originX": -7055,
+  "originZ": -6107.5,
+  "lat": 41.87,
+  "lon": 14.774999999999999,
+  "metersPerDegLat": 111070.7307022502,
+  "metersPerDegLon": 83019.14918391156,
+  "minHeight": 0,
+  "maxHeight": 99,
+  "treeCells": 943322,
+  "generatedAt": "2026-10-27T21:50:53.140Z"
+}

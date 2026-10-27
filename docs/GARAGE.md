@@ -9,7 +9,7 @@ Il gioco ha **due librerie di auto separate**, che non vanno confuse:
 | Come si scelgono | select **Veicolo**, senza prefisso | select **Veicolo**, prefisso `★` |
 | Si possono eliminare | no | sì, con **Elimina importate** |
 | Fisica | scheda tecnica reale in `vehicle-catalog.ts` | scheda stimata dagli ingombri |
-| Licenza | da verificare prima della distribuzione | dell'utente |
+| Licenza | crediti e licenze in `ATTRIBUTION.md` | dell'utente |
 
 Le auto di serie si caricano una volta e vengono **normalizzate** (unità di
 lunghezza, muso a +Z, base a `y = 0`, centrate in x/z); la scala finale viene
@@ -22,15 +22,43 @@ gioco ricade sulla sagoma procedurale dello stesso spec senza errori.
 
 | Nome | Slug / `model` | File | `yaw` | Lunghezza |
 | --- | --- | --- | --- | --- |
-| Fiat Punto | `fiat-punto` | `fiat-punto.glb` | 0 | 3,80 m |
-| Lamborghini Aventador | `lamborghini-aventador` | `lamborghini-aventador.glb` | 0 | 4,78 m |
-| Ferrari 458 Spider | `ferrari-458` | `ferrari.glb` | 180 | 4,53 m |
-| Land Rover Defender | `land-rover-defender` | `land-rover-defender.glb` | 0 | 5,02 m |
-| Audi R8 V10 Performance | `audi-r8` | `audi-r8.glb` | 0 | 4,43 m |
-| Cupra Terramar | `cupra-terramar` | `cupra-terramar.glb` | 90 | 4,52 m |
+| 2010 Audi R8 5.2 FSI Quattro | `audi-r8-2010` | `2010_audi_r8_5.2_fsi_quattro.glb` | 0 | 4.43 m |
+| 2011 Fiat Punto | `fiat-punto-2011` | `2011_fiat_punto.glb` | 0 | 4.07 m |
+| 2021 BMW M4 Competition | `bmw-m4-competition-2021` | `2021_bmw_m4_competition.glb` | 0 | 6.6 m |
+| 2025 Yamaha MT-09 SP V4 | `yamaha-mt09-sp-2025` | `22564002dee.glb` | 180 | 2.09 m |
+| Aston Martin DB11 | `aston-martin-db11` | `aston_martin_db11.glb` | 90 | 5 m |
+| Audi Novulari | `audi-novulari` | `audi_novulari.glb` | -90 | 6.19 m |
+| Audi R8 Coupe Performance quattro 2023 | `audi-r8-2023` | `audi_r8_coupe_performance_quattro_2023.glb` | 0 | 4.43 m |
+| BMW inspired 1930s Saloon car | `bmw-1930s-saloon` | `bmw_inspired_1930s_saloon_car.glb` | 0 | 4.5 m |
+| BMW M3 Sedan topaz blue car | `bmw-m3-sedan` | `bmw_m3_sedan_topaz_blue_car.glb` | 0 | 4.77 m |
+| Cupra_Terramar_Hero_Purple_GLB | `cupra-terramar` | `Cupra_Terramar_Hero_Purple_GLB.glb` | 90 | 4.52 m |
+| DeTomaso P900 | `detomaso-p900` | `detomaso_p900.glb` | 0 | 4.9 m |
+| Ferrari F1 2019 | `ferrari-f1-2019` | `ferrari_f1_2019.glb` | 0 | 5.7 m |
+| Ferrari Laferrari \| www.vecarz.com | `ferrari-laferrari` | `ferrari_laferrari__www.vecarz.com.glb` | 0 | 4.7 m |
+| Fiat 500 | `fiat-500` | `fiat_500.glb` | 0 | 3.55 m |
+| Fiat 500 - 1970 Model | `fiat-500-1970` | `fiat_500_-_1970_model.glb` | 0 | 2.97 m |
+| Fiat 500 Abarth | `fiat-500-abarth` | `fiat_500_abarth.glb` | 180 | 3.66 m |
+| Fiat Multipla 1998 3D Model | `fiat-multipla-1998` | `fiat_multipla_1998_3d_model.glb` | 0 | 3.99 m |
+| FIAT Panda 4x4 | `fiat-panda-4x4` | `fiat_panda_4x4.glb` | 0 | 3.65 m |
+| Fiat Uno 1994 | `fiat-uno-1994` | `fiat_uno_1994.glb` | 0 | 3.69 m |
+| (FREE) 1995 Fiat Punto GT | `fiat-punto-gt-1995` | `free_1995_fiat_punto_gt.glb` | 0 | 4.58 m |
+| Honda Civic RS | `honda-civic-rs` | `honda_civic_rs.glb` | -90 | 4.57 m |
+| LAMBORGINI REVOLTO | `lamborghini-revuelto` | `lamborgini_revolto.glb` | 0 | 5.95 m |
+| Land Rover Defender | `land-rover-defender` | `land_rover_defender.glb` | 0 | 5.02 m |
+| 2025 MG Cyberster (GLB)(mgmotor.com.mx) | `mg-cyberster-2025` | `m_cyberster.glb` | 0 | 2.41 m |
+| Mistery Porsche | `porsche-911-mistery` | `mistery_porsche.glb` | 0 | 4.52 m |
+| Seat Leon Cupra Race Car | `seat-leon-cupra-race` | `seat_leon_cupra_race_car.glb` | 0 | 4.2 m |
+| Tesla-Cybertruck | `tesla-cybertruck` | `tesla-cybertruck.glb` | 0 | 5.68 m |
+| Vespa Scooter | `vespa-scooter` | `vespa_scooter.glb` | 180 | 1.77 m |
+| Volkswagen Crafter | `volkswagen-crafter` | `volkswagen_crafter.glb` | 0 | 5.99 m |
+| Volkswagen Golf GTI (2025) | `volkswagen-golf-gti-2025` | `volkswagen_golf_gti_2025.glb` | 180 | 4.29 m |
+
+La lunghezza della tabella è quella **misurata dal manifest** (diagnostica): la
+scala finale usa `spec.length` in `src/sim/vehicle-catalog.ts`, che è la misura
+reale della versione. `†` = modello fuori dalla lista di 25 crediti.
 
 `yaw` è la rotazione attorno a Y (gradi) che porta il muso del modello verso
-**+Z**: il manifest è l'unico posto da toccare se un modello guarda dalla parte
+asdw**+Z**: il manifest è l'unico posto da toccare se un modello guarda dalla parte
 sbagliata.
 
 I GLB da showroom avevano **vetri bianchi/opachi** e un'emissive finta: il
@@ -44,8 +72,37 @@ automatica (`splitCarWheels`). Il raggio è misurato sul modello, così il
 rotolamento combacia col terreno. Dettagli in `src/world/car-library.ts` e
 `src/entities/car-wheels.ts`.
 
-I file `.glb` sono in `.gitignore`, il manifest è versionato. **La licenza dei
-modelli va verificata** prima di una distribuzione pubblica.
+I file `.glb` sono in `.gitignore`, il manifest è versionato. Crediti e licenze
+sono in `ATTRIBUTION.md`: i modelli `SKETCHFAB Standard` non sono ridistribuibili.
+
+### Ripristinare i GLB su un altro PC
+
+I file delle auto di serie **non sono nel repository** e non si possono
+rigenerare da zero: se mancano, il gioco usa le sagome procedurali. Per sapere
+cosa manca:
+
+```bash
+npm run cars
+```
+
+Se i GLB esistono ancora su un altro PC (o su un disco esterno/backup), copiali
+da lì con un solo comando. Lo script cerca ricorsivamente i `.glb`, riconosce i
+nomi originali diversi e li rinomina secondo il manifest:
+
+```bash
+npm run cars -- --from "D:\\vecchio-pc\\modelli"
+npm run cars -- --from "D:\\vecchio-pc\\modelli" --dry-run   # prova a vuoto
+npm run cars -- --from "D:\\vecchio-pc\\modelli" --force     # sovrascrive
+```
+
+Lo script legge il manifest e riconosce i nomi originali dei 30 file; non
+sovrascrive mai un file presente senza `--force` e verifica l'intestazione
+GLB prima e dopo la copia. Se un file resta mancante lo script esce con
+codice 1 (usare `--allow-missing` per evitarlo).
+
+Le auto **importate dal giocatore** non sono in `public/cars/`: vivono in
+IndexedDB, nel profilo del browser. Per portarle su un altro PC si esporta di
+nuovo il GLB dall'editor e si reimporta dal menu (vedi §3.1).
 
 ### Vernice, tinta e fari notturni
 
@@ -54,7 +111,7 @@ cerca il materiale della **scocca** e lo porta a `MeshPhysicalMaterial` con
 clearcoat 1,0, `clearcoatRoughness` 0,06 e rugosità 0,32; poi lo tinge con la
 palette del menu (o con la tinta scelta dal giocatore, salvata per veicolo).
 
-Perché sia tingibile servono due cose, entrambe già vere nei sei modelli:
+Perché sia tingibile servono due cose, entrambe già vere in molti dei modelli:
 
 | Requisito | Perché |
 | --- | --- |

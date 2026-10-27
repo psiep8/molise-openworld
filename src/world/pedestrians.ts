@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import type { Appearance } from '../entities/appearance';
 import { HumanBody, type HumanAssets } from '../entities/human-model';
-import type { Heightfield } from '../geo/elevation';
 import type { Pt } from '../geo/geo';
-import type { OsmData, RoadIndex } from '../geo/osm';
+import type { GroundSampler } from '../geo/ground';
+import type { OsmData } from '../geo/osm';
 
 /**
  * Pedoni del paese.
@@ -111,9 +111,8 @@ export class Pedestrians {
   constructor(
     assets: HumanAssets,
     osm: OsmData,
-    private readonly heights: Heightfield,
-    /** quota del marciapiede/asfalto: la stessa usata da giocatore e auto */
-    private readonly roads: RoadIndex,
+    /** quota del marciapiede/asfalto/ponte: la stessa usata da giocatore e auto */
+    private readonly ground: GroundSampler,
     focus: { x: number; z: number },
     count = 16,
     seed = 1,
@@ -178,7 +177,7 @@ export class Pedestrians {
       // stessa quota calpestabile di giocatore e auto: marciapiede (asfalto +
       // cordolo), asfalto agli incroci dove il marciapiede si interrompe, o
       // terreno. Una quota fissa lasciava i pedoni sospesi sugli incroci.
-      const y = this.heights.heightAt(pos.x, pos.z) + this.roads.surfaceOffset(pos.x, pos.z);
+      const y = this.ground.heightAt(pos.x, pos.z);
       const dx = pos.x - focus.x;
       const dz = pos.z - focus.z;
       const dist = Math.hypot(dx, dz);

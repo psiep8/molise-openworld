@@ -79,12 +79,21 @@ describe('inclinazione della carrozzeria', () => {
 describe('prestazioni reali dei veicoli', () => {
   for (const spec of VEHICLES) {
     it(`${spec.name}: tocca la velocità massima dichiarata (${spec.topSpeedKmh} km/h) e non la supera`, () => {
-      const kmh = drive(spec, gas, 150).speed * 3.6;
+      // 300 s: le auto lente e le elettriche con finale lungo raggiungono la
+      // punta solo dopo una salita asintotica, non in 150 s.
+      const kmh = drive(spec, gas, 300).speed * 3.6;
       expect(kmh).toBeLessThanOrEqual(spec.topSpeedKmh + 0.5);
       expect(kmh).toBeGreaterThan(spec.topSpeedKmh * 0.97);
     });
 
     it(`${spec.name}: lo 0-100 resta nella forchetta reale (${spec.zeroTo100S} s dichiarati)`, () => {
+      // Fiat 500 del 1970 e Vespa dichiarano 95 km/h: non possono toccare i
+      // 100. Si verifica che arrivino alla loro punta, non un traguardo
+      // impossibile.
+      if (spec.topSpeedKmh < 100) {
+        expect(drive(spec, gas, 120).speed * 3.6).toBeGreaterThan(spec.topSpeedKmh * 0.9);
+        return;
+      }
       const tuning = tuningFor(spec);
       let state = createCarState(0, 0, 0);
       let t = 0;
@@ -102,12 +111,12 @@ describe('prestazioni reali dei veicoli', () => {
 
   it('nessun veicolo va oltre i 360 km/h', () => {
     for (const spec of VEHICLES) {
-      expect(drive(spec, gas, 150).speed * 3.6).toBeLessThanOrEqual(360);
+      expect(drive(spec, gas, 300).speed * 3.6).toBeLessThanOrEqual(360);
     }
   });
 
   it('l’etichetta del menu riporta motore, potenza e velocità reale', () => {
-    const punto = VEHICLES.find((v) => v.id === 'punto');
+    const punto = VEHICLES.find((v) => v.id === 'fiat-punto-2011');
     expect(punto).toBeDefined();
     const label = vehicleLabel(punto!);
     expect(label).toContain('1.2 8V');
@@ -122,7 +131,7 @@ describe('prestazioni reali dei veicoli', () => {
 
 describe('cambio, partenza e frenata', () => {
   it('parte in prima e sale di marcia fino all’ultima', () => {
-    const spec = VEHICLES.find((v) => v.id === 'ferrari-458')!; // 7 marce
+    const spec = VEHICLES.find((v) => v.id === 'ferrari-laferrari')!; // 7 marce
     const tuning = tuningFor(spec);
     let state = createCarState(0, 0, 0);
     const seen: number[] = [];
@@ -139,7 +148,7 @@ describe('cambio, partenza e frenata', () => {
   });
 
   it('scala marcia quando si rallenta senza frenare', () => {
-    const spec = VEHICLES.find((v) => v.id === 'punto')!; // 5 marce
+    const spec = VEHICLES.find((v) => v.id === 'fiat-punto-2011')!; // 5 marce
     const tuning = tuningFor(spec);
     let state = drive(spec, gas, 40);
     expect(state.gear).toBe(5);
@@ -150,7 +159,7 @@ describe('cambio, partenza e frenata', () => {
   });
 
   it('in prima una trazione posteriore potente pattina ma non si scompone', () => {
-    const spec = VEHICLES.find((v) => v.id === 'ferrari-458')!;
+    const spec = VEHICLES.find((v) => v.id === 'ferrari-laferrari')!;
     const tuning = tuningFor(spec);
     let state = createCarState(0, 0, 0);
     let spun = false;
@@ -175,7 +184,9 @@ describe('cambio, partenza e frenata', () => {
       const distance = Math.abs(state.z - z0);
       expect(state.speed).toBe(0);
       // 100 km/h → 0: fra 30 e 55 m su asfalto asciutto
-      expect(distance).toBeGreaterThan(30);
+      // le sportive stanno sotto i 30 m, le auto normali sui 40 m; una F1
+      // scende sotto i 22 m, quindi il limite resta basso ma non nullo
+      expect(distance).toBeGreaterThan(18);
       expect(distance).toBeLessThan(55);
     }
   });
@@ -209,7 +220,7 @@ describe('cambio, partenza e frenata', () => {
   });
 
   it('lo sterzo chiude le curve di un’auto vera, non di un tram', () => {
-    const spec = VEHICLES.find((v) => v.id === 'punto')!;
+    const spec = VEHICLES.find((v) => v.id === 'fiat-punto-2011')!;
     const tuning = tuningFor(spec);
     // 30 km/h, volante a fondo corsa: raggio d'azione sotto i 12 m
     let state: CarState = { ...createCarState(0, 0, 0), speed: 30 / 3.6, gear: 2 };
@@ -230,7 +241,7 @@ describe('cambio, partenza e frenata', () => {
   });
 
   it('fuori strada va più piano che sull’asfalto', () => {
-    const spec = VEHICLES.find((v) => v.id === 'punto')!;
+    const spec = VEHICLES.find((v) => v.id === 'fiat-punto-2011')!;
     const tuning = tuningFor(spec);
     let onRoad = createCarState(0, 0, 0);
     let offRoad = createCarState(0, 0, 0);
@@ -242,7 +253,7 @@ describe('cambio, partenza e frenata', () => {
   });
 
   it('è deterministica a parità di input', () => {
-    const spec = VEHICLES.find((v) => v.id === 'punto')!;
+    const spec = VEHICLES.find((v) => v.id === 'fiat-punto-2011')!;
     const a = drive(spec, gas, 40);
     const b = drive(spec, gas, 40);
     expect(a).toEqual(b);

@@ -1,8 +1,17 @@
 import * as THREE from 'three';
 import { FAR_TOWNS, GAME, HOME, START, VIEW_RADIUS, VILLAGES, WORLD, latLonToWorld, worldToLatLon } from './config';
 import { clamp, distance2, smoothstep, type Pt } from './geo/geo';
+import { loadCanopy, type CanopyField } from './geo/canopy';
 import { loadHeightfield, type Heightfield } from './geo/elevation';
-import { BuildingIndex, loadOsm, markTownSidewalks, RoadIndex, type OsmData } from './geo/osm';
+import { WorldGround } from './geo/ground';
+import {
+  BuildingIndex,
+  loadOsm,
+  markTownSidewalks,
+  prepareRoadElevations,
+  RoadIndex,
+  type OsmData,
+} from './geo/osm';
 import { ObstacleIndex } from './geo/obstacles';
 import { ESRI_WORLD_IMAGERY, ImageryStreamer } from './world/imagery';
 import { Terrain, setCloudShadow } from './world/terrain';
@@ -13,6 +22,7 @@ import { buildChurch } from './world/church';
 import { buildDryStoneWalls } from './world/dry-stone';
 import { buildFieldBoundaries, loadParcels, type Parcels } from './world/field-boundaries';
 import { buildPowerLines } from './world/power-lines';
+import { buildGuardrails } from './world/guardrails';
 import { buildRoads, buildWater } from './world/roads';
 import {
   StreetLights,
@@ -310,6 +320,9 @@ export class Game {
   private stereo = false;
 
   private heights!: Heightfield;
+  /** unica verità sulla quota calpestabile (DEM + strada + ponte) */
+  private ground!: WorldGround;
+  private canopy: CanopyField | null = null;
   /** confini di campo dal landcover (null se parcels.json manca) */
   private parcels: Parcels | null = null;
   private osm!: OsmData;
@@ -317,6 +330,8 @@ export class Game {
   private buildingIndex!: BuildingIndex;
   /** pali, cartelli e tronchi: cilindri solidi per auto, pedoni e giocatore */
   private obstacles = new ObstacleIndex();
+  /** guardrail correnti; si ricostruiscono se cambia il preset */
+  private guardrailsGroup: THREE.Group | null = null;
   private terrain!: Terrain;
   private landcover: Landcover | null = null;
   private sky!: SkyRig;
@@ -360,6 +375,8 @@ export class Game {
   private venuePanelVisible = false;
 
   private mode: Mode = 'walk';
+  /** Ultimo input di guida: lo usano fisica, audio e HUD nello stesso frame. */
+  private driveInput: CarInput | null = null;
   private loaded = false;
   private running = false;
   private keys = new Set<string>();
@@ -430,6 +447,9 @@ export class Game {
   private carManifest: Promise<number> | null = null;
   /** Auto importate: id dello spec -> scena già normalizzata. */
   private readonly customCars = new Map<string, THREE.Object3D>();
+  /** Gruppo degli alberi/cespugli: si ricostruisce quando cambia il preset. */
+  private vegetation: THREE.Group | null = null;
+  private vegetationGeneration = 0;
   private cityProps: {
     trees: number;
     cars: number;
@@ -504,9 +524,10 @@ export class Game {
     // finivano a ridosso del bianco e la scena sembrava lavata.
     this.renderer.toneMappingExposure = EXPOSURE_DAY;
     this.renderer.shadowMap.enabled = this.quality.shadows;
-    // PCF morbido: con PCF duro i bordi delle ombre di tetti e alberi sono
-    // scalettati quanto la geometria, e sono metà dello schermo in paese
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // PCF: da three r186 `PCFSoftShadowMap` non esiste più e viene sostituito
+    // in automatico; lo impostiamo direttamente per non lasciare un warning a
+    // ogni avvio. I bordi restano morbidi grazie alla mappa grande dell'ultra.
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     // i contatori di `renderer.info` vengono azzerati a mano a ogni frame: con
     // il post-processing il reset automatico lasciava solo la passata finale
     // (1 draw call, 1 triangolo) e la diagnostica non diceva niente
@@ -594,16 +615,18 @@ export class Game {
         if (count === 0) console.info('nessuna auto GLB in public/cars: restano le sagome procedurali');
       });
 
-      const [heights, osm, kit, parcels] = await Promise.all([
+      const [heights, osm, kit, parcels, canopy] = await Promise.all([
         loadHeightfield(base),
         loadOsm(base),
         kitPromise,
         loadParcels(base),
+        loadCanopy(base),
       ]);
       this.heights = heights;
       this.osm = osm;
       this.parcels = parcels;
       this.kit = kit;
+      this.canopy = canopy;
       this.car.setKit(kit);
       this.hud.setLoading(0.32, 'Apro il garage delle auto importate…');
       await nextFrame();
@@ -615,7 +638,11 @@ export class Game {
       // prima di costruire l'indice stradale: decide dove esistono davvero
       // marciapiedi, e la fisica deve leggere la stessa verità della grafica
       markTownSidewalks(osm.roads, this.buildingIndex);
-      this.roadIndex = new RoadIndex(osm.roads);
+      // ponti e gallerie prima dell'indice: grafica e fisica devono leggere
+      // la stessa quota, altrimenti l'auto passa sotto il ponte che si vede
+      prepareRoadElevations(osm.roads, heights);
+      this.roadIndex = new RoadIndex(osm.roads, heights);
+      this.ground = new WorldGround(heights, this.roadIndex);
       this.roadGraph = buildRoadGraph(osm.roads);
       this.ensureHome();
       this.populateVehicles();
@@ -642,6 +669,7 @@ export class Game {
       // invisibili da lontano e ininfluenti sulla guida. Sui preset leggeri non si
       // costruiscono affatto.
       if (this.quality.drainage) this.scene.add(buildRoadDrainage(osm, heights));
+      this.rebuildGuardrails();
       // la chiesa cerca un posto libero attorno al centro del paese; l'impronta
       // entra nell'indice prima di alberi, cespugli ed erba, così nessuno ci
       // cresce dentro (e il giocatore non la attraversa)
@@ -690,14 +718,22 @@ export class Game {
 
       this.hud.setLoading(0.64, 'Pianto alberi e uliveti…');
       await nextFrame();
-      this.scene.add(
-        buildVegetation(osm, heights, this.roadIndex, this.buildingIndex, this.renderer, this.pavedAreas, {
+      this.vegetation = buildVegetation(
+        osm,
+        heights,
+        this.roadIndex,
+        this.buildingIndex,
+        this.renderer,
+        this.pavedAreas,
+        {
           trees: this.quality.trees,
           shrubs: this.quality.shrubs,
           // le ombre di migliaia di istanze sono la prima voce da tagliare
           shadows: this.quality.level === 'high' || this.quality.level === 'ultra',
-        }).group,
-      );
+          canopy: this.canopy,
+        },
+      ).group;
+      this.scene.add(this.vegetation);
       // alberi di strada e auto in sosta del kit: solo dentro il paese e con un
       // tetto di istanze deciso dal preset (sono modelli fotorealistici, pesanti)
       if (this.kit) {
@@ -744,16 +780,13 @@ export class Game {
       this.scene.add(this.clouds.mesh);
       this.precipitation = new Precipitation();
       this.precipitation.group.visible = this.weatherFxOn;
-      // gli schizzi devono cadere sulla superficie vera: l'asfalto sta 20 cm
-      // sopra il DEM, altrimenti l'anello sparisce sotto la strada
-      this.precipitation.setGroundSampler((x, z) => {
-        const base = this.heights.heightAt(x, z);
-        return this.roadIndex.isOnRoad(x, z, 0.12) ? base + 0.25 : base + 0.05;
-      });
+      // gli schizzi devono cadere sulla superficie vera: la quota include già
+      // asfalto, marciapiede e ponte, quindi non serve più indovinare +25 cm
+      this.precipitation.setGroundSampler((x, z) => this.ground.heightAt(x, z) + 0.055);
       this.scene.add(this.precipitation.group);
       this.mist = new GroundMist();
       this.mist.group.visible = this.weatherFxOn;
-      this.mist.setGroundSampler((x, z) => this.heights.heightAt(x, z));
+      this.mist.setGroundSampler((x, z) => this.ground.heightAt(x, z));
       this.scene.add(this.mist.group);
       this.routeBeacon = this.createRouteBeacon();
       this.scene.add(this.routeBeacon);
@@ -848,6 +881,7 @@ export class Game {
       const base = `${import.meta.env.BASE_URL}models/`;
       this.humanAssets = await loadHumanAssets(base);
       this.player.useHumanModel(this.humanAssets);
+      this.car.setRider(this.humanAssets, this.player.appearance);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.errors.push(`personaggi: ${message}`);
@@ -862,8 +896,7 @@ export class Game {
     this.pedestrians = new Pedestrians(
       this.humanAssets,
       this.osm,
-      this.heights,
-      this.roadIndex,
+      this.ground,
       this.player.position,
       count,
     );
@@ -877,7 +910,7 @@ export class Game {
     const saved = this.lifeSave?.position;
     if (saved) {
       const safe = this.buildingIndex.resolveCircle(saved.x, saved.z, 0.6);
-      this.player.spawn(safe.x, safe.z, 0, this.heights);
+      this.player.spawn(safe.x, safe.z, 0, this.ground);
     } else {
       const pose = this.findRoadPose(START.x, START.z, 0.6) ?? {
         x: START.x,
@@ -885,7 +918,7 @@ export class Game {
         yaw: 0,
         distance: 0,
       };
-      this.player.spawn(pose.x, pose.z, pose.yaw, this.heights);
+      this.player.spawn(pose.x, pose.z, pose.yaw, this.ground);
     }
     this.player.avatar.visible = false;
 
@@ -894,7 +927,7 @@ export class Game {
     const aheadZ = pose.z - Math.cos(pose.yaw) * 13;
     // l'auto non deve nascere dentro un muro: cerca un punto libero nei paraggi
     const carPose = this.findRoadPose(aheadX, aheadZ, 1.7) ?? this.findRoadPose(aheadX, aheadZ, 0.9) ?? pose;
-    this.car.reset(carPose.x, carPose.z, carPose.yaw, this.heights);
+    this.car.reset(carPose.x, carPose.z, carPose.yaw, this.ground);
 
     this.terrain.update(this.player.position.x, this.player.position.z, this.viewRadius, true);
     this.spawnPedestrians();
@@ -1212,6 +1245,7 @@ export class Game {
   private updateAppearance(patch: Partial<Appearance>): void {
     const next = sanitizeAppearance({ ...this.player.appearance, ...patch });
     this.player.applyAppearance(next);
+    this.car.setRider(this.humanAssets, next);
     saveAppearance(next);
     this.syncSettingsControls();
   }
@@ -1317,8 +1351,8 @@ export class Game {
     const spot = this.buildingIndex.resolveCircle(x, z, 2.4);
     const pose =
       this.findRoadPose(x, z, 1.7) ?? this.findRoadPose(x, z, 1.0) ?? { x, z, yaw: 0, distance: 0 };
-    this.player.spawn(spot.x, spot.z, pose.yaw, this.heights);
-    this.car.reset(pose.x, pose.z, pose.yaw, this.heights);
+    this.player.spawn(spot.x, spot.z, pose.yaw, this.ground);
+    this.car.reset(pose.x, pose.z, pose.yaw, this.ground);
     this.mode = 'walk';
     this.hud.setMode('walk');
     this.player.avatar.visible = this.thirdPerson;
@@ -1359,8 +1393,8 @@ export class Game {
     if (qualityCopy) {
       const auto = this.degradeStep > 0 ? ' · ridotta automaticamente per gli fps' : '';
       qualityCopy.textContent =
-        `${this.quality.hint}${auto}. ${this.quality.trees.toLocaleString('it-IT')} alberi al caricamento: ` +
-        'se cambi densità a partita avviata, alberi e arredo cambiano al prossimo avvio; erba, ombre ed effetti subito.';
+        `${this.quality.hint}${auto}. ${this.quality.trees.toLocaleString('it-IT')} alberi: ` +
+        'cambiando densità si rigenerano subito, insieme a erba, ombre ed effetti.';
     }
     this.hud.setManualTime(this.manualTime);
     this.hud.setTimeLabel(this.manualHour);
@@ -1468,7 +1502,7 @@ export class Game {
     this.audio.setVoice(engineVoice(spec));
     if (this.heights) {
       const { x, z, yaw } = this.car.state;
-      this.car.reset(x, z, yaw, this.heights);
+      this.car.reset(x, z, yaw, this.ground);
     }
     this.hud.setVehicleName(spec.name);
     this.hud.setVehicleSpec(vehicleLabel(spec));
@@ -1786,6 +1820,7 @@ export class Game {
     if (item.outfit) {
       const look = sanitizeAppearance({ ...this.player.appearance, outfit: item.outfit as Appearance['outfit'] });
       this.player.applyAppearance(look);
+      this.car.setRider(this.humanAssets, look);
       saveAppearance(look);
       this.syncSettingsControls();
       this.hud.toast(`Indossi: ${OUTFITS[look.outfit].label}`, 2400);
@@ -1968,7 +2003,7 @@ export class Game {
     this.updateRouteHud();
     if (this.routeBeacon && this.routeDestination) {
       const { x, z } = this.routeDestination;
-      this.routeBeacon.position.set(x, this.heights.heightAt(x, z), z);
+      this.routeBeacon.position.set(x, this.ground.heightAt(x, z), z);
       this.routeBeacon.visible = true;
     }
   }
@@ -2193,11 +2228,14 @@ export class Game {
     this.sky.setLighting({
       sunColor: this.sunTint.getHex(),
       sunIntensity,
-      hemiSky: day < 0.2 ? 0x263a58 : cloud > 0.5 ? 0xb2bcc4 : 0xa8c8ee,
-      hemiGround: day < 0.2 ? 0x0d1218 : 0x63583f,
-      hemiIntensity: 0.08 + 0.24 * day + 0.08 * cloud,
-      ambientIntensity: 0.035 + 0.075 * day + 0.03 * cloud,
-      moonIntensity: sun.elevation < 0 ? 0.4 : 0,
+      hemiSky: day < 0.2 ? 0x2c4266 : cloud > 0.5 ? 0xb2bcc4 : 0xa8c8ee,
+      hemiGround: day < 0.2 ? 0x1a2430 : 0x63583f,
+      // Di notte il mondo non deve sparire: un filo di luce ambientale e la
+      // luna alta tengono leggibili strada, cordoli e incroci anche senza
+      // fari. Prima hemi 0,08 + ambient 0,035 facevano una notte da grotta.
+      hemiIntensity: 0.16 + 0.18 * day + 0.08 * cloud,
+      ambientIntensity: 0.085 + 0.045 * day + 0.03 * cloud,
+      moonIntensity: sun.elevation < 0 ? 1.15 : 0,
     });
 
     // Giornata serena: foschia più lontana e meno densa, altrimenti le colline
@@ -2222,7 +2260,7 @@ export class Game {
       fogFar *= 0.7;
     }
 
-    this.fogColor.setHex(0x0a131e).lerp(this.tintA.setHex(0xb9cbd8), day);
+    this.fogColor.setHex(0x16222e).lerp(this.tintA.setHex(0xb9cbd8), day);
     this.fogColor.lerp(this.tintB.setHex(0xe6bd92), horizon * day * 0.35);
     this.fogColor.lerp(this.tintA.setHex(0x9aa7ae), cloud * 0.35 * day);
     if (foggy) this.fogColor.lerp(this.tintA.setHex(0xb9c2c6), 0.5 * day);
@@ -2233,7 +2271,9 @@ export class Game {
       this.scene.fog.far = fogFar;
     }
     this.scene.background = this.fogColor;
-    this.renderer.toneMappingExposure = EXPOSURE_DAY - (1 - day) * 0.08 - cloud * 0.02;
+    // Di notte si alza leggermente l'esposizione invece di abbassarla: i fari
+    // illuminano la strada ma il resto dell'inquadratura deve restare leggibile.
+    this.renderer.toneMappingExposure = EXPOSURE_DAY - (1 - day) * 0.02 - cloud * 0.02;
 
     const windRad = THREE.MathUtils.degToRad(w.windDirection);
     const windX = -Math.sin(windRad) * w.windSpeed * 0.08;
@@ -2291,6 +2331,66 @@ export class Game {
     this.post?.setSharpen(this.quality.sharpen * (1 + softness * 1.5));
   }
 
+  /**
+   * Costruisce un nuovo gruppo di vegetazione col preset corrente. Gli alberi
+   * non sono più "al prossimo avvio": il gruppo vecchio resta in scena finché
+   * il nuovo non è pronto, poi si scambia in un colpo solo (niente buchi) e si
+   * libera la memoria del precedente.
+   */
+  private rebuildGuardrails(): void {
+    if (!this.osm || !this.ground || !this.heights) return;
+    this.obstacles.removeTag('guardrail');
+    if (this.guardrailsGroup) {
+      this.scene.remove(this.guardrailsGroup);
+      this.guardrailsGroup.traverse((obj) => {
+        const mesh = obj as THREE.Mesh;
+        mesh.geometry?.dispose();
+        const material = mesh.material;
+        if (Array.isArray(material)) material.forEach((m) => m.dispose());
+        else material?.dispose();
+      });
+      this.guardrailsGroup = null;
+    }
+    if (!this.quality.guardrails) return;
+    const guardrails = buildGuardrails(this.osm, this.heights, this.ground, {
+      maxSpans: this.quality.level === 'medium' ? 1800 : 3000,
+      obstacles: this.obstacles,
+    });
+    this.guardrailsGroup = guardrails.group;
+    this.scene.add(guardrails.group);
+  }
+
+  private rebuildVegetation(): void {
+    if (!this.vegetation || !this.heights || !this.osm) return;
+    const generation = ++this.vegetationGeneration;
+    const trees = this.quality.trees;
+    const shrubs = this.quality.shrubs;
+    const shadows = this.quality.level === 'high' || this.quality.level === 'ultra';
+    this.hud.toast('Rigenero alberi e cespugli…', 1800);
+    window.setTimeout(() => {
+      if (generation !== this.vegetationGeneration || !this.heights || !this.osm) return;
+      const group = buildVegetation(
+        this.osm,
+        this.heights,
+        this.roadIndex,
+        this.buildingIndex,
+        this.renderer,
+        this.pavedAreas,
+        { trees, shrubs, shadows },
+      ).group;
+      if (generation !== this.vegetationGeneration) {
+        disposeVegetation(group);
+        return;
+      }
+      if (this.vegetation) {
+        this.scene.remove(this.vegetation);
+        disposeVegetation(this.vegetation);
+      }
+      this.vegetation = group;
+      this.scene.add(group);
+    }, 60);
+  }
+
   private applyQuality(level: QualityLevel, announce = true): void {
     const previous = this.quality;
     this.qualityLevel = level;
@@ -2344,14 +2444,18 @@ export class Game {
     if (announce) {
       const aa = this.quality.msaaSamples > 0 ? ` · MSAA ${this.quality.msaaSamples}x + SMAA` : '';
       const fx = `${aa}${this.quality.post ? ` · bloom${this.quality.ssao ? ' + SSAO' : ''}` : ''}`;
-      // alberi e arredo sono costruiti una volta sola: se il preset cambia
-      // densità, il mondo resta quello del caricamento. L'erba si adatta subito
-      // (si ricostruisce ogni 18 m) e lo diciamo, per non promettere miracoli.
-      const trees = previous.trees !== this.quality.trees ? ' · alberi al prossimo avvio' : '';
+      // alberi e cespugli si ricostruiscono davvero a runtime: niente più
+      // "al prossimo avvio"
       this.hud.toast(
-        `Grafica: ${this.quality.label}${fx} · satellite z${this.quality.maxSatelliteZoom}${trees}`,
+        `Grafica: ${this.quality.label}${fx} · satellite z${this.quality.maxSatelliteZoom}`,
         3600,
       );
+      if (previous.trees !== this.quality.trees || previous.shrubs !== this.quality.shrubs) {
+        this.rebuildVegetation();
+      }
+    }
+    if (previous.guardrails !== this.quality.guardrails) {
+      this.rebuildGuardrails();
     }
   }
 
@@ -2702,7 +2806,7 @@ export class Game {
     const fixed = this.buildingIndex.resolveCircle(x, z, 0.5);
     x = fixed.x;
     z = fixed.z;
-    this.player.spawn(x, z, this.car.state.yaw, this.heights);
+    this.player.spawn(x, z, this.car.state.yaw, this.ground);
     this.player.avatar.visible = this.thirdPerson;
     this.camera.fov = 68;
     this.camera.updateProjectionMatrix();
@@ -2716,10 +2820,10 @@ export class Game {
     const pose = this.findRoadPose(focus.x, focus.z);
     if (!pose) return;
     if (this.mode === 'walk') {
-      this.player.spawn(pose.x, pose.z, pose.yaw, this.heights);
+      this.player.spawn(pose.x, pose.z, pose.yaw, this.ground);
       this.snapWalkCamera();
     } else {
-      this.car.reset(pose.x, pose.z, pose.yaw, this.heights);
+      this.car.reset(pose.x, pose.z, pose.yaw, this.ground);
       this.snapDriveCamera();
     }
     this.hud.toast('Riportato in strada');
@@ -2921,7 +3025,7 @@ export class Game {
   private benchTick(dt: number): void {
     const view = BENCH_VIEWS[this.benchViewIndex];
     if (!view) return;
-    const focus = this.tmp1.set(view.x, this.heights.heightAt(view.x, view.z), view.z);
+    const focus = this.tmp1.set(view.x, this.ground.heightAt(view.x, view.z), view.z);
     this.terrain.update(view.x, view.z, this.viewRadius);
     this.terrain.tick();
     this.farTerrain?.setInnerRadius(this.viewRadius * 0.7);
@@ -2958,7 +3062,7 @@ export class Game {
     this.hud.setMode(view.mode);
 
     if (view.mode === 'drive') {
-      this.car.reset(view.x, view.z, view.yaw, this.heights);
+      this.car.reset(view.x, view.z, view.yaw, this.ground);
       // 80 km/h: la posa è ferma per riproducibilità, ma velocità e camera
       // sono quelle della vista in movimento richiesta dal brief.
       this.car.state.speed = 80 / 3.6;
@@ -2969,7 +3073,7 @@ export class Game {
       this.camera.updateProjectionMatrix();
       this.snapDriveCamera();
     } else {
-      this.player.spawn(view.x, view.z, view.yaw, this.heights);
+      this.player.spawn(view.x, view.z, view.yaw, this.ground);
       this.player.pitch = view.pitch ?? 0;
       this.player.avatar.visible = false;
       this.camera.fov = 68;
@@ -2978,7 +3082,7 @@ export class Game {
     }
 
     await this.terrain.preload(view.x, view.z, Math.min(1600, this.viewRadius));
-    this.applyManualAtmosphere(0, this.tmp1.set(view.x, this.heights.heightAt(view.x, view.z), view.z));
+    this.applyManualAtmosphere(0, this.tmp1.set(view.x, this.ground.heightAt(view.x, view.z), view.z));
     this.updateSky(this.tmp1);
     return { index, id: view.id, label: view.label };
   }
@@ -3132,14 +3236,14 @@ export class Game {
   }
 
   private idle(dt: number): void {
-    if (!this.heights) return;
+    if (!this.ground) return;
     this.idleAngle += dt * 0.035;
     const radius = 1150;
     const x = START.x + Math.cos(this.idleAngle) * radius;
     const z = START.z + Math.sin(this.idleAngle) * radius;
-    const y = this.heights.heightAt(x, z) + 210;
+    const y = this.ground.heightAt(x, z) + 210;
     this.camera.position.set(x, y, z);
-    this.camera.lookAt(START.x, this.heights.heightAt(START.x, START.z) + 30, START.z);
+    this.camera.lookAt(START.x, this.ground.heightAt(START.x, START.z) + 30, START.z);
     this.updateSky(this.tmp1.set(START.x, 0, START.z));
   }
 
@@ -3165,17 +3269,20 @@ export class Game {
       this.saveGame();
     }
 
+    this.car.setRiderVisible(this.mode === 'drive');
     if (this.mode === 'walk') {
-      this.player.update(dt, move, this.heights, this.buildingIndex, this.roadIndex, this.obstacles);
+      this.player.update(dt, move, this.ground, this.buildingIndex, this.obstacles);
       this.player.position.x = clamp(this.player.position.x, -WORLD.halfWidth + 25, WORLD.halfWidth - 25);
       this.player.position.z = clamp(this.player.position.z, -WORLD.halfHeight + 25, WORLD.halfHeight - 25);
       this.updateWalkCamera(dt);
     } else {
+      // lo stesso input serve alla fisica e al suono: così il motore risponde
+      // al gas vero, non solo ai giri
+      this.driveInput = this.autopilot ? this.autoDriveInput() : this.readCarInput(move);
       this.car.update(
         dt,
-        this.autopilot ? this.autoDriveInput() : this.readCarInput(move),
-        this.heights,
-        this.roadIndex,
+        this.driveInput,
+        this.ground,
         this.buildingIndex,
         this.obstacles,
       );
@@ -3213,6 +3320,14 @@ export class Game {
       moving: Math.abs(moveSpeed) > 0.35,
       grounded: this.mode === 'walk' ? this.player.grounded : true,
       rpm: this.mode === 'drive' ? this.car.rpm : undefined,
+      throttle: this.mode === 'drive' ? this.driveInput?.throttle : undefined,
+      gear: this.mode === 'drive' ? this.car.state.gear : undefined,
+      shiftTimer: this.mode === 'drive' ? this.car.state.shiftTimer : undefined,
+      braking: this.mode === 'drive' ? this.driveInput?.brake : undefined,
+      onRoad:
+        this.mode === 'drive'
+          ? this.roadIndex.isOnRoad(this.car.state.x, this.car.state.z, 0.4)
+          : undefined,
     });
 
     const now = performance.now();
@@ -3380,7 +3495,7 @@ export class Game {
     const dir = this.player.forward(this.tmp1);
     const target = this.tmp2.set(this.player.position.x, this.player.position.y + 1.45, this.player.position.z);
     const desired = this.tmp3.copy(target).addScaledVector(dir, -4.4);
-    desired.y = Math.max(desired.y, this.heights.heightAt(desired.x, desired.z) + 0.75);
+    desired.y = Math.max(desired.y, this.ground.heightAt(desired.x, desired.z) + 0.75);
     this.camera.position.lerp(desired, 1 - Math.exp(-14 * dt));
     this.camera.lookAt(target);
   }
@@ -3431,7 +3546,7 @@ export class Game {
       this.car.position.y + (high ? 5.8 : 2.9) + this.camPitch * (high ? 5 : 3.4),
       car.z + Math.cos(yaw) * dist,
     );
-    desired.y = Math.max(desired.y, this.heights.heightAt(desired.x, desired.z) + 1.1);
+    desired.y = Math.max(desired.y, this.ground.heightAt(desired.x, desired.z) + 1.1);
     if (snap) this.camera.position.copy(desired);
     else this.camera.position.lerp(desired, blend);
 
@@ -3451,7 +3566,7 @@ export class Game {
     const dir = this.player.forward(this.tmp1);
     const target = this.tmp2.set(this.player.position.x, this.player.position.y + 1.45, this.player.position.z);
     const desired = this.tmp3.copy(target).addScaledVector(dir, -4.4);
-    desired.y = Math.max(desired.y, this.heights.heightAt(desired.x, desired.z) + 0.75);
+    desired.y = Math.max(desired.y, this.ground.heightAt(desired.x, desired.z) + 0.75);
     this.camera.position.copy(desired);
     this.camera.lookAt(target);
   }
@@ -3462,13 +3577,17 @@ export class Game {
 
   private updateHud(x: number, z: number): void {
     const ll = worldToLatLon(x, z);
-    const elev = this.heights.heightAt(x, z);
+    const elev = this.ground.heightAt(x, z);
     this.hud.setPosition(ll.lat, ll.lon, elev, this.fps);
     this.hud.setMode(this.mode);
     this.hud.setSpeed(this.mode === 'drive' ? this.car.kmh : 0);
     this.hud.setGear(this.car.gear, this.car.rpm);
     this.hud.setNeeds(this.needs);
-    this.hud.setClock(this.gameDay, this.gameMinutes);
+    this.hud.setClock(
+      this.gameDay,
+      this.gameMinutes,
+      this.manualTime ? this.manualHour : undefined,
+    );
     this.hud.setNeedsWarning(needsWarning(this.needs));
 
     let nearest: { name: string; d: number } | null = null;
@@ -3566,4 +3685,17 @@ export class Game {
       errors: this.errors,
     };
   }
+}
+
+/** Libera geometrie e materiali della vegetazione (le texture PBR sono condivise). */
+function disposeVegetation(group: THREE.Group): void {
+  const materials = new Set<THREE.Material>();
+  group.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    if (!(mesh as unknown as { isMesh?: boolean }).isMesh) return;
+    mesh.geometry?.dispose();
+    const list = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
+    for (const material of list) materials.add(material);
+  });
+  for (const material of materials) material.dispose();
 }

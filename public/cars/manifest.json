@@ -1,77 +1,216 @@
 {
-  "version": 1,
-  "note": "Auto di serie su GLB. I file non sono versionati: mettili in public/cars/ con questi nomi. yaw è la rotazione attorno a Y (gradi) che porta il muso del modello verso +Z.",
+  "version": 2,
+  "note": "GLB dell'archivio cars.zip. I file non sono versionati: mettili in public/cars/ con questi nomi. yaw e' la rotazione attorno a Y (gradi) che porta il muso del modello verso +Z. Crediti e licenze: src/sim/vehicle-credits.ts e ATTRIBUTION.md.",
   "cars": [
     {
-      "slug": "lamborghini-aventador",
-      "file": "lamborghini-aventador.glb",
-      "name": "Lamborghini Aventador",
+      "slug": "audi-r8-2010",
+      "file": "2010_audi_r8_5.2_fsi_quattro.glb",
+      "name": "2010 Audi R8 5.2 FSI Quattro",
       "yaw": 0,
-      "length": 4.78
+      "length": 4.43
     },
     {
-      "slug": "ferrari-458",
-      "file": "ferrari.glb",
-      "name": "Ferrari 458 Spider",
+      "slug": "fiat-punto-2011",
+      "file": "2011_fiat_punto.glb",
+      "name": "2011 Fiat Punto",
+      "yaw": 0,
+      "length": 4.07
+    },
+    {
+      "slug": "bmw-m4-competition-2021",
+      "file": "2021_bmw_m4_competition.glb",
+      "name": "2021 BMW M4 Competition",
+      "yaw": 0,
+      "length": 6.6
+    },
+    {
+      "slug": "yamaha-mt09-sp-2025",
+      "file": "22564002dee.glb",
+      "name": "2025 Yamaha MT-09 SP V4",
       "yaw": 180,
-      "length": 4.53
+      "length": 2.09
     },
     {
-      "slug": "fiat-punto",
-      "file": "fiat-punto.glb",
-      "name": "Fiat Punto",
+      "slug": "aston-martin-db11",
+      "file": "aston_martin_db11.glb",
+      "name": "Aston Martin DB11",
+      "yaw": 90,
+      "length": 5.0
+    },
+    {
+      "slug": "audi-novulari",
+      "file": "audi_novulari.glb",
+      "name": "Audi Novulari",
+      "yaw": -90,
+      "length": 6.19
+    },
+    {
+      "slug": "audi-r8-2023",
+      "file": "audi_r8_coupe_performance_quattro_2023.glb",
+      "name": "Audi R8 Coupe Performance quattro 2023",
       "yaw": 0,
-      "length": 3.8
+      "length": 4.43
+    },
+    {
+      "slug": "bmw-1930s-saloon",
+      "file": "bmw_inspired_1930s_saloon_car.glb",
+      "name": "BMW inspired 1930s Saloon car",
+      "yaw": 0,
+      "length": 4.5
+    },
+    {
+      "slug": "bmw-m3-sedan",
+      "file": "bmw_m3_sedan_topaz_blue_car.glb",
+      "name": "BMW M3 Sedan topaz blue car",
+      "yaw": 0,
+      "length": 4.77
+    },
+    {
+      "slug": "cupra-terramar",
+      "file": "Cupra_Terramar_Hero_Purple_GLB.glb",
+      "name": "Cupra_Terramar_Hero_Purple_GLB",
+      "yaw": 90,
+      "length": 4.52
+    },
+    {
+      "slug": "detomaso-p900",
+      "file": "detomaso_p900.glb",
+      "name": "DeTomaso P900",
+      "yaw": 0,
+      "length": 4.9
+    },
+    {
+      "slug": "ferrari-f1-2019",
+      "file": "ferrari_f1_2019.glb",
+      "name": "Ferrari F1 2019",
+      "yaw": 0,
+      "length": 5.7
+    },
+    {
+      "slug": "ferrari-laferrari",
+      "file": "ferrari_laferrari__www.vecarz.com.glb",
+      "name": "Ferrari Laferrari | www.vecarz.com",
+      "yaw": 0,
+      "length": 4.7
+    },
+    {
+      "slug": "fiat-500",
+      "file": "fiat_500.glb",
+      "name": "Fiat 500",
+      "yaw": 0,
+      "length": 3.55
+    },
+    {
+      "slug": "fiat-500-1970",
+      "file": "fiat_500_-_1970_model.glb",
+      "name": "Fiat 500 - 1970 Model",
+      "yaw": 0,
+      "length": 2.97
+    },
+    {
+      "slug": "fiat-500-abarth",
+      "file": "fiat_500_abarth.glb",
+      "name": "Fiat 500 Abarth",
+      "yaw": 180,
+      "length": 3.66
+    },
+    {
+      "slug": "fiat-multipla-1998",
+      "file": "fiat_multipla_1998_3d_model.glb",
+      "name": "Fiat Multipla 1998 3D Model",
+      "yaw": 0,
+      "length": 3.99
+    },
+    {
+      "slug": "fiat-panda-4x4",
+      "file": "fiat_panda_4x4.glb",
+      "name": "FIAT Panda 4x4",
+      "yaw": 0,
+      "length": 3.65
+    },
+    {
+      "slug": "fiat-uno-1994",
+      "file": "fiat_uno_1994.glb",
+      "name": "Fiat Uno 1994",
+      "yaw": 0,
+      "length": 3.69
+    },
+    {
+      "slug": "fiat-punto-gt-1995",
+      "file": "free_1995_fiat_punto_gt.glb",
+      "name": "(FREE) 1995 Fiat Punto GT",
+      "yaw": 0,
+      "length": 4.58
+    },
+    {
+      "slug": "honda-civic-rs",
+      "file": "honda_civic_rs.glb",
+      "name": "Honda Civic RS",
+      "yaw": -90,
+      "length": 4.57
+    },
+    {
+      "slug": "lamborghini-revuelto",
+      "file": "lamborgini_revolto.glb",
+      "name": "LAMBORGINI REVOLTO",
+      "yaw": 0,
+      "length": 5.95
     },
     {
       "slug": "land-rover-defender",
-      "file": "land-rover-defender.glb",
+      "file": "land_rover_defender.glb",
       "name": "Land Rover Defender",
       "yaw": 0,
       "length": 5.02
     },
     {
-      "slug": "audi-r8",
-      "file": "audi-r8.glb",
-      "name": "Audi R8 V10 Performance",
+      "slug": "mg-cyberster-2025",
+      "file": "m_cyberster.glb",
+      "name": "2025 MG Cyberster (GLB)(mgmotor.com.mx)",
       "yaw": 0,
-      "length": 4.43
+      "length": 2.41
     },
     {
-      "slug": "cupra-terramar",
-      "file": "cupra-terramar.glb",
-      "name": "Cupra Terramar",
-      "yaw": 90,
-      "length": 4.52
-    },
-    {
-      "slug": "porsche-mystery",
-      "file": "porsche-mystery.glb",
-      "name": "Porsche 911 Carrera (Mistery)",
+      "slug": "porsche-911-mistery",
+      "file": "mistery_porsche.glb",
+      "name": "Mistery Porsche",
       "yaw": 0,
       "length": 4.52
     },
     {
-      "slug": "camaro-bumblebee",
-      "file": "camaro-bumblebee.glb",
-      "name": "Chevrolet Camaro SS",
+      "slug": "seat-leon-cupra-race",
+      "file": "seat_leon_cupra_race_car.glb",
+      "name": "Seat Leon Cupra Race Car",
       "yaw": 0,
-      "length": 4.78,
-      "hide": ["Shadow", "Cover"]
+      "length": 4.2
     },
     {
-      "slug": "harley-xyn",
-      "file": "harley-xyn.glb",
-      "name": "Harley XYN",
+      "slug": "tesla-cybertruck",
+      "file": "tesla-cybertruck.glb",
+      "name": "Tesla-Cybertruck",
+      "yaw": 0,
+      "length": 5.68
+    },
+    {
+      "slug": "vespa-scooter",
+      "file": "vespa_scooter.glb",
+      "name": "Vespa Scooter",
       "yaw": 180,
-      "length": 2.25
+      "length": 1.77
     },
     {
-      "slug": "mg7",
-      "file": "mg7.glb",
-      "name": "MG7 2.0T",
+      "slug": "volkswagen-crafter",
+      "file": "volkswagen_crafter.glb",
+      "name": "Volkswagen Crafter",
       "yaw": 0,
-      "length": 4.88
+      "length": 5.99
+    },
+    {
+      "slug": "volkswagen-golf-gti-2025",
+      "file": "volkswagen_golf_gti_2025.glb",
+      "name": "Volkswagen Golf GTI (2025)",
+      "yaw": 180,
+      "length": 4.29
     }
   ]
 }

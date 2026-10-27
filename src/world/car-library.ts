@@ -62,7 +62,9 @@ interface Manifest {
   cars?: CarManifestEntry[];
 }
 
-const WHEEL_TAG = /(?:wheel|ruota)[-_ ]?(fl|fr|rl|rr|bl|br)(?![a-z0-9])/i;
+const WHEEL_TAG = /(?:wheel|ruota)[-_ ]?(fl|fr|rl|rr|lf|rf|lr|bl|br)(?![a-z0-9])/i;
+const TIRE_TAG = /(?:^|[-_ .#])(?:tire|tyre|rim)[-_ ]?(fl|fr|rl|rr|lf|rf|lr|bl|br)(?![a-z0-9])/i;
+const CORNER_TAG = /(?:^|[-_ .#])(fl|fr|rl|rr|lf|rf|lr|bl|br)(?=$|[-_ .#])/i;
 const FRONT_WORDS = /(?:front|anteriore|avantreno)[-_ ]?(left|right|sinistra|destra)[-_ ]?(?:wheel|ruota)/i;
 const REAR_WORDS = /(?:rear|retro|posteriore)[-_ ]?(left|right|sinistra|destra)[-_ ]?(?:wheel|ruota)/i;
 const BRAKE_PART = /caliper|pinza|brakes?\b|freno/i;
@@ -81,15 +83,27 @@ export async function loadCarManifest(baseUrl: string): Promise<CarManifestEntry
   }
 }
 
+function canonicalCorner(tag: string): 'fl' | 'fr' | 'rl' | 'rr' {
+  const value = tag.toLowerCase();
+  if (value === 'lf') return 'fl';
+  if (value === 'rf') return 'fr';
+  if (value === 'lr' || value === 'bl') return 'rl';
+  if (value === 'br') return 'rr';
+  return value as 'fl' | 'fr' | 'rl' | 'rr';
+}
+
 function tagFromName(name: string): string | null {
   // moto e modelli con due sole ruote: `front_wheel` / `rear_wheel`
   if (/(?:^|[-_ ])front[-_ ]?wheel$/i.test(name)) return 'fl';
   if (/(?:^|[-_ ])rear[-_ ]?wheel$/i.test(name)) return 'rl';
+  // Vespa esportata da Sketchfab: `front_weel` / `back_weel`
+  if (/(?:^|[-_ ])(?:front|anteriore)[-_ ]?weel$/i.test(name)) return 'fl';
+  if (/(?:^|[-_ ])(?:rear|back|posteriore)[-_ ]?weel$/i.test(name)) return 'rl';
   const direct = WHEEL_TAG.exec(name);
-  if (direct) {
-    const tag = direct[1].toLowerCase();
-    return tag === 'bl' ? 'rl' : tag === 'br' ? 'rr' : tag;
-  }
+  if (direct) return canonicalCorner(direct[1]);
+  // Golf GTI e altri GLB da configuratore: `Tire_FL_...`, `Rim_FL_...`
+  const tire = TIRE_TAG.exec(name);
+  if (tire) return canonicalCorner(tire[1]);
   const front = FRONT_WORDS.exec(name);
   if (front) return front[1].toLowerCase().startsWith('l') || front[1].toLowerCase().startsWith('s') ? 'fl' : 'fr';
   const rear = REAR_WORDS.exec(name);
@@ -217,7 +231,12 @@ function declaredWheels(template: THREE.Group): { node: THREE.Object3D; tag: str
     if (BRAKE_PART.test(object.name)) return;
     const tag = tagFromName(object.name);
     if (!tag) return;
-    candidates.push({ node: object, tag, depth: depthOf(object) });
+    // Il pneumatico e il cerchio possono stare sotto un gruppo che porta lo
+    // stesso angolo (`Tire_FL...` + `Rim_FL...` dentro `JEREZ_19_FL_2`): il
+    // perno deve contenere entrambi, non solo la gomma.
+    let node = object;
+    while (node.parent && node.parent !== template && sameCorner(node.parent.name, tag)) node = node.parent;
+    candidates.push({ node, tag, depth: depthOf(node) });
   });
   candidates.sort((a, b) => a.depth - b.depth);
 
@@ -237,6 +256,12 @@ function isAncestor(ancestor: THREE.Object3D, object: THREE.Object3D): boolean {
     if (parent === ancestor) return true;
   }
   return false;
+}
+
+/** Il nodo padre fa parte della stessa ruota? (`JEREZ_19_FL_2` sopra `Tire_FL_...`) */
+function sameCorner(name: string, tag: string): boolean {
+  const match = CORNER_TAG.exec(name);
+  return match ? canonicalCorner(match[1]) === tag : false;
 }
 
 /** Pinze e freni non devono girare con la ruota: restano nel corpo. */

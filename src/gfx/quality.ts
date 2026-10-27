@@ -69,6 +69,8 @@ export interface QualityPreset {
   buildingDetail: 'full' | 'simple';
   /** chiusini e caditoie (due InstancedMesh, ~600.000 triangoli in mappa) */
   drainage: boolean;
+  /** guardrail su ponti e scarpate (due InstancedMesh) */
+  guardrails: boolean;
   /** raggio di streaming del terreno in metri */
   viewRadius: number;
   /**
@@ -107,6 +109,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     kit: false,
     buildingDetail: 'simple',
     drainage: false,
+    guardrails: false,
     viewRadius: 1500,
     landcover: 'off',
     landcoverRadius: 0,
@@ -136,6 +139,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     kit: true,
     buildingDetail: 'simple',
     drainage: false,
+    guardrails: false,
     viewRadius: 2200,
     landcover: 'base',
     landcoverRadius: 0,
@@ -165,6 +169,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     kit: true,
     buildingDetail: 'full',
     drainage: true,
+    guardrails: true,
     viewRadius: 2600,
     landcover: 'full',
     landcoverRadius: 1400,
@@ -194,6 +199,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     kit: true,
     buildingDetail: 'full',
     drainage: true,
+    guardrails: true,
     viewRadius: 3100,
     landcover: 'full',
     landcoverRadius: 1900,
@@ -223,6 +229,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     kit: true,
     buildingDetail: 'full',
     drainage: true,
+    guardrails: true,
     viewRadius: 3100,
     landcover: 'full',
     landcoverRadius: 2300,

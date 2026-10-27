@@ -158,7 +158,12 @@ describe('marciapiedi solo nel costruito', () => {
       { x: 100, z: 0 },
       { x: 200, z: 0 },
     ]);
-    const buildings = new BuildingIndex([building(0, 20)]);
+    const buildings = new BuildingIndex([
+      building(0, 20),
+      building(15, 22),
+      building(-15, 22),
+      building(0, 33),
+    ]);
     markTownSidewalks([road500], buildings);
     const spans = road500.walkSpans!;
     expect(spans).toHaveLength(5);

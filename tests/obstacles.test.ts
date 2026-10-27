@@ -41,4 +41,15 @@ describe('ostacoli cilindrici', () => {
     index.add(0, Number.POSITIVE_INFINITY, 0.2);
     expect(index.count).toBe(0);
   });
+
+  it('rimuove un gruppo taggato senza toccare gli altri ostacoli', () => {
+    const index = new ObstacleIndex();
+    index.add(2, 0, 0.15, 'guardrail');
+    index.add(0, 2, 0.15);
+    expect(index.count).toBe(2);
+    index.removeTag('guardrail');
+    expect(index.count).toBe(1);
+    expect(index.hitsCircle(2, 0, 0.4)).toBe(false);
+    expect(index.hitsCircle(0, 2, 0.4)).toBe(true);
+  });
 });

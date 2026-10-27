@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { TREES_MAX, WORLD } from '../config';
+import type { CanopyField } from '../geo/canopy';
 import type { Heightfield } from '../geo/elevation';
-import { mulberry32, pointInPolygon } from '../geo/geo';
+import { clamp, mulberry32, pointInPolygon } from '../geo/geo';
 import type { BuildingIndex, OsmData, RoadIndex } from '../geo/osm';
 import { foliageSet, pbr } from '../gfx/textures';
 import { windTimeUniform } from '../gfx/wind';
@@ -39,6 +40,12 @@ export interface VegetationOptions {
   shrubs?: number;
   /** ombre del sole per alberi e cespugli (la passata più costosa) */
   shadows?: boolean;
+  /**
+   * Altezza della chioma ETH (10 m). Facoltativa: senza dato la vegetazione
+   * usa ancora gli scale casuali di prima, ma non pianta un bosco dove il
+   * satellite vede un campo.
+   */
+  canopy?: CanopyField | null;
 }
 
 /**
@@ -66,6 +73,7 @@ export function buildVegetation(
   const treeLimit = Math.max(0, Math.min(TREES_MAX, options.trees ?? TREES_MAX));
   const shrubLimit = Math.max(0, options.shrubs ?? 2600);
   const castTreeShadows = options.shadows ?? true;
+  const canopy = options.canopy ?? null;
   const rng = mulberry32(0x5eed);
   if (treeLimit === 0 && shrubLimit === 0) {
     const empty = new THREE.Group();
@@ -81,18 +89,33 @@ export function buildVegetation(
     maxScale = 1.47,
     margin = 1.6,
     kind: TreeKind = 'broadleaf',
+    honorCanopy = false,
   ): boolean => {
     if (placements.length >= treeLimit) return false;
     if (heights.slopeAt(px, pz) > 34) return false;
     if (roads.isOnRoad(px, pz, margin)) return false;
     if (buildings.hitsCircle(px, pz, 2.6)) return false;
     if (insidePaved(px, pz, paved)) return false;
+    const canopyHeight = canopy ? canopy.heightAt(px, pz) : 0;
+    // Fuori dai boschi OSM il satellite decide se c'è davvero un albero.
+    // Soglie morbide: 4-8 m è un albero giovane/ulivo, sopra 8 m una chioma
+    // matura. Sotto 2 m è quasi sempre seminativo o arbusto.
+    if (honorCanopy && canopy && canopy.covers(px, pz)) {
+      const keep = canopyHeight >= 8 ? 1 : canopyHeight >= 4 ? 0.72 : canopyHeight >= 2 ? 0.38 : 0.08;
+      if (rng() > keep) return false;
+    }
+    let scale = minScale + rng() * (maxScale - minScale);
+    if (canopy && canopyHeight >= 3) {
+      const target =
+        kind === 'cypress' ? canopyHeight / 7.5 : kind === 'olive' ? canopyHeight / 5.2 : canopyHeight / 5.8;
+      scale = clamp(scale * 0.28 + target * 0.72, 0.65, 3.35);
+    }
     const palette = kind === 'olive' ? OLIVE_COLORS : kind === 'cypress' ? CYPRESS_COLORS : FOLIAGE_COLORS;
     placements.push({
       x: px,
       y: heights.heightAt(px, pz),
       z: pz,
-      s: minScale + rng() * (maxScale - minScale),
+      s: scale,
       rot: rng() * Math.PI * 2,
       color: palette[Math.floor(rng() * palette.length)],
       kind,
@@ -143,7 +166,7 @@ export function buildVegetation(
       const px = b.x - tz * side * off;
       const pz = b.z + tx * side * off;
       const kind: TreeKind = rng() < 0.1 ? 'cypress' : 'broadleaf';
-      tryPlace(px, pz, 0.8, 1.5, 2.2, kind);
+      tryPlace(px, pz, 0.8, 1.5, 2.2, kind, true);
     }
   }
 
@@ -161,7 +184,7 @@ export function buildVegetation(
       if (slope > 33) continue;
       if (slope > 24 && rng() > 0.4) continue;
       const kind: TreeKind = rng() < 0.05 ? 'cypress' : 'broadleaf';
-      tryPlace(px, pz, 0.75, 1.55, 2.4, kind);
+      tryPlace(px, pz, 0.75, 1.55, 2.4, kind, true);
     }
   }
 

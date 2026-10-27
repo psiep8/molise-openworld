@@ -20,6 +20,8 @@ interface Chunk {
   disposed: boolean;
   /** true se il chunk ha una texture di copertura locale da rilasciare */
   landcoverLocal: boolean;
+  /** copertura locale già cotta, riusata quando si cambia preset senza ricostruire */
+  localTexture?: THREE.Texture;
 }
 
 const NORMAL_MAP_SIZE = 128;
@@ -442,6 +444,8 @@ export class Terrain {
   readonly group = new THREE.Group();
   private readonly chunks = new Map<string, Chunk>();
   private readonly queue: { cx: number; cz: number; d: number }[] = [];
+  /** chunk da re-materializzare dopo un cambio di copertura del suolo */
+  private readonly remat: Chunk[] = [];
   private readonly heightfield: Heightfield;
   private readonly imagery: ImageryStreamer;
   private readonly landcover: Landcover | null;
@@ -487,10 +491,34 @@ export class Terrain {
     const beforeRadius = lc.radiusMeters;
     lc.configure(mode, radius);
     if (lc.effectiveMode === beforeMode && lc.radiusMeters === beforeRadius) return;
-    for (const [key, chunk] of [...this.chunks]) this.disposeChunk(chunk, key);
+
+    // Un cambio di preset non deve distruggere il mondo: prima si liberavano
+    // TUTTI i chunk (e le loro texture) e la scena restava vuota per decine di
+    // secondi, proprio lo "switch grafico lentissimo". Ora:
+    // - se cambia solo il raggio (media → alta → ultra) non si tocca niente:
+    //   i chunk nuovi nascono col raggio nuovo, i vecchi restano;
+    // - se cambia il modo si rifà solo il materiale, qualche chunk per frame,
+    //   riusando geometria e satellite. Nessun buco e nessun frame da 5 s.
+    if (lc.effectiveMode === beforeMode) {
+      // il raggio è cambiato: i chunk che stanno sul nuovo bordo devono
+      // acquistare o restituire la texture locale, ma solo quelli. Senza
+      // questo, alzando il raggio la fascia esterna restava senza dettaglio.
+      if (lc.effectiveMode === 'full' && lc.radiusMeters !== beforeRadius) {
+        for (const chunk of this.chunks.values()) {
+          const covered = lc.covers(chunk.cx, chunk.cz, this.focusX, this.focusZ);
+          if (covered !== chunk.landcoverLocal && !this.remat.includes(chunk)) {
+            this.remat.push(chunk);
+          }
+        }
+      }
+      return;
+    }
     this.queue.length = 0;
     this.lastCx = Number.NaN;
     this.lastCz = Number.NaN;
+    for (const chunk of this.chunks.values()) {
+      if (!this.remat.includes(chunk)) this.remat.push(chunk);
+    }
   }
 
   /** Tinta stagionale (1..12); ottobre è la stagione di partenza. */
@@ -571,6 +599,20 @@ export class Terrain {
   tick(): void {
     for (let i = 0; i < this.maxBuildPerFrame && this.queue.length > 0; i++) {
       this.buildNext();
+    }
+
+    // ricambio graduale del materiale dopo un cambio di copertura del suolo:
+    // pochi chunk per frame, i più vicini per primi, senza buchi nel terreno
+    if (this.remat.length > 0) {
+      this.remat.sort(
+        (a, b) =>
+          Math.hypot(chunkCenter(a.cx) - this.focusX, chunkCenter(a.cz) - this.focusZ) -
+          Math.hypot(chunkCenter(b.cx) - this.focusX, chunkCenter(b.cz) - this.focusZ),
+      );
+      for (let i = 0; i < this.maxBuildPerFrame && this.remat.length > 0; i++) {
+        const chunk = this.remat.shift()!;
+        if (!chunk.disposed) this.rematerialize(chunk);
+      }
     }
 
     // il mosaico Sentinel è locale e sincrono: appena è decodificato dà una
@@ -715,9 +757,19 @@ export class Terrain {
         const uniforms = landcoverUniforms;
         lc.acquire(cx, cz, (texture) => {
           if (chunk.disposed) return;
-          uniforms.uLcLocal.value = texture;
-          uniforms.uLocalReady.value = 1;
-          material.needsUpdate = true;
+          chunk.localTexture = texture;
+          // il materiale può essere cambiato nel frattempo (preset grafico):
+          // si scrivono gli uniform del materiale corrente, non di quello
+          // catturato quando è partito il caricamento
+          const current = chunk.material.userData.lc as LandcoverUniformState | undefined;
+          if (current) {
+            current.uLcLocal.value = texture;
+            current.uLocalReady.value = 1;
+          } else {
+            uniforms.uLcLocal.value = texture;
+            uniforms.uLocalReady.value = 1;
+          }
+          chunk.material.needsUpdate = true;
         });
       }
     }
@@ -730,6 +782,64 @@ export class Terrain {
     return chunk;
   }
 
+  /**
+   * Rifà solo il materiale di un chunk, senza ricostruire geometria e senza
+   * perdere la texture satellite: è la strada veloce per passare da `base` a
+   * `full` (o viceversa) in gioco.
+   */
+  private rematerialize(chunk: Chunk): void {
+    const lc = this.landcover;
+    const old = chunk.material;
+    const mode = lc?.effectiveMode ?? 'off';
+    const material = new THREE.MeshStandardMaterial({
+      color: old.color.clone(),
+      roughness: old.roughness,
+      metalness: old.metalness,
+      normalMap: chunk.normalMap,
+      normalScale: old.normalScale.clone(),
+      roughnessMap: terrainDetailMap(),
+      envMapIntensity: old.envMapIntensity,
+      map: chunk.texture ?? old.map ?? null,
+    });
+    let uniforms: LandcoverUniformState | null = null;
+    if (mode !== 'off' && lc) {
+      try {
+        uniforms = applyLandcoverDetail(material, lc, chunk.cx, chunk.cz, this.renderer);
+      } catch {
+        // copertura non ancora decodificata: si resta sul dettaglio semplice
+        applyTerrainDetail(material, this.renderer);
+      }
+    } else {
+      applyTerrainDetail(material, this.renderer);
+    }
+    chunk.material = material;
+    chunk.mesh.material = material;
+
+    if (mode === 'full' && lc && uniforms && lc.covers(chunk.cx, chunk.cz, this.focusX, this.focusZ)) {
+      if (chunk.landcoverLocal && chunk.localTexture) {
+        uniforms.uLcLocal.value = chunk.localTexture;
+        uniforms.uLocalReady.value = 1;
+      } else if (!chunk.landcoverLocal) {
+        chunk.landcoverLocal = true;
+        lc.acquire(chunk.cx, chunk.cz, (texture) => {
+          if (chunk.disposed) return;
+          chunk.localTexture = texture;
+          const current = chunk.material.userData.lc as LandcoverUniformState | undefined;
+          if (!current) return;
+          current.uLcLocal.value = texture;
+          current.uLocalReady.value = 1;
+          chunk.material.needsUpdate = true;
+        });
+      }
+    } else if (chunk.landcoverLocal) {
+      lc?.release(chunk.cx, chunk.cz);
+      chunk.landcoverLocal = false;
+      chunk.localTexture = undefined;
+    }
+
+    old.dispose();
+  }
+
   private disposeChunk(chunk: Chunk, key: string): void {
     chunk.disposed = true;
     this.chunks.delete(key);
@@ -739,11 +849,13 @@ export class Terrain {
     chunk.material.dispose();
     chunk.normalMap.dispose();
     chunk.texture?.dispose();
+    chunk.localTexture = undefined;
     if (chunk.landcoverLocal) this.landcover?.release(chunk.cx, chunk.cz);
   }
 
   dispose(): void {
     for (const [key, chunk] of this.chunks) this.disposeChunk(chunk, key);
     this.queue.length = 0;
+    this.remat.length = 0;
   }
 }

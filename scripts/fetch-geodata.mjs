@@ -214,11 +214,14 @@ async function buildHeightmap() {
 // ---------------------------------------------------------------------------
 // OSM
 // ---------------------------------------------------------------------------
+// Ordine misurato il 27/10/2026: `overpass-api.de` risponde spesso 502 e
+// `kumi.systems` va in timeout; il mirror francese è stato l'unico stabile.
+// Restano in coda come riserva, non come prima scelta.
 const OVERPASS_ENDPOINTS = [
-  'https://overpass-api.de/api/interpreter',
-  'https://overpass.kumi.systems/api/interpreter',
   'https://overpass.openstreetmap.fr/api/interpreter',
+  'https://overpass-api.de/api/interpreter',
   'https://overpass.osm.jp/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
 ];
 
 const ROAD_RE =
@@ -364,6 +367,41 @@ function wayCoords(el) {
   return null;
 }
 
+/** Tag booleani OSM: `yes`, `viaduct`, `1`; solo `no`/`0` sono falsi. */
+function tagBool(value) {
+  if (value === undefined || value === null) return false;
+  const v = String(value).toLowerCase();
+  return v !== 'no' && v !== '0' && v !== 'false';
+}
+
+function tagNumber(value) {
+  if (value === undefined || value === null) return undefined;
+  const n = Number.parseFloat(String(value).replace(',', '.'));
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/** Superficie OSM normalizzata: al gioco servono poche famiglie, non 40 valori. */
+function normalizeSurface(value) {
+  if (!value) return undefined;
+  const v = String(value).toLowerCase();
+  if (v.includes('asphalt') || v === 'chipseal' || v === 'tarmac') return 'asphalt';
+  if (v.includes('concrete') || v === 'cement') return 'concrete';
+  if (v.includes('cobblestone') || v === 'sett' || v.includes('paving_stones')) return 'stone';
+  if (v.includes('gravel') || v === 'compacted' || v === 'pebblestone') return 'gravel';
+  if (v === 'dirt' || v === 'earth' || v === 'ground' || v === 'mud' || v === 'unpaved') return 'dirt';
+  if (v === 'grass' || v === 'grass_paver' || v === 'wood') return 'grass';
+  if (v === 'paved' || v === 'paving') return 'paved';
+  return 'other';
+}
+
+function parseLanes(value) {
+  if (!value) return undefined;
+  const m = /(\d+)/.exec(String(value));
+  if (!m) return undefined;
+  const n = Number.parseInt(m[1], 10);
+  return n >= 1 && n <= 8 ? n : undefined;
+}
+
 function relationOuters(el) {
   const outers = [];
   for (const m of el.members ?? []) {
@@ -380,6 +418,8 @@ function processOsm(json) {
   const buildings = [];
   const areas = [];
   const waterways = [];
+  let bridgedRoads = 0;
+  let tunnelRoads = 0;
 
   for (const el of json.elements) {
     const tags = el.tags ?? {};
@@ -390,7 +430,32 @@ function processOsm(json) {
     if (tags.highway) {
       const c = wayCoords(el);
       if (!c || c.length < 2) continue;
-      roads.push({ t: tags.highway, n: tags.name, c });
+      const road = { t: tags.highway, n: tags.name, c };
+      const bridge = tagBool(tags.bridge) || tags.man_made === 'bridge';
+      const tunnel = tagBool(tags.tunnel) || tags.covered === 'yes' || tags.man_made === 'tunnel';
+      if (bridge) {
+        road.b = 1;
+        bridgedRoads++;
+      }
+      if (tunnel) {
+        road.u = 1;
+        tunnelRoads++;
+      }
+      const layer = tagNumber(tags.layer);
+      if (layer !== undefined) road.y = layer;
+      const lanes = parseLanes(tags.lanes);
+      if (lanes !== undefined) road.ln = lanes;
+      const surface = normalizeSurface(tags.surface);
+      if (surface !== undefined) road.sf = surface;
+      if (tagBool(tags.oneway) || tags.oneway === '-1') {
+        road.ow = tags.oneway === '-1' ? -1 : 1;
+      }
+      const maxspeed = tagNumber(tags.maxspeed);
+      if (maxspeed !== undefined) road.ms = maxspeed;
+      const width = tagNumber(tags.width);
+      if (width !== undefined && width >= 2 && width <= 20) road.wd = Math.round(width * 10) / 10;
+      if (tags.ref) road.r = String(tags.ref).slice(0, 24);
+      roads.push(road);
       continue;
     }
     if (tags.waterway) {
@@ -427,6 +492,11 @@ function processOsm(json) {
     places: usefulPlaces.length,
     roads: roads.length,
     roadPoints: roads.reduce((s, r) => s + r.c.length, 0),
+    bridgedRoads,
+    tunnelRoads,
+    laneTagged: roads.filter((r) => r.ln).length,
+    surfaceTagged: roads.filter((r) => r.sf).length,
+    widthTagged: roads.filter((r) => r.wd).length,
     buildings: buildings.length,
     areas: areas.length,
     waterways: waterways.length,
