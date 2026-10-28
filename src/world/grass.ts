@@ -3,13 +3,13 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Heightfield } from '../geo/elevation';
 import { mulberry32 } from '../geo/geo';
 import type { Area, BuildingIndex, RoadIndex } from '../geo/osm';
-import { windTimeUniform } from '../gfx/wind';
+import { windUniforms } from '../gfx/wind';
 import { COVER_CROP, COVER_DRY, COVER_WOOD, GroundMask } from './ground-mask';
 import type { PavedArea } from './paved';
 
 /** Raggio del tappeto d'erba intorno al giocatore (m). */
-const RADIUS = 110;
-const MAX_TUFTS = 130000;
+const RADIUS = 150;
+const MAX_TUFTS = 180000;
 /** Oltre questa distanza il campo viene ricostruito. */
 const REBUILD_DISTANCE = 18;
 
@@ -24,7 +24,28 @@ function tuftLod(distance: number): number {
   return Math.max(0.07, Math.pow(1 - t, 1.5));
 }
 
-/** Altezza del ciuffo in metri: la geometria base è alta 0,6. */
+/** Scala verticale naturale: sterpaglie e bordi di campo possono superare 1,5 m. */
+export function grassBladeHeightScale(
+  cover: 0 | 1 | 2 | 3,
+  roadDistance: number,
+  tallRoll: number,
+  heightRoll: number,
+): number {
+  if (![roadDistance, tallRoll, heightRoll].every(Number.isFinite)) {
+    throw new RangeError('I parametri di crescita dell’erba devono essere finiti');
+  }
+  const verge = roadDistance >= 2.7 && roadDistance <= 6.4;
+  const tallChance =
+    cover === COVER_DRY ? 0.42 :
+    cover === COVER_CROP ? 0.015 :
+    cover === COVER_WOOD ? 0.025 :
+    verge ? 0.2 : 0.06;
+  const height = Math.max(0, Math.min(1, heightRoll));
+  if (tallRoll >= tallChance) return 1.8 + height * 1.6;
+  return 7.5 + height * 2.5;
+}
+
+/** Altezza del ciuffo in metri, prima della scala per istanza. */
 const TUFT_HEIGHT = 0.17;
 /** Altezza del fiore in metri: sotto l'erba alta, si vede solo da vicino. */
 const FLOWER_HEIGHT = 0.32;
@@ -109,7 +130,7 @@ export class GrassField {
     this.bladeTexture = GrassField.buildBladeTexture();
     this.flowerGeometry = GrassField.buildFlowerGeometry();
     this.flowerTexture = GrassField.buildFlowerTexture();
-    const uTime = windTimeUniform();
+    const { uTime, uWind } = windUniforms();
     this.material = new THREE.MeshStandardMaterial({
       map: this.bladeTexture,
       alphaTest: 0.45,
@@ -127,8 +148,9 @@ export class GrassField {
     });
     this.material.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = uTime;
+      shader.uniforms.uWind = uWind;
       shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nuniform float uTime;')
+        .replace('#include <common>', '#include <common>\nuniform float uTime;\nuniform vec2 uWind;')
         .replace(
           '#include <begin_vertex>',
           `#include <begin_vertex>
@@ -140,11 +162,12 @@ export class GrassField {
           float tuftBend = clamp( position.y / ${TUFT_HEIGHT.toFixed(2)}, 0.0, 1.0 );
           float tuftPhase = tuftPos.x * 0.42 + tuftPos.z * 0.31;
           float tuftSway = sin( uTime * 1.9 + tuftPhase ) * 0.085 + sin( uTime * 3.4 + tuftPhase * 1.7 ) * 0.03;
-          transformed.x += tuftSway * tuftBend * tuftBend;
-          transformed.z += tuftSway * 0.6 * tuftBend * tuftBend;`,
+          float tuftScaleY = min( 10.0, length( instanceMatrix[ 1 ].xyz ) );
+          transformed.x += tuftSway * tuftScaleY * 0.28 * tuftBend * tuftBend * uWind.x;
+          transformed.z += tuftSway * tuftScaleY * 0.28 * tuftBend * tuftBend * uWind.y;`,
         );
     };
-    this.material.customProgramCacheKey = () => 'grass-wind-v1';
+    this.material.customProgramCacheKey = () => 'grass-wind-v2';
 
     // i fiori ondeggiano con la stessa formula dei ciuffi, ma partendo dalla
     // propria altezza: il gambo si piega, la corolla resta su
@@ -160,8 +183,9 @@ export class GrassField {
     });
     this.flowerMaterial.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = uTime;
+      shader.uniforms.uWind = uWind;
       shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nuniform float uTime;')
+        .replace('#include <common>', '#include <common>\nuniform float uTime;\nuniform vec2 uWind;')
         .replace(
           '#include <begin_vertex>',
           `#include <begin_vertex>
@@ -173,8 +197,8 @@ export class GrassField {
           float flowerBend = clamp( position.y / ${FLOWER_HEIGHT.toFixed(2)}, 0.0, 1.0 );
           float flowerPhase = flowerPos.x * 0.42 + flowerPos.z * 0.31;
           float flowerSway = sin( uTime * 1.9 + flowerPhase ) * 0.05 + sin( uTime * 3.4 + flowerPhase * 1.7 ) * 0.018;
-          transformed.x += flowerSway * flowerBend * flowerBend;
-          transformed.z += flowerSway * 0.6 * flowerBend * flowerBend;`,
+          transformed.x += flowerSway * flowerBend * flowerBend * uWind.x;
+          transformed.z += flowerSway * flowerBend * flowerBend * uWind.y;`,
         );
     };
     this.flowerMaterial.customProgramCacheKey = () => 'grass-flower-wind-v1';
@@ -526,8 +550,10 @@ export class GrassField {
           job.dummy.rotation.set(0, job.rng() * Math.PI, 0);
           // i ciuffi lontani sono più radi ma leggermente più grandi, così
           // il passaggio dal tappeto pieno al prato rado non si legge
-          const scale = (0.6 + job.rng() * 0.45) * verge * coverScale * (1 + (1 - lod) * 0.4);
-          job.dummy.scale.set(scale, scale * (0.8 + job.rng() * 0.6), scale);
+          const baseScale = (0.6 + job.rng() * 0.45) * verge * (1 + (1 - lod) * 0.4);
+          const heightScale = grassBladeHeightScale(cover, roadDist, job.rng(), job.rng());
+          const widthScale = baseScale * coverScale;
+          job.dummy.scale.set(widthScale, baseScale * heightScale, widthScale);
           job.dummy.updateMatrix();
           job.mesh.setMatrixAt(job.placed, job.dummy.matrix);
           job.color

@@ -20,7 +20,8 @@ describe('createOpenImageryProvider', () => {
     const provider = createOpenImageryProvider(undefined, undefined);
     expect(provider.id).toBe('local-open-imagery');
     expect(provider.attribution).toContain('CC BY 4.0');
-    expect(provider.url(16, 2, 3)).toContain('empty-imagery.svg');
+    expect(provider.localOnly).toBe(true);
+    expect(() => provider.url(16, 2, 3)).toThrow('non fornisce tile XYZ');
   });
 
   it('espande i segnaposto del provider remoto configurato', () => {
@@ -28,6 +29,7 @@ describe('createOpenImageryProvider', () => {
       'https://tiles.example/{z}/{x}/{y}.png',
       'Dati aperti con attribuzione',
     );
+    expect(provider.localOnly).toBe(false);
     expect(provider.url(16, 123, 456)).toBe('https://tiles.example/16/123/456.png');
   });
 

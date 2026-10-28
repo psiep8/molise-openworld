@@ -3,7 +3,7 @@ import { CanopyField, type CanopyMeta } from '../src/geo/canopy';
 import { Heightfield, type HeightMeta } from '../src/geo/elevation';
 import type { Area, Building, OsmData, Road } from '../src/geo/osm';
 import { BuildingIndex, RoadIndex } from '../src/geo/osm';
-import { ScatterGenerator } from '../src/world/scatter-gen';
+import { ScatterGenerator, scatterCollisionRadius } from '../src/world/scatter-gen';
 
 const heightMeta: HeightMeta = {
   source: 'test',
@@ -114,6 +114,13 @@ function generator(options: {
 }
 
 describe('cell-based vegetation scatter', () => {
+  it('assegna collisioni anche agli arbusti visibili, ma non alle rocce decorative', () => {
+    expect(scatterCollisionRadius('shrub', 1)).toBeCloseTo(0.62);
+    expect(scatterCollisionRadius('shrub', 0.5)).toBeCloseTo(0.31);
+    expect(scatterCollisionRadius('broadleaf', 1)).toBeCloseTo(0.29);
+    expect(scatterCollisionRadius('rock', 1)).toBeNull();
+  });
+
   it('is deterministic per cell regardless of generation order', () => {
     const first = generator({ seed: 7824 });
     const second = generator({ seed: 7824 });
@@ -146,5 +153,15 @@ describe('cell-based vegetation scatter', () => {
 
     expect(instances.every((instance) => !roadIndex.isOnRoad(instance.x, instance.z, 1))).toBe(true);
     expect(instances.every((instance) => !buildingIndex.hitsCircle(instance.x, instance.z, 1))).toBe(true);
+  });
+
+  it('scatters visible shrubs along uncultivated rural road verges', () => {
+    const osm = createOsm({ roads: [createRoad()], areas: [] });
+    const instances = generator({ osm, seed: 7824 }).generateCell(0, 0);
+    const shrubs = instances.filter((instance) => instance.kind === 'shrub');
+    const roadIndex = new RoadIndex(osm.roads);
+
+    expect(shrubs.length).toBeGreaterThan(0);
+    expect(shrubs.every((instance) => !roadIndex.isOnRoad(instance.x, instance.z, 1.8))).toBe(true);
   });
 });

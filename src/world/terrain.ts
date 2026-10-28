@@ -594,7 +594,14 @@ export class Terrain {
   }
 
   private requestTexture(chunk: Chunk, zoom: number): void {
-    if (chunk.disposed || chunk.loadingZoom !== undefined || chunk.textureZoom >= zoom) return;
+    if (
+      this.imagery.provider.localOnly ||
+      chunk.disposed ||
+      chunk.loadingZoom !== undefined ||
+      chunk.textureZoom >= zoom
+    ) {
+      return;
+    }
     const key = chunkKey(chunk.cx, chunk.cz);
     if (this.inflight.has(key)) return;
     this.inflight.add(key);

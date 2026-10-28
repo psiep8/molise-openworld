@@ -9,7 +9,6 @@ import { loadOpenRasterTile } from './tile-cache';
  * Lo scarica `npm run geo:imagery` in `public/geo/world-imagery.jpg`.
  */
 const BASE_IMAGERY_URL = `${import.meta.env.BASE_URL}geo/world-imagery.jpg`;
-const EMPTY_TILE_URL = `${import.meta.env.BASE_URL}geo/empty-imagery.svg`;
 const OPEN_TILE_TEMPLATE = import.meta.env.VITE_OPEN_IMAGERY_TILE_URL?.trim();
 const OPEN_TILE_ATTRIBUTION = import.meta.env.VITE_OPEN_IMAGERY_ATTRIBUTION?.trim();
 
@@ -17,6 +16,8 @@ export interface TileProvider {
   id: string;
   name: string;
   attribution: string;
+  /** Usa il mosaico locale; non sostituirlo con tile vuote. */
+  localOnly?: boolean;
   url: (z: number, x: number, y: number) => string;
   maxZoom: number;
 }
@@ -30,7 +31,10 @@ export function createOpenImageryProvider(
       id: 'local-open-imagery',
       name: 'Immagini locali aperte',
       attribution: 'Sentinel-2 cloudless © EOX IT Services GmbH, CC BY 4.0',
-      url: () => EMPTY_TILE_URL,
+      localOnly: true,
+      url: () => {
+        throw new Error('Il provider locale usa il mosaico Sentinel e non fornisce tile XYZ');
+      },
       maxZoom: 18,
     };
   }
@@ -45,6 +49,7 @@ export function createOpenImageryProvider(
     id: 'configured-open-imagery',
     name: 'Tile aperte configurate',
     attribution,
+    localOnly: false,
     url: (z, x, y) => template.replaceAll('{z}', String(z)).replaceAll('{x}', String(x)).replaceAll('{y}', String(y)),
     maxZoom: 19,
   };

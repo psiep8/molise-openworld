@@ -34,7 +34,7 @@ Stack: TypeScript + Vite + Three.js (WebGL2), Vitest, nessun framework UI.
 | Dati OSM | ✅ completi | 1.139 strade (455,2 km, 43 ponti, 6 gallerie), 2.880 edifici, 1.383 aree, 96 corsi d'acqua; tag corsie/superficie/larghezza disponibili |
 | DEM | ✅ | griglia 5 m (2823×2444), 70–1033 m, `heights.bin` Int16 in decimetri |
 | Terreno | ✅ | chunk 912 m, 96 segmenti, streaming raggio 3,1 km |
-| Satellite | ✅ | mosaico Sentinel-2 locale per ogni chunk; tile Esri z18 ≤500 m, z17 fino a 3200 m, z16 oltre |
+| Satellite | ✅ | mosaico Sentinel-2 locale per chunk e mappa; tile di dettaglio solo con provider aperto configurato |
 | Normal map | ✅ | 128×128 per chunk, generata dal DEM |
 | Strade | ✅ aggiornato | asfalto scuro con mezzeria tratteggiata; **marciapiede rialzato 18 cm con cordolo a faccia verticale**, interrotto agli incroci; **ponti OSM con impalcato** e **guardrail** su ponti/scarpate |
 | Quota calpestabile | ✅ nuovo | `src/geo/ground.ts`: unica `groundAt` per gioco, giocatore, auto, pedoni, camera e meteo; include strada, marciapiede e ponte |
@@ -43,7 +43,7 @@ Stack: TypeScript + Vite + Three.js (WebGL2), Vitest, nessun framework UI.
 | Prati | ✅ aggiornato | 60k ciuffi istanziati, lame sottili su canvas 256 (`alphaTest`), vento; marciapiedi e cordoli restano liberi |
 | Acqua | ✅ aggiornato | nastri torrenti + poligoni laghi con normali scorrevoli e materiale fisico (clearcoat) |
 | Meteo reale | ✅ nuovo | Open-Meteo + sole NOAA, cupola nuvole, pioggia/neve, switch in impostazioni |
-| Radar / mappa | ✅ | satellite Esri z17 + overlay OSM, mosaico z14 per mappa grande |
+| Radar / mappa | ✅ | mosaico Sentinel-2 locale o tile raster aperte configurate + overlay OSM |
 | Itinerario | ✅ nuovo | click sulla mappa grande → A* sulla rete OSM, km e tempi, beacon 3D |
 | Post-processing | ✅ aggiornato | bloom con soglia 3,2 (non investe più il cielo) + SSAO + SMAA + OutputPass, disattivabile |
 | Qualità | ✅ aggiornato | **5 preset** (compatibilità→ultra) con budget di mondo, auto-detect dalla GPU e **degradazione automatica a gradini** per i PC molto lenti |

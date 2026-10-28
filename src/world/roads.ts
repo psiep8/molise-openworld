@@ -72,6 +72,17 @@ export function roundCorners(points: Pt[], thresholdDeg = 22): Pt[] {
   return out;
 }
 
+export function medianWaterLevel(elevations: readonly number[]): number {
+  if (elevations.length === 0 || elevations.some((value) => !Number.isFinite(value))) {
+    throw new RangeError('Le quote del livello dell’acqua devono essere finite e non vuote');
+  }
+  const sorted = [...elevations].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[middle - 1]! + sorted[middle]!) / 2
+    : sorted[middle]!;
+}
+
 /**
  * Smussamento vero delle curve (media pesata di Laplace, estremi fissi).
  *
@@ -1718,12 +1729,11 @@ export function buildWater(osm: OsmData, heights: Heightfield, renderer: THREE.W
   const polygonGeoms: THREE.BufferGeometry[] = [];
   for (const area of osm.areas) {
     if (area.kind !== 'water' || area.points.length < 3) continue;
-    let top = -Infinity;
-    for (const p of area.points) top = Math.max(top, heights.heightAt(p.x, p.z));
+    const waterLevel = medianWaterLevel(area.points.map((p) => heights.heightAt(p.x, p.z)));
     const shape = new THREE.Shape(area.points.map((p) => new THREE.Vector2(p.x, -p.z)));
     const g = new THREE.ShapeGeometry(shape);
     g.rotateX(-Math.PI / 2);
-    g.translate(0, top + 0.12, 0);
+    g.translate(0, waterLevel + 0.12, 0);
     polygonGeoms.push(g);
   }
   if (polygonGeoms.length) {

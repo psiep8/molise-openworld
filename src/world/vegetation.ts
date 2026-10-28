@@ -6,7 +6,7 @@ import type { Heightfield } from '../geo/elevation';
 import { clamp, mulberry32, pointInPolygon } from '../geo/geo';
 import type { BuildingIndex, OsmData, RoadIndex } from '../geo/osm';
 import { foliageSet, pbr } from '../gfx/textures';
-import { windTimeUniform } from '../gfx/wind';
+import { windUniforms } from '../gfx/wind';
 import { insidePaved, type PavedArea } from './paved';
 
 /**
@@ -191,12 +191,13 @@ export function buildVegetation(
   if (placements.length === 0) return { group, count: 0, shrubs: 0 };
 
   // vento condiviso da tutte le chiome: ampiezza crescente con l'altezza
-  const uTime = windTimeUniform();
+  const { uTime, uWind } = windUniforms();
   const applyWind = (material: THREE.MeshStandardMaterial, sway: number, cacheKey: string): void => {
     material.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = uTime;
+      shader.uniforms.uWind = uWind;
       shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nuniform float uTime;')
+        .replace('#include <common>', '#include <common>\nuniform float uTime;\nuniform vec2 uWind;')
         .replace(
           '#include <begin_vertex>',
           `#include <begin_vertex>
@@ -208,8 +209,8 @@ export function buildVegetation(
         float windPhase = windOrigin.x * 0.35 + windOrigin.z * 0.27;
         float windHeight = clamp( ( position.y - 1.7 ) / 2.6, 0.0, 1.0 );
         float windSway = sin( uTime * 1.6 + windPhase ) * 0.17 + sin( uTime * 2.9 + windPhase * 1.7 ) * 0.05;
-        transformed.x += windSway * ${sway.toFixed(3)} * windHeight;
-        transformed.z += windSway * ${(sway * 0.55).toFixed(3)} * windHeight;`,
+        transformed.x += windSway * ${sway.toFixed(3)} * windHeight * uWind.x;
+        transformed.z += windSway * ${sway.toFixed(3)} * windHeight * uWind.y;`,
         );
     };
     material.customProgramCacheKey = () => cacheKey;

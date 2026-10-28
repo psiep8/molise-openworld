@@ -38,10 +38,10 @@ describe('preset grafici', () => {
     expect(minimal.post).toBe(false);
     expect(minimal.shadows).toBe(false);
     expect(minimal.antialias).toBe(false);
-    expect(minimal.grassDensity).toBe(0);
+    expect(minimal.grassDensity).toBeGreaterThanOrEqual(QUALITY_PRESETS.low.grassDensity);
     expect(minimal.pedestrians).toBe(0);
     expect(minimal.kit).toBe(false);
-    expect(minimal.weather).toBe('off');
+    expect(minimal.weather).toBe('light');
     expect(minimal.buildingDetail).toBe('simple');
     expect(minimal.drainage).toBe(false);
     expect(minimal.trees).toBeGreaterThan(1000);

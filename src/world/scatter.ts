@@ -5,11 +5,12 @@ import type { Heightfield } from '../geo/elevation';
 import type { ObstacleIndex } from '../geo/obstacles';
 import type { BuildingIndex, OsmData, RoadIndex } from '../geo/osm';
 import { foliageSet } from '../gfx/textures';
-import { windTimeUniform } from '../gfx/wind';
+import { windUniforms } from '../gfx/wind';
 import type { PavedArea } from './paved';
 import {
   SCATTER_CELL_SIZE,
   ScatterGenerator,
+  scatterCollisionRadius,
   type ScatterInstance,
   type ScatterKind,
   type ScatterSources,
@@ -114,7 +115,9 @@ export class ScatterVegetation {
         roughness: kind === 'rock' ? 0.96 : 1,
         metalness: 0,
       });
-      if (TREE_KINDS.includes(kind as TreeKind)) applyWind(material, kind === 'cypress' ? 0.35 : 1);
+      if (kind !== 'rock') {
+        applyWind(material, kind === 'cypress' ? 0.35 : kind === 'shrub' ? 0.6 : 1, kind === 'shrub');
+      }
       this.materials.set(kind, material);
       this.nearSets.set(kind, this.createSet(geometry, material, 128));
     }
@@ -180,7 +183,7 @@ export class ScatterVegetation {
     for (const cellKey of this.cellCache.keys()) {
       if (!keep.has(cellKey)) this.cellCache.delete(cellKey);
     }
-    this.refreshTreeColliders();
+    this.refreshVegetationColliders();
     this.rebuildInstances(x, z);
     this.lodAnchorX = x;
     this.lodAnchorZ = z;
@@ -278,18 +281,13 @@ export class ScatterVegetation {
     return this.generator.movementFactorAt(x, z);
   }
 
-  private refreshTreeColliders(): void {
+  private refreshVegetationColliders(): void {
     if (!this.obstacles) return;
     const colliders: { x: number; z: number; radius: number }[] = [];
     for (const instances of this.cellCache.values()) {
       for (const instance of instances) {
-        if (!TREE_KINDS.includes(instance.kind as TreeKind)) continue;
-        const radius =
-          instance.kind === 'olive' ? 0.34 :
-          instance.kind === 'cypress' ? 0.2 :
-          instance.kind === 'poplar' ? 0.24 :
-          0.29;
-        colliders.push({ x: instance.x, z: instance.z, radius: radius * instance.scale });
+        const radius = scatterCollisionRadius(instance.kind, instance.scale);
+        if (radius !== null) colliders.push({ x: instance.x, z: instance.z, radius });
       }
     }
     this.obstacles.replaceTag(this.colliderTag, colliders);
@@ -504,12 +502,16 @@ function mergeAndDispose(pieces: THREE.BufferGeometry[]): THREE.BufferGeometry {
   return merged;
 }
 
-function applyWind(material: THREE.MeshStandardMaterial, strength: number): void {
-  const time = windTimeUniform();
+function applyWind(material: THREE.MeshStandardMaterial, strength: number, shrub = false): void {
+  const { uTime, uWind } = windUniforms();
   material.onBeforeCompile = (shader) => {
-    shader.uniforms.uScatterWindTime = time;
+    shader.uniforms.uScatterWindTime = uTime;
+    shader.uniforms.uScatterWind = uWind;
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nuniform float uScatterWindTime;')
+      .replace(
+        '#include <common>',
+        '#include <common>\nuniform float uScatterWindTime;\nuniform vec2 uScatterWind;',
+      )
       .replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
@@ -518,18 +520,25 @@ function applyWind(material: THREE.MeshStandardMaterial, strength: number): void
         #else
           vec3 scatterOrigin = vec3( 0.0 );
         #endif
-        float scatterWindHeight = smoothstep( 1.8, 7.2, position.y );
+        float scatterWindHeight = ${shrub ? 'smoothstep( 0.35, 0.9, position.y )' : 'smoothstep( 1.8, 7.2, position.y )'};
         float scatterWind = sin( uScatterWindTime * 1.35 + scatterOrigin.x * 0.031 + scatterOrigin.z * 0.027 );
-        transformed.x += scatterWind * scatterWindHeight * ${strength.toFixed(2)} * 0.16;
-        transformed.z += scatterWind * scatterWindHeight * ${strength.toFixed(2)} * 0.07;`,
+        transformed.x += scatterWind * scatterWindHeight * ${strength.toFixed(2)} * 0.16 * uScatterWind.x;
+        transformed.z += scatterWind * scatterWindHeight * ${strength.toFixed(2)} * 0.16 * uScatterWind.y;`,
       );
   };
-  material.customProgramCacheKey = () => `scatter-wind-${strength.toFixed(2)}-v1`;
+  material.customProgramCacheKey = () => `scatter-wind-${strength.toFixed(2)}-${shrub ? 'shrub' : 'tree'}-v2`;
 }
 
 function applyBillboardShader(material: THREE.MeshStandardMaterial): void {
+  const { uTime, uWind } = windUniforms();
   material.onBeforeCompile = (shader) => {
+    shader.uniforms.uBillboardWindTime = uTime;
+    shader.uniforms.uBillboardWind = uWind;
     shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        '#include <common>\nuniform float uBillboardWindTime;\nuniform vec2 uBillboardWind;',
+      )
       .replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
@@ -543,8 +552,13 @@ function applyBillboardShader(material: THREE.MeshStandardMaterial): void {
           float height = length( instanceMatrix[ 1 ].xyz );
           vec3 scatterPosition = scatterCenter + right * position.x * width + up * position.y * height;
         #else
+          vec3 scatterCenter = vec3( 0.0 );
           vec3 scatterPosition = position;
-        #endif`,
+        #endif
+        float billboardBend = smoothstep( -1.5, 2.8, position.y );
+        float billboardSway = sin( uBillboardWindTime * 1.35 + scatterCenter.x * 0.031 + scatterCenter.z * 0.027 );
+        scatterPosition.x += billboardSway * billboardBend * 0.2 * uBillboardWind.x;
+        scatterPosition.z += billboardSway * billboardBend * 0.2 * uBillboardWind.y;`,
       )
       .replace(
         '#include <project_vertex>',
@@ -556,5 +570,5 @@ function applyBillboardShader(material: THREE.MeshStandardMaterial): void {
         'vec4 worldPosition = modelMatrix * vec4( scatterPosition, 1.0 );',
       );
   };
-  material.customProgramCacheKey = () => 'streamed-tree-billboard-v1';
+  material.customProgramCacheKey = () => 'streamed-tree-billboard-wind-v1';
 }

@@ -19,6 +19,17 @@ export interface ScatterInstance {
   variation: number;
 }
 
+export function scatterCollisionRadius(kind: ScatterKind, scale: number): number | null {
+  const radius =
+    kind === 'shrub' ? 0.62 :
+    kind === 'broadleaf' ? 0.29 :
+    kind === 'olive' ? 0.34 :
+    kind === 'cypress' ? 0.2 :
+    kind === 'poplar' ? 0.24 :
+    null;
+  return radius === null ? null : radius * scale;
+}
+
 export interface ScatterSources {
   osm: OsmData;
   heights: Heightfield;
@@ -38,7 +49,7 @@ const ORCHARD_KINDS = new Set(['orchard']);
 const SCRUB_KINDS = new Set(['scrub', 'heath']);
 const CROP_KINDS = new Set(['farmland', 'farm', 'vineyard', 'allotments']);
 const CELL_METERS = SCATTER_CELL_SIZE;
-const NATURAL_CANDIDATES = 16;
+const NATURAL_CANDIDATES = 64;
 const WATERWAY_REACH = 22;
 
 function key(x: number, z: number): string {
@@ -133,7 +144,7 @@ export class ScatterGenerator {
         }
 
         const shrubChance =
-          cover === 'scrub' ? 0.34 : cover === 'wood' ? 0.12 : cover === 'orchard' ? 0.08 : 0.025;
+          cover === 'scrub' ? 0.42 : cover === 'wood' ? 0.16 : cover === 'orchard' ? 0.1 : cover === 'crop' ? 0.04 : 0.055;
         if (slope < 38 && rng() < shrubChance * this.shrubDensity) {
           this.addSmallObject(instances, 'shrub', x, z, 0.55 + rng() * 0.8, rng);
         }
@@ -146,6 +157,7 @@ export class ScatterGenerator {
     }
 
     this.addRoadsideTrees(instances, cellX, cellZ, rng);
+    this.addRoadsideShrubs(instances, cellX, cellZ, rng);
     return instances;
   }
 
@@ -307,6 +319,46 @@ export class ScatterGenerator {
           if (Math.floor(px / CELL_METERS) !== cellX || Math.floor(pz / CELL_METERS) !== cellZ) continue;
           const cover = this.coverAt(px, pz);
           this.addTree(instances, px, pz, cover, this.canopyHeightAt(px, pz), this.nearWaterway(px, pz), true, rng);
+        }
+      }
+    });
+  }
+
+  private addRoadsideShrubs(
+    instances: ScatterInstance[],
+    cellX: number,
+    cellZ: number,
+    rng: () => number,
+  ): void {
+    if (this.shrubDensity <= 0) return;
+    const centerX = (cellX + 0.5) * CELL_METERS;
+    const centerZ = (cellZ + 0.5) * CELL_METERS;
+    this.sources.roads.forEachSegmentNear(centerX, centerZ, CELL_METERS, (segment) => {
+      const dx = segment.bx - segment.ax;
+      const dz = segment.bz - segment.az;
+      const length = Math.hypot(dx, dz);
+      if (length < 8) return;
+      const spacing = 7;
+      const phase = hash(this.seed, segment.id, segment.road, 0x6d2b79f5) * spacing;
+      const steps = Math.ceil(length / spacing);
+      for (let step = 0; step < steps; step++) {
+        const distance = phase + step * spacing;
+        if (distance > length) continue;
+        const t = distance / length;
+        const x = segment.ax + dx * t;
+        const z = segment.az + dz * t;
+        const nx = -dz / length;
+        const nz = dx / length;
+        for (const side of [-1, 1]) {
+          const offsetNoise = hash(this.seed, segment.id, step, side * 0x4cf5ad43);
+          const px = x + nx * side * (segment.w + 1.8 + offsetNoise * 2.8);
+          const pz = z + nz * side * (segment.w + 1.8 + offsetNoise * 2.8);
+          if (Math.floor(px / CELL_METERS) !== cellX || Math.floor(pz / CELL_METERS) !== cellZ) continue;
+          const cover = this.coverAt(px, pz);
+          if (cover === 'wood' || cover === 'orchard' || cover === 'park') continue;
+          const chance = Math.min(0.7, (cover === 'scrub' ? 0.58 : cover === 'crop' ? 0.12 : 0.3) * this.shrubDensity);
+          if (hash(this.seed, segment.id, step, side * 0x27d4eb2d) >= chance) continue;
+          this.addSmallObject(instances, 'shrub', px, pz, 0.7 + rng() * 0.85, rng);
         }
       }
     });

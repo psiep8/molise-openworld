@@ -1283,7 +1283,7 @@ export class Vehicle {
     const next = stepCar(
       this.state,
       input,
-      { onRoad, groundHeight: (x, z) => ground.heightAt(x, z), gripScale },
+      { onRoad, surface: here.surface, groundHeight: (x, z) => ground.heightAt(x, z), gripScale },
       dt,
       tuningFor(spec),
     );
@@ -1306,7 +1306,8 @@ export class Vehicle {
 
     // lo scalino del cordolo si sente: la carrozzeria sobbalza e l'auto perde
     // un po' di velocità, senza teletrasporti
-    const targetLift = ground.sampleAt(next.x, next.z).lift;
+    const contact = ground.sampleAt(next.x, next.z);
+    const targetLift = contact.lift;
     // al primo frame non c'è uno scalino da sentire: si registra e basta
     const impact = Number.isFinite(this.lastTargetLift)
       ? curbImpact(this.lastTargetLift, targetLift)
@@ -1361,7 +1362,7 @@ export class Vehicle {
 
     this.group.position.set(next.x, groundY + this.surfaceLift + this.bump, next.z);
     this.group.rotation.set(this.tiltPitch + this.leanPitch, next.yaw, this.tiltRoll + this.leanRoll);
-    this.updateWheelSpray(dt, sprayIntensity, Math.abs(next.speed));
+    this.updateWheelSpray(dt, sprayIntensity, Math.abs(next.speed), contact.surface, input.throttle);
 
     // le ruote anteriori girano dello stesso angolo calcolato dalla fisica:
     // prima la grafica usava il lock massimo e a 100 km/h le gomme restavano
@@ -1407,11 +1408,18 @@ export class Vehicle {
     }
   }
 
-  private updateWheelSpray(dt: number, intensity: number, speed: number): void {
+  private updateWheelSpray(dt: number, intensity: number, speed: number, surface: string, throttle: number): void {
     this.sprayClock += dt;
     const material = this.sprayMesh.material as THREE.ShaderMaterial;
-    const emission = clamp(intensity, 0, 1) * clamp((speed - 4) / 14, 0, 1);
-    material.uniforms.uOpacity.value = emission * 0.58;
+    const wetSurface = surface === 'asphalt' || surface === 'concrete' || surface === 'paved';
+    const looseSurface = ['dirt', 'ground', 'compacted', 'earth', 'gravel', 'fine_gravel', 'mud', 'sand', 'grass', 'terrain'].includes(surface);
+    const wetEmission = wetSurface ? clamp(intensity, 0, 1) * clamp((speed - 4) / 14, 0, 1) : 0;
+    const dustEmission = looseSurface
+      ? clamp((speed - 2) / 10, 0, 1) * (0.25 + 0.55 * clamp(throttle, 0, 1))
+      : 0;
+    const emission = Math.max(wetEmission, dustEmission);
+    material.uniforms.uColor.value.setHex(wetEmission >= dustEmission ? 0xc8d7dc : 0xb69b70);
+    material.uniforms.uOpacity.value = emission * (wetEmission >= dustEmission ? 0.58 : 0.42);
     const positionAttribute = this.sprayMesh.geometry.getAttribute('position') as THREE.BufferAttribute;
     const lifeAttribute = this.sprayMesh.geometry.getAttribute('aLife') as THREE.BufferAttribute;
     const step = Math.min(dt, 0.05);

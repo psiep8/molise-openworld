@@ -19,7 +19,7 @@
 - **Casa base: Palata.** Il gioco parte dal centro del paese e la mappa segna Palata come "casa".
 - **Terreno 3D** a chunk (912 m) con DEM a 5 m, **mosaico Sentinel-2 dell'area locale come base immediata** e tile raster aperte configurabili per il dettaglio, con normal map ricavata dal rilievo.
 - **Meteo reale opzionale** (`P` → interruttore): condizioni attuali, nuvole, pioggia/neve e **sole alla posizione e ora vere**, con alba/tramonto del giorno. Aggiornamento ogni 10 minuti, fallback al pomeriggio fisso se lo spegni.
-- **Ora del giorno manuale** (`P` → slider 0–24): alba, mezzogiorno, tramonto e notte, con preset meteo sereno/nuvoloso/pioggia/neve/nebbia. Strada bagnata e fari si accendono da soli quando il sole scende.
+- **Ora del giorno manuale** (`P` → slider 0–24): alba, mezzogiorno, tramonto e notte, con preset meteo sereno/nuvoloso/pioggia/neve/nebbia. Il vento reale Open-Meteo resta attivo anche con il meteo manuale e muove alberi, cespugli, erba e precipitazioni; senza un dato reale il vento resta calmo, non inventato.
 - **Trenta veicoli in catalogo** (`P` → Veicolo, oppure `B` per cambiarli al volo): tutte le auto e moto dell'archivio `cars.zip`, dai modelli del 1930 alla Ferrari F1 2019. Ogni voce ha ingombri, passo, raggio ruota e **prestazioni reali** della versione rappresentata: cilindrata, potenza, coppia, 0-100 e velocità massima vengono dalle schede tecniche (vedi `docs/VEHICLE_DATA.md`).
 - **Trenta modelli GLB** (`public/cars/`): Audi R8 (2010 e 2023), BMW M4 Competition, M3 E46 e 326 anni '30, Yamaha MT-09 SP, Audi Novulari, Cupra Terramar, DeTomaso P900, Ferrari F1 e LaFerrari, Fiat 500/Abarth/Multipla/Uno/Panda/Punto, Lamborghini Revuelto, Land Rover Defender, MG Cyberster, Porsche 911, SEAT León Cupra, Tesla Cybertruck, Vespa, Aston Martin DB11, Honda Civic RS, Volkswagen Crafter e Golf GTI. I modelli vengono normalizzati una volta sola (unità di lunghezza, muso a +Z, base a terra), le ruote sono riconosciute per nome o separate geometricamente, e i vetri opachi dei GLB da showroom diventano vetro scuro trasparente. I file restano fuori da git e il manifest versionato dice slug, file, yaw e lunghezza; crediti e licenze sono in `ATTRIBUTION.md`.
 - **Pilota sulle due ruote**: Yamaha MT-09 SP e Vespa mostrano il corpo del giocatore seduto in sella, con piega in curva e mani verso il manubrio; a piedi il veicolo parcheggiato resta vuoto.
@@ -34,7 +34,7 @@
 - **Colore carrozzeria**: dieci tinte, ricordate veicolo per veicolo; si cambiano dal menu o dal garage.
 - **Personaggio personalizzabile** (`P`): sesso, altezza 1,50–2,00 m, corporatura, carnagione, capelli (stile e colore), barba e outfit — casual, elegante, formale, tuta, campagna, sportivo, hippie — con tre varianti di tono. Il rig si ricostruisce al volo mantenendo posizione e animazioni.
 - **Stereo affiancato** (`Y`): due viewport con camere separate di 6,5 cm, per visori o visione incrociata.
-- **Erba a istanze** intorno al giocatore: 82.000 ciuffi con lame sottili più 12.000 quad di **tappeto di base** che chiudono i buchi tra un ciuffo e l'altro (densità legata al preset, rispetto di strade ed edifici).
+- **Erba a istanze** intorno al giocatore: fino a 180.000 ciuffi con lame sottili, dimensioni variabili e sterpaglia alta in macchia e sui margini rurali (densità legata al preset, strade ed edifici esclusi).
 - **Personaggio con scheletro**: rig umanoide a 21 ossa, clip idle/camminata/corsa e due clip additive (salto e caduta) sommate alla camminata. Testa a misura umana con zigomi, palpebre, occhi con iride e pupilla, capelli con attaccatura sulla fronte, colletto, cintura, polsini, bottoni, tasche e lacci; pelle e tessuto con normal map procedurali.
 - **Radar satellite reale** in minimappa e mappa grande, con strade OSM evidenziate sopra la foto aerea (`V` per passare alla mappa vettoriale).
 - **Strade** ricostruite da OpenStreetMap e drappeggiate sul rilievo (asfalto e sterrati, larghezze per tipo), con curve **smussate in continuo** (`smoothPolyline`), tratteggio di mezzeria, **attraversamenti pedonali** con linea di arresto, marciapiedi larghi 1,15–1,45 m e **cordolo a 18 cm** con faccia verticale.
@@ -119,8 +119,8 @@ DEM Terrarium, tag OSM) e su come renderli credibili in un motore proprio.
   grafica integrata parte in bassa, un portatile molto vecchio o il rendering software in
   **compatibilità**, una GPU dedicata in alta. Il preset non cambia solo la risoluzione:
   decide ombre, erba, alberi, pedoni, arredo, meteo e dettaglio delle facciate. Se gli fps
-  restano bassi il gioco toglie **prima gli effetti** (ombre, poi erba) e **solo dopo** la
-  risoluzione: abbassare i pixel per primo è il modo più rapido per riempire lo schermo di
+  restano bassi il gioco riduce **prima ombre, zoom satellite e raggio di streaming**,
+  mantenendo erba e meteo, e solo dopo la risoluzione: abbassare i pixel per primo è il modo più rapido per riempire lo schermo di
   scalini. Sopra i 12 milioni di pixel (4K con DPR 2) l'immagine viene comunque limitata,
   perché nessuna GPU da browser li regge a 60 fps; `G` (o le impostazioni) cambia preset.
 - **Radar vero, con scala automatica.** La minimappa (320 px) disegna le tile raster aperte configurate intorno

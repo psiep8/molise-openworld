@@ -52,6 +52,48 @@ export interface CarEnv {
   groundHeight: (x: number, z: number) => number;
   /** grip ambientale da pioggia/neve; 1 = asciutto, valori minori = scivoloso */
   gripScale?: number;
+  /** materiale restituito dal campionatore del terreno */
+  surface?: string;
+}
+
+interface SurfacePhysics {
+  speed: number;
+  grip: number;
+  rolling: number;
+}
+
+function surfacePhysics(env: CarEnv, tuning: CarTuning): SurfacePhysics {
+  const surface = env.surface?.toLowerCase();
+  switch (surface) {
+    case 'gravel':
+    case 'fine_gravel':
+    case 'pebblestone':
+      return { speed: 0.78, grip: 0.72, rolling: 1.7 };
+    case 'dirt':
+    case 'ground':
+    case 'compacted':
+    case 'earth':
+      return { speed: 0.72, grip: 0.62, rolling: 1.9 };
+    case 'mud':
+    case 'sand':
+    case 'salt':
+      return { speed: 0.52, grip: 0.42, rolling: 2.4 };
+    case 'grass':
+    case 'terrain':
+      return { speed: tuning.offroadSpeedFactor, grip: tuning.offroadGrip, rolling: 2 };
+    case 'cobblestone':
+    case 'sett':
+      return { speed: 1, grip: 0.82, rolling: 1.15 };
+    case 'asphalt':
+    case 'concrete':
+    case 'paving_stones':
+    case 'paved':
+      return { speed: 1, grip: 1, rolling: 1 };
+    default:
+      return env.onRoad
+        ? { speed: 1, grip: 1, rolling: 1 }
+        : { speed: tuning.offroadSpeedFactor, grip: tuning.offroadGrip, rolling: 2 };
+  }
 }
 
 export interface CarTuning {
@@ -187,10 +229,10 @@ export function stepCar(
 ): CarState {
   const next: CarState = { ...state };
   const gearCount = tuning.gearRatios.length;
-  const surface = env.onRoad ? 1 : tuning.offroadSpeedFactor;
+  const surface = surfacePhysics(env, tuning);
   // la spinta allunga anche il rapporto finale: +25% di velocità massima
-  const maxSpeed = tuning.maxSpeed * surface * (input.boost ? 1.25 : 1);
-  const reverseMax = tuning.reverseSpeed * surface;
+  const maxSpeed = tuning.maxSpeed * surface.speed * (input.boost ? 1.25 : 1);
+  const reverseMax = tuning.reverseSpeed * surface.speed;
 
   if (next.shiftTimer > 0) next.shiftTimer = Math.max(0, next.shiftTimer - dt);
 
@@ -225,7 +267,7 @@ export function stepCar(
   // nulla fino a metà della scala di velocità
   const boostGrip = input.boost ? 1.18 : 1;
   const tractionLimit =
-    tuning.grip * (env.onRoad ? 1 : tuning.offroadGrip) * normalLoad * tuning.tractionShare * boostGrip * gripScale;
+    tuning.grip * surface.grip * normalLoad * tuning.tractionShare * boostGrip * gripScale;
 
   // in retromarcia è il freno a dare gas all'indietro
   const driveInput = forward ? input.throttle : input.brake;
@@ -237,7 +279,7 @@ export function stepCar(
 
   // --- resistenze ----------------------------------------------------------
   const dir = Math.sign(next.speed);
-  const rolling = tuning.rollingResistance * normalLoad * dir;
+  const rolling = tuning.rollingResistance * surface.rolling * normalLoad * dir;
   const aero = 0.5 * AIR_DENSITY * tuning.dragArea * next.speed * speedAbs;
   const engineBrake = driveInput < 0.02 ? gearForce * 0.05 * dir : 0;
 
@@ -247,7 +289,7 @@ export function stepCar(
       tuning.brakeDecel *
       input.brake *
       tuning.mass *
-      (env.onRoad ? 1 : tuning.offroadGrip) *
+      surface.grip *
       gripScale *
       dir;
   }
@@ -321,12 +363,10 @@ export function stepCar(
   // il tetto si applica al modulo: in retromarcia l'imbardata cambia segno da
   // sola perché `speed` è negativa, come nella realtà
   const yawCap = Math.abs(next.speed) > 0.5
-    ? Math.min(MAX_YAW_RATE, (LATERAL_GRIP * gripScale) / Math.abs(next.speed))
+    ? Math.min(MAX_YAW_RATE, (LATERAL_GRIP * surface.grip * gripScale) / Math.abs(next.speed))
     : MAX_YAW_RATE;
   let yawRate = clamp(requested, -yawCap, yawCap);
   if (input.handbrake) yawRate *= 1.9;
-  // fuori strada il posteriore scivola un po' di più
-  if (!env.onRoad) yawRate *= 1.12;
   next.yaw += yawRate * dt;
 
   // --- integrazione --------------------------------------------------------

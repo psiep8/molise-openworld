@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   dayOfYear,
+  horizonGlowFactor,
   isWeatherPreset,
   solarDeclination,
   sunAtLocalTime,
@@ -48,6 +49,14 @@ describe('sole per ora locale', () => {
 
   it('la posizione è deterministica', () => {
     expect(sunAtLocalTime(6.5, LAT, LON, SUMMER)).toEqual(sunAtLocalTime(6.5, LAT, LON, SUMMER));
+  });
+
+  it('concentra lo scatter all’orizzonte in modo simmetrico e lo spegne di notte fonda', () => {
+    expect(horizonGlowFactor(0)).toBe(1);
+    expect(horizonGlowFactor(6)).toBe(horizonGlowFactor(-6));
+    expect(horizonGlowFactor(22)).toBe(0);
+    expect(horizonGlowFactor(-30)).toBe(0);
+    expect(() => horizonGlowFactor(Number.NaN)).toThrow(RangeError);
   });
 });
 

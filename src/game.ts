@@ -58,6 +58,7 @@ import {
 import {
   WEATHER_PRESETS,
   dayOfYear,
+  horizonGlowFactor,
   isWeatherPreset,
   sunAtLocalTime,
   type WeatherPreset,
@@ -136,12 +137,13 @@ import {
 } from './sim/needs';
 import { advanceClock, formatGameClock, loadLifeSave, saveLifeSave, type LifeSave } from './sim/save';
 import { MapRenderer } from './ui/minimap';
+import { nextFrameOrTimeout } from './ui/frame';
 import type { CarInput } from './sim/car';
 import { autopilotInput, followTarget } from './sim/autopilot';
 import { buildRoadGraph, planRoute, type RoadGraph, type RouteResult } from './sim/routing';
 import { PostPipeline } from './gfx/post';
 import { loadPaintSaturation, setPaintSaturation } from './gfx/car-paint';
-import { updateWind } from './gfx/wind';
+import { setWind, updateWind } from './gfx/wind';
 import {
   QUALITY_PRESETS,
   isQualityLevel,
@@ -228,8 +230,6 @@ export interface Diagnostics {
   } | null;
   errors: string[];
 }
-
-const nextFrame = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => r()));
 
 /** Velocità media per stimare i tempi in auto: ~40 km/h sulle strade dei paesi. */
 const ROUTE_DRIVE_SPEED = 11.1;
@@ -439,14 +439,12 @@ export class Game {
    *
    * Il resolution scaling da solo non basta: su una iGPU vecchia scendere a
    * 0,6× non salva un frame che paga 14.000 alberi in ombra. Qui, dopo qualche
-   * secondo sotto i 26 fps con la scala già al minimo, si spengono gli effetti
-   * uno alla volta (ombre → erba → meteo → dettaglio satellite). È `sticky`:
-   * non torna indietro da sola, per non far ballare la grafica fra due stati.
+   * secondo sotto i 26 fps con la scala già al minimo, si riducono le ombre,
+   * lo zoom satellite e il raggio di streaming, senza togliere erba o meteo.
+   * È `sticky`: non torna indietro da sola, per non far ballare la grafica.
    */
   private degradeStep = 0;
   private slowChecks = 0;
-  /** moltiplicatore dell'erba: la degradazione lo porta a 0 senza ricostruire il mondo */
-  private grassScale = 1;
   /** raggio di streaming corrente: parte dal preset e scende se serve */
   private viewRadius = VIEW_RADIUS;
   /** montagne lontane oltre il DEM (null finché il mondo non è caricato) */
@@ -657,10 +655,10 @@ export class Game {
       this.canopy = canopy;
       this.car.setKit(kit);
       this.hud.setLoading(0.32, 'Apro il garage delle auto importate…');
-      await nextFrame();
+      await nextFrameOrTimeout();
       await this.loadCustomCars();
       this.hud.setLoading(0.34, 'Disegno strade, torrenti e paesi…');
-      await nextFrame();
+      await nextFrameOrTimeout();
 
       this.buildingIndex = new BuildingIndex(osm.buildings);
       extendBoundaryRoads(osm, heights);
@@ -756,13 +754,13 @@ export class Game {
       this.scene.add(buildPowerLines(osm, heights, this.roadIndex, this.buildingIndex));
 
       this.hud.setLoading(0.5, 'Costruisco le case…');
-      await nextFrame();
+      await nextFrameOrTimeout();
       this.scene.add(
         buildBuildings(osm, heights, this.renderer, { detail: this.quality.buildingDetail }).group,
       );
 
       this.hud.setLoading(0.64, 'Pianto alberi e uliveti…');
-      await nextFrame();
+      await nextFrameOrTimeout();
       this.vegetation = new ScatterVegetation(this.renderer, {
         osm,
         heights,
@@ -799,7 +797,7 @@ export class Game {
       const initialCustom = this.customCars.get(initial.id) ?? null;
       if (!initialCustom && initial.model && this.carLibrary) {
         this.hud.setLoading(0.695, `Preparo ${initial.name}…`);
-        await nextFrame();
+        await nextFrameOrTimeout();
         // senza il manifest l'auto non è ancora in libreria e resterebbe la
         // sagoma di ripiego: il fetch locale è veloce ma non è gratis
         if (this.carManifest) await this.carManifest;
@@ -812,11 +810,11 @@ export class Game {
       this.syncSettingsControls();
 
       this.hud.setLoading(0.7, 'Faccio scendere la gente in piazza…');
-      await nextFrame();
+      await nextFrameOrTimeout();
       await this.loadCharacters();
 
       this.hud.setLoading(0.72, 'Alzo il cielo…');
-      await nextFrame();
+      await nextFrameOrTimeout();
       this.sky = createSky(this.scene);
       this.clouds = new CloudLayer();
       this.scene.add(this.clouds.mesh);
@@ -919,11 +917,13 @@ export class Game {
 
       const realWeather = this.readRealWeatherPref();
       this.hud.setRealWeather(realWeather);
-      this.updateWeatherStatus();
+      const location = worldToLatLon(this.player.position.x, this.player.position.z);
       if (realWeather) this.setRealWeather(true, false);
+      else this.realWeather.enable(location.lat, location.lon);
+      this.updateWeatherStatus();
 
       this.hud.setLoading(0.97, 'Quasi pronto…');
-      await nextFrame();
+      await nextFrameOrTimeout();
       this.hud.hideLoading();
       this.loaded = true;
 
@@ -1528,6 +1528,7 @@ export class Game {
   private setManualTime(enabled: boolean): void {
     this.manualTime = enabled;
     if (enabled && this.realWeatherEnabled) this.setRealWeather(false, false);
+    this.syncWeatherEffects();
     this.hud.setManualTime(enabled);
     this.syncSettingsControls();
     if (enabled) {
@@ -1545,8 +1546,17 @@ export class Game {
   }
 
   private setManualWeather(preset: WeatherPreset): void {
+    if (!this.manualTime) this.setManualTime(true);
     this.manualWeather = preset;
+    this.syncWeatherEffects();
     this.hud.toast(`Meteo: ${this.weatherPresetLabel()}`, 2000);
+  }
+
+  private syncWeatherEffects(): void {
+    this.weatherFxOn = this.quality.weather !== 'off' || this.manualTime || this.realWeatherEnabled;
+    if (this.precipitation) this.precipitation.group.visible = this.weatherFxOn;
+    if (this.mist) this.mist.group.visible = this.weatherFxOn;
+    this.clouds?.setVisible(this.weatherFxOn);
   }
 
   private formatHour(hour: number): string {
@@ -2151,20 +2161,24 @@ export class Game {
     if (enabled) {
       this.manualTime = false;
       this.hud.setManualTime(false);
+      this.weatherFxOn = true;
+      this.syncWeatherEffects();
       const ll = worldToLatLon(this.player.position.x, this.player.position.z);
       this.realWeather.enable(ll.lat, ll.lon);
       if (announce) this.hud.toast('Meteo reale attivo · sole e condizioni aggiornati', 3200);
     } else {
-      this.realWeather.disable();
       this.restoreDefaultAtmosphere();
-      if (announce) this.hud.toast('Meteo reale disattivato · torna il pomeriggio del gioco');
+      if (announce) this.hud.toast('Meteo reale disattivato · vento reale sempre attivo');
     }
     this.updateWeatherStatus();
   }
 
   private refreshWeather(): void {
     if (!this.realWeatherEnabled) {
-      this.setRealWeather(true);
+      const ll = worldToLatLon(this.player.position.x, this.player.position.z);
+      this.realWeather.setLocation(ll.lat, ll.lon);
+      void this.realWeather.refresh(true);
+      this.updateWeatherStatus();
       return;
     }
     const ll = worldToLatLon(this.player.position.x, this.player.position.z);
@@ -2175,14 +2189,22 @@ export class Game {
 
   private updateWeatherStatus(): void {
     if (this.manualTime) {
+      const wind = this.realWeather.snapshot;
       this.hud.setWeatherStatus(
-        `Atmosfera manuale · ${this.formatHour(this.manualHour)} · ${this.weatherPresetLabel()}`,
+        `Atmosfera manuale · ${this.formatHour(this.manualHour)} · ${this.weatherPresetLabel()} · ` +
+          (wind ? `vento reale ${Math.round(wind.windSpeed)} km/h` : 'carico vento reale…'),
       );
       this.hud.setWeatherBusy(false);
       return;
     }
     if (!this.realWeatherEnabled) {
-      this.hud.setWeatherStatus('Meteo reale disattivato: il mondo usa il pomeriggio fisso del gioco.');
+      const wind = this.realWeather.snapshot;
+      const status = wind
+        ? `Meteo selezionabile · vento reale ${Math.round(wind.windSpeed)} km/h`
+        : this.realWeather.loading
+          ? 'Meteo selezionabile · recupero vento reale…'
+          : `Meteo selezionabile · vento reale non disponibile (${this.realWeather.error ?? 'rete assente'})`;
+      this.hud.setWeatherStatus(status);
       this.hud.setWeatherBusy(false);
       return;
     }
@@ -2243,15 +2265,20 @@ export class Game {
   }
 
   private manualSnapshot(): WeatherSnapshot {
-    if (this.manualWeather === 'auto') return defaultWeather();
+    const observedWind = this.realWeather.snapshot;
+    const weather = {
+      ...defaultWeather(),
+      windSpeed: observedWind?.windSpeed ?? 0,
+      windDirection: observedWind?.windDirection ?? 0,
+    };
+    if (this.manualWeather === 'auto') return weather;
     const preset = WEATHER_PRESETS[this.manualWeather];
     return {
-      ...defaultWeather(),
+      ...weather,
       code: preset.code,
       cloudCover: preset.cloudCover,
       precipitation: preset.precipitation,
       snowfall: preset.snowfall,
-      windSpeed: preset.windSpeed,
       temperature: preset.temperature,
     };
   }
@@ -2290,19 +2317,19 @@ export class Game {
     const snow = snowing ? clamp(0.3 + w.snowfall * 0.5, 0.3, 1) : 0;
     const rain = wet && !snowing ? clamp(0.2 + w.precipitation * 0.35, 0.2, 1) : 0;
     const cover = Math.max(cloud, wet ? 0.55 : 0);
-    const horizon = 1 - smoothstep(2, 22, sun.elevation);
+    const horizon = horizonGlowFactor(sun.elevation);
 
     this.sky.setSun(sun.elevation, 180 - sun.azimuth);
     this.sky.setSkyParams({
       // cielo più saturo e meno lattiginoso: turbolenza bassa con l'aria serena,
       // rayleigh più alto per il blu, mie solo quanto basta all'alone del sole
-      turbidity: 1.4 + cloud * 9 + (rain + snow) * 5,
+      turbidity: 1.4 + cloud * 9 + (rain + snow) * 5 + horizon * 2.4,
       rayleigh: Math.max(0.7, 2.0 - cloud * 0.7 + horizon * 1.0),
-      mieCoefficient: 0.0015 + cloud * 0.012 + (rain + snow) * 0.008,
+      mieCoefficient: 0.0015 + cloud * 0.012 + (rain + snow) * 0.008 + horizon * 0.004,
       mieDirectionalG: 0.82,
     });
 
-    this.sunTint.setHex(0xfff2db).lerp(this.tintA.setHex(0xffa968), horizon * 0.85);
+    this.sunTint.setHex(0xfff2db).lerp(this.tintA.setHex(0xffa05a), horizon * (0.78 - cloud * 0.2));
     this.sunTint.lerp(this.tintB.setHex(0xcdd8e2), cloud * 0.7);
     const sunIntensity =
       Math.max(0, Math.sin(THREE.MathUtils.degToRad(Math.max(0, sun.elevation)))) *
@@ -2313,13 +2340,15 @@ export class Game {
     this.sky.setLighting({
       sunColor: this.sunTint.getHex(),
       sunIntensity,
-      hemiSky: day < 0.2 ? 0x2c4266 : 0xbcd2e4,
+      hemiSky: day < 0.2
+        ? 0x2c4266
+        : this.tintA.setHex(0xbcd2e4).lerp(this.tintB.setHex(0xffc28f), horizon * 0.34).getHex(),
       hemiGround: day < 0.2 ? 0x1a2430 : 0x6b6350,
       // Di notte il mondo non deve sparire: un filo di luce ambientale e la
       // luna alta tengono leggibili strada, cordoli e incroci anche senza
       // fari. Prima hemi 0,08 + ambient 0,035 facevano una notte da grotta.
-      hemiIntensity: 0.25 + 0.6 * day + 0.15 * cloud,
-      ambientIntensity: 0.085 + 0.045 * day + 0.03 * cloud,
+      hemiIntensity: 0.25 + 0.6 * day + 0.15 * cloud + horizon * 0.08,
+      ambientIntensity: 0.085 + 0.045 * day + 0.03 * cloud + horizon * 0.035,
       moonIntensity: sun.elevation < 0 ? 1.15 : 0,
     });
 
@@ -2340,13 +2369,17 @@ export class Game {
     this.scene.background = this.fogColor;
     // Di notte si alza leggermente l'esposizione invece di abbassarla: i fari
     // illuminano la strada ma il resto dell'inquadratura deve restare leggibile.
-    this.renderer.toneMappingExposure = EXPOSURE_DAY - (1 - day) * 0.02 - cloud * 0.02;
+    this.renderer.toneMappingExposure = EXPOSURE_DAY - (1 - day) * 0.02 - cloud * 0.02 + horizon * 0.025;
 
-    const windRad = THREE.MathUtils.degToRad(w.windDirection);
-    const windX = -Math.sin(windRad) * w.windSpeed * 0.08;
-    const windZ = -Math.cos(windRad) * w.windSpeed * 0.08;
-    // con `weather: 'off'` (minimal) nuvole, pioggia, neve e foschia non
-    // esistono: si risparmiano tre draw call trasparenti e i loro aggiornamenti
+    const observedWind = this.realWeather.snapshot;
+    const windSpeed = observedWind?.windSpeed ?? 0;
+    const windDirection = observedWind?.windDirection ?? 0;
+    setWind(windSpeed, windDirection);
+    const windRad = THREE.MathUtils.degToRad(windDirection);
+    const windX = -Math.sin(windRad) * windSpeed * 0.08;
+    const windZ = -Math.cos(windRad) * windSpeed * 0.08;
+    // Solo i preset esplicitamente senza meteo saltano nuvole, precipitazioni
+    // e foschia; le scelte manuali e il meteo reale riattivano sempre gli effetti.
     if (this.weatherFxOn) {
       this.clouds.update(dt, this.camera, { coverage: cover, windX, windZ, sunElevation: sun.elevation });
       this.precipitation.update(dt, this.camera, { rain, snow, windX, windZ });
@@ -2494,9 +2527,8 @@ export class Game {
     // appena scelto, non deve combattere con le scelte fatte prima
     this.degradeStep = 0;
     this.slowChecks = 0;
-    this.grassScale = 1;
     this.viewRadius = this.quality.viewRadius;
-    this.weatherFxOn = this.quality.weather !== 'off';
+    this.syncWeatherEffects();
     this.setShadows(this.quality.shadows);
     this.applyRenderScale();
     this.sky?.setShadowMapSize(this.quality.shadowMapSize);
@@ -2521,9 +2553,7 @@ export class Game {
       this.post?.setEnabled(false);
       this.post?.setSSAO(false);
     }
-    if (this.precipitation) this.precipitation.group.visible = this.weatherFxOn;
-    if (this.mist) this.mist.group.visible = this.weatherFxOn;
-    if (this.grass) this.grass.group.visible = this.quality.grassDensity * this.grassScale > 0.01;
+    if (this.grass) this.grass.group.visible = this.quality.grassDensity > 0.01;
     if (this.terrain) {
       const focus = this.mode === 'walk' ? this.player.position : this.car.state;
       this.terrain.update(focus.x, focus.z, this.viewRadius, true);
@@ -3029,7 +3059,7 @@ export class Game {
 
   /** Un gradino di degradazione: si chiama solo quando gli fps restano bassi. */
   private degrade(): void {
-    if (this.degradeStep >= 5) return;
+    if (this.degradeStep >= 4) return;
     this.degradeStep++;
     switch (this.degradeStep) {
       case 1:
@@ -3037,18 +3067,9 @@ export class Game {
         this.hud.toast('Prestazioni: ombre disattivate per tenere il gioco fluido', 3600);
         break;
       case 2:
-        this.grassScale = 0;
-        if (this.grass) this.grass.group.visible = false;
-        break;
-      case 3:
-        this.weatherFxOn = false;
-        this.precipitation?.clear();
-        if (this.precipitation) this.precipitation.group.visible = false;
-        if (this.mist) this.mist.group.visible = false;
-        this.clouds?.setVisible(false);
         this.terrain?.setMaxZoom(15);
         break;
-      case 4:
+      case 3:
         this.viewRadius = Math.min(this.viewRadius, 1600);
         if (this.terrain) {
           const focus = this.mode === 'walk' ? this.player.position : this.car.state;
@@ -3124,7 +3145,7 @@ export class Game {
       this.heights,
       this.roadIndex,
       this.buildingIndex,
-      this.quality.grassDensity * this.grassScale,
+      Math.max(QUALITY_PRESETS.minimal.grassDensity, this.quality.grassDensity),
       this.osm.areas,
     );
     this.applyManualAtmosphere(dt, focus);
@@ -3145,7 +3166,6 @@ export class Game {
     this.benchCollect = null;
     this.mode = view.mode;
     this.running = true;
-    this.grassScale = 1;
     this.hud.setMode(view.mode);
 
     if (view.mode === 'drive') {
@@ -3336,6 +3356,8 @@ export class Game {
 
   private update(dt: number): void {
     this.realWeather.update();
+    const observedWind = this.realWeather.snapshot;
+    if (observedWind) setWind(observedWind.windSpeed, observedWind.windDirection);
     const move = this.readMoveInput();
 
     // Orologio e bisogni: si fermano quando un pannello è aperto.
@@ -3381,6 +3403,8 @@ export class Game {
     }
 
     const focus = this.mode === 'walk' ? this.player.position : this.car.position;
+    const location = worldToLatLon(focus.x, focus.z);
+    this.realWeather.setLocation(location.lat, location.lon);
     if (
       this.worldTileManager &&
       (Number.isNaN(this.lastWorldTileX) ||
@@ -3405,7 +3429,7 @@ export class Game {
       this.heights,
       this.roadIndex,
       this.buildingIndex,
-      this.quality.grassDensity * this.grassScale,
+      Math.max(QUALITY_PRESETS.minimal.grassDensity, this.quality.grassDensity),
       this.osm.areas,
     );
     if (this.manualTime) this.applyManualAtmosphere(dt, focus);

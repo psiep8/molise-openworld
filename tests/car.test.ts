@@ -52,6 +52,22 @@ describe('auto arcade', () => {
     expect(offroad.speed).toBeLessThan(road.speed * 0.8);
   });
 
+  it('ghiaia e terra limitano la velocità rispetto all’asfalto', () => {
+    const asphalt = run(60 * 45, 1 / 60, { ...flat, surface: 'asphalt' });
+    const gravel = run(60 * 45, 1 / 60, { ...flat, surface: 'gravel' });
+    const dirt = run(60 * 45, 1 / 60, { ...flat, surface: 'dirt' });
+    expect(gravel.speed).toBeLessThan(asphalt.speed);
+    expect(dirt.speed).toBeLessThan(gravel.speed);
+  });
+
+  it('la minore aderenza della ghiaia riduce la risposta laterale', () => {
+    const start = { ...createCarState(0, 0, 0), speed: 15 };
+    const steer = { ...idle, steer: 1 };
+    const asphalt = run(60, 1 / 60, { ...flat, surface: 'asphalt' }, start, steer);
+    const gravel = run(60, 1 / 60, { ...flat, surface: 'gravel' }, start, steer);
+    expect(gravel.yaw).toBeLessThan(asphalt.yaw);
+  });
+
   it('la salita rallenta, la discesa accelera', () => {
     const uphill: CarEnv = {
       onRoad: true,

@@ -357,7 +357,32 @@ export function buildGuardrails(
     metalness: 0.65,
     roughness: 0.48,
   });
-  const railGeo = new THREE.BoxGeometry(0.09, 0.28, 1);
+  const railProfile = new THREE.Shape();
+  railProfile.moveTo(-0.07, -0.14);
+  railProfile.lineTo(0.07, -0.14);
+  railProfile.lineTo(0.07, -0.11);
+  railProfile.lineTo(0.02, -0.075);
+  railProfile.lineTo(0.07, -0.04);
+  railProfile.lineTo(0.07, 0.04);
+  railProfile.lineTo(0.02, 0.075);
+  railProfile.lineTo(0.07, 0.11);
+  railProfile.lineTo(0.07, 0.14);
+  railProfile.lineTo(-0.07, 0.14);
+  railProfile.lineTo(-0.07, 0.11);
+  railProfile.lineTo(-0.02, 0.075);
+  railProfile.lineTo(-0.07, 0.04);
+  railProfile.lineTo(-0.07, -0.04);
+  railProfile.lineTo(-0.02, -0.075);
+  railProfile.lineTo(-0.07, -0.11);
+  railProfile.closePath();
+  const railGeo = new THREE.ExtrudeGeometry(railProfile, {
+    depth: 1,
+    bevelEnabled: true,
+    bevelSegments: 1,
+    bevelSize: 0.006,
+    bevelThickness: 0.006,
+  });
+  railGeo.computeVertexNormals();
   const postGeo = new THREE.BoxGeometry(0.08, POST_HEIGHT, 0.12);
   const railMesh = new THREE.InstancedMesh(railGeo, metal, rails.length);
   const postMesh = new THREE.InstancedMesh(postGeo, metal, posts.length);

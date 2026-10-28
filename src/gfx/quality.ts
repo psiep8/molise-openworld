@@ -46,7 +46,7 @@ export interface QualityPreset {
   ssao: boolean;
   /** zoom massimo delle texture satellite (16 lontano, 17 vicino, 18 dettaglio) */
   maxSatelliteZoom: number;
-  /** densità del tappeto d'erba, 0…1 (0 = nessun ciuffo) */
+  /** densità del tappeto d'erba, 0…1 */
   grassDensity: number;
   /** alberi istanziati alla costruzione del mondo */
   trees: number;
@@ -93,7 +93,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
   minimal: {
     level: 'minimal',
     label: 'Compatibilità',
-    hint: 'Anche su GPU integrate e portatili vecchi: niente ombre, niente erba, pochi alberi',
+    hint: 'Compatibilità: erba, arbusti e meteo presenti; ombre e dettagli grafici ridotti',
     pixelRatio: 0.7,
     renderScaleFloor: 0.5,
     antialias: false,
@@ -106,12 +106,12 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     bloom: 0,
     ssao: false,
     maxSatelliteZoom: 15,
-    grassDensity: 0,
-    trees: 2200,
-    shrubs: 0,
+    grassDensity: 0.4,
+    trees: 6000,
+    shrubs: 900,
     pedestrians: 0,
     pointLights: 2,
-    weather: 'off',
+    weather: 'light',
     kit: false,
     buildingDetail: 'simple',
     streamedWorld: false,
@@ -124,7 +124,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
   low: {
     level: 'low',
     label: 'Bassa',
-    hint: 'Portatili e GPU integrate recenti: ombre leggere, erba rada, nessun post-processing',
+    hint: 'Portatili e GPU integrate recenti: vegetazione presente, ombre leggere, nessun post-processing',
     pixelRatio: 1,
     renderScaleFloor: 0.55,
     antialias: true,
@@ -137,7 +137,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     bloom: 0,
     ssao: false,
     maxSatelliteZoom: 16,
-    grassDensity: 0.22,
+    grassDensity: 0.4,
     trees: 6000,
     shrubs: 900,
     pedestrians: 4,

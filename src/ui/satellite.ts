@@ -1,4 +1,4 @@
-import { BBOX, latLonToWorld, worldToLatLon } from '../config';
+import { BBOX, WORLD, latLonToWorld, worldToLatLon } from '../config';
 import { mercatorPixel } from '../geo/geo';
 import { OPEN_WORLD_IMAGERY, type TileProvider } from '../world/imagery';
 import { loadOpenRasterTile } from '../world/tile-cache';
@@ -43,11 +43,23 @@ export function tileWorldRect(z: number, x: number, y: number): TileRect {
 export class SatelliteTiles {
   private readonly cache = new Map<string, CachedTile>();
   private readonly maxTiles = 220;
+  private localImage: HTMLImageElement | null = null;
 
   constructor(
     private readonly provider: TileProvider = OPEN_WORLD_IMAGERY,
     private readonly onUpdate?: () => void,
-  ) {}
+  ) {
+    if (provider.localOnly) {
+      const image = new Image();
+      image.decoding = 'async';
+      image.onload = () => {
+        this.localImage = image;
+        this.onUpdate?.();
+      };
+      image.onerror = () => this.onUpdate?.();
+      image.src = `${import.meta.env.BASE_URL}geo/world-imagery.jpg`;
+    }
+  }
 
   private get(z: number, x: number, y: number): CachedTile {
     const key = `${z}/${x}/${y}`;
@@ -85,6 +97,18 @@ export class SatelliteTiles {
     const k = size / viewMeters;
     const cx = size / 2;
     const cy = size / 2;
+
+    if (this.provider.localOnly) {
+      if (!this.localImage) return;
+      ctx.drawImage(
+        this.localImage,
+        cx + (-WORLD.halfWidth - view.x) * k,
+        cy + (-WORLD.halfHeight - view.z) * k,
+        WORLD.width * k,
+        WORLD.height * k,
+      );
+      return;
+    }
 
     const nw = worldToLatLon(view.x - half, view.z - half);
     const se = worldToLatLon(view.x + half, view.z + half);
@@ -145,7 +169,14 @@ export class SatelliteBasemap {
         this.finished = true;
         this.onUpdate?.();
       };
-      img.onerror = () => this.load(p0, p1);
+      img.onerror = () => {
+        if (this.provider.localOnly) {
+          this.finished = true;
+          this.onUpdate?.();
+          return;
+        }
+        this.load(p0, p1);
+      };
       img.src = `${import.meta.env.BASE_URL}geo/world-imagery.jpg`;
     }
   }

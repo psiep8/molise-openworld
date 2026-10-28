@@ -12,6 +12,7 @@ import * as THREE from 'three';
  */
 interface Swayer {
   uTime: THREE.IUniform<number>;
+  uWind: THREE.IUniform<THREE.Vector2>;
 }
 
 interface Roller {
@@ -22,13 +23,24 @@ interface Roller {
 
 const swayers: Swayer[] = [];
 const rollers: Roller[] = [];
+const wind: THREE.IUniform<THREE.Vector2> = { value: new THREE.Vector2(0, 0) };
 let elapsed = 0;
 
-/** Uniform del tempo da passare a `shader.uniforms.uTime` in onBeforeCompile. */
-export function windTimeUniform(): THREE.IUniform<number> {
+/** Uniform condivisi da assegnare agli shader delle piante mosse dal vento. */
+export function windUniforms(): { uTime: THREE.IUniform<number>; uWind: THREE.IUniform<THREE.Vector2> } {
   const uTime: THREE.IUniform<number> = { value: 0 };
-  swayers.push({ uTime });
-  return uTime;
+  swayers.push({ uTime, uWind: wind });
+  return { uTime, uWind: wind };
+}
+
+/** Aggiorna intensità e direzione in base al vento reale (velocità in km/h). */
+export function setWind(speedKmh: number, directionDegrees: number): void {
+  if (!Number.isFinite(speedKmh) || !Number.isFinite(directionDegrees)) {
+    throw new Error('Velocità e direzione del vento devono essere numeri finiti');
+  }
+  const strength = Math.min(2.4, Math.max(0, speedKmh) / 30);
+  const direction = (directionDegrees * Math.PI) / 180;
+  wind.value.set(-Math.sin(direction) * strength, -Math.cos(direction) * strength);
 }
 
 /** Fa scorrere una texture (normali dell'acqua) a velocità costante, in UV/secondo. */
