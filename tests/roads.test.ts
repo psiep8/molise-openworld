@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { Pt } from '../src/geo/geo';
+import type { Road } from '../src/geo/osm';
 import type { RoadIndex } from '../src/geo/osm';
-import { filletCorner, giveWayTriangles, isRealJunction, roundCorners, splineThrough } from '../src/world/roads';
+import {
+  filletCorner,
+  giveWayTriangles,
+  isRealJunction,
+  roadPolyline,
+  roundCorners,
+  splineThrough,
+} from '../src/world/roads';
 
 /** Segmento dritto: nessun angolo, la polilinea non deve cambiare. */
 const straight: Pt[] = [
@@ -148,6 +156,32 @@ describe('spline centripeta', () => {
       const hit = out.some((p) => Math.hypot(p.x - node.x, p.z - node.z) < 1e-6);
       expect(hit).toBe(true);
     }
+  });
+
+  describe('polilinea stradale', () => {
+    it('attenua i piccoli zig-zag dei punti mappa senza spostare gli estremi', () => {
+      const road: Road = {
+        type: 'residential',
+        name: 'curva rumorosa',
+        width: 5.2,
+        paved: true,
+        points: [
+          { x: 0, z: 0 },
+          { x: 10, z: 1 },
+          { x: 20, z: -1 },
+          { x: 30, z: 1 },
+          { x: 40, z: -1 },
+          { x: 50, z: 0 },
+        ],
+        bounds: { minX: 0, maxX: 50, minZ: -1, maxZ: 1 },
+      };
+
+      const line = roadPolyline(road);
+      expect(line[0]).toEqual(road.points[0]);
+      expect(line.at(-1)).toEqual(road.points.at(-1));
+      expect(Math.max(...line.map((point) => Math.abs(point.z)))).toBeLessThan(0.7);
+      expect(line.length).toBeGreaterThan(20);
+    });
   });
 
   it('su un rettilineo non inventa curve', () => {

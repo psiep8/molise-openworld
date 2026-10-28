@@ -942,8 +942,11 @@ roughnessFactor = clamp(roughnessFactor + 0.12 * paintNoise(vPaintWorld.xz * 1.9
  */
 export function roadPolyline(road: Road): Pt[] {
   return splineThrough(
-    roundCorners(resample(road.points, road.paved ? 7 : 6), road.paved ? 24 : 30),
-    road.paved ? 5 : 6,
+    roundCorners(
+      smoothPolyline(resample(road.points, road.paved ? 7 : 6), 2, 0.55),
+      road.paved ? 24 : 30,
+    ),
+    road.paved ? 2.5 : 3,
   );
 }
 
