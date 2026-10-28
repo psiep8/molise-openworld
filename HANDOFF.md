@@ -1,6 +1,6 @@
 # HANDOFF — Molise Open World
 
-> Documento di passaggio di consegne. Ultimo aggiornamento: **27 ottobre 2026**.
+> Documento di passaggio di consegne. Ultimo aggiornamento: **28 ottobre 2026**.
 > Leggilo per intero prima di toccare il codice: contiene stato, vincoli, comandi,
 > criteri di qualità e prossimi passi con criteri di accettazione.
 
@@ -1853,3 +1853,158 @@ ritoccati `WORLD`, chunk del terreno, densità di edifici/alberi e mappa grande
 (che è rasterizzata a 1600 px sull'intero mondo). Overpass era saturo (502/406)
 durante questo giro: il fetch va fatto quando risponde, e i file nuovi pesano
 decine di MB.
+
+## 28/10/2026 — le 30 auto di serie: orientamento, ruote e materiali
+
+Il proprietario ha passato un rilievo modello per modello («cammina al
+contrario», «ruotata di 90 gradi», «ruote che girano fuori dalla macchina»,
+«Fiat 500 tutta bianca»). La diagnosi è stata fatta sui GLB: gerarchia dei nodi,
+posizione dei fari e delle ruote, ingombri reali calcolati sui vertici. Sotto ci
+sono le cause, non i sintomi.
+
+### Orientamento (manifest)
+
+- **`bmw-m3-sedan` `-90`, `fiat-panda-4x4` `+90`, `fiat-uno-1994` `+90`.** Questi
+  tre modelli hanno la lunghezza sull'asse **X**; con `yaw: 0` il gioco li
+  scalava sulla larghezza e in strada erano «macchine giganti ruotate di 90
+  gradi». Il verso è stato ricavato dai pezzi con un nome: specchietti,
+  lunotto (`r_glass`) e luci basse all'anteriore, più il profilo di altezza
+  (il cofano è l'estremo basso).
+- **`fiat-500-abarth` `180 → 0`.** Le luci dicono che il muso è a +Z: la
+  rotazione di 180° lo girava e la macchina camminava all'indietro.
+
+### Ruote
+
+- **Il verso di rotolamento era invertito per tutte le auto su GLB.** Il segno
+  era stato dedotto da quello della carrozzeria procedurale, che a sua volta era
+  sbagliato: la carrozzeria procedurale ha il muso a -Z e avanza verso -Z, quindi
+  la ruota deve girare **negativa** attorno all'asse trasversale; il modello GLB
+  ha il muso a +Z nel template (il pivot lo gira di 180°) e va positiva. Ora
+  `vehicle.ts` usa i due segni corretti.
+- **Bug vero in `splitCarWheels`.** Il centro della ruota veniva portato nello
+  spazio del modello con `toSource` (la matrice *della mesh*) invece di
+  `sourceInverse`: il centro finiva moltiplicato per la scala del GLB e i quattro
+  perni si ammassavano al centro della macchina. È la causa di «ruota tutto il
+  sotto macchina compreso le ruote molto al di fuori» (Punto 2011, Audi Novulari,
+  BMW anni ’30, Abarth, Punto GT, Revuelto, Cyberster).
+- **`wheelHubsPlausible`** (nuovo, in `car-wheels.ts`): i quattro perni devono
+  stare ai quattro angoli, dentro gli ingombri e con raggi confrontabili. Il
+  controllo gira *prima* di modificare la geometria, sia in `splitCarWheels` sia
+  in `geometricWheels`; se non passa il modello resta **intatto** (ruote ferme)
+  invece di rompersi. Il vecchio criterio «larghezza < 1,3 → due ruote» scattava
+  sempre (sul template normalizzato la larghezza è 0,45 per costruzione) e va
+  lasciato com'è ora: quattro ruote o niente.
+- Conseguenza onesta: **4 modelli restano con le ruote ferme** (Punto 2011, BMW
+  anni ’30, Crafter, Yamaha, quest'ultima perché le sue ruote sono ossa senza
+  geometria, vedi `makeHub`). Prima avevano ruote che giravano attorno a un
+  punto sbagliato: ferme è meglio che rotte, ma la separazione giusta per quei
+  quattro è ancora da fare.
+
+### Materiali
+
+- **`KHR_materials_pbrSpecularGlossiness` è deprecato e three lo ignora.** I due
+  GLB che lo usano (`fiat_500.glb`, `free_1995_fiat_punto_gt.glb`) hanno colore e
+  texture **solo** lì, quindi uscivano bianchi. Nuovo plugin in
+  `src/world/car-library.ts`: diffuso → `color`/`map`, glossiness → rugosità,
+  metalness 0.
+
+### Strumenti
+
+- **`scripts/analyze-car-yaw.mjs`** (nuovo): per ogni GLB stampa asse lungo,
+  ingombri, `yaw` attuale e il muso ricavato da fari/ruote/specchietti, con lo
+  `yaw` suggerito. È lo strumento che ha prodotto i quattro valori qui sopra;
+  va rilanciato quando si aggiunge un'auto.
+- **`tests/car-models.test.ts`** (nuovo): fa girare la pipeline vera su tutti i
+  30 GLB e verifica che la lunghezza sia su Z e che i perni stiano dentro la
+  carrozzeria. Si **salta** se i `.glb` non ci sono (non sono versionati).
+  Sarebbe stato sufficiente a intercettare le auto ruotate e le ruote fuori posto.
+
+### Verifiche
+
+- `npx tsc --noEmit` ✅
+- `npm test` **302/302** ✅ in 33 file
+- `npm run build` ✅
+- `tests/car-models.test.ts`: 30/30 modelli lunghi su Z con le ruote dentro gli
+  ingombri; 26 con ruote riconosciute (4, oppure 2 su Vespa e Ferrari F1), 4 con
+  ruote ferme (Punto 2011, BMW anni ’30, Crafter, Yamaha)
+- **Non verificati a schermo in questa sessione**: il verso delle ruote in
+  movimento e l'aspetto dei materiali recuperati dal plugin. Da guardare in gioco:
+  il fianco di una ruota in movimento a 30 km/h, la Fiat 500 del 2007 nel menu
+  Auto, la Panda 4x4 e la M3 in strada, e l'Abarth che deve andare avanti.
+
+---
+
+## 28/10/2026 — Guardrail: da 0 km a 66,6 km, misurati
+
+### Cosa era rotto (causa, non sintomo)
+
+La Fase 2 del brief «Paesaggio fuori paese» chiedeva i guardrail dove la scarpata
+supera il dislivello. Il criterio c'era, ma **non scattava mai**: misurava il
+salto a 1,2 m dal ciglio, dove il DEM (dettaglio reale ~30 m) campiona la stessa
+cella dell'asfalto. Su 307.912 lati di strada misurati, la regola vecchia
+(`drop > 1,15 m && slope > 0,12`) si accendeva su **1.500 spezzoni da meno di un
+metro**: zero barriere visibili. Le uniche che si vedevano erano sui ponti, dove
+il criterio è forzato — ed è per questo che la verifica del 27/10 «guardrail
+presente» era vera sul ponte e falsa sulle scarpate.
+
+### Cosa è cambiato
+
+- **`src/world/guardrails.ts`** — riscritto il criterio e la formazione dei tratti:
+  - il dislivello si misura **a 5 m dal ciglio** (la scala che il DEM sa vedere) e
+    dal ciglio, non dalla mezzeria: sul pendio traversale la mezzeria sta già un
+    metro più in alto, e misurando da lì la barriera compariva anche sui pendii
+    dolci (**170 km** invece di 66).
+  - **tratti continui** (`mergeRuns`): le interruzioni sotto 40 m si chiudono, i
+    tratti sotto 40 m si scartano. Senza, la regola accendeva e spegneva una
+    campata sì e una no.
+  - **`railStations`**: la campata è una trave dritta, quindi si accorcia anche
+    quando la corda si stacca dalla polilinea più di 0,35 m (sui tornanti la
+    campata da 24 m tagliava l'angolo e finiva **6 m fuori dall'asfalto**).
+  - **pali ogni 4 m** (prima uno per nodo OSM, cioè ogni 24 m) e quote prese dalla
+    superficie della strada punto per punto, non interpolate sulla corda.
+  - il tetto di campate taglia **tratti interi**, mai mezza barriera.
+- **`src/world/roads.ts`** — nuova `roadPolyline(road)`: la polilinea grafica
+  (ricampionata + angoli smussati + spline) in un posto solo, usata da
+  `buildRoads` **e** dai guardrail. `bridgeElevations` ora è esportata.
+- **`src/game.ts`** — tetto campate 4.200 (medium) / 7.000 (altri): la rete ne
+  chiede 3.749, e con il tetto vecchio di 1.800 il taglio cadeva su tratti interi.
+- **`tests/guardrails.test.ts`** (nuovo, 17 test): fusione dei tratti, soglia,
+  stazioni in curva, lato che scende, ponte, paese, e sui **dati veri** il
+  conteggio (km e campate) più la verifica che ogni campata stia sul bordo strada.
+
+### Perché non ho fatto scarpate, roccia e calanchi
+
+Il brief li chiedeva nella stessa fase. Prima di scrivere codice li ho misurati
+sul riquadro vero (`vitest` sui dati reali, sonde a 3/5/8 m e pendenza del DEM):
+
+- **scarpate**: il terreno ai lati della strada è quasi a filo — solo **1,2%**
+  della lunghezza ha un dislivello > 0,5 m, e la scarpata si raccorda al terreno
+  entro 0,4 m nel 99,99% dei casi. Non c'è niente da riempire.
+- **profilo longitudinale**: già levigato — |Δpendenza| mediana tra due stazioni
+  da 5 m è **0,64%** (≈3 cm), p90 2,16%; i saliscendi oltre 20 cm sono lo 0,22%.
+- **roccia sui pendii**: il riquadro non ha pendii ripidi — **87,6%** del terreno
+  sotto 15°, 11,2% fra 15° e 25°, 1,1% fra 25° e 35°, 0,1% oltre 35°, 0,0% oltre
+  45°. La soglia dello shader (60°) vale già su tutto ciò che esiste.
+
+### Verifiche
+
+- `npx tsc --noEmit` ✅
+- `npm test` **319/319** ✅ in 34 file
+- `npm run build` ✅
+- dati veri: **3.749 campate, 66,6 km** di barriera su 574 km di rete; tutte sul
+  bordo strada (scarto massimo 1,68 m oltre il ciglio)
+- banco `medium` su Radeon RX 580, A/B nella stessa finestra (stash dei soli file
+  toccati): strada 75,4 → **73,7** fps, crinale 66,3 → **63,5**, piazza 69,8 →
+  **68,2**; draw call invariate (209/288/169), triangoli +1,7%
+- scatti: `captures/guard-poses/run-0.png` e `run-1.png` (campagna, barriera a
+  lato strada), `captures/pose-check/small-0.png` (Palata)
+
+### Limiti onesti
+
+- Il criterio è «il terreno scende di ≥1 m entro 5 m»: la SS 157 della posa
+  `road` del banco (pendenza 2,5 m su 20 m) **non** lo supera, quindi quella
+  strada resta senza barriera. Se in gioco serve più fitta, si abbassa `DROP_MIN`
+  in `src/world/guardrails.ts` (una riga) e si rifà la misura.
+- 66,6 km sono barriere anche per il giocatore: `obstacles` registra i cerchi
+  `guardrail`, quindi sui pendii non si esce più di strada dove c'è la barriera.
+- Restano fuori: gallerie (6, ancora strade in superficie) e calanchi.

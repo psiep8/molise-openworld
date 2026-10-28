@@ -103,6 +103,53 @@ export function existingWheelHubs(source: THREE.Object3D): SplitWheelsResult | n
 }
 
 /**
+ * I quattro perni sono disposti come le ruote di un veicolo?
+ *
+ * L'analisi geometrica può trovare «quattro cerchi» che non sono le ruote
+ * (fari, specchietti, un dettaglio ripetuto): in quel caso creare i perni
+ * peggiora il modello, perché finiscono al centro della macchina o tutti dallo
+ * stesso lato e la carrozzeria ruota attorno al punto sbagliato (era il difetto
+ * di Punto, Novulari, BMW anni '30, Abarth, Punto GT, Revuelto e Cyberster).
+ * Prima di toccare la geometria si controlla che i perni stiano ai quattro
+ * angoli, con raggi confrontabili e dentro gli ingombri.
+ *
+ * `hubs` e `box` devono essere nello stesso spazio.
+ */
+export function wheelHubsPlausible(
+  hubs: readonly { x: number; z: number; radius: number }[],
+  box: THREE.Box3,
+): boolean {
+  if (hubs.length !== 4 || box.isEmpty()) return false;
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  // il modello può essere lungo su X (prima dello yaw) o su Z (dopo): si
+  // guarda quale delle due è l'asse lungo, non si assume Z
+  const alongX = size.x >= size.z;
+  const length = Math.max(alongX ? size.x : size.z, 0.01);
+  const width = Math.max(alongX ? size.z : size.x, 0.01);
+  const radii = hubs.map((hub) => hub.radius);
+  const maxRadius = Math.max(...radii);
+  const minRadius = Math.min(...radii);
+  // pneumatici di misure molto diverse non sono le quattro ruote dello stesso
+  // veicolo (l'Audi R8 2010 aveva l'anteriore al doppio del posteriore)
+  if (!(minRadius > 0) || maxRadius / minRadius > 1.75) return false;
+  // un «cerchio» grande quanto mezza carrozzeria è un passaruota, non una ruota
+  if (maxRadius < length * 0.025 || maxRadius > width * 0.9) return false;
+  const quadrants = new Set<string>();
+  for (const hub of hubs) {
+    const along = (alongX ? hub.x - center.x : hub.z - center.z);
+    const across = (alongX ? hub.z - center.z : hub.x - center.x);
+    // sull'asse longitudinale o laterale: non è una ruota
+    if (Math.abs(across) < width * 0.15 || Math.abs(across) > width * 0.75) return false;
+    // il perno deve stare dentro gli ingombri, davanti o dietro il centro
+    if (Math.abs(along) < length * 0.16 || Math.abs(along) > length * 0.42) return false;
+    quadrants.add(`${along > 0 ? 'f' : 'b'}${across > 0 ? 'r' : 'l'}`);
+  }
+  // una ruota per angolo: niente perni sovrapposti dallo stesso lato
+  return quadrants.size === 4;
+}
+
+/**
  * Separa le ruote dalla carrozzeria, modificando il modello: i nuovi perni si
  * chiamano `wheel-fl-hub`… così `Vehicle` li raccoglie con la stessa logica
  * delle ruote dichiarate a mano nell'editor.
@@ -192,10 +239,42 @@ export function splitCarWheels(source: THREE.Object3D, disposeOriginal = false):
     for (const corner of analysis.corners) cornersFound.add(corner.index);
     plan.push({ mesh, parent: mesh.parent as THREE.Object3D, analysis });
   }
-  // Le auto hanno quattro ruote; moto e tricicli sono stretti e si accontentano
-  // di due/tre. Meglio un modello intatto che un'auto senza due ruote.
-  const minimum = carSize.x < 1.3 ? 2 : 4;
-  if (cornersFound.size < minimum) return null;
+  // Servono le quattro ruote. Le moto e i tricicli che arrivano fin qui con le
+  // ruote fuse restano interi (ruote ferme) invece di rischiare una carrozzeria
+  // tagliata a metà: la separazione a due ruote resta possibile solo per i
+  // modelli che le dichiarano per nome, e quelli escono prima da qui.
+  // (Il vecchio criterio «carSize.x < 1,3 -> due ruote» scattava sempre: sul
+  // template normalizzato la larghezza è 0,45 per costruzione, quindi ogni auto
+  // passava di qui con la soglia delle due ruote.)
+  if (cornersFound.size < 4) return null;
+
+  // Controllo prima di modificare: quattro cerchi trovati al centro della
+  // carrozzeria sono un falso positivo e vanno lasciati dov'erano.
+  // I perni vivono nello spazio del modello, quindi il confronto si fa con la
+  // stessa conversione usata per crearli.
+  const localBox = new THREE.Box3();
+  const reference = new THREE.Vector3();
+  for (let i = 0; i < 8; i++) {
+    reference
+      .set(
+        i & 1 ? carBox.max.x : carBox.min.x,
+        i & 2 ? carBox.max.y : carBox.min.y,
+        i & 4 ? carBox.max.z : carBox.min.z,
+      )
+      .applyMatrix4(sourceInverse);
+    localBox.expandByPoint(reference);
+  }
+  const hubs = new Map<number, { x: number; z: number; radius: number }>();
+  for (const { analysis } of plan) {
+    for (const corner of analysis.corners) {
+      const center = corner.center.clone().applyMatrix4(sourceInverse);
+      const radius = corner.radius / Math.max(1e-6, sourceScale);
+      const existing = hubs.get(corner.index);
+      if (existing) existing.radius = Math.max(existing.radius, radius);
+      else hubs.set(corner.index, { x: center.x, z: center.z, radius });
+    }
+  }
+  if (!wheelHubsPlausible([...hubs.values()], localBox)) return null;
 
   let created = 0;
   let radiusSum = 0;
@@ -203,7 +282,6 @@ export function splitCarWheels(source: THREE.Object3D, disposeOriginal = false):
   for (const { mesh, parent, analysis } of plan) {
     const toSource = new THREE.Matrix4().multiplyMatrices(sourceInverse, mesh.matrixWorld);
     const normalMatrix = new THREE.Matrix3().getNormalMatrix(toSource);
-    const meshScale = scaleOf(toSource);
     const material = (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) as THREE.Material;
 
     // corpo: la stessa mesh con una geometria nuova senza le ruote
@@ -224,9 +302,14 @@ export function splitCarWheels(source: THREE.Object3D, disposeOriginal = false):
 
     for (const corner of analysis.corners) {
       const hubName = `${CORNER_NAMES[corner.index]}-hub`;
-      const radius = corner.radius * meshScale * sourceScale;
+      const radius = corner.radius / Math.max(1e-6, sourceScale);
       let hub = (source.getObjectByName(hubName) as THREE.Group | undefined) ?? null;
-      const center = corner.center.clone().applyMatrix4(toSource);
+      // `corner.center` è in coordinate mondo: per portarlo nello spazio del
+      // modello serve `sourceInverse`. Prima si applicava `toSource`, che è la
+      // trasformazione *della mesh*: il centro veniva moltiplicato per la scala
+      // del GLB e i quattro perni finivano ammassati al centro della macchina
+      // (era la causa delle «ruote che girano fuori dalla carrozzeria»).
+      const center = corner.center.clone().applyMatrix4(sourceInverse);
       if (!hub) {
         hub = new THREE.Group();
         hub.name = hubName;
@@ -259,7 +342,7 @@ export function splitCarWheels(source: THREE.Object3D, disposeOriginal = false):
     if (disposeOriginal && (usage.get(geometry) ?? 0) <= 1) geometry.dispose();
   }
 
-  if (created < minimum) return { wheels: created, radius: created > 0 ? radiusSum / created : 0 };
+  if (created < 4) return { wheels: created, radius: created > 0 ? radiusSum / created : 0 };
   return { wheels: created, radius: radiusSum / created };
 }
 

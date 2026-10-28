@@ -2352,8 +2352,11 @@ export class Game {
       this.guardrailsGroup = null;
     }
     if (!this.quality.guardrails) return;
+    // Le campate sono lunghe al massimo 24 m: la rete a valle delle strade di
+    // collina ne chiede circa 3.500, e il tetto taglia tratti interi (mai mezza
+    // barriera). Restano due draw call in ogni caso (pali e nastro, istanziati).
     const guardrails = buildGuardrails(this.osm, this.heights, this.ground, {
-      maxSpans: this.quality.level === 'medium' ? 1800 : 3000,
+      maxSpans: this.quality.level === 'medium' ? 4200 : 7000,
       obstacles: this.obstacles,
     });
     this.guardrailsGroup = guardrails.group;

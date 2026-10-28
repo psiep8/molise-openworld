@@ -602,8 +602,63 @@ Verifica di questa sessione:
 - banco `medium` su Radeon RX 580, dati nuovi: strada 71,0 fps, crinale 62,5 fps, piazza 67,0 fps; 209/288/169 draw call
 - controllo a schermo del ponte vicino a Palata: impalcato e guardrail presenti
 
+### 28 ottobre 2026 — Fase 2: i guardrail esistono davvero (misurato)
+
+| Voce | Stato | Note |
+| --- | --- | --- |
+| Criterio della scarpata | rifatto, misurato | il salto si misura **a 5 m dal ciglio** e dal ciglio, non a 1,2 m dalla mezzeria: il DEM a ~30 m a 1,2 m campiona la cella dell'asfalto e la regola non scattava mai (0 km su 307.912 lati) |
+| Tratti continui | fatto, testato | `mergeRuns`: fusione delle interruzioni ≤ 40 m, scarto dei tratti < 40 m (prima: 1.500 spezzoni da meno di un metro) |
+| Campate in curva | fatto, testato | `railStations`: campata ≤ 24 m, accorciata quando la corda si stacca dalla polilinea più di 0,35 m (sui tornanti tagliava l'angolo e finiva 6 m fuori strada) |
+| Palì e quote | fatto | pali ogni 4 m (prima uno per nodo OSM, ~24 m), quota presa dalla superficie della strada campata per campata |
+| Polilinea unica | fatto | `roadPolyline()` in `roads.ts`, usata da `buildRoads` e dai guardrail: la barriera segue l'asfalto che si vede, non i nodi OSM grezzi |
+| Tetto di campate | fatto | 4.200 (medium) / 7.000 (altri); il taglio cade su tratti interi, mai su mezza barriera |
+| Scarpate e banchine | **non fatte, misurate** | il terreno ai lati è quasi a filo: solo 1,2% della lunghezza ha un dislivello > 0,5 m; la scarpata si raccorda entro 0,4 m nel 99,99% dei casi. Non c'è niente da riempire |
+| Profilo longitudinale | **già a posto, misurato** | \|Δpendenza\| mediana fra due stazioni da 5 m: 0,64% (≈3 cm), p90 2,16%; saliscendi > 20 cm: 0,22% |
+| Roccia sui pendii (Fase 6) | **nulla da fare nel riquadro** | 87,6% del terreno sotto 15°, 11,2% fra 15° e 25°, 1,1% fra 25° e 35°, 0,1% oltre 35°: la soglia dello shader (60°) copre già tutto ciò che esiste |
+
+Misure di questa sessione: banco `medium` su RX 580 in A/B nella stessa finestra —
+strada 75,4 → 73,7 fps, crinale 66,3 → 63,5, piazza 69,8 → 68,2 (draw call
+invariate, triangoli +1,7%); `tsc --noEmit` ✅, `vitest run` **319/319** ✅,
+`vite build` ✅. Sui dati veri: **3.749 campate, 66,6 km** di barriera, tutte sul
+bordo strada. Scatti: `captures/guard-poses/run-0.png`, `run-1.png`.
+
 Note e limiti:
 
+- Il criterio è «il terreno scende di ≥ 1 m entro 5 m»: sotto quella soglia (per esempio la SS 157 della posa `road` del banco, 2,5 m su 20 m) non c'è barriera. La soglia è una riga (`DROP_MIN`) e la misura si rifà in un minuto.
+- La barriera è solida anche per il giocatore: sui pendii con guardrail non si esce di strada.
+- Le 6 gallerie restano strade in superficie (portale e foro nel terreno ancora da fare).
 - 43 ponti sono in gran parte piccoli attraversamenti; il viadotto SS 647 con 44 punti è il caso lungo da ricontrollare quando si passa vicino.
 - Le 6 gallerie sono per ora trattate come strade in superficie: manca ancora il foro/portale nel terreno, quindi la quota resta quella del DEM.
 - 81 way OSM escono dal bbox perché Overpass restituisce la geometria intera della way che interseca il riquadro; il terreno fuori bordo viene clampato.
+
+### 28 ottobre 2026 — le 30 auto di serie: orientamento, ruote, materiali
+
+Diagnosi fatta leggendo i GLB (gerarchia dei nodi, posizione dei fari, ingombri
+reali) e incrociata con il rilievo del proprietario («cammina al contrario»,
+«ruotata di 90 gradi», «ruote fuori dalla macchina», «tutta bianca»).
+
+| Voce | Stato | Note |
+| --- | --- | --- |
+| Auto ruotate di 90° | fatto | `bmw-m3-sedan` `-90`, `fiat-panda-4x4` `+90`, `fiat-uno-1994` `+90` nel manifest: i tre modelli hanno la lunghezza sull'asse X e con `yaw: 0` il gioco li scalava come auto larghe 4 m |
+| Auto che camminava all'indietro | fatto | `fiat-500-abarth` `180 → 0`: il muso dell'asset è a +Z, la rotazione lo girava |
+| Verso di rotolamento delle ruote | fatto | `vehicle.ts`: le ruote dei GLB giravano **all'indietro** (il segno era stato dedotto dalla carrozzeria procedurale, che a sua volta era invertita). Ora il contatto della ruota si muove all'indietro come chiede il rotolamento |
+| Perni delle ruote al centro della macchina | fatto (bug vero) | In `splitCarWheels` il centro della ruota veniva convertito con la matrice **della mesh** invece di `sourceInverse`: i quattro perni finivano moltiplicati per la scala del GLB, ammassati al centro. Era la causa di «tutta la macchina compreso le ruote ruota fuori» (Punto 2011, Novulari, BMW anni ’30, Abarth, Punto GT, Revuelto) |
+| Separazioni false accettate | fatto | `wheelHubsPlausible`: i perni devono stare ai quattro angoli, dentro gli ingombri e con raggi confrontabili. Serve sia a `splitCarWheels` sia a `geometricWheels`; se il controllo non passa **il modello resta intatto** (ruote ferme) invece di rompersi |
+| Ruote giganti (Audi R8 2010) / perni oltre il paraurti (Crafter) | fatto | I due modelli ora non vengono separati: ruote ferme ma al loro posto (prima l'anteriore dell'Audi era al doppio del posteriore) |
+| Nodi senza geometria (ossa) | fatto | `makeHub` salta i nodi degeneri (Yamaha) invece di creare un perno all'origine |
+| Fiat 500 2007 e Punto GT tutte bianche | fatto | `KHR_materials_pbrSpecularGlossiness` è deprecato e three lo ignora: quei due GLB hanno colore **e texture** solo lì. Nuovo plugin in `car-library.ts`: diffuso → colore+mappa, glossiness → rugosità |
+| Banco di prova senza browser | fatto | `scripts/analyze-car-yaw.mjs` (asse lungo e muso da fari/ruote/parabrezza) e `tests/car-models.test.ts` (pipeline vera su tutti i 30 GLB, si salta se i file non ci sono) |
+
+Verifiche di questa sessione:
+
+- `npx tsc --noEmit` ✅
+- `npm test` **302/302** ✅ in 33 file (i due test di `splitCarWheels` sono passati
+  anche con il nuovo controllo, dopo aver reso `wheelHubsPlausible` indipendente
+  dall'asse lungo)
+- `npm run build` ✅
+- `tests/car-models.test.ts`: 30/30 modelli con la lunghezza su Z e le ruote dentro
+  la carrozzeria; 26 modelli con 4 ruote (o 2 per moto/scooter), 4 con ruote ferme
+  (Punto 2011, BMW anni ’30, Crafter, Yamaha)
+- **Non verificato a schermo**: il verso delle ruote in movimento e l'aspetto dei
+  materiali recuperati dal plugin, che hanno bisogno di una guardata in gioco su
+  GPU vera. I valori qui sono misure sulla gerarchia dei GLB, non fotogrammi.

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { preciseBox, splitCarWheels } from '../entities/car-wheels';
+import { GLTFLoader, type GLTFParser } from 'three/addons/loaders/GLTFLoader.js';
+import { preciseBox, splitCarWheels, wheelHubsPlausible } from '../entities/car-wheels';
 
 /**
  * Auto di serie fornite come GLB (`public/cars/`).
@@ -207,9 +207,14 @@ function tameMaterials(root: THREE.Object3D, anisotropy: number): void {
  * è sempre l'asse trasversale dell'auto, qualunque rotazione abbiano i nodi del
  * GLB.
  */
-function makeHub(template: THREE.Group, node: THREE.Object3D, tag: string): THREE.Group {
+function makeHub(template: THREE.Group, node: THREE.Object3D, tag: string): THREE.Group | null {
   const box = preciseBox(node);
+  if (box.isEmpty()) return null;
   const size = box.getSize(new THREE.Vector3());
+  // Un nodo senza geometria (ossa di skinning, nodi vuoti) non ha un centro
+  // utile: un perno all'origine farebbe ruotare la ruota attorno al centro
+  // della macchina. In quel caso meglio lasciare la ruota ferma dov'è.
+  if (Math.max(size.x, size.y, size.z) < 1e-4) return null;
   const center = box.getCenter(new THREE.Vector3());
   const hub = new THREE.Group();
   hub.name = `wheel-${tag}-hub`;
@@ -334,25 +339,35 @@ function geometricWheels(template: THREE.Group, box: THREE.Box3): number {
   }
   if (clusters.some((cluster) => cluster.items.length === 0)) return 0;
 
-  let wheels = 0;
+  // Prima si misura, poi si modifica: se i quattro gruppi non stanno agli
+  // angoli con raggi confrontabili non sono ruote e il modello resta intatto
+  // (ruote ferme invece che ruote giganti fuori dalla carrozzeria).
+  const unions: THREE.Box3[] = [];
+  const hubs: { x: number; z: number; radius: number }[] = [];
+  for (const cluster of clusters) {
+    const union = new THREE.Box3();
+    for (const mesh of cluster.items) union.union(preciseBox(mesh));
+    if (union.isEmpty()) return 0;
+    unions.push(union);
+    const center = union.getCenter(new THREE.Vector3());
+    const unionSize = union.getSize(new THREE.Vector3());
+    hubs.push({ x: center.x, z: center.z, radius: Math.max(unionSize.x, unionSize.y, unionSize.z) / 2 });
+  }
+  if (!wheelHubsPlausible(hubs, box)) return 0;
+
   for (let i = 0; i < clusters.length; i++) {
     const items = clusters[i].items;
-    const union = new THREE.Box3();
-    for (const mesh of items) union.union(preciseBox(mesh));
-    if (union.isEmpty()) continue;
-    const center = union.getCenter(new THREE.Vector3());
+    const center = unions[i].getCenter(new THREE.Vector3());
     const hub = new THREE.Group();
     hub.name = `wheel-${['fl', 'fr', 'rl', 'rr'][i]}-hub`;
     hub.position.copy(center);
     hub.rotation.order = 'YXZ';
-    const unionSize = union.getSize(new THREE.Vector3());
-    hub.userData.wheelRadius = Math.max(unionSize.x, unionSize.y, unionSize.z) / 2;
+    hub.userData.wheelRadius = hubs[i].radius;
     template.add(hub);
     hub.updateMatrixWorld(true);
     for (const mesh of items) hub.attach(mesh);
-    wheels++;
   }
-  return wheels;
+  return clusters.length;
 }
 
 /** Porta un GLB grezzo al formato interno. */
@@ -387,6 +402,52 @@ function normalize(root: THREE.Object3D, entry: CarManifestEntry): THREE.Group {
   return template;
 }
 
+/**
+ * `KHR_materials_pbrSpecularGlossiness` è deprecato e three non lo legge più.
+ *
+ * I modelli che lo usano (Fiat 500 del 2007, Punto GT del 1995) hanno colore e
+ * texture **solo** in quell'estensione, quindi il caricatore creava materiali
+ * bianchi: le auto uscivano dal foglio. Qui la parte diffusa viene portata
+ * nello standard e la glossiness diventa rugosità (1 - gloss).
+ */
+class SpecularGlossinessPlugin {
+  readonly name = 'KHR_materials_pbrSpecularGlossiness';
+
+  constructor(private readonly parser: GLTFParser) {}
+
+  getMaterialType(materialIndex: number): typeof THREE.MeshStandardMaterial | null {
+    const material = this.parser.json.materials?.[materialIndex];
+    return material?.extensions?.[this.name] ? THREE.MeshStandardMaterial : null;
+  }
+
+  async extendMaterialParams(
+    materialIndex: number,
+    materialParams: Record<string, unknown>,
+  ): Promise<void> {
+    const material = this.parser.json.materials?.[materialIndex];
+    const extension = material?.extensions?.[this.name];
+    if (!extension) return;
+
+    const diffuse = extension.diffuseFactor as number[] | undefined;
+    if (Array.isArray(diffuse)) {
+      materialParams.color = new THREE.Color().fromArray(diffuse);
+      if (typeof diffuse[3] === 'number') materialParams.opacity = diffuse[3];
+    }
+    materialParams.metalness = 0;
+    const glossiness = extension.glossinessFactor as number | undefined;
+    materialParams.roughness = typeof glossiness === 'number' ? 1 - Math.min(1, Math.max(0, glossiness)) : 1;
+
+    if (extension.diffuseTexture) {
+      await this.parser.assignTexture(
+        materialParams,
+        'map',
+        extension.diffuseTexture as { index: number },
+        THREE.SRGBColorSpace,
+      );
+    }
+  }
+}
+
 export class CarLibrary {
   private readonly entries = new Map<string, CarManifestEntry>();
   private readonly pending = new Map<string, Promise<CarAsset | null>>();
@@ -400,6 +461,7 @@ export class CarLibrary {
   ) {
     const draco = new DRACOLoader().setDecoderPath(dracoUrl);
     this.loader = new GLTFLoader().setDRACOLoader(draco);
+    this.loader.register((parser) => new SpecularGlossinessPlugin(parser));
   }
 
   async loadManifest(): Promise<number> {
@@ -458,8 +520,9 @@ export class CarLibrary {
     if (declared.length >= 4 || twoWheeler) {
       for (const { node, tag } of declared) {
         detachBrakeParts(node, template);
-        makeHub(template, node, tag);
-        wheels++;
+        // un nodo senza geometria viene saltato: la ruota resta ferma invece di
+        // girare attorno al centro della macchina
+        if (makeHub(template, node, tag)) wheels++;
       }
     } else if (declared.length === 0) {
       wheels = geometricWheels(template, box);

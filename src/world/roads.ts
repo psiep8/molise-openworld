@@ -281,7 +281,7 @@ function pushRibbon(
  * interpola sulla lunghezza della linea grafica. Il nastro e `groundAt`
  * leggono la stessa campata, quindi la ruota non affonda né resta a mezz'aria.
  */
-function bridgeElevations(road: Road, pts: Pt[]): number[] | null {
+export function bridgeElevations(road: Road, pts: Pt[]): number[] | null {
   const e = road.elevations;
   if (!e || e.length < 2) return null;
   let total = 0;
@@ -820,6 +820,22 @@ roughnessFactor = clamp(roughnessFactor + 0.12 * paintNoise(vPaintWorld.xz * 1.9
  * bianco (variazione per strada), perché il colore dell'asfalto arriva dalla
  * texture e non va moltiplicato una seconda volta.
  */
+/**
+ * La polilinea grafica di una strada: ricampionata, con gli angoli smussati e
+ * passata per la spline centripeta.
+ *
+ * È la strada che si vede. Tutto ciò che deve appoggiarsi all'asfalto — cordoli,
+ * marciapiedi e guardrail — deve usare questa, non i nodi OSM grezzi: su una
+ * provinciale con un nodo ogni 800 m il nastro segue una curva, mentre i nodi
+ * grezzi tirano una corda che se ne stacca anche di 18 m.
+ */
+export function roadPolyline(road: Road): Pt[] {
+  return splineThrough(
+    roundCorners(resample(road.points, road.paved ? 7 : 6), road.paved ? 24 : 30),
+    road.paved ? 5 : 6,
+  );
+}
+
 export function buildRoads(
   osm: OsmData,
   heights: Heightfield,
@@ -858,14 +874,9 @@ export function buildRoads(
   const lamps: { x: number; z: number; yaw: number }[] = [];
 
   osm.roads.forEach((road, idx) => {
-    // angoli smussati, poi due passate di media pesata: senza lo smussamento
-    // vero l'asfalto resta una spezzata con cuspidi a ogni vertice OSM
-    // angoli secchi smussati, poi spline centripeta: l'asfalto passa per i
-    // nodi OSM ma senza le cuspidi che facevano "scattare" il volante
-    const pts = splineThrough(
-      roundCorners(resample(road.points, road.paved ? 7 : 6), road.paved ? 24 : 30),
-      road.paved ? 5 : 6,
-    );
+    // angoli smussati, poi spline centripeta: l'asfalto passa per i nodi OSM
+    // ma senza le cuspidi che facevano "scattare" il volante
+    const pts = roadPolyline(road);
     const isDirt = !road.paved;
     const target = isDirt ? dirt : asphalt;
     const base = isDirt ? dirtColor : asphaltColor;

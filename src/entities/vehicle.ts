@@ -1315,15 +1315,20 @@ export class Vehicle {
     // ha pneumatici più grandi o più piccoli dello spec, il rotolamento deve
     // comunque combaciare col terreno (altrimenti la ruota "striscia")
     this.wheelSpin += (next.speed / (this.externalWheelRadius ?? spec.wheelRadius)) * dt;
-    for (const wheel of this.wheels) wheel.rotation.x = this.wheelSpin;
-    // GLB importati: il muso è stato ruotato di 180°, quindi il verso di
-    // rotazione delle ruote è opposto a quello dei modelli procedurali.
-    // Ogni ruota accumula il proprio angolo col proprio raggio: un asse
-    // posteriore più grande non può girare come l'anteriore.
+    // La carrozzeria procedurale ha il muso a -Z e avanza verso -Z: il contatto
+    // della ruota deve muoversi all'indietro, cioè verso +Z, e per la regola
+    // del rotolamento questo chiede una rotazione **negativa** attorno all'asse
+    // trasversale (il punto più alto della ruota va nel verso di marcia).
+    for (const wheel of this.wheels) wheel.rotation.x = -this.wheelSpin;
+    // GLB: il muso dell'asset è a +Z e il pivot lo gira di 180°, quindi l'auto
+    // avanza verso il +Z **del modello**: qui il verso è positivo. Il segno
+    // opposto (usato prima) faceva girare all'indietro le ruote di tutte le
+    // auto di serie. Ogni ruota accumula il proprio angolo col proprio raggio:
+    // un asse posteriore più grande non può girare come l'anteriore.
     for (const wheel of this.externalWheels) {
       if (wheel.front) wheel.node.rotation.y = steerAngle;
       wheel.spin += (next.speed / wheel.radius) * dt;
-      wheel.node.rotation.x = -wheel.spin;
+      wheel.node.rotation.x = wheel.spin;
     }
 
     // fanalini: si accendono in frenata e diventano bianchi in retromarcia

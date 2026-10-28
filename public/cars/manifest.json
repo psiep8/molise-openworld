@@ -62,7 +62,7 @@
       "slug": "bmw-m3-sedan",
       "file": "bmw_m3_sedan_topaz_blue_car.glb",
       "name": "BMW M3 Sedan topaz blue car",
-      "yaw": 0,
+      "yaw": -90,
       "length": 4.77
     },
     {
@@ -111,7 +111,7 @@
       "slug": "fiat-500-abarth",
       "file": "fiat_500_abarth.glb",
       "name": "Fiat 500 Abarth",
-      "yaw": 180,
+      "yaw": 0,
       "length": 3.66
     },
     {
@@ -125,14 +125,14 @@
       "slug": "fiat-panda-4x4",
       "file": "fiat_panda_4x4.glb",
       "name": "FIAT Panda 4x4",
-      "yaw": 0,
+      "yaw": 90,
       "length": 3.65
     },
     {
       "slug": "fiat-uno-1994",
       "file": "fiat_uno_1994.glb",
       "name": "Fiat Uno 1994",
-      "yaw": 0,
+      "yaw": 90,
       "length": 3.69
     },
     {
