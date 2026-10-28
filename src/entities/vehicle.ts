@@ -47,6 +47,8 @@ interface ExternalWheel {
   spin: number;
 }
 
+const WHEEL_SPRAY_COUNT = 128;
+
 /**
  * Riconosce i nomi delle ruote esportati dai vari editor: `wheel-fl`,
  * `Wheel_FR`, `wheel_rl.001` (Blender duplica col suffisso) e anche
@@ -158,6 +160,11 @@ export class Vehicle {
   private readonly lensMaterials: { material: THREE.MeshStandardMaterial; base: number }[] = [];
   /** solo le lenti posteriori: si accendono anche di giorno in frenata */
   private readonly rearLenses: { material: THREE.MeshStandardMaterial; base: number }[] = [];
+  private readonly sprayPositions = new Float32Array(WHEEL_SPRAY_COUNT * 3);
+  private readonly sprayLives = new Float32Array(WHEEL_SPRAY_COUNT);
+  private readonly sprayVelocities = new Float32Array(WHEEL_SPRAY_COUNT * 3);
+  private readonly sprayMesh: THREE.Points;
+  private sprayClock = 0;
   /** frecce: due materiali ambra, uno per lato */
   private readonly indicatorMats = {
     left: new THREE.MeshStandardMaterial({ color: 0x3a2a12, emissive: 0xff9a1e, emissiveIntensity: 0, roughness: 0.45 }),
@@ -212,6 +219,55 @@ export class Vehicle {
     this.group.add(this.bodyGroup);
     this.spec = spec;
     this.build();
+    this.sprayMesh = this.createWheelSpray();
+    this.group.add(this.sprayMesh);
+  }
+
+  private createWheelSpray(): THREE.Points {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(this.sprayPositions, 3));
+    geometry.setAttribute('aLife', new THREE.BufferAttribute(this.sprayLives, 1));
+    const sizes = Float32Array.from(
+      { length: WHEEL_SPRAY_COUNT },
+      (_, i) => 2.2 + ((i * 37) % 17) / 10,
+    );
+    geometry.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
+    const material = new THREE.ShaderMaterial({
+      uniforms: {
+        uOpacity: { value: 0 },
+        uColor: { value: new THREE.Color(0xc8d7dc) },
+      },
+      vertexShader: `
+        attribute float aLife;
+        attribute float aSize;
+        varying float vLife;
+        void main() {
+          vLife = aLife;
+          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+          gl_PointSize = aSize * (240.0 / max(1.0, -mvPosition.z));
+          gl_Position = projectionMatrix * mvPosition;
+        }
+      `,
+      fragmentShader: `
+        uniform float uOpacity;
+        uniform vec3 uColor;
+        varying float vLife;
+        void main() {
+          float radius = length(gl_PointCoord - vec2(0.5));
+          float softEdge = 1.0 - smoothstep(0.12, 0.5, radius);
+          float alpha = softEdge * vLife * uOpacity;
+          if (alpha < 0.01) discard;
+          gl_FragColor = vec4(uColor, alpha);
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      depthTest: true,
+    });
+    const mesh = new THREE.Points(geometry, material);
+    mesh.name = 'rear-wheel-spray';
+    mesh.frustumCulled = false;
+    return mesh;
   }
 
   /** Il kit si carica in parallelo alla mappa: arriva dopo il primo build. */
@@ -1198,6 +1254,10 @@ export class Vehicle {
     this.leanPitch = 0;
     this.leanRoll = 0;
     this.indicator = 'off';
+    this.sprayLives.fill(0);
+    this.sprayPositions.fill(0);
+    this.sprayMesh.geometry.getAttribute('position').needsUpdate = true;
+    this.sprayMesh.geometry.getAttribute('aLife').needsUpdate = true;
     for (const lamp of this.indicatorLamps) lamp.visible = false;
     this.indicatorMats.left.emissiveIntensity = 0;
     this.indicatorMats.right.emissiveIntensity = 0;
@@ -1209,6 +1269,8 @@ export class Vehicle {
     ground: GroundSampler,
     buildings: BuildingIndex,
     obstacles?: ObstacleIndex,
+    gripScale = 1,
+    sprayIntensity = 0,
   ): void {
     const spec = this.spec;
     const halfTrack = spec.track / 2;
@@ -1221,7 +1283,7 @@ export class Vehicle {
     const next = stepCar(
       this.state,
       input,
-      { onRoad, groundHeight: (x, z) => ground.heightAt(x, z) },
+      { onRoad, groundHeight: (x, z) => ground.heightAt(x, z), gripScale },
       dt,
       tuningFor(spec),
     );
@@ -1299,6 +1361,7 @@ export class Vehicle {
 
     this.group.position.set(next.x, groundY + this.surfaceLift + this.bump, next.z);
     this.group.rotation.set(this.tiltPitch + this.leanPitch, next.yaw, this.tiltRoll + this.leanRoll);
+    this.updateWheelSpray(dt, sprayIntensity, Math.abs(next.speed));
 
     // le ruote anteriori girano dello stesso angolo calcolato dalla fisica:
     // prima la grafica usava il lock massimo e a 100 km/h le gomme restavano
@@ -1342,6 +1405,46 @@ export class Vehicle {
     if (this.indicator !== 'off') {
       this.indicatorMats[this.indicator].emissiveIntensity = blinkOn(this.lampClock) ? 3.4 : 0.08;
     }
+  }
+
+  private updateWheelSpray(dt: number, intensity: number, speed: number): void {
+    this.sprayClock += dt;
+    const material = this.sprayMesh.material as THREE.ShaderMaterial;
+    const emission = clamp(intensity, 0, 1) * clamp((speed - 4) / 14, 0, 1);
+    material.uniforms.uOpacity.value = emission * 0.58;
+    const positionAttribute = this.sprayMesh.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const lifeAttribute = this.sprayMesh.geometry.getAttribute('aLife') as THREE.BufferAttribute;
+    const step = Math.min(dt, 0.05);
+    const emissionChance = Math.min(1, emission * 1.3 * step);
+
+    for (let i = 0; i < WHEEL_SPRAY_COUNT; i++) {
+      this.sprayLives[i] = Math.max(0, this.sprayLives[i]! - step);
+      const offset = i * 3;
+      if (this.sprayLives[i] === 0 && emissionChance > 0) {
+        const seed = Math.imul(i + 1, 0x9e3779b1) ^ Math.floor(this.sprayClock * 30);
+        const random = ((Math.imul(seed ^ (seed >>> 16), 0x85ebca6b) >>> 0) % 10_000) / 10_000;
+        if (random < emissionChance) {
+          const side = i % 2 === 0 ? -1 : 1;
+          this.sprayPositions[offset] = side * (this.spec.track * 0.5 + 0.04) + (random - 0.5) * 0.18;
+          this.sprayPositions[offset + 1] = 0.08 + random * 0.12;
+          this.sprayPositions[offset + 2] = this.spec.wheelbase * 0.48;
+          this.sprayVelocities[offset] = (random - 0.5) * 1.4;
+          this.sprayVelocities[offset + 1] = 0.35 + random * 0.8;
+          this.sprayVelocities[offset + 2] = 2.2 + speed * 0.28;
+          this.sprayLives[i] = 0.34 + random * 0.36;
+        }
+      } else {
+        this.sprayPositions[offset] += this.sprayVelocities[offset]! * step;
+        this.sprayPositions[offset + 1] += this.sprayVelocities[offset + 1]! * step;
+        this.sprayPositions[offset + 2] += this.sprayVelocities[offset + 2]! * step;
+        this.sprayVelocities[offset + 1] -= 1.4 * step;
+      }
+      lifeAttribute.setX(i, this.sprayLives[i]! > 0 ? this.sprayLives[i]! / 0.7 : 0);
+    }
+
+    positionAttribute.needsUpdate = true;
+    lifeAttribute.needsUpdate = true;
+    this.sprayMesh.visible = emission > 0.02;
   }
 
   /** Seleziona un modello per id (usato dal garage). */

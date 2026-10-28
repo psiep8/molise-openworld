@@ -256,6 +256,12 @@ ${areaLines}
 out geom;
 (
   node["place"~"^(village|town|hamlet|locality)$"](${bb});
+  node["highway"~"^(stop|give_way)$"](${bb});
+  node["traffic_sign"](${bb});
+  node["traffic_sign:forward"](${bb});
+  node["traffic_sign:backward"](${bb});
+  node["highway"="street_lamp"](${bb});
+  node["highway"="crossing"](${bb});
 );
 out;`;
 }
@@ -402,6 +408,23 @@ function parseLanes(value) {
   return n >= 1 && n <= 8 ? n : undefined;
 }
 
+function parseRoadSign(tags) {
+  const values = [tags.traffic_sign, tags['traffic_sign:forward'], tags['traffic_sign:backward']]
+    .filter(Boolean)
+    .flatMap((value) => String(value).split(/[;,]/))
+    .map((value) => value.trim());
+  for (const value of values) {
+    if (/^(?:IT:)?(?:stop|STOP)$/i.test(value)) return { k: 'stop' };
+    if (/^(?:IT:)?(?:give_way|giveway|yield)$/i.test(value)) return { k: 'yield' };
+    const speed = /^(?:IT:)?(?:maxspeed:)?(\d{1,3})$/i.exec(value);
+    if (speed) {
+      const limit = Number.parseInt(speed[1], 10);
+      if (limit >= 10 && limit <= 150) return { k: 'speed', s: limit };
+    }
+  }
+  return null;
+}
+
 function relationOuters(el) {
   const outers = [];
   for (const m of el.members ?? []) {
@@ -414,6 +437,10 @@ function relationOuters(el) {
 
 function processOsm(json) {
   const places = [];
+  const signs = [];
+  const controls = [];
+  const crossings = [];
+  const streetLamps = [];
   const roads = [];
   const buildings = [];
   const areas = [];
@@ -425,6 +452,27 @@ function processOsm(json) {
     const tags = el.tags ?? {};
     if (el.type === 'node' && tags.place) {
       places.push({ n: tags.name ?? '', k: tags.place, lat: round6(el.lat), lon: round6(el.lon) });
+    }
+    if (el.type === 'node') {
+      if (tags.highway === 'stop' || tags.highway === 'give_way') {
+        controls.push({ k: tags.highway === 'stop' ? 'stop' : 'yield', lat: round6(el.lat), lon: round6(el.lon) });
+      }
+      if (tags.highway === 'crossing' && /^(?:zebra|marked|uncontrolled|traffic_signals)$/.test(tags.crossing ?? '')) {
+        crossings.push({ lat: round6(el.lat), lon: round6(el.lon) });
+      }
+      const sign = tags.highway === 'stop' || tags.highway === 'give_way' ? null : parseRoadSign(tags);
+      if (sign) {
+        const direction = tagNumber(tags.direction);
+        signs.push({
+          ...sign,
+          lat: round6(el.lat),
+          lon: round6(el.lon),
+          ...(direction !== undefined && direction >= 0 && direction < 360 ? { d: direction } : {}),
+        });
+      }
+      if (tags.highway === 'street_lamp') {
+        streetLamps.push({ lat: round6(el.lat), lon: round6(el.lon) });
+      }
       continue;
     }
     if (tags.highway) {
@@ -490,6 +538,10 @@ function processOsm(json) {
   const usefulPlaces = places.filter((p) => p.k !== 'locality' || p.n);
   const stats = {
     places: usefulPlaces.length,
+    roadSigns: signs.length,
+    roadControls: controls.length,
+    roadCrossings: crossings.length,
+    streetLamps: streetLamps.length,
     roads: roads.length,
     roadPoints: roads.reduce((s, r) => s + r.c.length, 0),
     bridgedRoads,
@@ -509,6 +561,10 @@ function processOsm(json) {
     attribution: '© OpenStreetMap contributors (ODbL 1.0) — https://www.openstreetmap.org/copyright',
     stats,
     places: usefulPlaces,
+    signs,
+    controls,
+    crossings,
+    streetLamps,
     roads,
     buildings,
     areas,

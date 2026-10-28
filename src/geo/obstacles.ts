@@ -37,11 +37,16 @@ export class ObstacleIndex {
 
   /** Rimuove tutti gli ostacoli di una sorgente (es. guardrail spento). */
   removeTag(tag: string): void {
+    this.replaceTag(tag, []);
+  }
+
+  /** Sostituisce un insieme dinamico di ostacoli mantenendo gli altri intatti. */
+  replaceTag(tag: string, replacements: readonly Omit<Obstacle, 'tag'>[]): void {
     const kept = this.all.filter((o) => o.tag !== tag);
-    if (kept.length === this.all.length) return;
     this.all.length = 0;
     this.grid.clear();
     for (const o of kept) this.add(o.x, o.z, o.radius, o.tag);
+    for (const obstacle of replacements) this.add(obstacle.x, obstacle.z, obstacle.radius, tag);
   }
 
   get count(): number {

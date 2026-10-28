@@ -149,6 +149,17 @@ export class ScatterGenerator {
     return instances;
   }
 
+  movementFactorAt(x: number, z: number): number {
+    const cover = this.coverAt(x, z);
+    const canopyHeight = this.canopyHeightAt(x, z);
+    if (cover === 'wood') return canopyHeight !== null && canopyHeight < 2 ? 0.9 : 0.68;
+    if (cover === 'scrub') return 0.58;
+    if (cover === 'orchard') return 0.78;
+    if (cover === 'crop') return 0.82;
+    if (canopyHeight !== null && canopyHeight >= 2) return 0.74;
+    return 0.9;
+  }
+
   private indexAreas(areas: readonly Area[]): void {
     for (const area of areas) {
       if (!areaCover(area.kind)) continue;

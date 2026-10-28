@@ -73,6 +73,17 @@ describe('groundAt condivisa', () => {
     expect(sample.lift).toBeGreaterThan(BRIDGE_CLEARANCE);
   });
 
+  it('un tunnel taggato mantiene una quota continua e distinta dal DEM interno', () => {
+    const heights = flatHeights(100);
+    const tunnel = road({ tunnel: true, points: [{ x: -60, z: 0 }, { x: 60, z: 0 }] });
+    prepareRoadElevations([tunnel], heights);
+    expect(tunnel.elevations).toHaveLength(2);
+    const ground = new WorldGround(heights, new RoadIndex([tunnel], heights));
+    const sample = ground.sampleAt(0, 0);
+    expect(sample.kind).toBe('tunnel');
+    expect(sample.y).toBeCloseTo(100 + ROAD_LIFT, 4);
+  });
+
   it('fuori strada torna il terreno, senza offset fantasma', () => {
     const heights = flatHeights();
     const asphalt = road();

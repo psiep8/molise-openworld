@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { FAR_TOWNS, GAME, HOME, START, VIEW_RADIUS, VILLAGES, latLonToWorld, worldToLatLon } from './config';
-import { clamp, distance2, smoothstep, type Pt } from './geo/geo';
+import { clamp, distance2, pointInPolygon, smoothstep, type Pt } from './geo/geo';
 import { loadCanopy, type CanopyField } from './geo/canopy';
 import { loadHeightfield, type Heightfield } from './geo/elevation';
 import { WorldGround } from './geo/ground';
@@ -10,6 +10,7 @@ import {
   markTownSidewalks,
   prepareRoadElevations,
   RoadIndex,
+  widenUnmappedRuralRoads,
   type OsmData,
 } from './geo/osm';
 import { ObstacleIndex } from './geo/obstacles';
@@ -23,7 +24,7 @@ import { buildDryStoneWalls } from './world/dry-stone';
 import { buildFieldBoundaries, loadParcels, type Parcels } from './world/field-boundaries';
 import { buildPowerLines } from './world/power-lines';
 import { buildGuardrails } from './world/guardrails';
-import { buildRoads, buildWater, extendBoundaryRoads } from './world/roads';
+import { buildRoads, buildWater, extendBoundaryRoads, roadPolyline } from './world/roads';
 import {
   StreetLights,
   buildRoadDrainage,
@@ -477,6 +478,10 @@ export class Game {
   private lastEnvironment: THREE.Texture | null = null;
   private roadsGroup?: THREE.Group;
   private lastWetness = -1;
+  private roadWetness = 0;
+  private snowPack = 0;
+  private surfaceGripScale = 1;
+  private wheelSprayIntensity = 0;
   private realWeatherEnabled = false;
   private settingsVisible = false;
   private manualTime = false;
@@ -637,10 +642,11 @@ export class Game {
       // prima di costruire l'indice stradale: decide dove esistono davvero
       // marciapiedi, e la fisica deve leggere la stessa verità della grafica
       markTownSidewalks(osm.roads, this.buildingIndex);
+      widenUnmappedRuralRoads(osm.roads);
       // ponti e gallerie prima dell'indice: grafica e fisica devono leggere
       // la stessa quota, altrimenti l'auto passa sotto il ponte che si vede
       prepareRoadElevations(osm.roads, heights);
-      this.roadIndex = new RoadIndex(osm.roads, heights);
+      this.roadIndex = new RoadIndex(osm.roads, heights, roadPolyline);
       this.ground = new WorldGround(heights, this.roadIndex);
       this.roadGraph = buildRoadGraph(osm.roads);
       this.ensureHome();
@@ -727,6 +733,7 @@ export class Game {
         shrubs: this.quality.shrubs,
         shadows: this.quality.level === 'high' || this.quality.level === 'ultra',
         canopy: this.canopy,
+        obstacles: this.obstacles,
       });
       this.scene.add(this.vegetation.group);
       // alberi di strada e auto in sosta del kit: solo dentro il paese e con un
@@ -807,6 +814,7 @@ export class Game {
         this.renderer,
         this.quality.maxSatelliteZoom,
         this.landcover,
+        osm.roads.filter((road) => road.tunnel && !road.bridge),
       );
       this.scene.add(this.terrain.group);
       // cintura di montagne oltre il DEM: una mesh, una draw call, nessuna texture
@@ -2278,7 +2286,18 @@ export class Game {
     const night = 1 - smoothstep(-3, 10, sun.elevation);
     this.nightFactor = night;
     this.car.setLights(night);
-    this.applyWetness(Math.max(rain, snow * 0.5));
+    const targetWetness = rain > 0 ? clamp(0.3 + w.precipitation / 24, 0.3, 0.85) : 0;
+    const wetRate = targetWetness > this.roadWetness ? 0.28 : 0.0018;
+    this.roadWetness += (targetWetness - this.roadWetness) * (1 - Math.exp(-wetRate * dt));
+    const targetSnow = snowing ? clamp(0.28 + w.snowfall * 0.22, 0.35, 0.9) : 0;
+    const snowRate = targetSnow > this.snowPack ? 0.08 : w.temperature > 1 ? 0.003 : 0.0004;
+    this.snowPack += (targetSnow - this.snowPack) * (1 - Math.exp(-snowRate * dt));
+    const wetGrip = 1 - this.roadWetness * 0.42;
+    const snowGrip = 1 - this.snowPack * 0.78;
+    const blackIce = w.temperature < 0 && this.roadWetness > 0.28 ? 0.72 : 1;
+    this.surfaceGripScale = clamp(wetGrip * snowGrip * blackIce, 0.16, 1);
+    this.wheelSprayIntensity = rain;
+    this.applyWetness(Math.max(this.roadWetness, this.snowPack * 0.5));
   }
 
   // -------------------------------------------------------------------------
@@ -2359,6 +2378,7 @@ export class Game {
         shrubs,
         shadows,
         canopy: this.canopy,
+        obstacles: this.obstacles,
       });
       if (generation !== this.vegetationGeneration) {
         vegetation.dispose();
@@ -3255,7 +3275,11 @@ export class Game {
 
     this.car.setRiderVisible(this.mode === 'drive');
     if (this.mode === 'walk') {
-      this.player.update(dt, move, this.ground, this.buildingIndex, this.obstacles);
+      const onRoad = this.ground.sampleAt(this.player.position.x, this.player.position.z).onRoad;
+      const vegetationFactor = onRoad
+        ? 1
+        : this.vegetation?.movementFactorAt(this.player.position.x, this.player.position.z) ?? 0.9;
+      this.player.update(dt, move, this.ground, this.buildingIndex, this.obstacles, vegetationFactor);
       this.updateWalkCamera(dt);
     } else {
       // lo stesso input serve alla fisica e al suono: così il motore risponde
@@ -3267,6 +3291,8 @@ export class Game {
         this.ground,
         this.buildingIndex,
         this.obstacles,
+        this.surfaceGripScale,
+        this.wheelSprayIntensity,
       );
       this.updateDriveCamera(dt);
     }
@@ -3435,7 +3461,9 @@ export class Game {
     const target = this.tmp2.set(this.player.position.x, this.player.position.y + 1.45, this.player.position.z);
     const desired = this.tmp3.copy(target).addScaledVector(dir, -4.4);
     desired.y = Math.max(desired.y, this.ground.heightAt(desired.x, desired.z) + 0.75);
+    this.constrainCameraToBuildings(target, desired);
     this.camera.position.lerp(desired, 1 - Math.exp(-14 * dt));
+    this.constrainCameraToBuildings(target, this.camera.position);
     this.camera.lookAt(target);
   }
 
@@ -3486,13 +3514,48 @@ export class Game {
       car.z + Math.cos(yaw) * dist,
     );
     desired.y = Math.max(desired.y, this.ground.heightAt(desired.x, desired.z) + 1.1);
+    const ahead = high ? 6 : 3.2;
+    const target = this.tmp2.set(
+      car.x + fx * ahead,
+      this.car.position.y + 1.2,
+      car.z + fz * ahead,
+    );
+    this.constrainCameraToBuildings(target, desired);
     if (snap) this.camera.position.copy(desired);
     else this.camera.position.lerp(desired, blend);
+    this.constrainCameraToBuildings(target, this.camera.position);
 
-    const ahead = high ? 6 : 3.2;
-    this.camera.lookAt(
-      this.tmp2.set(car.x + fx * ahead, this.car.position.y + 1.2, car.z + fz * ahead),
-    );
+    this.camera.lookAt(target);
+  }
+
+  private constrainCameraToBuildings(target: THREE.Vector3, position: THREE.Vector3): void {
+    const dx = position.x - target.x;
+    const dy = position.y - target.y;
+    const dz = position.z - target.z;
+    const distance = Math.hypot(dx, dy, dz);
+    if (distance < 1) return;
+    const samples = Math.ceil(distance / 0.75);
+
+    for (let i = 1; i <= samples; i++) {
+      const t = i / samples;
+      const x = target.x + dx * t;
+      const y = target.y + dy * t;
+      const z = target.z + dz * t;
+      for (const building of this.buildingIndex.near(x, z)) {
+        if (
+          x < building.bounds.minX ||
+          x > building.bounds.maxX ||
+          z < building.bounds.minZ ||
+          z > building.bounds.maxZ ||
+          !pointInPolygon(x, z, building.points)
+        ) continue;
+        const roof = this.ground.heightAt(x, z) + building.height;
+        if (y >= roof) continue;
+        const safeT = Math.max(0, t - 0.9 / distance);
+        position.set(target.x + dx * safeT, target.y + dy * safeT, target.z + dz * safeT);
+        return;
+      }
+    }
   }
 
   private snapWalkCamera(): void {
@@ -3506,7 +3569,9 @@ export class Game {
     const target = this.tmp2.set(this.player.position.x, this.player.position.y + 1.45, this.player.position.z);
     const desired = this.tmp3.copy(target).addScaledVector(dir, -4.4);
     desired.y = Math.max(desired.y, this.ground.heightAt(desired.x, desired.z) + 0.75);
+    this.constrainCameraToBuildings(target, desired);
     this.camera.position.copy(desired);
+    this.constrainCameraToBuildings(target, this.camera.position);
     this.camera.lookAt(target);
   }
 

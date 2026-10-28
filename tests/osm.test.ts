@@ -5,10 +5,11 @@ import {
   markTownSidewalks,
   roadSurface,
   roadWidth,
+  widenUnmappedRuralRoads,
   type Building,
   type Road,
 } from '../src/geo/osm';
-import { isRealJunction } from '../src/world/roads';
+import { isRealJunction, roadPolyline } from '../src/world/roads';
 
 function building(x: number, z: number, size = 10, height = 6): Building {
   const points = [
@@ -147,6 +148,19 @@ describe('indice strade', () => {
       expect(Math.abs(p.x)).toBeLessThanOrEqual(40);
     }
   });
+
+  it('può usare la stessa spline del nastro stradale', () => {
+    const curved = road('residential', [
+      { x: 0, z: 0 },
+      { x: 20, z: 0 },
+      { x: 20, z: 20 },
+    ]);
+    const visualLine = roadPolyline(curved);
+    const index = new RoadIndex([curved], undefined, roadPolyline);
+    const curvedPoint = visualLine.find((point) => point.x > 18 && point.z > 1);
+    expect(curvedPoint).toBeDefined();
+    expect(index.isOnRoad(curvedPoint!.x, curvedPoint!.z, 0.1)).toBe(true);
+  });
 });
 
 describe('marciapiedi solo nel costruito', () => {
@@ -179,6 +193,24 @@ describe('marciapiedi solo nel costruito', () => {
     expect(shoulder).toBeLessThan(0.25);
     // oltre la spalla si torna sull'erba
     expect(index.surfaceOffset(200, 5)).toBe(0);
+  });
+
+  describe('larghezze inferite delle strade rurali', () => {
+    it('allarga solo le carreggiate locali senza larghezza/corsie mappate', () => {
+      const rural = road('unclassified', [{ x: 0, z: 0 }, { x: 100, z: 0 }]);
+      const residential = road('residential', [{ x: 0, z: 10 }, { x: 100, z: 10 }]);
+      const mapped = { ...road('residential', [{ x: 0, z: 20 }, { x: 100, z: 20 }]), tagWidth: 4.8 };
+      const urban = { ...road('unclassified', [{ x: 0, z: 30 }, { x: 100, z: 30 }]), walkSpans: [true, false] };
+      const multilane = { ...road('residential', [{ x: 0, z: 40 }, { x: 100, z: 40 }]), lanes: 2 };
+
+      widenUnmappedRuralRoads([rural, residential, mapped, urban, multilane]);
+
+      expect(rural.width).toBe(5.8);
+      expect(residential.width).toBe(5.6);
+      expect(mapped.width).toBe(5.2);
+      expect(urban.width).toBe(5.4);
+      expect(multilane.width).toBe(5.2);
+    });
   });
 });
 

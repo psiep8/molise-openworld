@@ -676,6 +676,7 @@ export class Player {
     ground: GroundSampler,
     buildings: BuildingIndex,
     obstacles?: ObstacleIndex,
+    vegetationFactor = 1,
   ): void {
     const fx = -Math.sin(this.yaw);
     const fz = -Math.cos(this.yaw);
@@ -689,7 +690,7 @@ export class Player {
       dx /= len;
       dz /= len;
     }
-    const speed = input.sprint ? GAME.runSpeed : GAME.walkSpeed;
+    const speed = (input.sprint ? GAME.runSpeed : GAME.walkSpeed) * clamp(vegetationFactor, 0.45, 1);
     const accel = this.grounded ? 16 : 4;
     const k = 1 - Math.exp(-accel * dt);
     this.velocity.x += (dx * speed - this.velocity.x) * k;

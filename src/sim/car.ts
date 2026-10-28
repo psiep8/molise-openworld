@@ -50,6 +50,8 @@ export interface CarEnv {
   onRoad: boolean;
   /** quota del terreno */
   groundHeight: (x: number, z: number) => number;
+  /** grip ambientale da pioggia/neve; 1 = asciutto, valori minori = scivoloso */
+  gripScale?: number;
 }
 
 export interface CarTuning {
@@ -217,12 +219,13 @@ export function stepCar(
   const gearForce = (torque * ratio * tuning.finalDrive * tuning.drivetrainEfficiency) / tuning.wheelRadius;
 
   const normalLoad = tuning.mass * tuning.gravity;
+  const gripScale = clamp(env.gripScale ?? 1, 0.15, 1.2);
   // la spinta alza un po' l'aderenza disponibile e allunga il rapporto finale:
   // senza questo, con la coppia già oltre il limite di aderenza non cambierebbe
   // nulla fino a metà della scala di velocità
   const boostGrip = input.boost ? 1.18 : 1;
   const tractionLimit =
-    tuning.grip * (env.onRoad ? 1 : tuning.offroadGrip) * normalLoad * tuning.tractionShare * boostGrip;
+    tuning.grip * (env.onRoad ? 1 : tuning.offroadGrip) * normalLoad * tuning.tractionShare * boostGrip * gripScale;
 
   // in retromarcia è il freno a dare gas all'indietro
   const driveInput = forward ? input.throttle : input.brake;
@@ -240,10 +243,16 @@ export function stepCar(
 
   let brakeForce = 0;
   if (forward && input.brake > 0 && speedAbs > 0.2) {
-    brakeForce = tuning.brakeDecel * input.brake * tuning.mass * (env.onRoad ? 1 : tuning.offroadGrip) * dir;
+    brakeForce =
+      tuning.brakeDecel *
+      input.brake *
+      tuning.mass *
+      (env.onRoad ? 1 : tuning.offroadGrip) *
+      gripScale *
+      dir;
   }
   // freno a mano: blocca il posteriore, decelera e fa scivolare il retrotreno
-  if (input.handbrake && speedAbs > 0.2) brakeForce += 3.4 * tuning.mass * dir;
+  if (input.handbrake && speedAbs > 0.2) brakeForce += 3.4 * tuning.mass * gripScale * dir;
 
   // --- pendenza ------------------------------------------------------------
   const fx = -Math.sin(next.yaw);
@@ -312,7 +321,7 @@ export function stepCar(
   // il tetto si applica al modulo: in retromarcia l'imbardata cambia segno da
   // sola perché `speed` è negativa, come nella realtà
   const yawCap = Math.abs(next.speed) > 0.5
-    ? Math.min(MAX_YAW_RATE, LATERAL_GRIP / Math.abs(next.speed))
+    ? Math.min(MAX_YAW_RATE, (LATERAL_GRIP * gripScale) / Math.abs(next.speed))
     : MAX_YAW_RATE;
   let yawRate = clamp(requested, -yawCap, yawCap);
   if (input.handbrake) yawRate *= 1.9;

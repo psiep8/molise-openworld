@@ -185,65 +185,26 @@ export type SignKind = 'stop' | 'yield' | 'speed';
 export function buildSigns(
   osm: OsmData,
   heights: Heightfield,
-  buildings: BuildingIndex,
+  _buildings: BuildingIndex,
   _renderer: THREE.WebGLRenderer,
   // il kit non serve più per il palo (vedi sotto): resta in firma per non
   // toccare i chiamanti
   _kit?: CityKit | null,
   // i pali sono ostacoli veri: senza, l'auto li attraversa
-  obstacles?: ObstacleIndex,
+  _obstacles?: ObstacleIndex,
 ): THREE.Group {
   const group = new THREE.Group();
   group.name = 'road-signs';
-  const rng = mulberry32(0x51a9);
-  const placements: { x: number; z: number; yaw: number; kind: SignKind }[] = [];
-
-  for (const road of osm.roads) {
-    if (!road.paved || road.width < 4) continue;
-    let since = 0;
-    for (let i = 1; i < road.points.length; i++) {
-      const a = road.points[i - 1];
-      const b = road.points[i];
-      const seg = Math.hypot(b.x - a.x, b.z - a.z);
-      since += seg;
-      if (since < 55) continue;
-      // segnali solo dove c'è il paese: in aperta campagna sarebbero assurdi
-      let built = false;
-      for (const bd of buildings.near(b.x, b.z)) {
-        if (
-          b.x > bd.bounds.minX - 34 &&
-          b.x < bd.bounds.maxX + 34 &&
-          b.z > bd.bounds.minZ - 34 &&
-          b.z < bd.bounds.maxZ + 34
-        ) {
-          built = true;
-          break;
-        }
-      }
-      if (!built) continue;
-      since = 0;
-      let tx = b.x - a.x;
-      let tz = b.z - a.z;
-      const len = Math.hypot(tx, tz) || 1;
-      tx /= len;
-      tz /= len;
-      const side = rng() < 0.5 ? 1 : -1;
-      const off = road.width / 2 + 1.35;
-      const x = b.x - tz * side * off;
-      const z = b.z + tx * side * off;
-      if (heights.slopeAt(x, z) > 22) continue;
-      // il segnale guarda contro il senso di marcia del lato su cui sta
-      const yaw = Math.atan2(-tx * side, -tz * side);
-      const roll = rng();
-      const kind: SignKind = roll < 0.34 ? 'stop' : roll < 0.7 ? 'yield' : 'speed';
-      placements.push({ x, z, yaw, kind });
-      obstacles?.add(x, z, 0.09);
-      if (placements.length > 700) break;
-    }
-    if (placements.length > 700) break;
-  }
+  const placements = (osm.signs ?? []).map((sign) => ({
+    x: sign.x,
+    z: sign.z,
+    yaw: sign.directionDeg !== undefined ? Math.PI - (sign.directionDeg * Math.PI) / 180 : signYawFromRoad(sign, osm),
+    kind: sign.kind,
+    speedLimit: sign.speedLimit ?? 50,
+  }));
 
   if (placements.length === 0) return group;
+  for (const sign of placements) _obstacles?.add(sign.x, sign.z, 0.1);
 
   // Palo sempre procedurale: un cilindro zincato da 4 cm.
   //
@@ -259,53 +220,30 @@ export function buildSigns(
   const poleGeo = new THREE.CylinderGeometry(0.035, 0.04, 2.45, 8);
   poleGeo.translate(0, 1.225, 0);
   // quota della faccia: il bordo basso del cartello resta sopra i 2 m
-  const faceY = 2.45;
+  const faceY = 2.42;
   const faceZ = 0.055;
-  // i cartelli stanno sul marciapiede: asfalto rialzato + cordolo
-  const baseLift = ROAD_LIFT + CURB_HEIGHT + 0.005;
+  const baseLift = 0.02;
   const poles = new THREE.InstancedMesh(poleGeo, poleMat, placements.length);
   poles.castShadow = true;
   poles.receiveShadow = true;
   const dummy = new THREE.Object3D();
 
-  const textures: Record<SignKind, THREE.CanvasTexture> = {
-    stop: signTexture('stop'),
-    yield: signTexture('yield'),
-    speed: signTexture('speed'),
-  };
   const geometries: Record<SignKind, THREE.BufferGeometry> = {
     stop: faceGeometry('stop'),
     yield: faceGeometry('yield'),
     speed: faceGeometry('speed'),
   };
-  const counts: Record<SignKind, number> = { stop: 0, yield: 0, speed: 0 };
-  for (const p of placements) counts[p.kind]++;
-
-  const meshes: Record<SignKind, THREE.InstancedMesh> = {
-    stop: new THREE.InstancedMesh(
-      geometries.stop,
-      new THREE.MeshStandardMaterial({ map: textures.stop, roughness: 0.5, metalness: 0.1, side: THREE.DoubleSide }),
-      Math.max(1, counts.stop),
-    ),
-    yield: new THREE.InstancedMesh(
-      geometries.yield,
-      new THREE.MeshStandardMaterial({
-        map: textures.yield,
-        roughness: 0.42,
-        metalness: 0.1,
-        transparent: true,
-        alphaTest: 0.4,
-        side: THREE.DoubleSide,
-      }),
-      Math.max(1, counts.yield),
-    ),
-    speed: new THREE.InstancedMesh(
-      geometries.speed,
-      new THREE.MeshStandardMaterial({ map: textures.speed, roughness: 0.5, metalness: 0.1, side: THREE.DoubleSide }),
-      Math.max(1, counts.speed),
-    ),
-  };
-  const cursor: Record<SignKind, number> = { stop: 0, yield: 0, speed: 0 };
+  const simplePlacements: Record<'stop' | 'yield', typeof placements> = { stop: [], yield: [] };
+  const speedPlacements = new Map<number, typeof placements>();
+  for (const placement of placements) {
+    if (placement.kind === 'speed') {
+      const list = speedPlacements.get(placement.speedLimit) ?? [];
+      list.push(placement);
+      speedPlacements.set(placement.speedLimit, list);
+    } else {
+      simplePlacements[placement.kind].push(placement);
+    }
+  }
 
   placements.forEach((p, i) => {
     const y = heights.heightAt(p.x, p.z) + baseLift;
@@ -314,26 +252,71 @@ export function buildSigns(
     dummy.scale.setScalar(1);
     dummy.updateMatrix();
     poles.setMatrixAt(i, dummy.matrix);
-
-    // la faccia sta davanti al palo, all'altezza della piastra del kit
-    dummy.position.set(p.x + Math.sin(p.yaw) * faceZ, y + faceY, p.z + Math.cos(p.yaw) * faceZ);
-    dummy.rotation.set(0, p.yaw, 0);
-    dummy.updateMatrix();
-    const mesh = meshes[p.kind];
-    mesh.setMatrixAt(cursor[p.kind]++, dummy.matrix);
   });
 
   poles.instanceMatrix.needsUpdate = true;
   group.add(poles);
-  for (const kind of ['stop', 'yield', 'speed'] as const) {
-    const mesh = meshes[kind];
-    if (counts[kind] === 0) continue;
-    mesh.count = counts[kind];
+  const makeFaceMesh = (
+    kind: SignKind,
+    speedLimit: number,
+    signs: typeof placements,
+  ): THREE.InstancedMesh => {
+    const mesh = new THREE.InstancedMesh(
+      geometries[kind],
+      new THREE.MeshStandardMaterial({
+        map: signTexture(kind, speedLimit),
+        roughness: kind === 'yield' ? 0.42 : 0.5,
+        metalness: 0.1,
+        transparent: kind === 'yield',
+        alphaTest: kind === 'yield' ? 0.4 : 0,
+        side: THREE.DoubleSide,
+      }),
+      signs.length,
+    );
+    signs.forEach((p, i) => {
+      const y = heights.heightAt(p.x, p.z) + baseLift;
+      dummy.position.set(p.x + Math.sin(p.yaw) * faceZ, y + faceY, p.z + Math.cos(p.yaw) * faceZ);
+      dummy.rotation.set(0, p.yaw, 0);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    });
+    mesh.count = signs.length;
     mesh.instanceMatrix.needsUpdate = true;
     mesh.castShadow = true;
     group.add(mesh);
+    return mesh;
+  };
+  for (const kind of ['stop', 'yield'] as const) {
+    if (simplePlacements[kind].length) makeFaceMesh(kind, 50, simplePlacements[kind]);
   }
+  for (const [speed, signs] of speedPlacements) makeFaceMesh('speed', speed, signs);
   return group;
+}
+
+function signYawFromRoad(sign: { x: number; z: number }, osm: OsmData): number {
+  let bestDistance = Infinity;
+  let yaw = 0;
+  for (const road of osm.roads) {
+    if (!road.paved) continue;
+    for (let i = 1; i < road.points.length; i++) {
+      const a = road.points[i - 1]!;
+      const b = road.points[i]!;
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const length2 = dx * dx + dz * dz;
+      if (length2 < 1e-6) continue;
+      const t = clamp(((sign.x - a.x) * dx + (sign.z - a.z) * dz) / length2, 0, 1);
+      const qx = a.x + dx * t;
+      const qz = a.z + dz * t;
+      const distance = Math.hypot(sign.x - qx, sign.z - qz);
+      if (distance >= bestDistance) continue;
+      bestDistance = distance;
+      const side = dx * (sign.z - qz) - dz * (sign.x - qx) >= 0 ? 1 : -1;
+      const length = Math.sqrt(length2);
+      yaw = Math.atan2((-dx / length) * side, (-dz / length) * side);
+    }
+  }
+  return yaw;
 }
 
 /**
@@ -397,7 +380,7 @@ function faceGeometry(kind: SignKind): THREE.BufferGeometry {
 }
 
 /** Faccia del cartello disegnata su canvas: nessun asset esterno. */
-function signTexture(kind: SignKind): THREE.CanvasTexture {
+function signTexture(kind: SignKind, speedLimit = 50): THREE.CanvasTexture {
   const size = 256;
   const canvas = document.createElement('canvas');
   canvas.width = size;
@@ -470,7 +453,7 @@ function signTexture(kind: SignKind): THREE.CanvasTexture {
     ctx.font = `bold ${size * 0.4}px Arial, Helvetica, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('50', c, c + size * 0.02);
+    ctx.fillText(String(speedLimit), c, c + size * 0.02);
   }
 
   const texture = new THREE.CanvasTexture(canvas);

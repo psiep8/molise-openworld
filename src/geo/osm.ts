@@ -22,6 +22,10 @@ interface RawOsm {
   attribution: string;
   stats: Record<string, number>;
   places: { n: string; k: string; lat: number; lon: number }[];
+  signs?: { k: string; lat: number; lon: number; s?: number; d?: number }[];
+  streetLamps?: { lat: number; lon: number }[];
+  controls?: { k: string; lat: number; lon: number }[];
+  crossings?: { lat: number; lon: number }[];
   roads: {
     t: string;
     n?: string;
@@ -50,6 +54,30 @@ interface RawOsm {
 export interface Place {
   name: string;
   kind: string;
+  x: number;
+  z: number;
+}
+
+export interface RoadSign {
+  kind: 'stop' | 'yield' | 'speed';
+  x: number;
+  z: number;
+  speedLimit?: number;
+  directionDeg?: number;
+}
+
+export interface StreetLampLocation {
+  x: number;
+  z: number;
+}
+
+export interface RoadControl {
+  kind: 'stop' | 'yield';
+  x: number;
+  z: number;
+}
+
+export interface RoadCrossing {
   x: number;
   z: number;
 }
@@ -168,6 +196,24 @@ export function markTownSidewalks(roads: Road[], buildings: BuildingIndex): void
   }
 }
 
+/**
+ * Corregge in modo prudente le larghezze predefinite delle strade locali
+ * rurali prive di tag `width` e `lanes`. È un'inferenza visiva, non un dato OSM:
+ * non tocca carreggiate urbane né strade con larghezze/corsie dichiarate.
+ */
+export function widenUnmappedRuralRoads(roads: Road[]): void {
+  for (const road of roads) {
+    if (
+      !road.paved ||
+      road.tagWidth !== undefined ||
+      road.lanes !== undefined ||
+      road.walkSpans?.some(Boolean)
+    ) continue;
+    if (road.type === 'unclassified') road.width = Math.max(road.width, 5.8);
+    else if (road.type === 'residential') road.width = Math.max(road.width, 5.6);
+  }
+}
+
 export interface Building {
   height: number;
   points: Pt[];
@@ -191,6 +237,10 @@ export interface OsmData {
   attribution: string;
   stats: Record<string, number>;
   places: Place[];
+  signs?: RoadSign[];
+  streetLamps?: StreetLampLocation[];
+  controls?: RoadControl[];
+  crossings?: RoadCrossing[];
   roads: Road[];
   buildings: Building[];
   areas: Area[];
@@ -325,12 +375,42 @@ export async function loadOsm(base = './geo/'): Promise<OsmData> {
     const w = latLonToWorld(p.lat, p.lon);
     return { name: p.n, kind: p.k, x: w.x, z: w.z };
   });
+  const signs: RoadSign[] = (raw.signs ?? [])
+    .filter((sign) => sign.k === 'stop' || sign.k === 'yield' || (sign.k === 'speed' && sign.s !== undefined))
+    .map((sign) => {
+      const world = latLonToWorld(sign.lat, sign.lon);
+      return {
+        kind: sign.k as RoadSign['kind'],
+        x: world.x,
+        z: world.z,
+        ...(sign.s !== undefined ? { speedLimit: sign.s } : {}),
+        ...(sign.d !== undefined ? { directionDeg: sign.d } : {}),
+      };
+    });
+  const streetLamps: StreetLampLocation[] = (raw.streetLamps ?? []).map((lamp) => {
+    const world = latLonToWorld(lamp.lat, lamp.lon);
+    return { x: world.x, z: world.z };
+  });
+  const controls: RoadControl[] = (raw.controls ?? [])
+    .filter((control) => control.k === 'stop' || control.k === 'yield')
+    .map((control) => {
+      const world = latLonToWorld(control.lat, control.lon);
+      return { kind: control.k as RoadControl['kind'], x: world.x, z: world.z };
+    });
+  const crossings: RoadCrossing[] = (raw.crossings ?? []).map((crossing) => {
+    const world = latLonToWorld(crossing.lat, crossing.lon);
+    return { x: world.x, z: world.z };
+  });
 
   return {
     generatedAt: raw.generatedAt,
     attribution: raw.attribution,
     stats: raw.stats,
     places,
+    signs,
+    streetLamps,
+    controls,
+    crossings,
     roads,
     buildings,
     areas,
@@ -355,13 +435,6 @@ export function prepareRoadElevations(roads: Road[], heights: Heightfield): void
       road.elevations = undefined;
       continue;
     }
-    // Le gallerie non hanno ancora un foro scavato nel terreno: fino a quando
-    // non c'è il portale, il piano stradale resta quello del DEM (la strada si
-    // vede in superficie) invece di far sprofondare il giocatore nel monte.
-    if (road.tunnel && !road.bridge) {
-      road.elevations = undefined;
-      continue;
-    }
     const n = road.points.length;
     if (n < 2) continue;
     const first = road.points[0]!;
@@ -379,8 +452,8 @@ export function prepareRoadElevations(roads: Road[], heights: Heightfield): void
     const total = travelled || 1;
     for (let i = 0; i < n; i++) {
       const t = lengths[i]! / total;
-      // Campata rettilinea: la stessa interpolazione è usata dal nastro
-      // grafico, quindi non ci sono due quote diverse a metà ponte.
+      // OSM non registra la quota dei tunnel: interpolare fra i due imbocchi è
+      // una stima stabile, mentre per i ponti si aggiunge il franco previsto.
       out[i] = h0 + (h1 - h0) * t + clearance;
     }
     road.elevations = out;
@@ -446,7 +519,11 @@ export class RoadIndex {
   private readonly grid = new Map<number, RoadSegment[]>();
   private readonly roads: Road[];
 
-  constructor(roads: Road[], heights?: Heightfield) {
+  constructor(
+    roads: Road[],
+    heights?: Heightfield,
+    geometryForRoad: (road: Road) => Pt[] = (road) => road.points,
+  ) {
     this.roads = roads;
     let nextId = 0;
     for (const [index, road] of roads.entries()) {
@@ -456,12 +533,48 @@ export class RoadIndex {
       // e 1,15 m nei vicoli. Se qui restasse 1,8/1,45 il giocatore camminerebbe
       // 35 cm fuori dal marciapiede visibile.
       const walkWidth = road.paved ? (road.width >= 6 ? 1.45 : 1.15) : 0;
-      for (let i = 1; i < road.points.length; i++) {
-        const a = road.points[i - 1];
-        const b = road.points[i];
-        // marciapiede solo nel costruito: la fisica deve combaciare col nastro
+      const points = geometryForRoad(road);
+      if (points.length < 2 || road.points.length < 2) continue;
+      const sourceAt = (point: Pt, startIndex: number): { index: number; t: number } => {
+        let sourceIndex = Math.min(startIndex, road.points.length - 2);
+        const segmentDistance = (segment: number): number => {
+          const a = road.points[segment]!;
+          const b = road.points[segment + 1]!;
+          const dx = b.x - a.x;
+          const dz = b.z - a.z;
+          const length2 = dx * dx + dz * dz || 1e-8;
+          const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.z - a.z) * dz) / length2));
+          return Math.hypot(point.x - a.x - dx * t, point.z - a.z - dz * t);
+        };
+        while (
+          sourceIndex < road.points.length - 2 &&
+          segmentDistance(sourceIndex + 1) + 0.01 < segmentDistance(sourceIndex)
+        ) sourceIndex++;
+        const a = road.points[sourceIndex]!;
+        const b = road.points[sourceIndex + 1]!;
+        const dx = b.x - a.x;
+        const dz = b.z - a.z;
+        const length2 = dx * dx + dz * dz || 1e-8;
+        const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.z - a.z) * dz) / length2));
+        return { index: sourceIndex, t };
+      };
+      let sourceCursor = 0;
+      const source = points.map((point) => {
+        const mapped = sourceAt(point, sourceCursor);
+        sourceCursor = mapped.index;
+        return mapped;
+      });
+      for (let i = 1; i < points.length; i++) {
+        const a = points[i - 1]!;
+        const b = points[i]!;
+        const previous = source[i - 1]!;
+        const current = source[i]!;
+        const sourceIndex = sourceAt(
+          { x: (a.x + b.x) * 0.5, z: (a.z + b.z) * 0.5 },
+          previous.index,
+        ).index;
         const walk = road.walkSpans
-          ? road.walkSpans[i - 1] || road.walkSpans[i]
+          ? road.walkSpans[sourceIndex] || road.walkSpans[sourceIndex + 1]
             ? walkWidth
             : 0
           : walkWidth;
@@ -471,8 +584,13 @@ export class RoadIndex {
         const maxZ = Math.max(a.z, b.z) + half;
         const bridge = road.bridge === true;
         const tunnel = road.tunnel === true;
-        const elevA = road.elevations?.[i - 1] ?? (heights ? heights.heightAt(a.x, a.z) : undefined);
-        const elevB = road.elevations?.[i] ?? (heights ? heights.heightAt(b.x, b.z) : undefined);
+        const elevationAt = (sample: { index: number; t: number }, point: Pt): number | undefined =>
+          road.elevations
+            ? road.elevations[sample.index]! * (1 - sample.t) +
+              road.elevations[sample.index + 1]! * sample.t
+            : heights?.heightAt(point.x, point.z);
+        const elevA = elevationAt(previous, a);
+        const elevB = elevationAt(current, b);
         const seg: RoadSegment = {
           id: nextId++,
           ax: a.x,
@@ -486,13 +604,13 @@ export class RoadIndex {
           lanes: road.lanes ?? (road.width >= 6.5 ? 2 : 1),
           walk,
           road: index,
-          index: i - 1,
+          index: sourceIndex,
           bridge,
           tunnel,
           // La galleria non ha ancora un foro nel terreno: solo il ponte usa
           // una quota diversa dal DEM. Per la galleria il nastro resta a terra.
-          elevA: bridge ? elevA : undefined,
-          elevB: bridge ? elevB : undefined,
+          elevA: bridge || tunnel ? elevA : undefined,
+          elevB: bridge || tunnel ? elevB : undefined,
           minX,
           maxX,
           minZ,

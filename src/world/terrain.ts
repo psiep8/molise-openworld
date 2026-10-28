@@ -1,9 +1,23 @@
 import * as THREE from 'three';
 import { CHUNK_SIZE, TERRAIN_SEGMENTS, VIEW_RADIUS, WORLD } from '../config';
 import type { Heightfield } from '../geo/elevation';
+import type { Road } from '../geo/osm';
 import { chunkCenter, chunkIndex, chunkKey, chunkOrigin } from './chunks';
 import { zoomForDistance, type ImageryStreamer } from './imagery';
 import type { Landcover, LandcoverMode } from './landcover';
+import { roadPolyline } from './roads';
+
+interface TunnelSegment {
+  ax: number;
+  az: number;
+  bx: number;
+  bz: number;
+  radius: number;
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
 
 interface Chunk {
   cx: number;
@@ -318,6 +332,7 @@ export class Terrain {
   private readonly heightfield: Heightfield;
   private readonly imagery: ImageryStreamer;
   private readonly landcover: Landcover | null;
+  private readonly tunnelSegments: TunnelSegment[];
   private readonly maxBuildPerFrame = 2;
   private readonly maxTextureLoads = 5;
   private readonly inflight = new Set<string>();
@@ -335,10 +350,29 @@ export class Terrain {
     private readonly renderer: THREE.WebGLRenderer,
     maxZoom = 18,
     landcover: Landcover | null = null,
+    tunnels: readonly Road[] = [],
   ) {
     this.heightfield = heightfield;
     this.imagery = imagery;
     this.landcover = landcover;
+    this.tunnelSegments = tunnels.flatMap((road) => {
+      const line = roadPolyline(road);
+      const radius = road.width * 0.5 + 1.1;
+      return line.slice(1).map((point, index) => {
+        const previous = line[index]!;
+        return {
+          ax: previous.x,
+          az: previous.z,
+          bx: point.x,
+          bz: point.z,
+          radius,
+          minX: Math.min(previous.x, point.x) - radius,
+          maxX: Math.max(previous.x, point.x) + radius,
+          minZ: Math.min(previous.z, point.z) - radius,
+          maxZ: Math.max(previous.z, point.z) + radius,
+        };
+      });
+    });
     this.maxZoom = Math.max(15, Math.min(18, maxZoom));
     this.group.name = 'terrain';
   }
@@ -576,6 +610,46 @@ export class Terrain {
       pos.setY(i, this.heightfield.heightAt(wx, wz));
     }
     pos.needsUpdate = true;
+    if (this.tunnelSegments.length) {
+      const sourceIndex = geometry.getIndex();
+      if (sourceIndex) {
+        const indices: number[] = [];
+        const gridStep = CHUNK_SIZE / TERRAIN_SEGMENTS;
+        const nearby = this.tunnelSegments.filter(
+          (segment) =>
+            segment.maxX >= centerX - CHUNK_SIZE * 0.5 &&
+            segment.minX <= centerX + CHUNK_SIZE * 0.5 &&
+            segment.maxZ >= centerZ - CHUNK_SIZE * 0.5 &&
+            segment.minZ <= centerZ + CHUNK_SIZE * 0.5,
+        );
+        const insideTunnel = (x: number, z: number): boolean =>
+          nearby.some((segment) => {
+            if (
+              x < segment.minX - gridStep ||
+              x > segment.maxX + gridStep ||
+              z < segment.minZ - gridStep ||
+              z > segment.maxZ + gridStep
+            ) return false;
+            const dx = segment.bx - segment.ax;
+            const dz = segment.bz - segment.az;
+            const length2 = dx * dx + dz * dz || 1e-8;
+            const t = Math.max(0, Math.min(1, ((x - segment.ax) * dx + (z - segment.az) * dz) / length2));
+            const ox = x - segment.ax - dx * t;
+            const oz = z - segment.az - dz * t;
+            return ox * ox + oz * oz <= (segment.radius + gridStep * 0.1) ** 2;
+          });
+        for (let i = 0; i < sourceIndex.count; i += 3) {
+          const a = sourceIndex.getX(i);
+          const b = sourceIndex.getX(i + 1);
+          const c = sourceIndex.getX(i + 2);
+          const x = centerX + (pos.getX(a) + pos.getX(b) + pos.getX(c)) / 3;
+          const z = centerZ + (pos.getZ(a) + pos.getZ(b) + pos.getZ(c)) / 3;
+          if (insideTunnel(x, z)) continue;
+          indices.push(a, b, c);
+        }
+        geometry.setIndex(indices);
+      }
+    }
     geometry.computeVertexNormals();
     geometry.computeBoundingSphere();
 

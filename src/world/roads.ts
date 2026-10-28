@@ -335,6 +335,106 @@ function pushBridgeFascia(
   }
 }
 
+function pushTunnelLiner(
+  target: RibbonArrays,
+  pts: Pt[],
+  width: number,
+  elevations: number[],
+  lift: number,
+  color: THREE.Color,
+): void {
+  if (pts.length < 2) return;
+  const sections = 16;
+  const halfWidth = width / 2 + 1.8;
+  const springHeight = 3.2;
+  const archHeight = 2.4;
+  const profile: { lateral: number; height: number; nx: number; ny: number }[] = [
+    { lateral: halfWidth, height: 0, nx: 1, ny: 0 },
+    { lateral: halfWidth, height: springHeight, nx: 1, ny: 0 },
+  ];
+  for (let j = 1; j < sections; j++) {
+    const angle = (Math.PI * j) / sections;
+    profile.push({
+      lateral: Math.cos(angle) * halfWidth,
+      height: springHeight + Math.sin(angle) * archHeight,
+      nx: Math.cos(angle),
+      ny: Math.sin(angle),
+    });
+  }
+  profile.push(
+    { lateral: -halfWidth, height: springHeight, nx: -1, ny: 0 },
+    { lateral: -halfWidth, height: 0, nx: -1, ny: 0 },
+  );
+  const base = target.positions.length / 3;
+  let travelled = 0;
+  for (let i = 0; i < pts.length; i++) {
+    if (i > 0) travelled += Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.z - pts[i - 1]!.z);
+    const previous = pts[Math.max(0, i - 1)]!;
+    const next = pts[Math.min(pts.length - 1, i + 1)]!;
+    let tx = next.x - previous.x;
+    let tz = next.z - previous.z;
+    const length = Math.hypot(tx, tz) || 1;
+    tx /= length;
+    tz /= length;
+    const px = -tz;
+    const pz = tx;
+    const centerY = (elevations[i] ?? 0) + lift;
+    for (let j = 0; j < profile.length; j++) {
+      const section = profile[j]!;
+      target.positions.push(pts[i]!.x + px * section.lateral, centerY + section.height, pts[i]!.z + pz * section.lateral);
+      target.normals.push(px * section.nx, section.ny, pz * section.nx);
+      target.colors.push(color.r, color.g, color.b);
+      target.uvs.push(j / profile.length, travelled / 5);
+      if (i > 0 && j < profile.length - 1) {
+        const a = base + (i - 1) * profile.length + j;
+        const b = base + i * profile.length + j;
+        target.indices.push(a, b, a + 1, a + 1, b, b + 1);
+      }
+    }
+  }
+}
+
+function pushRuralVerge(
+  target: RibbonArrays,
+  pts: Pt[],
+  width: number,
+  lift: number,
+  color: THREE.Color,
+  heights: Heightfield,
+  blocked: (x: number, z: number) => boolean,
+  allowed: (index: number) => boolean,
+): void {
+  const start = width / 2 + 0.68;
+  const end = width / 2 + 3.4;
+  for (const side of [-1, 1]) {
+    const base = target.positions.length / 3;
+    for (let i = 0; i < pts.length; i++) {
+      const previous = pts[Math.max(0, i - 1)]!;
+      const next = pts[Math.min(pts.length - 1, i + 1)]!;
+      let tx = next.x - previous.x;
+      let tz = next.z - previous.z;
+      const length = Math.hypot(tx, tz) || 1;
+      tx /= length;
+      tz /= length;
+      const px = -tz * side;
+      const pz = tx * side;
+      const innerX = pts[i]!.x + px * start;
+      const innerZ = pts[i]!.z + pz * start;
+      const outerX = pts[i]!.x + px * end;
+      const outerZ = pts[i]!.z + pz * end;
+      const innerY = heights.heightAt(innerX, innerZ) + lift - 0.05;
+      const outerY = heights.heightAt(outerX, outerZ) + 0.025;
+      target.positions.push(innerX, innerY, innerZ, outerX, outerY, outerZ);
+      target.normals.push(px * 0.18, 0.98, pz * 0.18, px * 0.18, 0.98, pz * 0.18);
+      target.colors.push(color.r, color.g, color.b, color.r * 0.92, color.g * 0.94, color.b * 0.9);
+      target.uvs.push(0, i * 0.45, 1, i * 0.45);
+      if (i === 0 || !allowed(i - 1) || !allowed(i) || blocked(pts[i]!.x, pts[i]!.z)) continue;
+      const a = base + (i - 1) * 2;
+      target.indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+  }
+}
+
 /**
  * Faccia verticale del cordolo: quad dritti lungo il bordo del manto stradale.
  * È questo pezzo che fa leggere il marciapiede come rialzato — senza, la
@@ -836,6 +936,55 @@ export function roadPolyline(road: Road): Pt[] {
   );
 }
 
+function streetLampYaw(lamp: Pt, osm: OsmData): number {
+  let bestDistance = Infinity;
+  let yaw = 0;
+  for (const road of osm.roads) {
+    if (!road.paved) continue;
+    for (let i = 1; i < road.points.length; i++) {
+      const a = road.points[i - 1]!;
+      const b = road.points[i]!;
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const length2 = dx * dx + dz * dz;
+      if (length2 < 1e-6) continue;
+      const t = clamp(((lamp.x - a.x) * dx + (lamp.z - a.z) * dz) / length2, 0, 1);
+      const qx = a.x + dx * t;
+      const qz = a.z + dz * t;
+      const distance = Math.hypot(lamp.x - qx, lamp.z - qz);
+      if (distance >= bestDistance) continue;
+      bestDistance = distance;
+      yaw = Math.atan2(qx - lamp.x, qz - lamp.z);
+    }
+  }
+  return yaw;
+}
+
+function roadAt(osm: OsmData, point: Pt): { tx: number; tz: number; width: number; lift: number } | null {
+  let bestDistance = 12;
+  let best: { tx: number; tz: number; width: number; lift: number } | null = null;
+  for (const [index, road] of osm.roads.entries()) {
+    if (!road.paved) continue;
+    for (let i = 1; i < road.points.length; i++) {
+      const a = road.points[i - 1]!;
+      const b = road.points[i]!;
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const length2 = dx * dx + dz * dz;
+      if (length2 < 1e-6) continue;
+      const t = clamp(((point.x - a.x) * dx + (point.z - a.z) * dz) / length2, 0, 1);
+      const qx = a.x + dx * t;
+      const qz = a.z + dz * t;
+      const distance = Math.hypot(point.x - qx, point.z - qz);
+      if (distance >= bestDistance) continue;
+      const length = Math.sqrt(length2);
+      bestDistance = distance;
+      best = { tx: dx / length, tz: dz / length, width: road.width, lift: roadLift(index, road.paved) };
+    }
+  }
+  return best;
+}
+
 const PROCEDURAL_ROAD_LENGTH = 50_000;
 const PROCEDURAL_ROAD_STEP = 60;
 
@@ -964,9 +1113,13 @@ export function buildRoads(
   // spalla in ghiaia delle strade di campagna: senza, il bordo dell'asfalto
   // cade a picco sull'erba e si vede il taglio
   const shoulder = emptyRibbon();
+  const verges = emptyRibbon();
+  const tunnelLiners = emptyRibbon();
   const asphaltColor = new THREE.Color(0xffffff);
   const dirtColor = new THREE.Color(0xf6efe6);
   const shoulderColor = new THREE.Color(0xcdbfa6);
+  const vergeColor = new THREE.Color(0x81785e);
+  const tunnelColor = new THREE.Color(0x4b4a43);
   const kitWalkMat = kit?.material('sidewalk', 'footway_flags', { repeat: [0.55, 0.5], white: true }) ?? null;
   const kitKerbMat = kit?.material('sidewalk', 'granite_kerb', { repeat: [1, 2], white: true }) ?? null;
   const kitAsphaltMat =
@@ -997,6 +1150,14 @@ export function buildRoads(
       pushRibbon(target, pts, road.width, lift, color, heights, 1, deck);
       pushBridgeFascia(kerb, pts, road.width, deck, lift, curbColor);
       return;
+    }
+    if (road.tunnel) {
+      const tunnelDeck = bridgeElevations(road, pts);
+      if (tunnelDeck) {
+        pushRibbon(target, pts, road.width, lift, color, heights, 1, tunnelDeck);
+        pushTunnelLiner(tunnelLiners, pts, road.width, tunnelDeck, lift, tunnelColor);
+        return;
+      }
     }
     pushRibbon(target, pts, road.width, lift, color, heights, 1);
     // Punto che sta su un'ALTRA strada: è l'incrocio. Qui non vanno cordoli,
@@ -1131,6 +1292,9 @@ export function buildRoads(
         );
       }
     }
+    if (road.width >= 3.6) {
+      pushRuralVerge(verges, pts, road.width, lift, vergeColor, heights, onJunction, rural);
+    }
 
     // attraversamenti, stop e lampioni: gli incroci valgono anche in campagna
     if (!roadIndex) return;
@@ -1177,7 +1341,14 @@ export function buildRoads(
         // attraversamento pedonale solo sulla via principale, su un tratto
         // dritto e non a ogni incrocio: prima la zebra e lo stop venivano
         // disegnati nello stesso punto e sembravano due strisce sovrapposte
-        if (cross && built && !minor && sinceCross > 60 && i + 1 < pts.length) {
+        if (
+          cross &&
+          built &&
+          !minor &&
+          sinceCross > 60 &&
+          i + 1 < pts.length &&
+          !(osm.crossings?.length)
+        ) {
           const c = pts[i + 1];
           let ux = c.x - b.x;
           let uz = c.z - b.z;
@@ -1187,14 +1358,14 @@ export function buildRoads(
           zebraHere = tx * ux + tz * uz > 0.93;
         }
 
-        if (minor && cross) {
+        if (minor && cross && !(osm.controls?.length)) {
           const gwAt = { x: b.x - tx * (cross.half + 0.9), z: b.z - tz * (cross.half + 0.9) };
           if (!onJunction(gwAt.x, gwAt.z)) {
             for (const tri of giveWayTriangles(gwAt, tx, tz, road.width)) {
               pushTriangle(markings, tri, lift + 0.011, markingColor, heights);
             }
           }
-        } else if (!zebraHere) {
+        } else if (!zebraHere && !(osm.controls?.length)) {
           // arretrata oltre la carreggiata che attraversa: a 4,3 m fissi su un
           // incrocio largo lo stop cadeva dentro l'altra strada
           const back = cross ? cross.half + 1.5 : 4.3;
@@ -1316,6 +1487,22 @@ export function buildRoads(
     }
   });
 
+  for (const control of osm.controls ?? []) {
+    const road = roadAt(osm, control);
+    if (!road) continue;
+    if (control.kind === 'stop') {
+      pushStopLine(markings, control, road.tx, road.tz, road.width, road.lift + 0.011, markingColor, heights);
+    } else {
+      for (const triangle of giveWayTriangles(control, road.tx, road.tz, road.width)) {
+        pushTriangle(markings, triangle, road.lift + 0.011, markingColor, heights);
+      }
+    }
+  }
+  for (const crossing of osm.crossings ?? []) {
+    const road = roadAt(osm, crossing);
+    if (road) pushZebra(markings, crossing, road.tx, road.tz, road.width, road.lift + 0.011, markingColor, heights);
+  }
+
   // un tile ogni ~3 m: le UV dei nastri scorrono già in metri (6 m per tile)
   const asphaltPbr = pbr(renderer, 'asphalt', { repeat: 2, normal: true, rough: true });
   const dirtPbr = pbr(renderer, 'gravel', { repeat: 2, normal: true, rough: true });
@@ -1423,6 +1610,32 @@ export function buildRoads(
     mesh.receiveShadow = true;
     group.add(mesh);
   }
+  if (verges.indices.length) {
+    const material = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      vertexColors: true,
+      roughness: 1,
+      metalness: 0,
+      side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(toGeometry(verges), material);
+    mesh.name = 'rural-road-banks';
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+  if (tunnelLiners.indices.length) {
+    const material = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      vertexColors: true,
+      roughness: 0.96,
+      metalness: 0,
+      side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(toGeometry(tunnelLiners), material);
+    mesh.name = 'tunnel-interiors';
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
   if (walkway.indices.length) {
     const mesh = new THREE.Mesh(toGeometry(walkway), pavementMat);
     mesh.name = 'sidewalks';
@@ -1450,7 +1663,11 @@ export function buildRoads(
     mesh.receiveShadow = true;
     group.add(mesh);
   }
-  return { group, lamps };
+  const mappedLamps = osm.streetLamps?.map((lamp) => ({
+    ...lamp,
+    yaw: streetLampYaw(lamp, osm),
+  }));
+  return { group, lamps: mappedLamps?.length ? mappedLamps : lamps };
 }
 
 /**

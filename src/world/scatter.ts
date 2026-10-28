@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { CanopyField } from '../geo/canopy';
 import type { Heightfield } from '../geo/elevation';
+import type { ObstacleIndex } from '../geo/obstacles';
 import type { BuildingIndex, OsmData, RoadIndex } from '../geo/osm';
 import { foliageSet } from '../gfx/textures';
 import { windTimeUniform } from '../gfx/wind';
@@ -42,6 +43,7 @@ interface ScatterOptions {
   shadows?: boolean;
   radius?: number;
   seed?: number;
+  obstacles?: ObstacleIndex;
 }
 
 interface InstanceSet {
@@ -51,6 +53,7 @@ interface InstanceSet {
 
 const TREE_KINDS: readonly TreeKind[] = ['broadleaf', 'olive', 'cypress', 'poplar'];
 const ALL_KINDS: readonly RenderKind[] = [...TREE_KINDS, 'shrub', 'rock'];
+let nextColliderTag = 0;
 
 /**
  * Deterministic, cell-streamed landscape scatter. Meshes are instanced by
@@ -75,6 +78,8 @@ export class ScatterVegetation {
   private readonly dummy = new THREE.Object3D();
   private readonly color = new THREE.Color();
   private readonly castShadows: boolean;
+  private readonly obstacles?: ObstacleIndex;
+  private readonly colliderTag = `scatter-tree-${nextColliderTag++}`;
   private centerCellX = Number.NaN;
   private centerCellZ = Number.NaN;
   private lodAnchorX = Number.NaN;
@@ -86,6 +91,7 @@ export class ScatterVegetation {
     this.radius = options.radius ?? DEFAULT_RADIUS;
     this.cellRadius = Math.ceil(this.radius / SCATTER_CELL_SIZE);
     this.castShadows = options.shadows ?? false;
+    this.obstacles = options.obstacles;
     const sources: ScatterSources = {
       osm: options.osm,
       heights: options.heights,
@@ -174,6 +180,7 @@ export class ScatterVegetation {
     for (const cellKey of this.cellCache.keys()) {
       if (!keep.has(cellKey)) this.cellCache.delete(cellKey);
     }
+    this.refreshTreeColliders();
     this.rebuildInstances(x, z);
     this.lodAnchorX = x;
     this.lodAnchorZ = z;
@@ -183,6 +190,7 @@ export class ScatterVegetation {
     if (this.disposed) return;
     this.disposed = true;
     this.cellCache.clear();
+    this.obstacles?.replaceTag(this.colliderTag, []);
     for (const set of this.nearSets.values()) this.removeSet(set);
     this.removeSet(this.leafCardSet);
     this.removeSet(this.farSet);
@@ -264,6 +272,27 @@ export class ScatterVegetation {
     const far = this.ensureCapacity(this.farSet, distant.length, this.billboardGeometry, this.billboardMaterial);
     if (far !== this.farSet) Object.assign(this.farSet, far);
     this.writeBillboards(this.farSet.mesh, distant);
+  }
+
+  movementFactorAt(x: number, z: number): number {
+    return this.generator.movementFactorAt(x, z);
+  }
+
+  private refreshTreeColliders(): void {
+    if (!this.obstacles) return;
+    const colliders: { x: number; z: number; radius: number }[] = [];
+    for (const instances of this.cellCache.values()) {
+      for (const instance of instances) {
+        if (!TREE_KINDS.includes(instance.kind as TreeKind)) continue;
+        const radius =
+          instance.kind === 'olive' ? 0.34 :
+          instance.kind === 'cypress' ? 0.2 :
+          instance.kind === 'poplar' ? 0.24 :
+          0.29;
+        colliders.push({ x: instance.x, z: instance.z, radius: radius * instance.scale });
+      }
+    }
+    this.obstacles.replaceTag(this.colliderTag, colliders);
   }
 
   private writeInstances(mesh: THREE.InstancedMesh, instances: readonly ScatterInstance[], kind: RenderKind): void {
