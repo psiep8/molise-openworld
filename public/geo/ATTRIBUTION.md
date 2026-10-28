@@ -28,10 +28,10 @@ la mappa di riserva a 12 m/px.
 
 ## Immagini di dettaglio (streaming, non nel repo)
 
-- **Esri World Imagery** — © Esri, Maxar, Earthstar Geographics. Usata per una
-  demo non commerciale con attribuzione. Per una pubblicazione serve un provider
-  con licenza esplicita: si cambia `ESRI_WORLD_IMAGERY` in
-  `src/world/imagery.ts`.
+Il provider raster remoto è disattivato per impostazione predefinita. Il gioco
+usa il mosaico Sentinel-2 locale, CC BY 4.0. Un eventuale provider remoto deve
+essere aperto, autorizzato per questo uso e configurato con la propria
+attribuzione (`VITE_OPEN_IMAGERY_TILE_URL` e `VITE_OPEN_IMAGERY_ATTRIBUTION`).
 
 ## Come si rigenerano
 

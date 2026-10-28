@@ -14,7 +14,7 @@ import {
   type OsmData,
 } from './geo/osm';
 import { ObstacleIndex } from './geo/obstacles';
-import { ESRI_WORLD_IMAGERY, ImageryStreamer } from './world/imagery';
+import { OPEN_WORLD_IMAGERY, ImageryStreamer } from './world/imagery';
 import { Terrain, setCloudShadow } from './world/terrain';
 import { Landcover, monthForGameDay } from './world/landcover';
 import { FarTerrain } from './world/far-terrain';
@@ -793,7 +793,7 @@ export class Game {
       this.routeBeacon = this.createRouteBeacon();
       this.scene.add(this.routeBeacon);
 
-      const imagery = new ImageryStreamer(ESRI_WORLD_IMAGERY, this.renderer.capabilities.getMaxAnisotropy(), () => {
+      const imagery = new ImageryStreamer(OPEN_WORLD_IMAGERY, this.renderer.capabilities.getMaxAnisotropy(), () => {
         this.tileErrors++;
       });
       // il tetto di zoom va passato **qui**: `applyQuality` gira nel costruttore,
@@ -830,6 +830,18 @@ export class Game {
       );
 
       this.map = new MapRenderer(osm);
+      const attribution = document.getElementById('attribution');
+      if (attribution) {
+        const imageryAttribution =
+          OPEN_WORLD_IMAGERY.id === 'local-open-imagery'
+            ? OPEN_WORLD_IMAGERY.attribution
+            : `Sentinel-2 cloudless © EOX IT Services GmbH (CC BY 4.0) · ${OPEN_WORLD_IMAGERY.attribution}`;
+        attribution.textContent = `© OpenStreetMap contributors · Immagini: ${imageryAttribution}`;
+      }
+      const startAttribution = document.getElementById('imagery-attribution');
+      if (startAttribution) {
+        startAttribution.textContent = `Immagini satellite: ${imageryAttribution}`;
+      }
       // su `minimal` il radar parte vettoriale: niente tile satellitari da
       // scaricare e decodificare su una macchina che sta già a 20 fps
       if (this.quality.level === 'minimal') this.map.radar = false;

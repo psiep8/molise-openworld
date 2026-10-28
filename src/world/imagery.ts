@@ -8,6 +8,9 @@ import { chunkOrigin } from './chunks';
  * Lo scarica `npm run geo:imagery` in `public/geo/world-imagery.jpg`.
  */
 const BASE_IMAGERY_URL = `${import.meta.env.BASE_URL}geo/world-imagery.jpg`;
+const EMPTY_TILE_URL = `${import.meta.env.BASE_URL}geo/empty-imagery.svg`;
+const OPEN_TILE_TEMPLATE = import.meta.env.VITE_OPEN_IMAGERY_TILE_URL?.trim();
+const OPEN_TILE_ATTRIBUTION = import.meta.env.VITE_OPEN_IMAGERY_ATTRIBUTION?.trim();
 
 export interface TileProvider {
   id: string;
@@ -17,14 +20,36 @@ export interface TileProvider {
   maxZoom: number;
 }
 
-export const ESRI_WORLD_IMAGERY: TileProvider = {
-  id: 'esri-world-imagery',
-  name: 'Esri World Imagery',
-  attribution: 'Immagini: © Esri, Maxar, Earthstar Geographics',
-  url: (z, x, y) =>
-    `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`,
-  maxZoom: 19,
-};
+export function createOpenImageryProvider(
+  template: string | undefined,
+  attribution: string | undefined,
+): TileProvider {
+  if (!template) {
+    return {
+      id: 'local-open-imagery',
+      name: 'Immagini locali aperte',
+      attribution: 'Sentinel-2 cloudless © EOX IT Services GmbH, CC BY 4.0',
+      url: () => EMPTY_TILE_URL,
+      maxZoom: 18,
+    };
+  }
+  if (!attribution) {
+    throw new Error('VITE_OPEN_IMAGERY_ATTRIBUTION è obbligatorio quando si configura VITE_OPEN_IMAGERY_TILE_URL');
+  }
+  if (!['{z}', '{x}', '{y}'].every((token) => template.includes(token))) {
+    throw new Error('VITE_OPEN_IMAGERY_TILE_URL deve contenere i segnaposto {z}, {x} e {y}');
+  }
+
+  return {
+    id: 'configured-open-imagery',
+    name: 'Tile aperte configurate',
+    attribution,
+    url: (z, x, y) => template.replaceAll('{z}', String(z)).replaceAll('{x}', String(x)).replaceAll('{y}', String(y)),
+    maxZoom: 19,
+  };
+}
+
+export const OPEN_WORLD_IMAGERY = createOpenImageryProvider(OPEN_TILE_TEMPLATE, OPEN_TILE_ATTRIBUTION);
 
 const TILE = 256;
 
@@ -43,7 +68,7 @@ export function zoomForDistance(distance: number): number {
   return 16;
 }
 
-/** Carica le tile come immagini (CORS ok per Esri). */
+/** Carica tile raster dal provider aperto configurato. */
 function loadTileImage(provider: TileProvider, z: number, x: number, y: number): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -59,8 +84,7 @@ function loadTileImage(provider: TileProvider, z: number, x: number, y: number):
  * Compone la texture di un chunk (912 m) a partire dalle tile del provider.
  * La texture copre esattamente l'area geografica del chunk; lo zoom decide
  * quanti pixel per metro finiscono nella canvas (fino a 2048 px).
- * Un filo di saturazione in più avvicina le foto aeree ai colori reali
- * del paesaggio molisano (l'Esri di campagna tende al grigio).
+ * Un filo di saturazione in più avvicina le foto aeree ai colori del paesaggio.
  */
 export class ImageryStreamer {
   private readonly inflight = new Map<string, Promise<THREE.Texture>>();
@@ -70,7 +94,7 @@ export class ImageryStreamer {
   private baseImage: HTMLImageElement | null = null;
 
   constructor(
-    readonly provider: TileProvider = ESRI_WORLD_IMAGERY,
+    readonly provider: TileProvider = OPEN_WORLD_IMAGERY,
     anisotropy = 4,
     private readonly onTileError?: (err: Error) => void,
   ) {
@@ -91,8 +115,8 @@ export class ImageryStreamer {
    * Ritaglia dal mosaico Sentinel la porzione esatta di un chunk.
    *
    * È sincrono e locale: ogni chunk ha subito un'immagine vera (campi, boschi,
-   * paesi) anche a 3 km, senza aspettare le tile Esri. Le tile arrivano dopo e
-   * sostituiscono questo ritaglio con il dettaglio z17.
+   * paesi) anche a 3 km, senza aspettare le tile remote. Le tile aperte
+   * configurate arrivano dopo e sostituiscono questo ritaglio con più dettaglio.
    */
   baseChunkTexture(cx: number, cz: number): THREE.Texture | null {
     const img = this.baseImage;

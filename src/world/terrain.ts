@@ -319,7 +319,7 @@ float lcNoise( vec2 p ) {
 
 /**
  * Streaming del terreno a chunk: geometria dal DEM, ritaglio del mosaico
- * Sentinel come base immediata per ogni chunk e tile Esri z17/z16 per il
+ * Sentinel come base immediata per ogni chunk e tile raster configurate per il
  * dettaglio. Carica al massimo N chunk per frame, ordina per distanza e
  * libera quelli lontani.
  */
@@ -715,7 +715,7 @@ export class Terrain {
       }
     }
 
-    // prima il ritaglio Sentinel locale (immediato), poi l'affinamento Esri
+    // prima il ritaglio Sentinel locale (immediato), poi l'eventuale dettaglio remoto
     const base = this.imagery.baseChunkTexture(cx, cz);
     if (base) this.applyBaseTexture(chunk, base);
 

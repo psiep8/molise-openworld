@@ -1,7 +1,7 @@
 import { CENTER_LAT, HOME, latLonToWorld, VILLAGES, WORLD } from '../config';
 import { clamp, type Pt } from '../geo/geo';
 import type { OsmData } from '../geo/osm';
-import { ESRI_WORLD_IMAGERY, type TileProvider } from '../world/imagery';
+import { OPEN_WORLD_IMAGERY, type TileProvider } from '../world/imagery';
 import { SatelliteBasemap, SatelliteTiles } from './satellite';
 import { minimapMeters } from './map-scale';
 
@@ -116,7 +116,7 @@ export class MapRenderer {
   private bigBase: HTMLCanvasElement | null = null;
   private bigBaseKey = '';
 
-  constructor(osm: OsmData, provider: TileProvider = ESRI_WORLD_IMAGERY) {
+  constructor(osm: OsmData, provider: TileProvider = OPEN_WORLD_IMAGERY) {
     this.roads = packRoads(osm);
     this.areas = packAreas(osm);
     this.mapScale = (1600 - this.mapPad * 2) / WORLD.width;

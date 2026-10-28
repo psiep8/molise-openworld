@@ -1,6 +1,6 @@
 import { BBOX, latLonToWorld, worldToLatLon } from '../config';
 import { mercatorPixel } from '../geo/geo';
-import { ESRI_WORLD_IMAGERY, type TileProvider } from '../world/imagery';
+import { OPEN_WORLD_IMAGERY, type TileProvider } from '../world/imagery';
 
 const TILE = 256;
 
@@ -55,7 +55,7 @@ export class SatelliteTiles {
   private readonly maxTiles = 220;
 
   constructor(
-    private readonly provider: TileProvider = ESRI_WORLD_IMAGERY,
+    private readonly provider: TileProvider = OPEN_WORLD_IMAGERY,
     private readonly onUpdate?: () => void,
   ) {}
 
@@ -131,7 +131,7 @@ export class SatelliteBasemap {
   private finished = false;
 
   constructor(
-    private readonly provider: TileProvider = ESRI_WORLD_IMAGERY,
+    private readonly provider: TileProvider = OPEN_WORLD_IMAGERY,
     private readonly onUpdate?: () => void,
     private readonly zoom = 14,
   ) {
@@ -145,7 +145,7 @@ export class SatelliteBasemap {
       this.ctx.fillStyle = '#2b3628';
       this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
       // Prima il mosaico Sentinel locale: la mappa è pronta subito e anche
-      // offline. Se il file manca, si torna alle tile Esri in streaming.
+      // offline. Se il file manca, si usano le tile aperte configurate.
       const img = new Image();
       img.decoding = 'async';
       img.onload = () => {
@@ -198,4 +198,3 @@ export class SatelliteBasemap {
     }
   }
 }
-

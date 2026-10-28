@@ -1,7 +1,7 @@
 /**
  * Cintura di montagne oltre il DEM.
  *
- * Il terreno giocabile è il DEM reale (14 × 12 km) con le ortofoto ESRI, ma lo
+ * Il terreno giocabile è il DEM reale (14 × 12 km) con il mosaico Sentinel locale, ma lo
  * streaming si ferma a 1,5–3,1 km dalla camera: oltre c'è solo la nebbia. Da qui
  * l'idea dell'esempio `webgl_geometry_terrain` di Three.js, portata su un mondo
  * vero: **non** un terreno procedurale al posto del DEM, ma un anello di

@@ -17,7 +17,7 @@
 ## Cosa c'è dentro
 
 - **Casa base: Palata.** Il gioco parte dal centro del paese e la mappa segna Palata come "casa".
-- **Terreno 3D** a chunk (912 m) con DEM a 5 m, **mosaico Sentinel-2 dell'intera area come base immediata** per ogni chunk, tile Esri z18 entro 500 m, z17 fino a 3200 m e z16 oltre per il dettaglio, e normal map ricavata dal rilievo.
+- **Terreno 3D** a chunk (912 m) con DEM a 5 m, **mosaico Sentinel-2 dell'area locale come base immediata** e tile raster aperte configurabili per il dettaglio, con normal map ricavata dal rilievo.
 - **Meteo reale opzionale** (`P` → interruttore): condizioni attuali, nuvole, pioggia/neve e **sole alla posizione e ora vere**, con alba/tramonto del giorno. Aggiornamento ogni 10 minuti, fallback al pomeriggio fisso se lo spegni.
 - **Ora del giorno manuale** (`P` → slider 0–24): alba, mezzogiorno, tramonto e notte, con preset meteo sereno/nuvoloso/pioggia/neve/nebbia. Strada bagnata e fari si accendono da soli quando il sole scende.
 - **Trenta veicoli in catalogo** (`P` → Veicolo, oppure `B` per cambiarli al volo): tutte le auto e moto dell'archivio `cars.zip`, dai modelli del 1930 alla Ferrari F1 2019. Ogni voce ha ingombri, passo, raggio ruota e **prestazioni reali** della versione rappresentata: cilindrata, potenza, coppia, 0-100 e velocità massima vengono dalle schede tecniche (vedi `docs/VEHICLE_DATA.md`).
@@ -123,15 +123,15 @@ DEM Terrarium, tag OSM) e su come renderli credibili in un motore proprio.
   risoluzione: abbassare i pixel per primo è il modo più rapido per riempire lo schermo di
   scalini. Sopra i 12 milioni di pixel (4K con DPR 2) l'immagine viene comunque limitata,
   perché nessuna GPU da browser li regge a 60 fps; `G` (o le impostazioni) cambia preset.
-- **Radar vero, con scala automatica.** La minimappa (320 px) disegna le tile Esri intorno
+- **Radar vero, con scala automatica.** La minimappa (320 px) disegna le tile raster aperte configurate intorno
   al giocatore con lo **zoom scelto perché un pixel di tile copra un pixel di schermo**
   (z18 da vicino, z14 quando è larga), le strade OSM in crema sopra, la barra di scala e
   l'etichetta del paese più vicino con la distanza. La scala è **300 m a piedi** e si apre
   in auto con la velocità (240 m da fermo, ~660 m a 100 km/h): a 90 km/h si vede la curva
   dopo. La rotella sopra la mappa stringe o allarga (0,45×–2,4×) e resta dove lo lasci.
   Sul bordo compaiono direzione e chilometri di **Termoli, Larino, Campobasso, Montenero
-  di Bisaccia, San Salvo e Vasto**. La mappa grande parte dal mosaico Sentinel locale
-  dell'intera area e usa le tile Esri come fallback. `V` alterna satellite e mappa
+  di Bisaccia, San Salvo e Vasto**. La mappa grande parte dal mosaico Sentinel locale;
+  le tile aperte configurate forniscono il dettaglio remoto. `V` alterna satellite e mappa
   vettoriale, `M` apre la mappa grande.
 - **Dati locali.** DEM, OSM e mosaico Sentinel sono pre-processati nel repo: il mondo parte
   anche senza rete. Solo le tile di dettaglio arrivano dal provider (e se mancano resta la
@@ -277,7 +277,7 @@ src/
   ui/
     hud.ts             HUD, impostazioni e schermate
     minimap.ts         minimappa + mappa grande (radar satellite o vettoriale)
-    satellite.ts       cache tile Esri e mosaico z14 per la mappa grande
+    satellite.ts       tile raster configurabili e mosaico z14 per la mappa grande
   gfx/
     post.ts            bloom + SMAA + OutputPass (post-processing opzionale)
     quality.ts         preset minimal/low/medium/high/ultra + auto-detect GPU
@@ -298,7 +298,7 @@ scripts/
 - **AWS Terrain Tiles (Terrarium)** - DEM SRTM/Copernicus/NASADEM: dati aperti, vedi [registry.opendata.aws/terrain-tiles](https://registry.opendata.aws/terrain-tiles/).
 - **ETH Global Canopy Height 2020** - altezza della chioma a 10 m usata per la vegetazione (`public/geo/canopy.bin`): Lang, Jetz, Schindler & Wegner (2023), **CC BY 4.0**, [globalcanopyheight](https://langnico.github.io/globalcanopyheight/). Il tile originale resta in `.geo-cache/canopy/`.
 - **Sentinel-2 cloudless 2025** — mosaico satellitare dell'intera area (`public/geo/world-imagery.jpg`): © EOX IT Services GmbH, licenza **CC BY 4.0**, contiene dati Copernicus Sentinel modificati ([s2maps.eu](https://s2maps.eu)). Si rigenera con `npm run geo:imagery`.
-- **Esri World Imagery** — immagini satellite: © Esri, Maxar, Earthstar Geographics. Usate qui per una demo non commerciale con attribuzione. **Per una pubblicazione** usa un provider con licenza esplicita (MapTiler, Mapbox, Bing, o tile self-hosted) cambiando `ESRI_WORLD_IMAGERY` in `src/world/imagery.ts`.
+- **Immagini satellitari** — il mosaico Sentinel-2 locale è © EOX IT Services GmbH, **CC BY 4.0**. Il provider raster remoto è disattivato per impostazione predefinita per evitare fonti con licenza proprietaria o condizioni di utilizzo non verificate. Per tile provenienti da un servizio aperto e autorizzato, configurare `VITE_OPEN_IMAGERY_TILE_URL` (template XYZ con `{z}/{x}/{y}`) e `VITE_OPEN_IMAGERY_ATTRIBUTION`; il servizio va ospitato o scelto nel rispetto della sua licenza e dei suoi limiti.
 - **Immagini stradali (opzionale)** — non ancora usate. `npm run streets` conta quante strade dei cinque comuni hanno una foto entro 50 m: interroga **Panoramax** (API pubblica, nessun account) e, se impostato `MAPILLARY_TOKEN` (gratuito, CC BY-SA 4.0), anche Mapillary. Al 21/10/2026 Panoramax non ha foto nel bbox: la copertura Mapillary è l'unica da verificare.
 - **Meteo** — Open-Meteo, dati CC BY 4.0, senza chiave API. Usato solo se attivi
   "Meteo reale"; il sole è calcolato in locale e non dipende dal servizio.
