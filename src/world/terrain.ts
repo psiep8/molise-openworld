@@ -498,6 +498,15 @@ export class Terrain {
     }
   }
 
+  /** Ricostruisce i chunk caricati dopo l'arrivo o la rimozione di quote DEM. */
+  refreshElevation(): void {
+    this.queue.length = 0;
+    for (const [key, chunk] of this.chunks) this.disposeChunk(chunk, key);
+    this.lastCx = Number.NaN;
+    this.lastCz = Number.NaN;
+    this.update(this.focusX, this.focusZ, this.lastRadius, true);
+  }
+
   /** Da chiamare ogni frame: costruisce qualche chunk e affina le texture vicine. */
   tick(): void {
     for (let i = 0; i < this.maxBuildPerFrame && this.queue.length > 0; i++) {

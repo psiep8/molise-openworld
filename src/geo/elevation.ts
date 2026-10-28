@@ -94,6 +94,16 @@ export interface HeightMeta {
   generatedAt: string;
 }
 
+export interface StreamedElevationGrid {
+  minLon: number;
+  maxLon: number;
+  minLat: number;
+  maxLat: number;
+  width: number;
+  height: number;
+  values: readonly number[];
+}
+
 /**
  * Griglia di elevazione regolare in metri locali (x = est, z = sud).
  * L'ordine dei campioni è row-major: indice = j * nx + i, con j che cresce verso sud.
@@ -106,6 +116,7 @@ export class Heightfield {
   private readonly minZ: number;
   private readonly maxZ: number;
   private readonly proceduralBase: number;
+  private readonly streamedTiles = new Map<string, StreamedElevationGrid>();
 
   constructor(meta: HeightMeta, data: Int16Array) {
     if (data.length !== meta.nx * meta.nz) {
@@ -133,6 +144,8 @@ export class Heightfield {
       throw new Error(`heightfield: coordinate non finite (${x}, ${z})`);
     }
     if (this.contains(x, z)) return this.demHeightAt(x, z);
+    const streamed = this.streamedHeightAt(x, z);
+    if (streamed !== undefined) return streamed;
 
     const edgeX = clamp(x, this.minX, this.maxX);
     const edgeZ = clamp(z, this.minZ, this.maxZ);
@@ -155,8 +168,54 @@ export class Heightfield {
     return continuedDem + (procedural - continuedDem) * blend;
   }
 
+  setStreamedTile(id: string, grid: StreamedElevationGrid): void {
+    if (!id) throw new Error('heightfield: ID tile vuoto');
+    if (
+      !Number.isInteger(grid.width) ||
+      !Number.isInteger(grid.height) ||
+      grid.width < 2 ||
+      grid.height < 2 ||
+      grid.values.length !== grid.width * grid.height
+    ) {
+      throw new Error(`heightfield: griglia streamed non valida (${id})`);
+    }
+    this.streamedTiles.set(id, grid);
+  }
+
+  removeStreamedTile(id: string): boolean {
+    return this.streamedTiles.delete(id);
+  }
+
   contains(x: number, z: number): boolean {
     return x >= this.minX && x <= this.maxX && z >= this.minZ && z <= this.maxZ;
+  }
+
+  private streamedHeightAt(x: number, z: number): number | undefined {
+    const lon = this.meta.lon + x / this.meta.metersPerDegLon;
+    const lat = this.meta.lat - z / this.meta.metersPerDegLat;
+    let best: { grid: StreamedElevationGrid; resolution: number } | undefined;
+
+    for (const grid of this.streamedTiles.values()) {
+      if (lon < grid.minLon || lon > grid.maxLon || lat < grid.minLat || lat > grid.maxLat) continue;
+      const resolution =
+        ((grid.maxLon - grid.minLon) / (grid.width - 1)) *
+        ((grid.maxLat - grid.minLat) / (grid.height - 1));
+      if (!best || resolution < best.resolution) best = { grid, resolution };
+    }
+    if (!best) return undefined;
+
+    const { grid } = best;
+    const fx = ((lon - grid.minLon) / (grid.maxLon - grid.minLon)) * (grid.width - 1);
+    const fz = ((grid.maxLat - lat) / (grid.maxLat - grid.minLat)) * (grid.height - 1);
+    const ix = Math.min(grid.width - 2, Math.max(0, Math.floor(fx)));
+    const iz = Math.min(grid.height - 2, Math.max(0, Math.floor(fz)));
+    const tx = fx - ix;
+    const tz = fz - iz;
+    const h00 = grid.values[iz * grid.width + ix]! / 10;
+    const h10 = grid.values[iz * grid.width + ix + 1]! / 10;
+    const h01 = grid.values[(iz + 1) * grid.width + ix]! / 10;
+    const h11 = grid.values[(iz + 1) * grid.width + ix + 1]! / 10;
+    return (h00 * (1 - tx) + h10 * tx) * (1 - tz) + (h01 * (1 - tx) + h11 * tx) * tz;
   }
 
   private demHeightAt(x: number, z: number): number {

@@ -3,6 +3,7 @@ import { FAR_TOWNS, GAME, HOME, START, VIEW_RADIUS, VILLAGES, latLonToWorld, wor
 import { clamp, distance2, pointInPolygon, smoothstep, type Pt } from './geo/geo';
 import { loadCanopy, type CanopyField } from './geo/canopy';
 import { loadHeightfield, type Heightfield } from './geo/elevation';
+import { OPEN_WORLD_DATA_PROVIDER, tileKey, WorldTileManager } from './geo/world-tiles';
 import { WorldGround } from './geo/ground';
 import {
   BuildingIndex,
@@ -334,6 +335,9 @@ export class Game {
   /** guardrail correnti; si ricostruiscono se cambia il preset */
   private guardrailsGroup: THREE.Group | null = null;
   private terrain!: Terrain;
+  private worldTileManager: WorldTileManager | null = null;
+  private lastWorldTileX = Number.NaN;
+  private lastWorldTileZ = Number.NaN;
   private landcover: Landcover | null = null;
   private sky!: SkyRig;
   private map!: MapRenderer;
@@ -817,6 +821,28 @@ export class Game {
         osm.roads.filter((road) => road.tunnel && !road.bridge),
       );
       this.scene.add(this.terrain.group);
+      const worldDataProvider = OPEN_WORLD_DATA_PROVIDER;
+      if (worldDataProvider) {
+        this.worldTileManager = new WorldTileManager(worldDataProvider, undefined, {
+          onLoad: (tile) => {
+            if (tile.elevation) {
+              this.heights.setStreamedTile(tileKey(tile.tile), tile.elevation);
+              this.terrain.refreshElevation();
+            }
+            const attribution = document.getElementById('attribution');
+            if (attribution && !attribution.textContent?.includes(worldDataProvider.attribution)) {
+              attribution.textContent += ` · ${worldDataProvider.attribution}`;
+            }
+          },
+          onUnload: (tile) => {
+            if (this.heights.removeStreamedTile(tileKey(tile))) this.terrain.refreshElevation();
+          },
+          onError: (tile, error) => {
+            this.tileErrors++;
+            console.error(`Errore caricamento tile geografica ${tileKey(tile)}:`, error);
+          },
+        });
+      }
       // cintura di montagne oltre il DEM: una mesh, una draw call, nessuna texture
       this.farTerrain = new FarTerrain(heights);
       this.scene.add(this.farTerrain.group);
@@ -3310,6 +3336,16 @@ export class Game {
     }
 
     const focus = this.mode === 'walk' ? this.player.position : this.car.position;
+    if (
+      this.worldTileManager &&
+      (Number.isNaN(this.lastWorldTileX) ||
+        Math.hypot(focus.x - this.lastWorldTileX, focus.z - this.lastWorldTileZ) >= 600)
+    ) {
+      const location = worldToLatLon(focus.x, focus.z);
+      this.worldTileManager.update(location.lat, location.lon, 1700, 14);
+      this.lastWorldTileX = focus.x;
+      this.lastWorldTileZ = focus.z;
+    }
     this.pedestrians?.update(dt, focus);
     this.terrain.update(focus.x, focus.z, this.viewRadius);
     this.vegetation?.update(focus.x, focus.z);
