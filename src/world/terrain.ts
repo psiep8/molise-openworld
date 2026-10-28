@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { CHUNK_SIZE, TERRAIN_SEGMENTS, VIEW_RADIUS, WORLD } from '../config';
 import type { Heightfield } from '../geo/elevation';
-import { pbr, pbrColor } from '../gfx/textures';
 import { chunkCenter, chunkIndex, chunkKey, chunkOrigin } from './chunks';
 import { zoomForDistance, type ImageryStreamer } from './imagery';
 import type { Landcover, LandcoverMode } from './landcover';
@@ -26,6 +25,17 @@ interface Chunk {
 
 const NORMAL_MAP_SIZE = 128;
 const NORMAL_STRENGTH = 2.6;
+const HEIGHT_FOG_FRAGMENT = /* glsl */ `
+#ifdef USE_FOG
+  float heightDensityScale = exp( clamp( ( 420.0 - vDetailWorld.y ) * 0.0015, -1.5, 1.5 ) );
+  #ifdef FOG_EXP2
+    float fogFactor = 1.0 - exp( - fogDensity * fogDensity * heightDensityScale * vFogDepth * vFogDepth );
+  #else
+    float fogFactor = smoothstep( fogNear / heightDensityScale, fogFar / heightDensityScale, vFogDepth );
+  #endif
+  gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );
+#endif
+`;
 
 /**
  * Normal map ricavata dal DEM: il rilievo "fine" (muretti, fossi, crinali)
@@ -81,48 +91,8 @@ function buildNormalMap(hf: Heightfield, cx: number, cz: number): THREE.CanvasTe
 }
 
 /**
- * Grana condivisa per tutte le mesh di terreno: una sola texture, riusata da
- * ogni chunk come `roughnessMap`, così le superfici non risultano uniformi
- * nemmeno quando la foto satellite è a bassa risoluzione.
- */
-let detailMap: THREE.CanvasTexture | null = null;
-function terrainDetailMap(): THREE.CanvasTexture {
-  if (detailMap) return detailMap;
-  const size = 256;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('canvas 2d non disponibile');
-  const img = ctx.createImageData(size, size);
-  let seed = 0x9e3779b9;
-  for (let i = 0; i < img.data.length; i += 4) {
-    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-    const n = 190 + (seed % 60);
-    img.data[i] = n;
-    img.data[i + 1] = n;
-    img.data[i + 2] = n;
-    img.data[i + 3] = 255;
-  }
-  ctx.putImageData(img, 0, 0);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(CHUNK_SIZE / 24, CHUNK_SIZE / 24);
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
-  texture.magFilter = THREE.LinearFilter;
-  texture.anisotropy = 4;
-  texture.needsUpdate = true;
-  detailMap = texture;
-  return texture;
-}
-
-/**
- * Aggiunge il dettaglio ravvicinato al terreno: la foto satellite è nitida solo
- * da lontano, quindi si moltiplica per una texture erba/roccia campionata in
- * coordinate mondo. La modulazione è centrata su 1 (luminanza media), così non
- * cambia il colore medio del satellite, e sfuma con la distanza per non far
- * vedere la ripetizione all'orizzonte.
+ * Colore del terreno a grandi campiture: il satellite resta solo una lieve
+ * modulazione di luminanza, mentre pendenza e copertura danno tinte morbide.
  *
  * Nello stesso shader arrivano le ombre delle nuvole: un rumore largo che scorre
  * col vento e scurisce il suolo a chiazze, come succede davvero quando passano.
@@ -137,12 +107,8 @@ export function setCloudShadow(amount: number, dt: number, windX: number, windZ:
   cloudDriftUniform.value.y += windZ * dt * 0.0025;
 }
 
-function applyTerrainDetail(material: THREE.MeshStandardMaterial, renderer: THREE.WebGLRenderer): void {
-  const grass = pbrColor(renderer, 'grass');
-  const rock = pbrColor(renderer, 'rock');
+function applyTerrainDetail(material: THREE.MeshStandardMaterial, _renderer: THREE.WebGLRenderer): void {
   material.onBeforeCompile = (shader) => {
-    shader.uniforms.uDetailGrass = { value: grass };
-    shader.uniforms.uDetailRock = { value: rock };
     shader.uniforms.uCloudShadow = cloudShadowUniform;
     shader.uniforms.uCloudDrift = cloudDriftUniform;
     shader.vertexShader = shader.vertexShader
@@ -160,8 +126,6 @@ function applyTerrainDetail(material: THREE.MeshStandardMaterial, renderer: THRE
         `#include <common>
 varying vec3 vDetailWorld;
 varying vec3 vDetailNormal;
-uniform sampler2D uDetailGrass;
-uniform sampler2D uDetailRock;
 uniform float uCloudShadow;
 uniform vec2 uCloudDrift;
 
@@ -182,26 +146,13 @@ float cloudNoise( vec2 p ) {
       .replace(
         '#include <map_fragment>',
         `#include <map_fragment>
-        float detailDist = length( vDetailWorld - cameraPosition );
-        float detailFade = 1.0 - smoothstep( 60.0, 210.0, detailDist );
-        if ( detailFade > 0.001 ) {
-          float slope = smoothstep( 0.62, 0.86, 1.0 - clamp( normalize( vDetailNormal ).y, 0.0, 1.0 ) );
-          // due scale: la grossa dà le macchie d'erba, la fine il pelo del prato
-          vec3 g = texture2D( uDetailGrass, vDetailWorld.xz * 0.22 ).rgb;
-          vec3 fine = texture2D( uDetailGrass, vDetailWorld.xz * 1.35 ).rgb;
-          vec3 r = texture2D( uDetailRock, vDetailWorld.xz * 0.16 ).rgb;
-          vec3 tex = mix( mix( g, fine, 0.4 ), r, slope );
-          float lum = dot( tex, vec3( 0.299, 0.587, 0.114 ) );
-          float mod = 1.0 + ( lum - 0.34 ) * 1.3;
-          float nearFade = 1.0 - smoothstep( 10.0, 40.0, detailDist );
-          diffuseColor.rgb *= mix( 1.0, mod, ( 0.45 + 0.3 * nearFade ) * detailFade );
-        }
-        // grana a media distanza: la foto Sentinel è a ~7 m/px e da lontano
-        // diventa una macchia liscia; un rumore neutro le ridà un po' di
-        // consistenza senza inventare confini di campo
-        float grain = cloudNoise( vDetailWorld.xz * 0.045 ) * 0.6 + cloudNoise( vDetailWorld.xz * 0.11 + 7.0 ) * 0.4;
-        float grainFade = smoothstep( 120.0, 320.0, detailDist );
-        diffuseColor.rgb *= 1.0 + ( grain - 0.5 ) * 0.14 * grainFade;
+        float slope = smoothstep( 0.48, 0.78, 1.0 - clamp( normalize( vDetailNormal ).y, 0.0, 1.0 ) );
+        float aerialLum = dot( diffuseColor.rgb, vec3( 0.299, 0.587, 0.114 ) );
+        vec3 sage = vec3( 0.42, 0.49, 0.34 );
+        vec3 earth = vec3( 0.52, 0.44, 0.32 );
+        vec3 flatColor = mix( sage, earth, slope );
+        float softLum = clamp( 0.9 + ( aerialLum - 0.5 ) * 0.24, 0.78, 1.08 );
+        diffuseColor.rgb = mix( diffuseColor.rgb, flatColor * softLum, 0.82 );
         // ombre delle nuvole: due rumori sovrapposti che scorrono col vento
         if ( uCloudShadow > 0.01 ) {
           vec2 cp = vDetailWorld.xz * 0.0016 + uCloudDrift;
@@ -209,29 +160,21 @@ float cloudNoise( vec2 p ) {
           float shade = smoothstep( 0.42, 0.78, n );
           diffuseColor.rgb *= 1.0 - 0.34 * uCloudShadow * shade;
         }`,
-      );
+      )
+      .replace('#include <fog_fragment>', HEIGHT_FOG_FRAGMENT);
   };
-  material.customProgramCacheKey = () => 'terrain-detail-v3';
+  material.customProgramCacheKey = () => 'terrain-pastel-v4';
 }
 
 interface LandcoverUniformState {
   uLcBase: { value: THREE.Texture };
   uLcLocal: { value: THREE.Texture };
-  uLcFields: { value: THREE.Texture };
-  uLcDetail: { value: THREE.Texture };
-  uLcNormal: { value: THREE.Texture };
-  /** prato, terra lavorata e roccia: la superficie vera sotto i 90 m */
-  uGroundGrass: { value: THREE.Texture };
-  uGroundSoil: { value: THREE.Texture };
-  uGroundRock: { value: THREE.Texture };
-  uGroundGrassN: { value: THREE.Texture };
   uLocalReady: { value: number };
-  uFieldsReady: { value: number };
-  uMicroReady: { value: number };
   uBaseScale: { value: THREE.Vector2 };
   uBaseOffset: { value: THREE.Vector2 };
   uLocalOrigin: { value: THREE.Vector2 };
   uLocalScale: { value: number };
+  uWorldHalfBounds: { value: THREE.Vector2 };
   uSeasonGlobal: { value: THREE.Vector3 };
 }
 
@@ -239,49 +182,28 @@ interface LandcoverUniformState {
  * Shader della Fase A: la copertura del suolo (coltivo/prato/bosco/roccia)
  * decide colore e grana, il satellite resta la base fotografica.
  *
- * Il dettaglio a 60 m e 6 m **non** è più calcolato per pixel: è cotto una
- * volta sola in `landcover.ts` in una texture di modulazione RGB (2 m/px locale,
- * 12 m/px globale), con le tinte relative di classe già dentro. Qui si fa un
- * solo campione e si moltiplica. La scala da 0,8 m resta dove serve davvero:
- * micro-rilievo normale sotto i 32 m e solchi delle parcelle sotto i 95 m.
- * La misura che ha imposto questa scelta è in `HANDOFF.md`: tre campioni di
- * dettaglio per pixel quasi dimezzavano gli fps sulla iGPU di prova.
+ * I canali della copertura sono pesi di classe, non texture di materiale:
+ * il satellite contribuisce solo con una luminanza attenuata e le tinte
+ * restano uniformi anche a distanza ravvicinata.
  */
 function applyLandcoverDetail(
   material: THREE.MeshStandardMaterial,
   landcover: Landcover,
   cx: number,
   cz: number,
-  renderer: THREE.WebGLRenderer,
+  _renderer: THREE.WebGLRenderer,
 ): LandcoverUniformState {
   const base = landcover.baseTexture;
   if (!base) throw new Error('landcover senza overlay globale');
-  // Superficie vera per il primo piano. La foto aerea resta la base lontana,
-  // ma a un metro da terra 0,45 m/px è una macchia: qui il suolo ha grana,
-  // colore e rilievo di erba/terra/roccia veri, con due scale sovrapposte che
-  // nascondono la ripetizione del tiling.
-  const grassSet = pbr(renderer, 'grass');
-  const soilSet = pbr(renderer, 'ploughed');
-  const rockSet = pbr(renderer, 'rock', { repeat: 1 });
   const uniforms: LandcoverUniformState = {
     uLcBase: { value: base },
-    // segnaposto finché il chunk non ha la sua overlay a 2 m/px: uLocalReady=0
     uLcLocal: { value: base },
-    uLcFields: { value: landcover.fieldsTexture ?? base },
-    uLcDetail: { value: landcover.detailTexture ?? base },
-    uLcNormal: { value: landcover.microNormal },
-    uGroundGrass: { value: grassSet.map ?? base },
-    uGroundSoil: { value: soilSet.map ?? base },
-    uGroundRock: { value: rockSet.map ?? base },
-    uGroundGrassN: { value: grassSet.normalMap ?? landcover.microNormal },
     uLocalReady: { value: 0 },
-    uFieldsReady: { value: landcover.fieldsTexture ? 1 : 0 },
-    uMicroReady: { value: landcover.detailTexture ? 1 : 0 },
     uBaseScale: { value: new THREE.Vector2(1 / WORLD.width, 1 / WORLD.height) },
     uBaseOffset: { value: new THREE.Vector2(WORLD.halfWidth / WORLD.width, WORLD.halfHeight / WORLD.height) },
     uLocalOrigin: { value: new THREE.Vector2(chunkOrigin(cx), chunkOrigin(cz)) },
     uLocalScale: { value: 1 / CHUNK_SIZE },
-    // stesso Vector3 mutato da `setSeason`: nessun rebuild dei materiali
+    uWorldHalfBounds: { value: new THREE.Vector2(WORLD.halfWidth, WORLD.halfHeight) },
     uSeasonGlobal: { value: landcover.seasonGlobalUniform },
   };
   material.userData.lc = uniforms;
@@ -307,20 +229,12 @@ varying vec3 vDetailWorld;
 varying vec3 vDetailNormal;
 uniform sampler2D uLcBase;
 uniform sampler2D uLcLocal;
-uniform sampler2D uLcFields;
-uniform sampler2D uLcDetail;
-uniform sampler2D uLcNormal;
-uniform sampler2D uGroundGrass;
-uniform sampler2D uGroundSoil;
-uniform sampler2D uGroundRock;
-uniform sampler2D uGroundGrassN;
 uniform float uLocalReady;
-uniform float uFieldsReady;
-uniform float uMicroReady;
 uniform vec2 uBaseScale;
 uniform vec2 uBaseOffset;
 uniform vec2 uLocalOrigin;
 uniform float uLocalScale;
+uniform vec2 uWorldHalfBounds;
 uniform vec3 uSeasonGlobal;
 uniform float uCloudShadow;
 uniform vec2 uCloudDrift;
@@ -342,70 +256,34 @@ float lcNoise( vec2 p ) {
       .replace(
         '#include <map_fragment>',
         `#include <map_fragment>
-        float lcDist = length( vDetailWorld - cameraPosition );
         vec2 lcBaseUV = vDetailWorld.xz * uBaseScale + uBaseOffset;
-        // overaly cotta: RGB = modulazione * tinta relativa / 2, A = peso coltivo.
-        // Locale a 2 m/px quando c'è, altrimenti la globale a 12 m/px.
         vec4 lc = uLocalReady > 0.5
           ? texture2D( uLcLocal, ( vDetailWorld.xz - uLocalOrigin ) * uLocalScale )
           : texture2D( uLcBase, lcBaseUV );
-        // i bordi della mappa possono essere a zero: in quel caso non toccare
-        float lcLum = max( lc.r, max( lc.g, lc.b ) );
-        // tinta relativa della classe (bosco scuro, coltivo giallo, macchia
-        // secca) moltiplicata per la stagione
-        vec3 lcTint = lcLum > 0.004
-          ? clamp( lc.rgb * 2.0, vec3( 0.0 ), vec3( 1.7 ) ) * uSeasonGlobal
-          : vec3( 1.0 );
+        float lcCoverage = step( 0.004, lc.r + lc.g + lc.b + lc.a );
+        float rockWeight = lc.a;
+        vec3 cropColor = vec3( 0.67, 0.56, 0.34 );
+        vec3 grassColor = vec3( 0.43, 0.51, 0.35 );
+        vec3 forestColor = vec3( 0.30, 0.39, 0.28 );
+        vec3 soilColor = vec3( 0.53, 0.45, 0.34 );
+        vec3 classColor = lc.r * cropColor + lc.g * grassColor + lc.b * forestColor + rockWeight * soilColor;
+        float aerialLum = dot( diffuseColor.rgb, vec3( 0.299, 0.587, 0.114 ) );
+        float lowFrequencyLum = clamp( 0.9 + ( aerialLum - 0.5 ) * 0.24, 0.78, 1.08 );
+        vec3 mappedColor = classColor * lowFrequencyLum * uSeasonGlobal;
 
-        // ---- superficie vera in primo piano -------------------------------
-        // Entro ~90 m il suolo non è più la foto aerea ma erba, terra e
-        // roccia fotografate, campionate in coordinate mondo. Due scale per
-        // strato: quella stretta dà la grana, quella larga le macchie, e
-        // insieme nascondono la periodicità del tiling.
-        float lcNear = 1.0 - smoothstep( 15.0, 96.0, lcDist );
-        if ( lcNear > 0.001 ) {
-          float lcSlope = smoothstep( 0.5, 0.82, 1.0 - clamp( normalize( vDetailNormal ).y, 0.0, 1.0 ) );
-          float lcCrop = clamp( lc.a * 1.35, 0.0, 1.0 );
-          vec2 gp = vDetailWorld.xz;
-          vec3 gNear = mix(
-            texture2D( uGroundGrass, gp * 0.19 ).rgb,
-            texture2D( uGroundGrass, gp * 0.71 ).rgb,
-            0.38
-          );
-          vec3 sNear = mix(
-            texture2D( uGroundSoil, gp * 0.27 ).rgb,
-            texture2D( uGroundSoil, gp * 1.05 ).rgb,
-            0.35
-          );
-          vec3 rNear = texture2D( uGroundRock, gp * 0.15 ).rgb;
-          // macchie larghe: un prato non è mai uniforme
-          float macro = lcNoise( gp * 0.017 ) * 0.62 + lcNoise( gp * 0.061 ) * 0.38;
-          vec3 surf = mix( gNear, sNear, lcCrop );
-          surf = mix( surf, rNear, lcSlope );
-          surf *= 0.84 + macro * 0.3;
-          surf *= mix( vec3( 1.0 ), lcTint, 0.9 );
-          // dalla foto (colore di insieme) alla superficie vera (dettaglio)
-          diffuseColor.rgb = mix( diffuseColor.rgb * lcTint, surf, lcNear );
-        } else {
-          diffuseColor.rgb *= lcTint;
+        bool outsideGeo = abs( vDetailWorld.x ) > uWorldHalfBounds.x || abs( vDetailWorld.z ) > uWorldHalfBounds.y;
+        if ( outsideGeo ) {
+          vec2 fieldCell = floor( vDetailWorld.xz / 280.0 );
+          float fieldClass = lcHash( fieldCell );
+          float crop = smoothstep( 0.32, 0.58, fieldClass ) * ( 1.0 - smoothstep( 0.82, 0.96, fieldClass ) );
+          float woodland = smoothstep( 0.82, 0.96, fieldClass );
+          float fieldNoise = lcNoise( vDetailWorld.xz * 0.003 + fieldCell * 0.31 );
+          vec3 proceduralColor = mix( grassColor, cropColor, crop );
+          proceduralColor = mix( proceduralColor, forestColor, woodland );
+          mappedColor = proceduralColor * ( 0.9 + ( fieldNoise - 0.5 ) * 0.08 ) * uSeasonGlobal;
+          lcCoverage = 1.0;
         }
-
-        // solchi: direzione e forza della parcella, solo da vicino e sul coltivo
-        if ( uFieldsReady > 0.5 && lcDist < 95.0 && lc.a > 0.02 ) {
-          vec4 fld = texture2D( uLcFields, lcBaseUV );
-          vec2 fdir = fld.rg * 2.0 - 1.0;
-          float flen = length( fdir );
-          fdir = flen > 0.01 ? fdir / flen : vec2( 1.0, 0.0 );
-          float along = dot( vDetailWorld.xz, fdir );
-          // ai piedi del campo la direzione è quasi radente: senza questa
-          // soglia sulle derivate i solchi da 0,55 m diventano un moiré
-          float aa = 1.0 - smoothstep( 0.12, 0.55, fwidth( along ) );
-          float stripe = mix( 0.5, sin( along * 11.4 ) * 0.5 + 0.5, aa );
-          float furrow = fld.b * fld.a * ( 1.0 - smoothstep( 18.0, 95.0, lcDist ) ) * lc.a;
-          diffuseColor.rgb *= 1.0 + ( stripe - 0.5 ) * 0.34 * furrow;
-          float clod = lcNoise( vDetailWorld.xz * 2.7 + fdir * along * 0.08 );
-          diffuseColor.rgb *= 1.0 + ( clod - 0.5 ) * 0.12 * furrow;
-        }
+        diffuseColor.rgb = mix( diffuseColor.rgb, mappedColor, lcCoverage );
 
         if ( uCloudShadow > 0.01 ) {
           vec2 cp = vDetailWorld.xz * 0.0016 + uCloudDrift;
@@ -417,20 +295,11 @@ float lcNoise( vec2 p ) {
       .replace(
         '#include <normal_fragment_maps>',
         `#include <normal_fragment_maps>
-        if ( lcNear > 0.001 ) {
-          // rilievo del manto d'erba vero: peli, zolle e sassi che la foto
-          // aerea non può avere
-          vec3 gn = texture2D( uGroundGrassN, vDetailWorld.xz * 0.6 ).xyz * 2.0 - 1.0;
-          normal = normalize( normal + vec3( gn.xy, 0.0 ) * 1.15 * lcNear );
-        }
-        if ( lcDist < 38.0 ) {
-          vec3 mn = texture2D( uLcNormal, vDetailWorld.xz / 0.8 ).xyz * 2.0 - 1.0;
-          float mf = 1.0 - smoothstep( 12.0, 38.0, lcDist );
-          normal = normalize( normal + vec3( mn.xy, 0.0 ) * 0.38 * mf );
         }`,
-      );
+      )
+      .replace('#include <fog_fragment>', HEIGHT_FOG_FRAGMENT);
   };
-  material.customProgramCacheKey = () => 'terrain-landcover-v3';
+  material.customProgramCacheKey = () => 'terrain-pastel-landcover-v4';
   return uniforms;
 }
 
@@ -717,9 +586,7 @@ export class Terrain {
       metalness: 0,
       normalMap,
       normalScale: new THREE.Vector2(1.05, 1.05),
-      roughnessMap: terrainDetailMap(),
-      // il satellite è opaco: senza questo, il cielo si specchia radente e
-      // sembra ghiaccio invece che prato/asfalto
+      // il terreno pastello è opaco e ruvido, senza grana speculare artificiale
       envMapIntensity: 0.35,
     });
     const landcoverMode = this.landcover?.effectiveMode ?? 'off';
@@ -797,7 +664,6 @@ export class Terrain {
       metalness: old.metalness,
       normalMap: chunk.normalMap,
       normalScale: old.normalScale.clone(),
-      roughnessMap: terrainDetailMap(),
       envMapIntensity: old.envMapIntensity,
       map: chunk.texture ?? old.map ?? null,
     });

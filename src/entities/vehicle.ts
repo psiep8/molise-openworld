@@ -36,7 +36,6 @@ import { preciseBox, splitCarWheels } from './car-wheels';
 import { HumanBody, type HumanAssets } from './human-model';
 import type { Appearance } from './appearance';
 import { clamp } from '../geo/geo';
-import { WORLD } from '../config';
 
 /** Una ruota di un GLB, col suo verso di rotolamento accumulato. */
 interface ExternalWheel {
@@ -1226,11 +1225,6 @@ export class Vehicle {
       dt,
       tuningFor(spec),
     );
-
-    const clampX = WORLD.halfWidth - 24;
-    const clampZ = WORLD.halfHeight - 24;
-    next.x = clamp(next.x, -clampX, clampX);
-    next.z = clamp(next.z, -clampZ, clampZ);
 
     // Due cerchi (avantreno e retrotreno) invece di uno solo: il muso non
     // attraversa più muri e pali mentre il centro è ancora in carreggiata.

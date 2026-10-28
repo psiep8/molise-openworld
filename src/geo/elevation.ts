@@ -1,4 +1,79 @@
-import { clamp } from './geo';
+import { clamp, mulberry32, smoothstep } from './geo';
+
+const PROCEDURAL_SEED = 0x4d4f4c49;
+const PROCEDURAL_SCALE = 0.0005;
+const PROCEDURAL_AMPLITUDE = 240;
+const TRANSITION_DISTANCE = 100;
+const NOISE_SIZE = 256;
+
+const PERMUTATION = (() => {
+  const values = new Uint8Array(NOISE_SIZE * 2);
+  const source = Uint8Array.from({ length: NOISE_SIZE }, (_, i) => i);
+  const random = mulberry32(PROCEDURAL_SEED);
+  for (let i = NOISE_SIZE - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [source[i], source[j]] = [source[j]!, source[i]!];
+  }
+  for (let i = 0; i < values.length; i++) values[i] = source[i % NOISE_SIZE]!;
+  return values;
+})();
+
+function fade(t: number): number {
+  return t * t * t * (t * (t * 6 - 15) + 10);
+}
+
+function gradient(hash: number, x: number, z: number): number {
+  switch (hash & 7) {
+    case 0:
+      return x + z;
+    case 1:
+      return -x + z;
+    case 2:
+      return x - z;
+    case 3:
+      return -x - z;
+    case 4:
+      return x;
+    case 5:
+      return -x;
+    case 6:
+      return z;
+    default:
+      return -z;
+  }
+}
+
+/** Perlin noise seeded once, so every coordinate has a stable world height. */
+function perlin2(x: number, z: number): number {
+  const xi = Math.floor(x) & 255;
+  const zi = Math.floor(z) & 255;
+  const xf = x - Math.floor(x);
+  const zf = z - Math.floor(z);
+  const u = fade(xf);
+  const v = fade(zf);
+  const aa = PERMUTATION[PERMUTATION[xi]! + zi]!;
+  const ab = PERMUTATION[PERMUTATION[xi]! + zi + 1]!;
+  const ba = PERMUTATION[PERMUTATION[xi + 1]! + zi]!;
+  const bb = PERMUTATION[PERMUTATION[xi + 1]! + zi + 1]!;
+  const top = (1 - u) * gradient(aa, xf, zf) + u * gradient(ba, xf - 1, zf);
+  const bottom = (1 - u) * gradient(ab, xf, zf - 1) + u * gradient(bb, xf - 1, zf - 1);
+  return clamp((top * (1 - v) + bottom * v) * 0.70710678, -1, 1);
+}
+
+/** Four octave fBm tuned for broad Molise-like hills with deterministic detail. */
+export function proceduralElevationNoise(x: number, z: number): number {
+  let frequency = PROCEDURAL_SCALE;
+  let amplitude = 1;
+  let value = 0;
+  let total = 0;
+  for (let octave = 0; octave < 4; octave++) {
+    value += perlin2(x * frequency, z * frequency) * amplitude;
+    total += amplitude;
+    frequency *= 2;
+    amplitude *= 0.5;
+  }
+  return (value / total) * PROCEDURAL_AMPLITUDE;
+}
 
 export interface HeightMeta {
   source: string;
@@ -26,6 +101,11 @@ export interface HeightMeta {
 export class Heightfield {
   readonly meta: HeightMeta;
   private readonly data: Int16Array;
+  private readonly minX: number;
+  private readonly maxX: number;
+  private readonly minZ: number;
+  private readonly maxZ: number;
+  private readonly proceduralBase: number;
 
   constructor(meta: HeightMeta, data: Int16Array) {
     if (data.length !== meta.nx * meta.nz) {
@@ -33,6 +113,11 @@ export class Heightfield {
     }
     this.meta = meta;
     this.data = data;
+    this.minX = meta.originX;
+    this.maxX = meta.originX + (meta.nx - 1) * meta.step;
+    this.minZ = meta.originZ;
+    this.maxZ = meta.originZ + (meta.nz - 1) * meta.step;
+    this.proceduralBase = this.sample(Math.floor((meta.nx - 1) / 2), Math.floor((meta.nz - 1) / 2));
   }
 
   sample(i: number, j: number): number {
@@ -42,11 +127,42 @@ export class Heightfield {
     return this.data[jj * nx + ii] / 10;
   }
 
-  /** Quota (metri) con interpolazione bilineare. Fuori dal mondo: clamp ai bordi. */
+  /** Quota (metri): DEM reale nel suo bbox, fBm deterministico oltre il bordo. */
   heightAt(x: number, z: number): number {
+    if (!Number.isFinite(x) || !Number.isFinite(z)) {
+      throw new Error(`heightfield: coordinate non finite (${x}, ${z})`);
+    }
+    if (this.contains(x, z)) return this.demHeightAt(x, z);
+
+    const edgeX = clamp(x, this.minX, this.maxX);
+    const edgeZ = clamp(z, this.minZ, this.maxZ);
+    const dx = x - edgeX;
+    const dz = z - edgeZ;
+    const distance = Math.hypot(dx, dz);
+    const edgeHeight = this.demHeightAt(edgeX, edgeZ);
+    const eps = this.meta.step;
+    const gradX =
+      dx === 0
+        ? 0
+        : (Math.sign(dx) * (edgeHeight - this.demHeightAt(edgeX - Math.sign(dx) * eps, edgeZ))) / eps;
+    const gradZ =
+      dz === 0
+        ? 0
+        : (Math.sign(dz) * (edgeHeight - this.demHeightAt(edgeX, edgeZ - Math.sign(dz) * eps))) / eps;
+    const continuedDem = edgeHeight + gradX * dx + gradZ * dz;
+    const procedural = this.proceduralBase + proceduralElevationNoise(x, z);
+    const blend = smoothstep(0, TRANSITION_DISTANCE, distance);
+    return continuedDem + (procedural - continuedDem) * blend;
+  }
+
+  contains(x: number, z: number): boolean {
+    return x >= this.minX && x <= this.maxX && z >= this.minZ && z <= this.maxZ;
+  }
+
+  private demHeightAt(x: number, z: number): number {
     const { originX, originZ, step, nx, nz } = this.meta;
-    const fx = clamp((x - originX) / step, 0, nx - 1e-9);
-    const fz = clamp((z - originZ) / step, 0, nz - 1e-9);
+    const fx = clamp((x - originX) / step, 0, nx - 1 - 1e-9);
+    const fz = clamp((z - originZ) / step, 0, nz - 1 - 1e-9);
     const i = Math.floor(fx);
     const j = Math.floor(fz);
     const tx = fx - i;

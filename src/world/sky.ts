@@ -49,10 +49,10 @@ export const DEFAULT_SKY: SkyParams = {
 };
 export const DEFAULT_LIGHTING: LightingParams = {
   sunColor: 0xffeed2,
-  sunIntensity: 1.8,
-  hemiSky: 0xa8c8ee,
-  hemiGround: 0x63583f,
-  hemiIntensity: 0.7,
+  sunIntensity: 1.4,
+  hemiSky: 0xbcd2e4,
+  hemiGround: 0x6b6350,
+  hemiIntensity: 0.85,
   ambientIntensity: 0.18,
   moonIntensity: 0,
 };

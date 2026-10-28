@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CHUNK_SIZE, WORLD } from '../config';
+import { CHUNK_SIZE } from '../config';
 import { terrainMicroNormal } from '../gfx/detail-textures';
 
 /**
@@ -15,13 +15,9 @@ import { terrainMicroNormal } from '../gfx/detail-textures';
  *  - `fields.png`: RG = direzione dei solchi, B = aratura, A = forza del campo;
  *  - i chunk sono 456×456 a 2 m/px.
  *
- * Per non pagare sei campioni di texture per pixel (misurati: quasi dimezzava
- * gli fps su una iGPU), il colore del dettaglio viene **cotto** una volta sola
- * per chunk in una texture di modulazione RGB: il shader fa un solo campione e
- * moltiplica. La cottura usa le tre scale del brief (60 m, 6 m, 0,8 m): le due
- * scale di colore entrano nella texture a 2 m/px, la terza resta nel
- * micro-rilievo normale e nei solchi, che sono gli unici a aver bisogno di
- * stare sotto il metro.
+ * La copertura viene cotta in RGBA come pesi di classe (coltivo, prato,
+ * bosco, suolo). Il terreno usa tinte piane; le texture ad alta frequenza non
+ * vengono più campionate nello shader di colore.
  */
 
 const ROOT = `${import.meta.env.BASE_URL}geo/landcover`;
@@ -166,14 +162,6 @@ export function seasonGlobal(month: number): [number, number, number] {
   ];
 }
 
-/** Tinte di classe normalizzate sulla media: il colore relativo resta cotto. */
-function relativeTints(month: number): [number, number, number][] {
-  const t = seasonTints(month);
-  const g = seasonGlobal(month);
-  const rel = (c: [number, number, number]): [number, number, number] => [c[0] / g[0], c[1] / g[1], c[2] / g[2]];
-  return [rel(t.plough), rel(t.grass), rel(t.woodland), rel(t.rock)];
-}
-
 /**
  * Il giorno 1 è il 1º ottobre: è la stagione con cui il gioco si apre e quella
  * in cui sono scattate le misure del banco prova. Ogni mese vale 30 giorni.
@@ -287,37 +275,6 @@ async function buildDetailData(): Promise<Uint8Array> {
   return data;
 }
 
-/** Bilineare con ripetizione a specchio: niente cuciture ogni 60 m. */
-function sampleDetail(data: Uint8Array, u: number, v: number, channel: number): number {
-  const size = DETAIL_SIZE;
-  const wrap = (t: number): number => {
-    const m = ((t % (2 * size)) + 2 * size) % (2 * size);
-    return m <= size ? m : 2 * size - m;
-  };
-  const fx = wrap(u);
-  const fy = wrap(v);
-  const x0 = Math.floor(fx) % size;
-  const y0 = Math.floor(fy) % size;
-  const x1 = (x0 + 1) % size;
-  const y1 = (y0 + 1) % size;
-  const tx = fx - Math.floor(fx);
-  const ty = fy - Math.floor(fy);
-  const a = data[(y0 * size + x0) * 4 + channel]!;
-  const b = data[(y0 * size + x1) * 4 + channel]!;
-  const c = data[(y1 * size + x0) * 4 + channel]!;
-  const d = data[(y1 * size + x1) * 4 + channel]!;
-  return (lerp(lerp(a, b, tx), lerp(c, d, tx), ty) / 255) as number;
-}
-
-/** Luminanza di dettaglio alla scala scelta, già pesata sulle classi. */
-function detailLuminance(data: Uint8Array, wx: number, wz: number, scale: number, weights: number[]): number {
-  const macro = sampleDetail(data, wx / scale, wz / scale, 0);
-  const grass = sampleDetail(data, wx / scale, wz / scale, 1);
-  const wood = sampleDetail(data, wx / scale, wz / scale, 2);
-  const rock = sampleDetail(data, wx / scale, wz / scale, 3);
-  return macro * weights[0]! + grass * weights[1]! + wood * weights[2]! + rock * weights[3]!;
-}
-
 function normalizeWeights(pixels: Uint8ClampedArray, i: number): number[] {
   const k = i * 4;
   // A è il flag di validità del PNG (vedi `fetch-landcover.mjs`): con alfa=0
@@ -331,30 +288,13 @@ function normalizeWeights(pixels: Uint8ClampedArray, i: number): number[] {
   return sum > 0.001 ? [r / sum, g / sum, b / sum, a / sum] : [0, 0, 0, 0];
 }
 
-/**
- * Cottura della modulazione: per ogni texel campiona la detail map a 60 m e
- * 6 m, la pesa con la copertura del suolo e scrive `mul / 2` in RGB, con il
- * peso del coltivo in A (serve ai solchi).
- */
-function bakeOverlay(
-  weightsPixels: Uint8ClampedArray,
-  width: number,
-  height: number,
-  worldX: (i: number) => number,
-  worldZ: (j: number) => number,
-  detail: Uint8Array,
-  tints: [number, number, number][],
-  strength: number,
-): THREE.DataTexture {
+/** Converte la maschera ESA in quattro pesi RGBA, uno per classe di terreno. */
+function bakeOverlay(weightsPixels: Uint8ClampedArray, width: number, height: number): THREE.DataTexture {
   const out = new Uint8Array(width * height * 4);
   for (let j = 0; j < height; j++) {
-    const wz = worldZ(j);
     for (let i = 0; i < width; i++) {
-      const wx = worldX(i);
       const w = normalizeWeights(weightsPixels, j * width + i);
       const k = (j * width + i) * 4;
-      // fuori copertura (acqua, città, bordo): overlay nero = nessuna tinta,
-      // il satellite resta com'è. Anche i solchi si spengono (A = 0).
       if (w[0]! + w[1]! + w[2]! + w[3]! < 0.001) {
         out[k] = 0;
         out[k + 1] = 0;
@@ -362,23 +302,10 @@ function bakeOverlay(
         out[k + 3] = 0;
         continue;
       }
-      const macro = detailLuminance(detail, wx, wz, 60, w);
-      // meso ruotata di ~40°, come nel shader originale: due griglie diverse
-      const rx = wx * 0.766 - wz * 0.643;
-      const rz = wx * 0.643 + wz * 0.766;
-      const meso = detailLuminance(detail, rx + 22, rz + 7, 6, w);
-      const lum = macro * 0.45 + meso * 0.55;
-      const mod = 1 + (lum - 0.5) * strength;
-      const tint =
-        tints[0]![0] * w[0]! + tints[1]![0] * w[1]! + tints[2]![0] * w[2]! + tints[3]![0] * w[3]!;
-      const tintG =
-        tints[0]![1] * w[0]! + tints[1]![1] * w[1]! + tints[2]![1] * w[2]! + tints[3]![1] * w[3]!;
-      const tintB =
-        tints[0]![2] * w[0]! + tints[1]![2] * w[1]! + tints[2]![2] * w[2]! + tints[3]![2]! * w[3]!;
-      out[k] = Math.round(clamp(mod * tint * 0.5, 0, 1) * 255);
-      out[k + 1] = Math.round(clamp(mod * tintG * 0.5, 0, 1) * 255);
-      out[k + 2] = Math.round(clamp(mod * tintB * 0.5, 0, 1) * 255);
-      out[k + 3] = Math.round(clamp(w[0]! * 255, 0, 255));
+      out[k] = Math.round(w[0]! * 255);
+      out[k + 1] = Math.round(w[1]! * 255);
+      out[k + 2] = Math.round(w[2]! * 255);
+      out[k + 3] = Math.round(w[3]! * 255);
     }
   }
   const texture = new THREE.DataTexture(out, width, height, THREE.RGBAFormat);
@@ -416,8 +343,6 @@ export class Landcover {
   fieldsTexture: THREE.Texture | null = null;
   /** dettaglio 0,8 m in RGBA (coltivo, prato, bosco, roccia), ripetuto */
   detailTexture: THREE.DataTexture | null = null;
-  /** forza del dettaglio 0..1 (0,58 = overlay dichiarato dal brief) */
-  readonly detailStrength = 0.58;
   readonly seasonGlobalUniform = new THREE.Vector3(1, 1, 1);
 
   private mode: LandcoverMode = 'off';
@@ -492,19 +417,13 @@ export class Landcover {
         tex.needsUpdate = true;
         this.detailTexture = tex;
       }
-      if (basePixels && detail) {
-        const tints = relativeTints(this.month);
+      if (basePixels) {
         const width = basePixels.width;
         const height = basePixels.height;
         this.baseTexture = bakeOverlay(
           basePixels.data,
           width,
           height,
-          (i) => -WORLD.halfWidth + (i + 0.5) * (WORLD.width / width),
-          (j) => -WORLD.halfHeight + (j + 0.5) * (WORLD.height / height),
-          detail,
-          tints,
-          this.detailStrength,
         );
         this.baseTexture.name = 'landcover-base-overlay';
         this.baseTexture.anisotropy = this.anisotropy;
@@ -662,18 +581,11 @@ export class Landcover {
       if (entry.disposed || !this.detailData) {
         return;
       }
-      const x0 = cx * CHUNK_SIZE;
-      const z0 = cz * CHUNK_SIZE;
       const bakeStart = performance.now();
       const texture = bakeOverlay(
         pixels.data,
         LOCAL_PIXELS,
         LOCAL_PIXELS,
-        (i) => x0 + (i + 0.5) * LOCAL_MPP,
-        (j) => z0 + (j + 0.5) * LOCAL_MPP,
-        this.detailData,
-        relativeTints(this.month),
-        this.detailStrength,
       );
       const bakeTime = performance.now() - bakeStart;
       this.bakes++;

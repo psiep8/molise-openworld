@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FAR_TOWNS, GAME, HOME, START, VIEW_RADIUS, VILLAGES, WORLD, latLonToWorld, worldToLatLon } from './config';
+import { FAR_TOWNS, GAME, HOME, START, VIEW_RADIUS, VILLAGES, latLonToWorld, worldToLatLon } from './config';
 import { clamp, distance2, smoothstep, type Pt } from './geo/geo';
 import { loadCanopy, type CanopyField } from './geo/canopy';
 import { loadHeightfield, type Heightfield } from './geo/elevation';
@@ -23,7 +23,7 @@ import { buildDryStoneWalls } from './world/dry-stone';
 import { buildFieldBoundaries, loadParcels, type Parcels } from './world/field-boundaries';
 import { buildPowerLines } from './world/power-lines';
 import { buildGuardrails } from './world/guardrails';
-import { buildRoads, buildWater } from './world/roads';
+import { buildRoads, buildWater, extendBoundaryRoads } from './world/roads';
 import {
   StreetLights,
   buildRoadDrainage,
@@ -33,7 +33,7 @@ import {
 } from './world/street-furniture';
 import { buildChurchPiazza } from './world/piazza';
 import type { PavedArea } from './world/paved';
-import { buildVegetation } from './world/vegetation';
+import { ScatterVegetation } from './world/scatter';
 import { buildCityProps } from './world/city-props';
 import { buildFarmsteads } from './world/farmsteads';
 import { loadCityKit, type CityKit } from './world/citykit';
@@ -347,8 +347,6 @@ export class Game {
   /** fattore di zoom manuale della minimappa (rotella del mouse) */
   private mapZoom = 1;
   private minimapLabel = '';
-  /** ultimo avviso di confine (ms), per non ripeterlo a ogni frame */
-  private edgeNotice = 0;
   private roadGraph?: RoadGraph;
   private route: RouteResult | null = null;
   private routeDestination: Pt | null = null;
@@ -448,7 +446,7 @@ export class Game {
   /** Auto importate: id dello spec -> scena già normalizzata. */
   private readonly customCars = new Map<string, THREE.Object3D>();
   /** Gruppo degli alberi/cespugli: si ricostruisce quando cambia il preset. */
-  private vegetation: THREE.Group | null = null;
+  private vegetation: ScatterVegetation | null = null;
   private vegetationGeneration = 0;
   private cityProps: {
     trees: number;
@@ -544,8 +542,8 @@ export class Game {
 
     // giornata serena di partenza: la stessa foschia del meteo reale, così
     // l'orizzonte con le montagne lontane si vede fin dal primo frame
-    this.scene.fog = new THREE.Fog(0xccd8dd, 2_500, 8_000);
-    this.scene.background = new THREE.Color(0xccd8dd);
+    this.scene.fog = new THREE.FogExp2(0xb9cbd8, 0.008);
+    this.scene.background = new THREE.Color(0xb9cbd8);
 
     this.scene.add(this.player.avatar);
     this.scene.add(this.car.group);
@@ -635,6 +633,7 @@ export class Game {
       await nextFrame();
 
       this.buildingIndex = new BuildingIndex(osm.buildings);
+      extendBoundaryRoads(osm, heights);
       // prima di costruire l'indice stradale: decide dove esistono davvero
       // marciapiedi, e la fisica deve leggere la stessa verità della grafica
       markTownSidewalks(osm.roads, this.buildingIndex);
@@ -718,22 +717,18 @@ export class Game {
 
       this.hud.setLoading(0.64, 'Pianto alberi e uliveti…');
       await nextFrame();
-      this.vegetation = buildVegetation(
+      this.vegetation = new ScatterVegetation(this.renderer, {
         osm,
         heights,
-        this.roadIndex,
-        this.buildingIndex,
-        this.renderer,
-        this.pavedAreas,
-        {
-          trees: this.quality.trees,
-          shrubs: this.quality.shrubs,
-          // le ombre di migliaia di istanze sono la prima voce da tagliare
-          shadows: this.quality.level === 'high' || this.quality.level === 'ultra',
-          canopy: this.canopy,
-        },
-      ).group;
-      this.scene.add(this.vegetation);
+        roads: this.roadIndex,
+        buildings: this.buildingIndex,
+        paved: this.pavedAreas,
+        trees: this.quality.trees,
+        shrubs: this.quality.shrubs,
+        shadows: this.quality.level === 'high' || this.quality.level === 'ultra',
+        canopy: this.canopy,
+      });
+      this.scene.add(this.vegetation.group);
       // alberi di strada e auto in sosta del kit: solo dentro il paese e con un
       // tetto di istanze deciso dal preset (sono modelli fotorealistici, pesanti)
       if (this.kit) {
@@ -2133,8 +2128,8 @@ export class Game {
     this.renderer.toneMappingExposure = EXPOSURE_DAY;
     // ripristino a giornata serena: foschia lunga, come quando il meteo reale
     // è attivo e il cielo è limpido
-    this.scene.fog = new THREE.Fog(0xccd8dd, 2_500, 8_000);
-    this.scene.background = new THREE.Color(0xccd8dd);
+    this.scene.fog = new THREE.FogExp2(0xb9cbd8, 0.008);
+    this.scene.background = new THREE.Color(0xb9cbd8);
     this.clouds?.setVisible(false);
     this.precipitation?.clear();
     this.car.setLights(0);
@@ -2221,19 +2216,19 @@ export class Game {
     this.sunTint.lerp(this.tintB.setHex(0xcdd8e2), cloud * 0.7);
     const sunIntensity =
       Math.max(0, Math.sin(THREE.MathUtils.degToRad(Math.max(0, sun.elevation)))) *
-      2.6 *
+      1.4 *
       (1 - 0.7 * cloud) *
       (1 - 0.55 * (rain + snow));
 
     this.sky.setLighting({
       sunColor: this.sunTint.getHex(),
       sunIntensity,
-      hemiSky: day < 0.2 ? 0x2c4266 : cloud > 0.5 ? 0xb2bcc4 : 0xa8c8ee,
-      hemiGround: day < 0.2 ? 0x1a2430 : 0x63583f,
+      hemiSky: day < 0.2 ? 0x2c4266 : 0xbcd2e4,
+      hemiGround: day < 0.2 ? 0x1a2430 : 0x6b6350,
       // Di notte il mondo non deve sparire: un filo di luce ambientale e la
       // luna alta tengono leggibili strada, cordoli e incroci anche senza
       // fari. Prima hemi 0,08 + ambient 0,035 facevano una notte da grotta.
-      hemiIntensity: 0.16 + 0.18 * day + 0.08 * cloud,
+      hemiIntensity: 0.25 + 0.6 * day + 0.15 * cloud,
       ambientIntensity: 0.085 + 0.045 * day + 0.03 * cloud,
       moonIntensity: sun.elevation < 0 ? 1.15 : 0,
     });
@@ -2241,34 +2236,16 @@ export class Game {
     // Giornata serena: foschia più lontana e meno densa, altrimenti le colline
     // a 1–2 km si sciolgono nel bianco. Con pioggia/neve/nebbia restano i valori
     // corti di prima.
-    let fogNear = 1800 + (1 - cloud) * 700;
-    // con il cielo sereno la foschia arriva a ~8 km: è quello che lascia vedere
-    // le montagne della cintura lontana invece di un muro bianco a 4 km
-    let fogFar = 4_600 + (1 - cloud) * 3_400;
-    if (foggy) {
-      fogNear = 18;
-      fogFar = 480;
-    } else if (snow > 0) {
-      fogNear = 120;
-      fogFar = 1200;
-    } else if (rain > 0) {
-      fogNear = 260;
-      fogFar = 2000;
-    }
-    if (day < 0.5) {
-      fogNear *= 0.7;
-      fogFar *= 0.7;
-    }
+    const fogDensity = foggy ? 0.008 : snow > 0 ? 0.003 : rain > 0 ? 0.0017 : 0.00024 + cloud * 0.00018;
 
     this.fogColor.setHex(0x16222e).lerp(this.tintA.setHex(0xb9cbd8), day);
     this.fogColor.lerp(this.tintB.setHex(0xe6bd92), horizon * day * 0.35);
     this.fogColor.lerp(this.tintA.setHex(0x9aa7ae), cloud * 0.35 * day);
     if (foggy) this.fogColor.lerp(this.tintA.setHex(0xb9c2c6), 0.5 * day);
 
-    if (this.scene.fog instanceof THREE.Fog) {
+    if (this.scene.fog instanceof THREE.FogExp2) {
       this.scene.fog.color.copy(this.fogColor);
-      this.scene.fog.near = fogNear;
-      this.scene.fog.far = fogFar;
+      this.scene.fog.density = day < 0.5 ? fogDensity * 1.3 : fogDensity;
     }
     this.scene.background = this.fogColor;
     // Di notte si alza leggermente l'esposizione invece di abbassarla: i fari
@@ -2372,25 +2349,29 @@ export class Game {
     this.hud.toast('Rigenero alberi e cespugli…', 1800);
     window.setTimeout(() => {
       if (generation !== this.vegetationGeneration || !this.heights || !this.osm) return;
-      const group = buildVegetation(
-        this.osm,
-        this.heights,
-        this.roadIndex,
-        this.buildingIndex,
-        this.renderer,
-        this.pavedAreas,
-        { trees, shrubs, shadows },
-      ).group;
+      const vegetation = new ScatterVegetation(this.renderer, {
+        osm: this.osm,
+        heights: this.heights,
+        roads: this.roadIndex,
+        buildings: this.buildingIndex,
+        paved: this.pavedAreas,
+        trees,
+        shrubs,
+        shadows,
+        canopy: this.canopy,
+      });
       if (generation !== this.vegetationGeneration) {
-        disposeVegetation(group);
+        vegetation.dispose();
         return;
       }
       if (this.vegetation) {
-        this.scene.remove(this.vegetation);
-        disposeVegetation(this.vegetation);
+        this.scene.remove(this.vegetation.group);
+        this.vegetation.dispose();
       }
-      this.vegetation = group;
-      this.scene.add(group);
+      this.vegetation = vegetation;
+      this.scene.add(vegetation.group);
+      const focus = this.mode === 'walk' ? this.player.position : this.car.position;
+      vegetation.update(focus.x, focus.z);
     }, 60);
   }
 
@@ -3275,8 +3256,6 @@ export class Game {
     this.car.setRiderVisible(this.mode === 'drive');
     if (this.mode === 'walk') {
       this.player.update(dt, move, this.ground, this.buildingIndex, this.obstacles);
-      this.player.position.x = clamp(this.player.position.x, -WORLD.halfWidth + 25, WORLD.halfWidth - 25);
-      this.player.position.z = clamp(this.player.position.z, -WORLD.halfHeight + 25, WORLD.halfHeight - 25);
       this.updateWalkCamera(dt);
     } else {
       // lo stesso input serve alla fisica e al suono: così il motore risponde
@@ -3290,12 +3269,12 @@ export class Game {
         this.obstacles,
       );
       this.updateDriveCamera(dt);
-      this.checkWorldEdge();
     }
 
     const focus = this.mode === 'walk' ? this.player.position : this.car.position;
     this.pedestrians?.update(dt, focus);
     this.terrain.update(focus.x, focus.z, this.viewRadius);
+    this.vegetation?.update(focus.x, focus.z);
     this.terrain.tick();
     // l'anello lontano parte appena fuori dai chunk caricati
     this.farTerrain?.setInnerRadius(this.viewRadius * 0.7);
@@ -3374,49 +3353,6 @@ export class Game {
       const moved = distance2(focus.x, focus.z, this.lastRouteOrigin.x, this.lastRouteOrigin.z);
       if (moved > 60 && now - this.lastRouteTime > 2500) this.recomputeRoute();
     }
-  }
-
-  /**
-   * Avviso al confine dell'area rilevata.
-   *
-   * Il mondo è la valle del Biferno (14 × 12 km) intorno a Palata: oltre il
-   * bordo dell'DEM non c'è né terreno giocabile né strade, quindi l'auto è
-   * fermata 24 m prima. Prima lo faceva in silenzio e sembrava un muro
-   * invisibile; qui si dice dov'è il confine e quanto manca alle città vicine.
-   */
-  private checkWorldEdge(): void {
-    const car = this.car.state;
-    const margin = Math.min(WORLD.halfWidth - Math.abs(car.x), WORLD.halfHeight - Math.abs(car.z));
-    if (margin > 70) {
-      this.edgeNotice = 0;
-      return;
-    }
-    const now = performance.now();
-    if (now - this.edgeNotice < 18_000) return;
-    this.edgeNotice = now;
-    let nearest = { name: '', distance: Number.POSITIVE_INFINITY, bearing: '' };
-    for (const town of FAR_TOWNS) {
-      const w = latLonToWorld(town.lat, town.lon);
-      const dx = w.x - car.x;
-      const dz = w.z - car.z;
-      const distance = Math.hypot(dx, dz);
-      if (distance < nearest.distance) {
-        nearest = { name: town.name, distance, bearing: this.bearingLabel(dx, dz) };
-      }
-    }
-    const km = nearest.distance >= 10_000 ? Math.round(nearest.distance / 1000) : (nearest.distance / 1000).toFixed(1);
-    this.hud.toast(
-      `Confine dell'area rilevata (valle del Biferno) · ${nearest.name} ${km} km a ${nearest.bearing}`,
-      5200,
-    );
-  }
-
-  /** Direzione cardinale di un vettore locale (x = est, z = sud). */
-  private bearingLabel(dx: number, dz: number): string {
-    const names = ['NE', 'E', 'SE', 'S', 'SO', 'O', 'NO', 'N'];
-    const angle = Math.atan2(dx, -dz); // 0 = nord, orario
-    const index = Math.round(((angle + Math.PI * 2) % (Math.PI * 2)) / (Math.PI / 4)) % 8;
-    return names[index]!;
   }
 
   private updateSky(focus: THREE.Vector3): void {
@@ -3688,17 +3624,4 @@ export class Game {
       errors: this.errors,
     };
   }
-}
-
-/** Libera geometrie e materiali della vegetazione (le texture PBR sono condivise). */
-function disposeVegetation(group: THREE.Group): void {
-  const materials = new Set<THREE.Material>();
-  group.traverse((object) => {
-    const mesh = object as THREE.Mesh;
-    if (!(mesh as unknown as { isMesh?: boolean }).isMesh) return;
-    mesh.geometry?.dispose();
-    const list = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
-    for (const material of list) materials.add(material);
-  });
-  for (const material of materials) material.dispose();
 }

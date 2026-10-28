@@ -1,6 +1,6 @@
 # Roadmap e stato reale delle funzionalità
 
-Ultimo aggiornamento: **26 ottobre 2026**.
+Ultimo aggiornamento: **28 ottobre 2026**.
 
 Questo documento è la fonte di verità sullo stato delle funzionalità. Legenda:
 
@@ -72,7 +72,8 @@ Questo documento è la fonte di verità sullo stato delle funzionalità. Legenda
 | Antialiasing (MSAA 4× + SMAA + unsharp) | **Da verificare** | Target del composer a 2–4 campioni, `alphaToCoverage` su erba/fiori/chiome, ombre PCF morbide |
 | Minimappa a scala automatica | **Da verificare** | 320 px, 240–660 m in auto, 300 m a piedi, rotella 0,45×–2,4×, barra di scala |
 | Destinazioni fuori area | **Parziale** | Termoli, Larino, Campobasso, Montenero, San Salvo, Vasto: direzione e km sulla minimappa, nessuna geometria 3D |
-| Mondo oltre la valle del Biferno | **Pianificato** | Oggi 14 × 12 km: guidare fino a Termoli richiede OSM+DEM del nuovo bbox (vedi HANDOFF) |
+| Vegetazione procedurale a celle | **Parziale** | Scatter deterministico su celle da 48 m, aggiornato intorno al giocatore; densità guidata da aree OSM e altezza canopy ETH quando disponibile, con filari, pioppi presso i corsi d'acqua, arbusti e rocce. Alberi pieni entro 150 m, billboard instanziati oltre. Le specie sono inferite dal contesto, non da un rilievo botanico. |
+| Mondo oltre la valle del Biferno | **Parziale** | DEM reale raccordato a fBm deterministico in 100 m; terreno, campiture e scatter vegetale continuano proceduralmente. Le way OSM aperte al bordo hanno continuazioni da 50 km; edifici e itinerari restano limitati ai dati caricati. |
 | Audio procedurale | **Fatto** | WebAudio, parte dopo un gesto utente |
 | Traffico e pedoni | **Pianificato** | — |
 | Cache tile offline | **Pianificato** | Solo cache HTTP del browser |

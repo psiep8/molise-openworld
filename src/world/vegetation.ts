@@ -10,10 +10,8 @@ import { windTimeUniform } from '../gfx/wind';
 import { insidePaved, type PavedArea } from './paved';
 
 /**
- * Oltre questa distanza le card di foglie non si distinguono più dal nucleo
- * scuro: a 150 m una chioma è larga pochi pixel, quindi l'alphaTest su tutte le
- * istanze costa fill rate senza dare nulla in più alla sagoma. Tronco e nucleo
- * restano sempre disegnati, così l'albero non scompare all'orizzonte.
+ * Oltre questa distanza l'albero completo viene sostituito da un quad
+ * billboard: una sola istanza piatta conserva la sagoma senza card e tronco.
  */
 export const LEAF_LOD_RADIUS = 150;
 
@@ -337,17 +335,15 @@ export function buildVegetation(
   const color = new THREE.Color();
 
   /**
-   * Foglie solo entro `LEAF_LOD_RADIUS` dalla camera.
-   *
-   * Le altre parti del set (tronco e nucleo) restano piene: sono loro a tenere
-   * la sagoma da lontano. Qui si conservano posizione e colore di ogni albero
-   * e si riempiono le istanze solo per quelli vicini; il ricalcolo avviene
+   * Mantiene la geometria completa solo entro `LEAF_LOD_RADIUS` dalla camera.
+   * Qui si conservano posizione e colore di ogni albero e si riempiono le istanze
+   * solo per quelli vicini; il ricalcolo avviene
    * quando la camera si è spostata di più di 40 m, altrimenti costerebbe più
    * del fill rate risparmiato. La matrice si ricava dai dati di piazzamento
    * invece di tenerne una copia per albero: 14.000 `Matrix4` in più non
    * servono a nulla.
    */
-  const applyLeafLod = (
+  const applyTreeLod = (
     mesh: THREE.InstancedMesh,
     list: typeof placements,
     scale: [number, number, number],
@@ -356,16 +352,12 @@ export function buildVegetation(
     const total = list.length;
     const xs = new Float32Array(total);
     const zs = new Float32Array(total);
-    const reach = new Float32Array(total);
     const colors = new Float32Array(total * 3);
     const tint = new THREE.Color();
     for (let i = 0; i < total; i++) {
       const p = list[i]!;
       xs[i] = p.x;
       zs[i] = p.z;
-      // il raggio include la chioma: l'albero appena oltre il limite deve
-      // avere le foglie finché la corona può ancora entrare in campo
-      reach[i] = LEAF_LOD_RADIUS + 3.4 * p.s;
       tint
         .setHex(p.color)
         .multiplyScalar(0.9 + ((i * 7 + slot) % 17) / 90);
@@ -380,8 +372,7 @@ export function buildVegetation(
     mesh.frustumCulled = false;
 
     const refresh = (camera: THREE.Camera): void => {
-      // la passata d'ombra usa una camera ortografica: rifare il filtro anche
-      // per lei significa ricalcolare due volte per frame
+      // la passata d'ombra usa una camera ortografica: il LOD segue la camera di gioco
       if (!(camera as THREE.PerspectiveCamera).isPerspectiveCamera) return;
       const cx = camera.position.x;
       const cz = camera.position.z;
@@ -393,7 +384,7 @@ export function buildVegetation(
       for (let i = 0; i < total; i++) {
         const dx = xs[i]! - cx;
         const dz = zs[i]! - cz;
-        if (dx * dx + dz * dz > reach[i]! * reach[i]!) continue;
+        if (dx * dx + dz * dz > LEAF_LOD_RADIUS * LEAF_LOD_RADIUS) continue;
         const p = list[i]!;
         transform.position.set(p.x, p.y - 0.15, p.z);
         transform.rotation.set(0, p.rot, 0);
@@ -419,12 +410,12 @@ export function buildVegetation(
     if (!list.length) return [];
     const meshes = parts.map((p) => new THREE.InstancedMesh(p.geo, p.mat, list.length));
     list.forEach((p, i) => {
-      dummy.position.set(p.x, p.y - 0.15, p.z);
-      dummy.rotation.set(0, p.rot, 0);
-      const sc = parts[0].scale ?? [1, 1, 1];
-      dummy.scale.set(p.s * sc[0], p.s * sc[1], p.s * sc[2]);
-      dummy.updateMatrix();
       meshes.forEach((mesh, k) => {
+        dummy.position.set(p.x, p.y - 0.15, p.z);
+        dummy.rotation.set(0, p.rot, 0);
+        const sc = parts[k].scale ?? [1, 1, 1];
+        dummy.scale.set(p.s * sc[0], p.s * sc[1], p.s * sc[2]);
+        dummy.updateMatrix();
         mesh.setMatrixAt(i, dummy.matrix);
         color.setHex(p.color).multiplyScalar(0.9 + ((i * 7 + k) % 17) / 90);
         // il nucleo della chioma è sempre più scuro delle foglie
@@ -440,13 +431,12 @@ export function buildVegetation(
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     }
-    // le foglie delle chiome (latifoglie e ulivi, non i cespugli) hanno il LOD
-    parts.forEach((part, k) => {
-      if (part.geo !== leafGeo) return;
-      const mesh = meshes[k];
-      if (!mesh) return;
-      applyLeafLod(mesh, list, part.scale ?? [1, 1, 1], k);
-    });
+    if (list !== bushList) {
+      parts.forEach((part, k) => {
+        const mesh = meshes[k];
+        if (mesh) applyTreeLod(mesh, list, part.scale ?? [1, 1, 1], k);
+      });
+    }
     return meshes;
   };
 
@@ -466,7 +456,86 @@ export function buildVegetation(
     ...buildSet(bushList, [{ geo: bushGeo, mat: leafMat }]),
   ];
 
-  group.add(...meshes);
+  const billboardMaterial = new THREE.MeshBasicMaterial({
+    map: foliageSet(renderer).map,
+    alphaTest: 0.35,
+    side: THREE.DoubleSide,
+    vertexColors: true,
+  });
+  billboardMaterial.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <begin_vertex>',
+      `#include <begin_vertex>
+      #ifdef USE_INSTANCING
+        vec3 billboardCenter = instanceMatrix[ 3 ].xyz;
+        vec3 billboardToCamera = normalize( cameraPosition - ( modelMatrix * vec4( billboardCenter, 1.0 ) ).xyz );
+        vec3 billboardRight = cross( vec3( 0.0, 1.0, 0.0 ), billboardToCamera );
+        billboardRight = dot( billboardRight, billboardRight ) > 0.0001
+          ? normalize( billboardRight )
+          : vec3( 1.0, 0.0, 0.0 );
+        vec3 billboardUp = normalize( cross( billboardToCamera, billboardRight ) );
+        float billboardWidth = length( instanceMatrix[ 0 ].xyz );
+        float billboardHeight = length( instanceMatrix[ 1 ].xyz );
+        vec3 billboardPosition = billboardCenter
+          + billboardRight * position.x * billboardWidth
+          + billboardUp * position.y * billboardHeight;
+      #else
+        vec3 billboardPosition = position;
+      #endif`,
+    ).replace(
+      '#include <project_vertex>',
+      `vec4 mvPosition = viewMatrix * modelMatrix * vec4( billboardPosition, 1.0 );
+      gl_Position = projectionMatrix * mvPosition;`,
+    ).replace(
+      '#include <worldpos_vertex>',
+      `vec4 worldPosition = modelMatrix * vec4( billboardPosition, 1.0 );`,
+    );
+  };
+  billboardMaterial.customProgramCacheKey = () => 'tree-parallel-billboard-v1';
+
+  const billboardMesh = new THREE.InstancedMesh(
+    new THREE.PlaneGeometry(4, 6),
+    billboardMaterial,
+    placements.length,
+  );
+  billboardMesh.name = 'distant-tree-billboards';
+  billboardMesh.castShadow = false;
+  billboardMesh.receiveShadow = false;
+  billboardMesh.frustumCulled = false;
+  billboardMesh.count = 0;
+  const billboardTransform = new THREE.Object3D();
+  const billboardColor = new THREE.Color();
+  let lastBillboardX = Number.NaN;
+  let lastBillboardZ = Number.NaN;
+  billboardMesh.onBeforeRender = (_renderer, _scene, camera) => {
+    if (!(camera as THREE.PerspectiveCamera).isPerspectiveCamera) return;
+    const cx = camera.position.x;
+    const cz = camera.position.z;
+    if (Math.abs(cx - lastBillboardX) < 40 && Math.abs(cz - lastBillboardZ) < 40) return;
+    lastBillboardX = cx;
+    lastBillboardZ = cz;
+    let count = 0;
+    for (const p of placements) {
+      const dx = p.x - cx;
+      const dz = p.z - cz;
+      if (dx * dx + dz * dz <= LEAF_LOD_RADIUS * LEAF_LOD_RADIUS) continue;
+      const width = p.kind === 'cypress' ? 1.5 : p.kind === 'olive' ? 3.8 : 4.4;
+      const height = p.kind === 'cypress' ? 6.2 : p.kind === 'olive' ? 3.9 : 5.4;
+      billboardTransform.position.set(p.x, p.y + height * p.s * 0.5, p.z);
+      billboardTransform.rotation.set(0, 0, 0);
+      billboardTransform.scale.set((width / 4) * p.s, (height / 6) * p.s, 1);
+      billboardTransform.updateMatrix();
+      billboardMesh.setMatrixAt(count, billboardTransform.matrix);
+      billboardColor.setHex(p.color).multiplyScalar(0.9 + (count % 17) / 90);
+      billboardMesh.setColorAt(count, billboardColor);
+      count++;
+    }
+    billboardMesh.count = count;
+    billboardMesh.instanceMatrix.needsUpdate = true;
+    if (billboardMesh.instanceColor) billboardMesh.instanceColor.needsUpdate = true;
+  };
+
+  group.add(...meshes, billboardMesh);
   return { group, count: placements.length, shrubs: bushList.length };
 }
 

@@ -54,10 +54,14 @@ describe('Heightfield', () => {
     expect(h.heightAt(-5, -5)).toBeCloseTo(20, 6);
   });
 
-  it('clampa ai bordi del mondo', () => {
+  it('usa il DEM nel bbox e raccorda il procedurale oltre il bordo', () => {
     const h = grid(new Array(16).fill(7));
-    expect(h.heightAt(-1e6, -1e6)).toBeCloseTo(7, 6);
-    expect(h.heightAt(1e6, 1e6)).toBeCloseTo(7, 6);
+    expect(h.contains(0, 0)).toBe(true);
+    expect(h.contains(16, 0)).toBe(false);
+    expect(h.heightAt(15, 0)).toBeCloseTo(7, 6);
+    expect(h.heightAt(15.1, 0)).toBeCloseTo(7, 2);
+    expect(h.heightAt(120, 0)).toBe(grid(new Array(16).fill(7)).heightAt(120, 0));
+    expect(h.heightAt(120, 0)).not.toBeCloseTo(7, 3);
   });
 
   it('normale verticale su terreno piatto', () => {

@@ -3,7 +3,7 @@ import { COLORS } from '../config';
 import { pbr, waterNormals } from '../gfx/textures';
 import { registerScroll } from '../gfx/wind';
 import type { Heightfield } from '../geo/elevation';
-import { clamp, hashInt, type Pt } from '../geo/geo';
+import { boundsOf, clamp, hashInt, mulberry32, wrapAngle, type Pt } from '../geo/geo';
 import { CURB_HEIGHT, roadLift, type BuildingIndex, type OsmData, type Road, type RoadIndex } from '../geo/osm';
 import type { CityKit } from './citykit';
 
@@ -834,6 +834,114 @@ export function roadPolyline(road: Road): Pt[] {
     roundCorners(resample(road.points, road.paved ? 7 : 6), road.paved ? 24 : 30),
     road.paved ? 5 : 6,
   );
+}
+
+const PROCEDURAL_ROAD_LENGTH = 50_000;
+const PROCEDURAL_ROAD_STEP = 60;
+
+/** Continues an open OSM endpoint by steering gently along generated contours. */
+export function createContourRoadExtension(
+  road: Road,
+  atStart: boolean,
+  heights: Heightfield,
+  length = PROCEDURAL_ROAD_LENGTH,
+): Road {
+  const points = road.points;
+  const endpoint = atStart ? points[0] : points[points.length - 1];
+  const adjacent = atStart ? points[1] : points[points.length - 2];
+  if (!endpoint || !adjacent) throw new Error('continuazione stradale: way senza due punti');
+
+  let heading = Math.atan2(endpoint.z - adjacent.z, endpoint.x - adjacent.x);
+  const seed = hashInt(Math.round(endpoint.x) ^ Math.imul(Math.round(endpoint.z), 31), atStart ? 0x51 : 0xa7);
+  const random = mulberry32(seed);
+  const extension: Pt[] = [{ x: endpoint.x, z: endpoint.z }];
+  const sampleStep = 12;
+
+  for (let distance = PROCEDURAL_ROAD_STEP; distance <= length; distance += PROCEDURAL_ROAD_STEP) {
+    const previous = extension[extension.length - 1]!;
+    const gx =
+      (heights.heightAt(previous.x + sampleStep, previous.z) -
+        heights.heightAt(previous.x - sampleStep, previous.z)) /
+      (2 * sampleStep);
+    const gz =
+      (heights.heightAt(previous.x, previous.z + sampleStep) -
+        heights.heightAt(previous.x, previous.z - sampleStep)) /
+      (2 * sampleStep);
+    if (Math.hypot(gx, gz) > 1e-4) {
+      let contourHeading = Math.atan2(-gx, gz);
+      if (Math.cos(contourHeading - heading) < 0) contourHeading = wrapAngle(contourHeading + Math.PI);
+      const contourTurn = clamp(wrapAngle(contourHeading - heading) * 0.18, -0.045, 0.045);
+      heading += contourTurn;
+    }
+    heading += (random() - 0.5) * 0.012;
+    extension.push({
+      x: previous.x + Math.cos(heading) * PROCEDURAL_ROAD_STEP,
+      z: previous.z + Math.sin(heading) * PROCEDURAL_ROAD_STEP,
+    });
+  }
+
+  return {
+    ...road,
+    name: road.name ? `${road.name} (procedurale)` : 'Strada panoramica',
+    points: extension,
+    bounds: boundsOf(extension),
+    bridge: undefined,
+    tunnel: undefined,
+    elevations: undefined,
+    walkSpans: undefined,
+  };
+}
+
+/**
+ * Adds long deterministic continuations where OSM ways meet the DEM boundary.
+ * The graph and rendered ribbon consume the same generated roads.
+ */
+export function extendBoundaryRoads(osm: OsmData, heights: Heightfield): number {
+  const { originX, originZ, nx, nz, step } = heights.meta;
+  const minX = originX;
+  const maxX = originX + (nx - 1) * step;
+  const minZ = originZ;
+  const maxZ = originZ + (nz - 1) * step;
+  const candidates: { road: Road; atStart: boolean; edgeDistance: number; priority: number }[] = [];
+  const priority: Record<string, number> = {
+    motorway: 0,
+    trunk: 1,
+    primary: 2,
+    secondary: 3,
+    tertiary: 4,
+    unclassified: 5,
+    residential: 6,
+  };
+
+  for (const road of osm.roads) {
+    if (road.points.length < 2 || road.width < 3.8) continue;
+    for (const atStart of [true, false]) {
+      const endpoint = atStart ? road.points[0]! : road.points[road.points.length - 1]!;
+      const edgeDistance = Math.min(endpoint.x - minX, maxX - endpoint.x, endpoint.z - minZ, maxZ - endpoint.z);
+      if (edgeDistance < 0 || edgeDistance > 120) continue;
+      candidates.push({
+        road,
+        atStart,
+        edgeDistance,
+        priority: priority[road.type] ?? (road.paved ? 7 : 8),
+      });
+    }
+  }
+
+  candidates.sort((a, b) => a.priority - b.priority || a.edgeDistance - b.edgeDistance);
+  const accepted: Pt[] = [];
+  const extensions: Road[] = [];
+  for (const candidate of candidates) {
+    const endpoint = candidate.atStart
+      ? candidate.road.points[0]!
+      : candidate.road.points[candidate.road.points.length - 1]!;
+    if (accepted.some((point) => Math.hypot(point.x - endpoint.x, point.z - endpoint.z) < 150)) continue;
+    accepted.push(endpoint);
+    extensions.push(createContourRoadExtension(candidate.road, candidate.atStart, heights));
+    if (extensions.length >= 12) break;
+  }
+  osm.roads.push(...extensions);
+  return extensions.length;
 }
 
 export function buildRoads(

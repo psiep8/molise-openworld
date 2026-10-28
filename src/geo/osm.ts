@@ -10,7 +10,7 @@ export const ROAD_LIFT = 0.2;
 export const DIRT_LIFT = 0.12;
 export const CURB_HEIGHT = 0.18;
 /** Fascia di ghiaia ai bordi delle strade di campagna (m). */
-export const SHOULDER_WIDTH = 0.8;
+export const SHOULDER_WIDTH = 0.72;
 
 /** Micro-offset per strada: evita lo z-fighting dei nastri negli incroci. */
 export function roadLift(index: number, paved: boolean): number {
@@ -103,13 +103,11 @@ export interface Road {
  * di realismo).
  */
 export function markTownSidewalks(roads: Road[], buildings: BuildingIndex): void {
-  // Griglia dei centri degli edifici: conta quanti edifici ci sono entro 46 m
-  // da ogni punto della strada. Non basta "una casa vicina": un casale isolato
-  // in mezzo ai campi non è un marciapiede. Servono almeno 4 edifici, cioè un
-  // fronte urbano vero (in paese ce ne sono decine).
+  // Griglia dei centri degli edifici: un marciapiede esiste solo entro 40 m
+  // da un edificio; geometria e fisica condividono questa maschera.
   const cell = 48;
-  const radius = 46;
-  const minBuildings = 4;
+  const radius = 40;
+  const minBuildings = 1;
   const grid = new Map<number, { x: number; z: number }[]>();
   const key = (cx: number, cz: number): number => (cx + 4096) * 8192 + (cz + 4096);
   for (const b of buildings.all) {

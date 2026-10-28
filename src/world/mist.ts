@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mulberry32 } from '../geo/geo';
 
 /**
  * Foschia bassa a banchi.
@@ -100,12 +101,13 @@ export class GroundMist {
     this.worldZ = new Float32Array(COUNT);
     this.heights = new Float32Array(COUNT);
 
+    const random = mulberry32(0x6d697374);
     for (let i = 0; i < COUNT; i++) {
-      this.sizes[i] = 42 + Math.random() * 68;
-      this.phases[i] = Math.random() * Math.PI * 2;
-      this.heights[i] = MIN_HEIGHT + Math.random() * (MAX_HEIGHT - MIN_HEIGHT);
-      this.worldX[i] = (Math.random() - 0.5) * BOX;
-      this.worldZ[i] = (Math.random() - 0.5) * BOX;
+      this.sizes[i] = 42 + random() * 68;
+      this.phases[i] = random() * Math.PI * 2;
+      this.heights[i] = MIN_HEIGHT + random() * (MAX_HEIGHT - MIN_HEIGHT);
+      this.worldX[i] = (random() - 0.5) * BOX;
+      this.worldZ[i] = (random() - 0.5) * BOX;
     }
 
     const geometry = new THREE.BufferGeometry();
@@ -115,7 +117,7 @@ export class GroundMist {
     this.material = new THREE.ShaderMaterial({
       uniforms: {
         uMap: { value: this.texture },
-        uColor: { value: new THREE.Color(0xd6dde0) },
+        uColor: { value: new THREE.Color(0xb9cbd8) },
         uOpacity: { value: 0 },
       },
       vertexShader: VERTEX,
