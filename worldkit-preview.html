@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <title>World kit — anteprima</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #b9cfe0;
+      }
+      canvas {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <script type="module">
+      import * as THREE from 'three';
+      import { loadWorldKit } from '/src/world/worldkit.ts';
+
+      const params = new URLSearchParams(location.search);
+      const role = params.get('role') ?? 'tree';
+      const count = Number(params.get('count') ?? 6);
+      const width = Number(params.get('w') ?? 1600);
+      const height = Number(params.get('h') ?? 900);
+      const spread = Number(params.get('spread') ?? 5);
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(width, height);
+      renderer.setPixelRatio(1);
+      renderer.shadowMap.enabled = true;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.15;
+      document.body.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0xb9cfe0);
+      const camera = new THREE.PerspectiveCamera(40, width / height, 0.2, 500);
+      camera.position.set(0, 5.5, 24);
+      camera.lookAt(0, 3.2, 0);
+
+      scene.add(new THREE.HemisphereLight(0xe8f2fa, 0x6a7550, 3));
+      const sun = new THREE.DirectionalLight(0xfff3e0, 3);
+      sun.position.set(18, 30, 16);
+      sun.castShadow = true;
+      sun.shadow.mapSize.set(2048, 2048);
+      sun.shadow.camera.left = -40;
+      sun.shadow.camera.right = 40;
+      sun.shadow.camera.top = 40;
+      sun.shadow.camera.bottom = -40;
+      scene.add(sun);
+
+      const ground = new THREE.Mesh(
+        new THREE.PlaneGeometry(120, 120),
+        new THREE.MeshStandardMaterial({ color: 0x74865a, roughness: 1 }),
+      );
+      ground.rotation.x = -Math.PI / 2;
+      ground.receiveShadow = true;
+      scene.add(ground);
+
+      const kit = await loadWorldKit('/worldkit/', 4);
+      const assets = kit ? kit.variants(role).slice(0, count) : [];
+      if (params.has('fit') && assets.length) {
+        const tallest = Math.max(...assets.map((asset) => asset.size.y), 0.5);
+        const span = (assets.length - 1) * spread + Math.max(...assets.map((asset) => asset.size.x), 1);
+        camera.position.set(0, tallest * 1.4 + 0.4, Math.max(span * 0.85, tallest * 2.4));
+        camera.lookAt(0, tallest * 0.5, 0);
+      }
+      window.__kitInfo = kit
+        ? {
+            roles: [...kit.assets.keys()].map((key) => [key, kit.variants(key).length]),
+            requested: role,
+            assets: assets.map((asset) => ({
+              slug: asset.slug,
+              size: asset.size.toArray().map((value) => Math.round(value * 100) / 100),
+              triangles: asset.triangles,
+              parts: asset.parts.length,
+            })),
+          }
+        : null;
+      const start = -((assets.length - 1) * spread) / 2;
+      for (let i = 0; i < assets.length; i++) {
+        scene.add(
+          kit.instances(role, [
+            { x: start + i * spread, y: 0, z: 0, yaw: Number(params.get('yaw') ?? 0.35), scale: 1, variant: i },
+          ]),
+        );
+      }
+      window.__scene = scene;
+      window.__camera = camera;
+      window.__THREE = THREE;
+      window.__placed = scene.children;
+      if (params.has('labels')) {
+        for (let i = 0; i < assets.length; i++) {
+          const canvas = document.createElement('canvas');
+          canvas.width = 512;
+          canvas.height = 128;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = 'rgba(0,0,0,0.55)';
+          ctx.fillRect(0, 0, 512, 128);
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 44px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(assets[i].name.slice(0, 26), 256, 78);
+          const texture = new THREE.CanvasTexture(canvas);
+          texture.colorSpace = THREE.SRGBColorSpace;
+          const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false }));
+          sprite.scale.set(2.4, 0.6, 1);
+          sprite.position.set(start + i * spread, -0.15, 1.2);
+          scene.add(sprite);
+        }
+      }
+
+      renderer.setAnimationLoop(() => renderer.render(scene, camera));
+      window.__harnessReady = true;
+    </script>
+  </body>
+</html>

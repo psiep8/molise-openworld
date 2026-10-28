@@ -53,6 +53,34 @@ export class ObstacleIndex {
     return this.all.length;
   }
 
+  /**
+   * Ostacolo più vicino a un punto, entro `reach` metri dal suo bordo.
+   *
+   * Serve a capire **cosa** ha preso l'auto dopo una collisione: `resolveCircle`
+   * spinge fuori ma non dice contro cosa, e senza saperlo un albero non può
+   * scuotersi e un cartello non può oscillare.
+   */
+  nearest(x: number, z: number, reach: number): Obstacle | null {
+    const cx = Math.floor(x / this.cell);
+    const cz = Math.floor(z / this.cell);
+    let best: Obstacle | null = null;
+    let bestGap = reach;
+    for (let ix = cx - 1; ix <= cx + 1; ix++) {
+      for (let iz = cz - 1; iz <= cz + 1; iz++) {
+        const list = this.grid.get(this.key(ix, iz));
+        if (!list) continue;
+        for (const o of list) {
+          const gap = Math.hypot(x - o.x, z - o.z) - o.radius;
+          if (gap < bestGap) {
+            bestGap = gap;
+            best = o;
+          }
+        }
+      }
+    }
+    return best;
+  }
+
   /** true se un cerchio di quel raggio tocca un ostacolo. */
   hitsCircle(x: number, z: number, radius: number): boolean {
     const cx = Math.floor(x / this.cell);

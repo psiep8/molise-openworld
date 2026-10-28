@@ -61,6 +61,12 @@ export interface QualityPreset {
   /** carica i GLB del city kit (arredo e materiali fotografici delle strade) */
   kit: boolean;
   /**
+   * GLB del world kit (vegetazione, sassi, cartelli, case di campagna). Sono nel
+   * repository e non richiedono download: si spengono solo su `minimal`, dove
+   * il mondo deve restare leggero a tutti i costi.
+   */
+  worldProps: boolean;
+  /**
    * Dettaglio delle facciate. `simple` tiene muri, tetti, zoccolo, cornicione,
    * comignolo, portone e vetri, ma rinuncia a cornici, davanzali, persiane,
    * pluviali, cantonali e balconi: sono ~2,3 milioni di triangoli su 2.200 case
@@ -113,6 +119,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     pointLights: 2,
     weather: 'light',
     kit: false,
+    worldProps: false,
     buildingDetail: 'simple',
     streamedWorld: false,
     drainage: false,
@@ -144,6 +151,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     pointLights: 3,
     weather: 'light',
     kit: true,
+    worldProps: true,
     buildingDetail: 'simple',
     streamedWorld: false,
     drainage: false,
@@ -175,6 +183,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     pointLights: 5,
     weather: 'full',
     kit: true,
+    worldProps: true,
     buildingDetail: 'full',
     streamedWorld: true,
     drainage: true,
@@ -206,6 +215,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     pointLights: 7,
     weather: 'full',
     kit: true,
+    worldProps: true,
     buildingDetail: 'full',
     streamedWorld: true,
     drainage: true,
@@ -237,6 +247,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     pointLights: 7,
     weather: 'full',
     kit: true,
+    worldProps: true,
     buildingDetail: 'full',
     streamedWorld: true,
     drainage: true,

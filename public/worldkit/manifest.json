@@ -1,0 +1,2820 @@
+{
+  "version": 1,
+  "generator": "scripts/import-world-glb.mjs",
+  "note": "GLB ottimizzati e versionati: ogni clone/pull e ogni build li contiene. Ruoli e crediti qui sotto.",
+  "models": [
+    {
+      "slug": "cerchi-di-pioggia",
+      "name": "Cerchi di pioggia",
+      "role": "spare",
+      "file": "models/cerchi-di-pioggia.glb",
+      "nodes": [],
+      "height": 0.5,
+      "width": 962.99,
+      "depth": 961.7,
+      "triangles": 84,
+      "bytes": 164036,
+      "usage": "reserve",
+      "credits": {
+        "title": "Rain drops circles | Download = Like please",
+        "author": "VRA (https://sketchfab.com/architect47)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/rain-drops-circles-download-like-please-50b52de9b9a94ac09afbbaf28f102081"
+      }
+    },
+    {
+      "slug": "chiesa-venezia",
+      "name": "Chiesa (Venezia)",
+      "role": "spare",
+      "file": "models/chiesa-venezia.glb",
+      "nodes": [],
+      "height": 18,
+      "width": 16.14,
+      "depth": 15.69,
+      "triangles": 28798,
+      "bytes": 377932,
+      "usage": "reserve",
+      "credits": {
+        "title": "Santa Maria del Rosario, Venice, Italy",
+        "author": "rmass (https://sketchfab.com/rickymassaro)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/santa-maria-del-rosario-venice-italy-0f5f058efd2d4f36b5cafc30425492a9"
+      }
+    },
+    {
+      "slug": "clover-planter",
+      "name": "Fioriera di trifoglio",
+      "role": "spare",
+      "file": "models/clover-planter.glb",
+      "nodes": [],
+      "height": 0.5,
+      "width": 0.59,
+      "depth": 0.58,
+      "triangles": 8160,
+      "bytes": 149536,
+      "usage": "reserve",
+      "credits": {
+        "title": "Clover Spring",
+        "author": "3dhdscan (https://sketchfab.com/3dhdscan)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/clover-spring-ff99cb2d6b97453eb2220f5de0aed60c"
+      }
+    },
+    {
+      "slug": "cordolo-in-pietra",
+      "name": "Cordolo in pietra",
+      "role": "spare",
+      "file": "models/cordolo-in-pietra.glb",
+      "nodes": [],
+      "height": 0.3,
+      "width": 2.78,
+      "depth": 0.15,
+      "triangles": 9587,
+      "bytes": 263464,
+      "usage": "reserve",
+      "credits": {
+        "title": "Rocky Curb Scan",
+        "author": "NScans (https://sketchfab.com/nathanreynolds147)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/rocky-curb-scan-bd498097eeee4dc9b446045044f59e89"
+      }
+    },
+    {
+      "slug": "cordolo-scan",
+      "name": "Cordolo scan",
+      "role": "spare",
+      "file": "models/cordolo-scan.glb",
+      "nodes": [],
+      "height": 0.3,
+      "width": 248.34,
+      "depth": 371.68,
+      "triangles": 290522,
+      "bytes": 7239268,
+      "usage": "reserve",
+      "credits": {
+        "title": "Sidewalk Curb FREE 3D Scan Project A3",
+        "author": "LordSamueliSolo (https://sketchfab.com/LadyLionStudios)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/sidewalk-curb-free-3d-scan-project-a3-db5a1e839a0640b08b64163f4f650bd0"
+      }
+    },
+    {
+      "slug": "distant-tree-01",
+      "name": "Albero lontano 1",
+      "role": "tree-distant",
+      "file": "models/distant-tree-01.glb",
+      "nodes": [],
+      "height": 9,
+      "width": 2.41,
+      "depth": 2.44,
+      "triangles": 108,
+      "bytes": 178052,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "distant-tree-02",
+      "name": "Albero lontano 2",
+      "role": "tree-distant",
+      "file": "models/distant-tree-02.glb",
+      "nodes": [],
+      "height": 10,
+      "width": 3.9,
+      "depth": 3.9,
+      "triangles": 101,
+      "bytes": 177748,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "distant-tree-03",
+      "name": "Albero lontano 3",
+      "role": "tree-distant",
+      "file": "models/distant-tree-03.glb",
+      "nodes": [],
+      "height": 11,
+      "width": 4.49,
+      "depth": 4.49,
+      "triangles": 36,
+      "bytes": 176900,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "distant-tree-04",
+      "name": "Albero lontano 4",
+      "role": "tree-distant",
+      "file": "models/distant-tree-04.glb",
+      "nodes": [],
+      "height": 8,
+      "width": 2.06,
+      "depth": 2.17,
+      "triangles": 109,
+      "bytes": 178104,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "distant-tree-05",
+      "name": "Albero lontano 5",
+      "role": "tree-distant",
+      "file": "models/distant-tree-05.glb",
+      "nodes": [],
+      "height": 9,
+      "width": 4.18,
+      "depth": 4.18,
+      "triangles": 109,
+      "bytes": 177892,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "distant-tree-06",
+      "name": "Albero lontano 6",
+      "role": "tree-distant",
+      "file": "models/distant-tree-06.glb",
+      "nodes": [],
+      "height": 10,
+      "width": 2.67,
+      "depth": 2.57,
+      "triangles": 109,
+      "bytes": 177840,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "distant-tree-07",
+      "name": "Albero lontano 7",
+      "role": "tree-distant",
+      "file": "models/distant-tree-07.glb",
+      "nodes": [],
+      "height": 11,
+      "width": 2.6,
+      "depth": 2.59,
+      "triangles": 113,
+      "bytes": 177952,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "distant-tree-08",
+      "name": "Albero lontano 8",
+      "role": "tree-distant",
+      "file": "models/distant-tree-08.glb",
+      "nodes": [],
+      "height": 8,
+      "width": 2,
+      "depth": 2,
+      "triangles": 109,
+      "bytes": 178112,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "distant-tree-09",
+      "name": "Albero lontano 9",
+      "role": "tree-distant",
+      "file": "models/distant-tree-09.glb",
+      "nodes": [],
+      "height": 9,
+      "width": 5.9,
+      "depth": 5.9,
+      "triangles": 40,
+      "bytes": 176840,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "distant-tree-10",
+      "name": "Albero lontano 10",
+      "role": "tree-distant",
+      "file": "models/distant-tree-10.glb",
+      "nodes": [],
+      "height": 10,
+      "width": 14.26,
+      "depth": 11.81,
+      "triangles": 92,
+      "bytes": 177600,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "distant-tree-11",
+      "name": "Albero lontano 11",
+      "role": "tree-distant",
+      "file": "models/distant-tree-11.glb",
+      "nodes": [],
+      "height": 11,
+      "width": 9.86,
+      "depth": 7.65,
+      "triangles": 24,
+      "bytes": 176640,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "distant-tree-12",
+      "name": "Albero lontano 12",
+      "role": "tree-distant",
+      "file": "models/distant-tree-12.glb",
+      "nodes": [],
+      "height": 8,
+      "width": 9.75,
+      "depth": 8.67,
+      "triangles": 67,
+      "bytes": 177532,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "distant-tree-21",
+      "name": "Albero lontano 21",
+      "role": "tree-distant",
+      "file": "models/distant-tree-21.glb",
+      "nodes": [],
+      "height": 5,
+      "width": 1.91,
+      "depth": 1.83,
+      "triangles": 366,
+      "bytes": 183328,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "distant-tree-22",
+      "name": "Albero lontano 22",
+      "role": "tree-distant",
+      "file": "models/distant-tree-22.glb",
+      "nodes": [],
+      "height": 5,
+      "width": 3.18,
+      "depth": 2.94,
+      "triangles": 286,
+      "bytes": 179556,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "distant-tree-23",
+      "name": "Albero lontano 23",
+      "role": "tree-distant",
+      "file": "models/distant-tree-23.glb",
+      "nodes": [],
+      "height": 5,
+      "width": 3.03,
+      "depth": 3.03,
+      "triangles": 286,
+      "bytes": 181084,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "distant-tree-24",
+      "name": "Albero lontano 24",
+      "role": "tree-distant",
+      "file": "models/distant-tree-24.glb",
+      "nodes": [],
+      "height": 5,
+      "width": 3.46,
+      "depth": 4.01,
+      "triangles": 156,
+      "bytes": 196788,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "distant-tree-25",
+      "name": "Albero lontano 25",
+      "role": "tree-distant",
+      "file": "models/distant-tree-25.glb",
+      "nodes": [],
+      "height": 9,
+      "width": 1.33,
+      "depth": 1.37,
+      "triangles": 338,
+      "bytes": 151960,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "distant-tree-26",
+      "name": "Albero lontano 26",
+      "role": "tree-distant",
+      "file": "models/distant-tree-26.glb",
+      "nodes": [],
+      "height": 10,
+      "width": 1.51,
+      "depth": 1.36,
+      "triangles": 264,
+      "bytes": 147204,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "distant-tree-27",
+      "name": "Albero lontano 27",
+      "role": "tree-distant",
+      "file": "models/distant-tree-27.glb",
+      "nodes": [],
+      "height": 11,
+      "width": 1.7,
+      "depth": 1.78,
+      "triangles": 338,
+      "bytes": 152108,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "distant-tree-28",
+      "name": "Albero lontano 28",
+      "role": "tree-distant",
+      "file": "models/distant-tree-28.glb",
+      "nodes": [],
+      "height": 8,
+      "width": 1.02,
+      "depth": 2.36,
+      "triangles": 129,
+      "bytes": 31348,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "forest-rock-13",
+      "name": "Sasso di bosco 13",
+      "role": "rock",
+      "file": "models/forest-rock-13.glb",
+      "nodes": [],
+      "height": 1,
+      "width": 1.66,
+      "depth": 1.54,
+      "triangles": 127,
+      "bytes": 139080,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "forest-rock-14",
+      "name": "Sasso di bosco 14",
+      "role": "rock",
+      "file": "models/forest-rock-14.glb",
+      "nodes": [],
+      "height": 1.3,
+      "width": 2.21,
+      "depth": 1.85,
+      "triangles": 63,
+      "bytes": 138128,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "forest-rock-15",
+      "name": "Sasso di bosco 15",
+      "role": "rock",
+      "file": "models/forest-rock-15.glb",
+      "nodes": [],
+      "height": 1.6,
+      "width": 3,
+      "depth": 3.81,
+      "triangles": 26,
+      "bytes": 137784,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "forest-rock-16",
+      "name": "Sasso di bosco 16",
+      "role": "rock",
+      "file": "models/forest-rock-16.glb",
+      "nodes": [],
+      "height": 0.7,
+      "width": 1.27,
+      "depth": 0.98,
+      "triangles": 34,
+      "bytes": 137828,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "forest-rock-17",
+      "name": "Sasso di bosco 17",
+      "role": "rock",
+      "file": "models/forest-rock-17.glb",
+      "nodes": [],
+      "height": 1,
+      "width": 2.24,
+      "depth": 3.68,
+      "triangles": 97,
+      "bytes": 138580,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "forest-rock-18",
+      "name": "Sasso di bosco 18",
+      "role": "rock",
+      "file": "models/forest-rock-18.glb",
+      "nodes": [],
+      "height": 1.3,
+      "width": 1.91,
+      "depth": 2.33,
+      "triangles": 99,
+      "bytes": 138612,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "forest-rock-19",
+      "name": "Sasso di bosco 19",
+      "role": "rock",
+      "file": "models/forest-rock-19.glb",
+      "nodes": [],
+      "height": 1.6,
+      "width": 3.45,
+      "depth": 2.59,
+      "triangles": 51,
+      "bytes": 138020,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "forest-rock-20",
+      "name": "Sasso di bosco 20",
+      "role": "rock",
+      "file": "models/forest-rock-20.glb",
+      "nodes": [],
+      "height": 0.7,
+      "width": 1.14,
+      "depth": 1.24,
+      "triangles": 46,
+      "bytes": 137992,
+      "usage": "placed",
+      "credits": {
+        "title": "Low Poly Forest Tree Pack",
+        "author": "99.Miles (https://sketchfab.com/99.Miles)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "grass-chunk-a",
+      "name": "Ciuffi d’erba A",
+      "role": "grass",
+      "file": "models/grass-chunk-a.glb",
+      "nodes": [],
+      "height": 0.5,
+      "width": 0.25,
+      "depth": 0.3,
+      "triangles": 37,
+      "bytes": 113240,
+      "usage": "placed",
+      "credits": {
+        "title": "Simple grass chunks",
+        "author": "3dhdscan (https://sketchfab.com/3dhdscan)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/simple-grass-chunks-eb4f6dc9d4e3455ea3435385faf58b60"
+      }
+    },
+    {
+      "slug": "grass-chunk-b",
+      "name": "Ciuffi d’erba B",
+      "role": "grass",
+      "file": "models/grass-chunk-b.glb",
+      "nodes": [],
+      "height": 0.45,
+      "width": 0.46,
+      "depth": 0.53,
+      "triangles": 12,
+      "bytes": 64304,
+      "usage": "placed",
+      "credits": {
+        "title": "Simple grass chunks",
+        "author": "3dhdscan (https://sketchfab.com/3dhdscan)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/simple-grass-chunks-eb4f6dc9d4e3455ea3435385faf58b60"
+      }
+    },
+    {
+      "slug": "grass-cosmic-a",
+      "name": "Erba di campo A",
+      "role": "grass",
+      "file": "models/grass-cosmic-a.glb",
+      "nodes": [],
+      "height": 0.62,
+      "width": 0.73,
+      "depth": 0.79,
+      "triangles": 1555,
+      "bytes": 64776,
+      "usage": "placed",
+      "credits": {
+        "title": "Grass",
+        "author": "Cosmic_dust (https://sketchfab.com/Cosmic_dust)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/grass-f2f2bddb2728483a9105c5f5114eb15e"
+      }
+    },
+    {
+      "slug": "grass-cosmic-b",
+      "name": "Erba di campo B",
+      "role": "grass",
+      "file": "models/grass-cosmic-b.glb",
+      "nodes": [],
+      "height": 0.55,
+      "width": 0.74,
+      "depth": 0.82,
+      "triangles": 1535,
+      "bytes": 49456,
+      "usage": "placed",
+      "credits": {
+        "title": "Grass",
+        "author": "Cosmic_dust (https://sketchfab.com/Cosmic_dust)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/grass-f2f2bddb2728483a9105c5f5114eb15e"
+      }
+    },
+    {
+      "slug": "grass-painted",
+      "name": "Erba dipinta",
+      "role": "grass",
+      "file": "models/grass-painted.glb",
+      "nodes": [],
+      "height": 0.55,
+      "width": 1.42,
+      "depth": 1.42,
+      "triangles": 346,
+      "bytes": 1084844,
+      "usage": "placed",
+      "credits": {
+        "title": "Hand Painted Grasses",
+        "author": "PiyalakNuchim (https://sketchfab.com/PiyalakNuchim)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/hand-painted-grasses-f7e6624ac05741a69afa94c6419c91d0"
+      }
+    },
+    {
+      "slug": "grass-patch-a",
+      "name": "Zolla d’erba A",
+      "role": "grass",
+      "file": "models/grass-patch-a.glb",
+      "nodes": [],
+      "height": 0.35,
+      "width": 0.65,
+      "depth": 0.66,
+      "triangles": 517,
+      "bytes": 122900,
+      "usage": "placed",
+      "credits": {
+        "title": "Grass patches",
+        "author": "DJMaesen (https://sketchfab.com/bumstrum)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/grass-patches-6952780b80594a31aab2dedf7249a47a"
+      }
+    },
+    {
+      "slug": "grass-patch-b",
+      "name": "Zolla d’erba B",
+      "role": "grass",
+      "file": "models/grass-patch-b.glb",
+      "nodes": [],
+      "height": 0.4,
+      "width": 0.54,
+      "depth": 0.57,
+      "triangles": 236,
+      "bytes": 118640,
+      "usage": "placed",
+      "credits": {
+        "title": "Grass patches",
+        "author": "DJMaesen (https://sketchfab.com/bumstrum)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/grass-patches-6952780b80594a31aab2dedf7249a47a"
+      }
+    },
+    {
+      "slug": "grass-patch-c",
+      "name": "Zolla d’erba C",
+      "role": "grass",
+      "file": "models/grass-patch-c.glb",
+      "nodes": [],
+      "height": 0.32,
+      "width": 0.71,
+      "depth": 0.81,
+      "triangles": 1157,
+      "bytes": 132316,
+      "usage": "placed",
+      "credits": {
+        "title": "Grass patches",
+        "author": "DJMaesen (https://sketchfab.com/bumstrum)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/grass-patches-6952780b80594a31aab2dedf7249a47a"
+      }
+    },
+    {
+      "slug": "grass-realtime",
+      "name": "Erba a lame",
+      "role": "grass",
+      "file": "models/grass-realtime.glb",
+      "nodes": [],
+      "height": 0.45,
+      "width": 1.45,
+      "depth": 2.13,
+      "triangles": 1554,
+      "bytes": 1289772,
+      "usage": "placed",
+      "credits": {
+        "title": "Realtime Grass",
+        "author": "mfhscoobydoo (https://sketchfab.com/mfhscoobydoo)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/realtime-grass-07d38555cae844f7abdeace9d19c4777"
+      }
+    },
+    {
+      "slug": "grass-tile-a",
+      "name": "Zolla d’erba fitta",
+      "role": "spare",
+      "file": "models/grass-tile-a.glb",
+      "nodes": [],
+      "height": 0.8,
+      "width": 1.65,
+      "depth": 2.75,
+      "triangles": 82943,
+      "bytes": 1498844,
+      "usage": "reserve",
+      "credits": {
+        "title": "Grass",
+        "author": "Epic_Tree_Store (https://sketchfab.com/johngreenstone)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/grass-e58b89ba5b5047338210dbcf730f7b05"
+      }
+    },
+    {
+      "slug": "grass-tile-b",
+      "name": "Zolla d’erba rada",
+      "role": "spare",
+      "file": "models/grass-tile-b.glb",
+      "nodes": [],
+      "height": 0.7,
+      "width": 1.48,
+      "depth": 1.23,
+      "triangles": 18307,
+      "bytes": 442416,
+      "usage": "reserve",
+      "credits": {
+        "title": "Grass",
+        "author": "Epic_Tree_Store (https://sketchfab.com/johngreenstone)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/grass-e58b89ba5b5047338210dbcf730f7b05"
+      }
+    },
+    {
+      "slug": "guardrail",
+      "name": "Guardrail",
+      "role": "spare",
+      "file": "models/guardrail.glb",
+      "nodes": [],
+      "height": 0.8,
+      "width": 0.52,
+      "depth": 10.04,
+      "triangles": 524,
+      "bytes": 69092,
+      "usage": "reserve",
+      "credits": {
+        "title": "guardrail road",
+        "author": "danimow (https://sketchfab.com/danimow)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/guardrail-road-76e85683d30c4e6ba35da370467b7aa6"
+      }
+    },
+    {
+      "slug": "guardrail-e-terminale",
+      "name": "Guardrail e terminale",
+      "role": "spare",
+      "file": "models/guardrail-e-terminale.glb",
+      "nodes": [],
+      "height": 1,
+      "width": 4.34,
+      "depth": 0.4,
+      "triangles": 2936,
+      "bytes": 116944,
+      "usage": "reserve",
+      "credits": {
+        "title": "GuardRail and Terminal",
+        "author": "xplanepilot (https://sketchfab.com/xplanepilot)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/guardrail-and-terminal-693dee3dc6a1495f90ab0ba1f8237cb4"
+      }
+    },
+    {
+      "slug": "lampione",
+      "name": "Lampione",
+      "role": "spare",
+      "file": "models/lampione.glb",
+      "nodes": [],
+      "height": 7,
+      "width": 1.32,
+      "depth": 2.27,
+      "triangles": 6640,
+      "bytes": 88236,
+      "usage": "reserve",
+      "credits": {
+        "title": "Ligh Pole",
+        "author": "cimon (https://sketchfab.com/aithmad2005)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/ligh-pole-ec7769b4e00a4b82999b2769ffef05d7"
+      }
+    },
+    {
+      "slug": "lampione-da-sentiero",
+      "name": "Lampione da sentiero",
+      "role": "spare",
+      "file": "models/lampione-da-sentiero.glb",
+      "nodes": [],
+      "height": 4,
+      "width": 2.83,
+      "depth": 2.83,
+      "triangles": 840,
+      "bytes": 56980,
+      "usage": "reserve",
+      "credits": {
+        "title": "Sci-Fi Path Light Pole (Low Poly)",
+        "author": "Skipperino (https://sketchfab.com/skipperino)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/sci-fi-path-light-pole-low-poly-7516615fa4dd44adbe0c66f4ae4de6b5"
+      }
+    },
+    {
+      "slug": "marciapiede-8-m",
+      "name": "Marciapiede 8 m",
+      "role": "spare",
+      "file": "models/marciapiede-8-m.glb",
+      "nodes": [],
+      "height": 0.2,
+      "width": 1.54,
+      "depth": 8.12,
+      "triangles": 11514,
+      "bytes": 160436,
+      "usage": "reserve",
+      "credits": {
+        "title": "sidewalk 8m long - HQ",
+        "author": "SPLEEN VISION (https://sketchfab.com/spleen.vision)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/sidewalk-8m-long-hq-e80922f5accb4f8ba7b66e6ca903748c"
+      }
+    },
+    {
+      "slug": "marciapiede-lungo",
+      "name": "Marciapiede lungo",
+      "role": "spare",
+      "file": "models/marciapiede-lungo.glb",
+      "nodes": [],
+      "height": 0.2,
+      "width": 0.99,
+      "depth": 6.12,
+      "triangles": 11512,
+      "bytes": 148128,
+      "usage": "reserve",
+      "credits": {
+        "title": "HQ free long sidewalk 3",
+        "author": "SPLEEN VISION (https://sketchfab.com/spleen.vision)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/hq-free-long-sidewalk-3-6f62617b9f1f4de88646b1d8fd007e8a"
+      }
+    },
+    {
+      "slug": "neve-che-cade",
+      "name": "Neve che cade",
+      "role": "spare",
+      "file": "models/neve-che-cade.glb",
+      "nodes": [],
+      "height": 3,
+      "width": 15.7,
+      "depth": 15.15,
+      "triangles": 1800,
+      "bytes": 1015400,
+      "usage": "reserve",
+      "credits": {
+        "title": "falling snow loop",
+        "author": "Elin (https://sketchfab.com/ElinHohler)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/falling-snow-loop-a19b97d7e64548b998eaeb4d8477c24c"
+      }
+    },
+    {
+      "slug": "palo-della-luce",
+      "name": "Palo della luce",
+      "role": "spare",
+      "file": "models/palo-della-luce.glb",
+      "nodes": [],
+      "height": 6,
+      "width": 3.19,
+      "depth": 0.49,
+      "triangles": 326,
+      "bytes": 16096,
+      "usage": "reserve",
+      "credits": {
+        "title": "light pole",
+        "author": "joeynaja (https://sketchfab.com/joeynaja)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/light-pole-74b78e2d021c4f7d82c206aac7a39954"
+      }
+    },
+    {
+      "slug": "palo-elettrico",
+      "name": "Palo elettrico",
+      "role": "spare",
+      "file": "models/palo-elettrico.glb",
+      "nodes": [],
+      "height": 9,
+      "width": 98.56,
+      "depth": 867.39,
+      "triangles": 7861,
+      "bytes": 66076,
+      "usage": "reserve",
+      "credits": {
+        "title": "Electric Light Pole",
+        "author": "Cau Hi (https://sketchfab.com/nt.chitam)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/electric-light-pole-16a9290be6ec48c685b537ce3730ff2b"
+      }
+    },
+    {
+      "slug": "passerella",
+      "name": "Passerella",
+      "role": "spare",
+      "file": "models/passerella.glb",
+      "nodes": [],
+      "height": 1,
+      "width": 47.14,
+      "depth": 47.14,
+      "triangles": 11517,
+      "bytes": 193368,
+      "usage": "reserve",
+      "credits": {
+        "title": "Realistic Walkway",
+        "author": "OrbArts (https://sketchfab.com/orbarts)",
+        "license": "CC-BY-SA-4.0",
+        "source": "https://sketchfab.com/3d-models/realistic-walkway-8050b15ec2d44b14b843831b41fcb3ba"
+      }
+    },
+    {
+      "slug": "protezione-stradale",
+      "name": "Protezione stradale",
+      "role": "spare",
+      "file": "models/protezione-stradale.glb",
+      "nodes": [],
+      "height": 1.2,
+      "width": 0.46,
+      "depth": 7.73,
+      "triangles": 21397,
+      "bytes": 242120,
+      "usage": "reserve",
+      "credits": {
+        "title": "Roadside Guard",
+        "author": "Safat_Rules (https://sketchfab.com/Ahmed.Almousa)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/roadside-guard-fb00e3946d4e47fa893f3e2671c77f6b"
+      }
+    },
+    {
+      "slug": "rock-outcrop",
+      "name": "Affioramento roccioso",
+      "role": "rock",
+      "file": "models/rock-outcrop.glb",
+      "nodes": [],
+      "height": 2.4,
+      "width": 12.08,
+      "depth": 11.95,
+      "triangles": 3840,
+      "bytes": 147544,
+      "usage": "placed",
+      "credits": {
+        "title": "Rock terrain",
+        "author": "Lassi Kaukonen (https://sketchfab.com/thesidekick)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/rock-terrain-fa015203576b44dd9743d24d6c34b5e1"
+      }
+    },
+    {
+      "slug": "rural-house",
+      "name": "Casa di abitazione",
+      "role": "house",
+      "file": "models/rural-house.glb",
+      "nodes": [],
+      "height": 8,
+      "width": 23.43,
+      "depth": 23.21,
+      "triangles": 54911,
+      "bytes": 2424256,
+      "usage": "placed",
+      "credits": {
+        "title": "Casa Di Abitazione",
+        "author": "labarch (https://sketchfab.com/labarch)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/casa-di-abitazione-2fe49173c8f04abeaabb006e5cf623cd"
+      }
+    },
+    {
+      "slug": "scena-di-bosco",
+      "name": "Scena di bosco",
+      "role": "spare",
+      "file": "models/scena-di-bosco.glb",
+      "nodes": [],
+      "height": 15,
+      "width": 87.32,
+      "depth": 53.77,
+      "triangles": 43317,
+      "bytes": 1712592,
+      "usage": "reserve",
+      "credits": {
+        "title": "Low Poly Tree Scene Free",
+        "author": "Nicholas-3D (https://sketchfab.com/Nicholas01)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/low-poly-tree-scene-free-89daa5e21f0d4f08a59dba0d566e88bd"
+      }
+    },
+    {
+      "slug": "sign-45-sqare-tilted",
+      "name": "Cartello stradale 3",
+      "role": "sign",
+      "file": "models/sign-45-sqare-tilted.glb",
+      "nodes": [],
+      "height": 2.2,
+      "width": 0.13,
+      "depth": 0.73,
+      "triangles": 1158,
+      "bytes": 28248,
+      "usage": "placed",
+      "credits": {
+        "title": "Roadside billboards with Icons/Text (UE)",
+        "author": "MAYUR (https://sketchfab.com/mayur_)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/roadside-billboards-with-iconstext-ue-d4edf394ad834e1c817e13d9e8d5226c"
+      }
+    },
+    {
+      "slug": "sign-down-trangle",
+      "name": "Cartello stradale 5",
+      "role": "sign",
+      "file": "models/sign-down-trangle.glb",
+      "nodes": [],
+      "height": 2.2,
+      "width": 0.13,
+      "depth": 0.73,
+      "triangles": 1142,
+      "bytes": 28848,
+      "usage": "placed",
+      "credits": {
+        "title": "Roadside billboards with Icons/Text (UE)",
+        "author": "MAYUR (https://sketchfab.com/mayur_)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/roadside-billboards-with-iconstext-ue-d4edf394ad834e1c817e13d9e8d5226c"
+      }
+    },
+    {
+      "slug": "sign-highted-rectangular",
+      "name": "Cartello stradale 2",
+      "role": "sign",
+      "file": "models/sign-highted-rectangular.glb",
+      "nodes": [],
+      "height": 2.2,
+      "width": 0.13,
+      "depth": 0.56,
+      "triangles": 1158,
+      "bytes": 27984,
+      "usage": "placed",
+      "credits": {
+        "title": "Roadside billboards with Icons/Text (UE)",
+        "author": "MAYUR (https://sketchfab.com/mayur_)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/roadside-billboards-with-iconstext-ue-d4edf394ad834e1c817e13d9e8d5226c"
+      }
+    },
+    {
+      "slug": "sign-sqare",
+      "name": "Cartello stradale 1",
+      "role": "sign",
+      "file": "models/sign-sqare.glb",
+      "nodes": [],
+      "height": 2.2,
+      "width": 0.13,
+      "depth": 0.56,
+      "triangles": 1158,
+      "bytes": 26520,
+      "usage": "placed",
+      "credits": {
+        "title": "Roadside billboards with Icons/Text (UE)",
+        "author": "MAYUR (https://sketchfab.com/mayur_)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/roadside-billboards-with-iconstext-ue-d4edf394ad834e1c817e13d9e8d5226c"
+      }
+    },
+    {
+      "slug": "sign-up-trangle",
+      "name": "Cartello stradale 4",
+      "role": "sign",
+      "file": "models/sign-up-trangle.glb",
+      "nodes": [],
+      "height": 2.2,
+      "width": 0.13,
+      "depth": 0.73,
+      "triangles": 1142,
+      "bytes": 28832,
+      "usage": "placed",
+      "credits": {
+        "title": "Roadside billboards with Icons/Text (UE)",
+        "author": "MAYUR (https://sketchfab.com/mayur_)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/roadside-billboards-with-iconstext-ue-d4edf394ad834e1c817e13d9e8d5226c"
+      }
+    },
+    {
+      "slug": "strada-innevata",
+      "name": "Strada innevata",
+      "role": "spare",
+      "file": "models/strada-innevata.glb",
+      "nodes": [],
+      "height": 4,
+      "width": 18.66,
+      "depth": 29.11,
+      "triangles": 576662,
+      "bytes": 10396772,
+      "usage": "reserve",
+      "credits": {
+        "title": "Snow Road (raw scan) Freebie",
+        "author": "Vlad (https://sketchfab.com/ssh4)",
+        "license": "CC-BY-SA-4.0",
+        "source": "https://sketchfab.com/3d-models/snow-road-raw-scan-freebie-d6f6fb4341f64ee1abe0974d350b0d32"
+      }
+    },
+    {
+      "slug": "terreno",
+      "name": "Terreno",
+      "role": "spare",
+      "file": "models/terreno.glb",
+      "nodes": [],
+      "height": 8,
+      "width": 78636.59,
+      "depth": 78636.59,
+      "triangles": 23038,
+      "bytes": 570448,
+      "usage": "reserve",
+      "credits": {
+        "title": "Terrain",
+        "author": "DJMaesen (https://sketchfab.com/bumstrum)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/terrain-7f40b2e189234d8cb9ccaadf8e92b844"
+      }
+    },
+    {
+      "slug": "terreno-di-strada",
+      "name": "Terreno di strada",
+      "role": "spare",
+      "file": "models/terreno-di-strada.glb",
+      "nodes": [],
+      "height": 3,
+      "width": 12005.75,
+      "depth": 6962.28,
+      "triangles": 5936,
+      "bytes": 224604,
+      "usage": "reserve",
+      "credits": {
+        "title": "Road Terrain",
+        "author": "jimbogies (https://sketchfab.com/jimbogies)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/road-terrain-7b4c7d514da54c0ca821e158f99761e3"
+      }
+    },
+    {
+      "slug": "terreno-fng",
+      "name": "Terreno (FNG)",
+      "role": "spare",
+      "file": "models/terreno-fng.glb",
+      "nodes": [],
+      "height": 8,
+      "width": 4,
+      "depth": 4,
+      "triangles": 28782,
+      "bytes": 367728,
+      "usage": "reserve",
+      "credits": {
+        "title": "Terrain",
+        "author": "FNG (https://sketchfab.com/FirstNG)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/terrain-826c41844d4243599649c07caac5112f"
+      }
+    },
+    {
+      "slug": "terreno-grande",
+      "name": "Terreno grande",
+      "role": "spare",
+      "file": "models/terreno-grande.glb",
+      "nodes": [],
+      "height": 12,
+      "width": 2500,
+      "depth": 2000,
+      "triangles": 28791,
+      "bytes": 3703008,
+      "usage": "reserve",
+      "credits": {
+        "title": "Big Terrain",
+        "author": "Dogus ß ô â (https://sketchfab.com/Dogus.Berk.Bayram)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/big-terrain-50338f06da754fd29481b0bdf86b7f29"
+      }
+    },
+    {
+      "slug": "tracce-nel-fango",
+      "name": "Tracce nel fango",
+      "role": "spare",
+      "file": "models/tracce-nel-fango.glb",
+      "nodes": [],
+      "height": 3,
+      "width": 4.45,
+      "depth": 4.92,
+      "triangles": 32709,
+      "bytes": 689552,
+      "usage": "reserve",
+      "credits": {
+        "title": "HQ tracks in wet sand and mud",
+        "author": "SPLEEN VISION (https://sketchfab.com/spleen.vision)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/hq-tracks-in-wet-sand-and-mud-bdde6dad0f1f4069b8cf3ed2453b9097"
+      }
+    },
+    {
+      "slug": "tree-real-a",
+      "name": "Albero realistico A",
+      "role": "tree",
+      "file": "models/tree-real-a.glb",
+      "nodes": [],
+      "height": 12,
+      "width": 9.23,
+      "depth": 8.59,
+      "triangles": 17068,
+      "bytes": 970216,
+      "usage": "placed",
+      "credits": {
+        "title": "Realistic Trees Pack of 2 Free",
+        "author": "Nicholas-3D (https://sketchfab.com/Nicholas01)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/realistic-trees-pack-of-2-free-08b4a9eac77a40419fd59402cc7b2deb"
+      }
+    },
+    {
+      "slug": "tree-real-b",
+      "name": "Albero realistico B",
+      "role": "tree",
+      "file": "models/tree-real-b.glb",
+      "nodes": [],
+      "height": 10.5,
+      "width": 9.36,
+      "depth": 10.41,
+      "triangles": 16326,
+      "bytes": 1074332,
+      "usage": "placed",
+      "credits": {
+        "title": "Realistic Trees Pack of 2 Free",
+        "author": "Nicholas-3D (https://sketchfab.com/Nicholas01)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/realistic-trees-pack-of-2-free-08b4a9eac77a40419fd59402cc7b2deb"
+      }
+    },
+    {
+      "slug": "veg-01",
+      "name": "Sottobosco 1",
+      "role": "shrub",
+      "file": "models/veg-01.glb",
+      "nodes": [],
+      "height": 0.48,
+      "width": 0.38,
+      "depth": 0.37,
+      "triangles": 327,
+      "bytes": 105476,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-02",
+      "name": "Sottobosco 2",
+      "role": "shrub",
+      "file": "models/veg-02.glb",
+      "nodes": [],
+      "height": 0.47,
+      "width": 0.52,
+      "depth": 0.37,
+      "triangles": 519,
+      "bytes": 109120,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-03",
+      "name": "Sottobosco 3",
+      "role": "shrub",
+      "file": "models/veg-03.glb",
+      "nodes": [],
+      "height": 0.45,
+      "width": 0.43,
+      "depth": 0.56,
+      "triangles": 341,
+      "bytes": 105916,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-04",
+      "name": "Sottobosco 4",
+      "role": "shrub",
+      "file": "models/veg-04.glb",
+      "nodes": [],
+      "height": 1.05,
+      "width": 0.32,
+      "depth": 0.59,
+      "triangles": 16239,
+      "bytes": 399368,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-05",
+      "name": "Sottobosco 5",
+      "role": "shrub",
+      "file": "models/veg-05.glb",
+      "nodes": [],
+      "height": 0.81,
+      "width": 0.33,
+      "depth": 0.24,
+      "triangles": 586,
+      "bytes": 133480,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-06",
+      "name": "Sottobosco 6",
+      "role": "shrub",
+      "file": "models/veg-06.glb",
+      "nodes": [],
+      "height": 0.98,
+      "width": 0.43,
+      "depth": 0.67,
+      "triangles": 2149,
+      "bytes": 156024,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-07",
+      "name": "Sottobosco 7",
+      "role": "shrub",
+      "file": "models/veg-07.glb",
+      "nodes": [],
+      "height": 1.25,
+      "width": 0.37,
+      "depth": 0.62,
+      "triangles": 13842,
+      "bytes": 356580,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-08",
+      "name": "Sottobosco 8",
+      "role": "shrub",
+      "file": "models/veg-08.glb",
+      "nodes": [],
+      "height": 1.24,
+      "width": 0.3,
+      "depth": 0.47,
+      "triangles": 4847,
+      "bytes": 204860,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-09",
+      "name": "Sottobosco 9",
+      "role": "shrub",
+      "file": "models/veg-09.glb",
+      "nodes": [],
+      "height": 0.92,
+      "width": 0.35,
+      "depth": 0.52,
+      "triangles": 3998,
+      "bytes": 193616,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-10",
+      "name": "Sottobosco 10",
+      "role": "shrub",
+      "file": "models/veg-10.glb",
+      "nodes": [],
+      "height": 0.38,
+      "width": 0.3,
+      "depth": 0.29,
+      "triangles": 1245,
+      "bytes": 224136,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-11",
+      "name": "Sottobosco 11",
+      "role": "shrub",
+      "file": "models/veg-11.glb",
+      "nodes": [],
+      "height": 0.3,
+      "width": 0.28,
+      "depth": 0.28,
+      "triangles": 359,
+      "bytes": 200232,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-12",
+      "name": "Sottobosco 12",
+      "role": "shrub",
+      "file": "models/veg-12.glb",
+      "nodes": [],
+      "height": 0.37,
+      "width": 0.34,
+      "depth": 0.21,
+      "triangles": 1243,
+      "bytes": 219776,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-13",
+      "name": "Sottobosco 13",
+      "role": "shrub",
+      "file": "models/veg-13.glb",
+      "nodes": [],
+      "height": 0.57,
+      "width": 0.31,
+      "depth": 0.23,
+      "triangles": 360,
+      "bytes": 202908,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-14",
+      "name": "Sottobosco 14",
+      "role": "shrub",
+      "file": "models/veg-14.glb",
+      "nodes": [],
+      "height": 0.52,
+      "width": 0.24,
+      "depth": 0.24,
+      "triangles": 334,
+      "bytes": 201732,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-15",
+      "name": "Sottobosco 15",
+      "role": "shrub",
+      "file": "models/veg-15.glb",
+      "nodes": [],
+      "height": 0.5,
+      "width": 0.15,
+      "depth": 0.18,
+      "triangles": 215,
+      "bytes": 197884,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-16",
+      "name": "Sottobosco 16",
+      "role": "shrub",
+      "file": "models/veg-16.glb",
+      "nodes": [],
+      "height": 0.3,
+      "width": 0.29,
+      "depth": 0.28,
+      "triangles": 685,
+      "bytes": 206940,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-17",
+      "name": "Sottobosco 17",
+      "role": "shrub",
+      "file": "models/veg-17.glb",
+      "nodes": [],
+      "height": 0.43,
+      "width": 0.45,
+      "depth": 0.44,
+      "triangles": 15950,
+      "bytes": 272792,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-18",
+      "name": "Sottobosco 18",
+      "role": "shrub",
+      "file": "models/veg-18.glb",
+      "nodes": [],
+      "height": 0.34,
+      "width": 0.38,
+      "depth": 0.43,
+      "triangles": 11192,
+      "bytes": 225500,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-19",
+      "name": "Sottobosco 19",
+      "role": "shrub",
+      "file": "models/veg-19.glb",
+      "nodes": [],
+      "height": 0.3,
+      "width": 0.54,
+      "depth": 0.6,
+      "triangles": 12779,
+      "bytes": 244412,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-20",
+      "name": "Sottobosco 20",
+      "role": "shrub",
+      "file": "models/veg-20.glb",
+      "nodes": [],
+      "height": 0.3,
+      "width": 0.33,
+      "depth": 0.41,
+      "triangles": 11667,
+      "bytes": 231984,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-21",
+      "name": "Sottobosco 21",
+      "role": "shrub",
+      "file": "models/veg-21.glb",
+      "nodes": [],
+      "height": 0.3,
+      "width": 0.43,
+      "depth": 0.45,
+      "triangles": 14111,
+      "bytes": 256480,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-22",
+      "name": "Sottobosco 22",
+      "role": "shrub",
+      "file": "models/veg-22.glb",
+      "nodes": [],
+      "height": 0.3,
+      "width": 0.45,
+      "depth": 0.46,
+      "triangles": 27668,
+      "bytes": 391384,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-27",
+      "name": "Sottobosco 27",
+      "role": "shrub",
+      "file": "models/veg-27.glb",
+      "nodes": [],
+      "height": 1.29,
+      "width": 1.08,
+      "depth": 0.95,
+      "triangles": 3647,
+      "bytes": 248620,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-28",
+      "name": "Sottobosco 28",
+      "role": "shrub",
+      "file": "models/veg-28.glb",
+      "nodes": [],
+      "height": 1.23,
+      "width": 0.98,
+      "depth": 1.07,
+      "triangles": 9577,
+      "bytes": 360992,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-29",
+      "name": "Sottobosco 29",
+      "role": "shrub",
+      "file": "models/veg-29.glb",
+      "nodes": [],
+      "height": 1.31,
+      "width": 1.46,
+      "depth": 1.33,
+      "triangles": 33755,
+      "bytes": 872548,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-31",
+      "name": "Sottobosco 31",
+      "role": "shrub",
+      "file": "models/veg-31.glb",
+      "nodes": [],
+      "height": 1.2,
+      "width": 1.11,
+      "depth": 1.3,
+      "triangles": 17896,
+      "bytes": 538436,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-32",
+      "name": "Sottobosco 32",
+      "role": "shrub",
+      "file": "models/veg-32.glb",
+      "nodes": [],
+      "height": 1.21,
+      "width": 1.06,
+      "depth": 0.98,
+      "triangles": 11200,
+      "bytes": 416412,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-33",
+      "name": "Sottobosco 33",
+      "role": "shrub",
+      "file": "models/veg-33.glb",
+      "nodes": [],
+      "height": 0.3,
+      "width": 0.34,
+      "depth": 0.38,
+      "triangles": 290,
+      "bytes": 172740,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-34",
+      "name": "Sottobosco 34",
+      "role": "shrub",
+      "file": "models/veg-34.glb",
+      "nodes": [],
+      "height": 0.5,
+      "width": 0.28,
+      "depth": 0.45,
+      "triangles": 360,
+      "bytes": 174184,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-35",
+      "name": "Sottobosco 35",
+      "role": "shrub",
+      "file": "models/veg-35.glb",
+      "nodes": [],
+      "height": 0.64,
+      "width": 0.4,
+      "depth": 0.48,
+      "triangles": 532,
+      "bytes": 179520,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-36",
+      "name": "Sottobosco 36",
+      "role": "shrub",
+      "file": "models/veg-36.glb",
+      "nodes": [],
+      "height": 0.75,
+      "width": 0.53,
+      "depth": 0.71,
+      "triangles": 2078,
+      "bytes": 217364,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-37",
+      "name": "Sottobosco 37",
+      "role": "shrub",
+      "file": "models/veg-37.glb",
+      "nodes": [],
+      "height": 0.96,
+      "width": 0.96,
+      "depth": 0.91,
+      "triangles": 3205,
+      "bytes": 240624,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-38",
+      "name": "Sottobosco 38",
+      "role": "shrub",
+      "file": "models/veg-38.glb",
+      "nodes": [],
+      "height": 0.3,
+      "width": 0.7,
+      "depth": 0.69,
+      "triangles": 369,
+      "bytes": 179040,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-39",
+      "name": "Sottobosco 39",
+      "role": "shrub",
+      "file": "models/veg-39.glb",
+      "nodes": [],
+      "height": 0.3,
+      "width": 0.24,
+      "depth": 0.29,
+      "triangles": 59,
+      "bytes": 174592,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-40",
+      "name": "Sottobosco 40",
+      "role": "shrub",
+      "file": "models/veg-40.glb",
+      "nodes": [],
+      "height": 0.3,
+      "width": 0.22,
+      "depth": 0.27,
+      "triangles": 88,
+      "bytes": 174884,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-41",
+      "name": "Sottobosco 41",
+      "role": "shrub",
+      "file": "models/veg-41.glb",
+      "nodes": [],
+      "height": 0.3,
+      "width": 0.33,
+      "depth": 0.4,
+      "triangles": 189,
+      "bytes": 176436,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-42",
+      "name": "Sottobosco 42",
+      "role": "shrub",
+      "file": "models/veg-42.glb",
+      "nodes": [],
+      "height": 0.36,
+      "width": 0.75,
+      "depth": 0.58,
+      "triangles": 238,
+      "bytes": 177220,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-43",
+      "name": "Sottobosco 43",
+      "role": "shrub",
+      "file": "models/veg-43.glb",
+      "nodes": [],
+      "height": 0.31,
+      "width": 0.67,
+      "depth": 0.67,
+      "triangles": 411,
+      "bytes": 179664,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-44",
+      "name": "Sottobosco 44",
+      "role": "shrub",
+      "file": "models/veg-44.glb",
+      "nodes": [],
+      "height": 0.3,
+      "width": 0.62,
+      "depth": 0.67,
+      "triangles": 410,
+      "bytes": 179676,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-45",
+      "name": "Sottobosco 45",
+      "role": "shrub",
+      "file": "models/veg-45.glb",
+      "nodes": [],
+      "height": 0.3,
+      "width": 0.78,
+      "depth": 0.68,
+      "triangles": 482,
+      "bytes": 181044,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-47",
+      "name": "Sottobosco 47",
+      "role": "shrub",
+      "file": "models/veg-47.glb",
+      "nodes": [],
+      "height": 0.84,
+      "width": 0.36,
+      "depth": 0.3,
+      "triangles": 158,
+      "bytes": 85136,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-48",
+      "name": "Sottobosco 48",
+      "role": "shrub",
+      "file": "models/veg-48.glb",
+      "nodes": [],
+      "height": 0.75,
+      "width": 0.32,
+      "depth": 0.32,
+      "triangles": 166,
+      "bytes": 85260,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-49",
+      "name": "Sottobosco 49",
+      "role": "shrub",
+      "file": "models/veg-49.glb",
+      "nodes": [],
+      "height": 0.77,
+      "width": 0.33,
+      "depth": 0.3,
+      "triangles": 199,
+      "bytes": 85804,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-50",
+      "name": "Sottobosco 50",
+      "role": "shrub",
+      "file": "models/veg-50.glb",
+      "nodes": [],
+      "height": 0.51,
+      "width": 0.42,
+      "depth": 0.31,
+      "triangles": 364,
+      "bytes": 88168,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-51",
+      "name": "Sottobosco 51",
+      "role": "shrub",
+      "file": "models/veg-51.glb",
+      "nodes": [],
+      "height": 1.04,
+      "width": 0.4,
+      "depth": 0.45,
+      "triangles": 233,
+      "bytes": 86244,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-52",
+      "name": "Sottobosco 52",
+      "role": "shrub",
+      "file": "models/veg-52.glb",
+      "nodes": [],
+      "height": 0.85,
+      "width": 0.35,
+      "depth": 0.24,
+      "triangles": 211,
+      "bytes": 85800,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-53",
+      "name": "Sottobosco 53",
+      "role": "shrub",
+      "file": "models/veg-53.glb",
+      "nodes": [],
+      "height": 0.62,
+      "width": 0.33,
+      "depth": 0.33,
+      "triangles": 135,
+      "bytes": 84820,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-54",
+      "name": "Sottobosco 54",
+      "role": "shrub",
+      "file": "models/veg-54.glb",
+      "nodes": [],
+      "height": 0.75,
+      "width": 0.32,
+      "depth": 0.29,
+      "triangles": 172,
+      "bytes": 85352,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-56",
+      "name": "Sottobosco 56",
+      "role": "shrub",
+      "file": "models/veg-56.glb",
+      "nodes": [],
+      "height": 0.3,
+      "width": 0.76,
+      "depth": 0.84,
+      "triangles": 62,
+      "bytes": 191092,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-57",
+      "name": "Sottobosco 57",
+      "role": "shrub",
+      "file": "models/veg-57.glb",
+      "nodes": [],
+      "height": 0.53,
+      "width": 0.42,
+      "depth": 0.41,
+      "triangles": 447,
+      "bytes": 200832,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-58",
+      "name": "Sottobosco 58",
+      "role": "shrub",
+      "file": "models/veg-58.glb",
+      "nodes": [],
+      "height": 0.45,
+      "width": 0.38,
+      "depth": 0.42,
+      "triangles": 326,
+      "bytes": 197516,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-59",
+      "name": "Sottobosco 59",
+      "role": "shrub",
+      "file": "models/veg-59.glb",
+      "nodes": [],
+      "height": 0.3,
+      "width": 0.38,
+      "depth": 0.44,
+      "triangles": 100,
+      "bytes": 192304,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-61",
+      "name": "Sottobosco 61",
+      "role": "shrub",
+      "file": "models/veg-61.glb",
+      "nodes": [],
+      "height": 0.3,
+      "width": 0.87,
+      "depth": 0.85,
+      "triangles": 1067,
+      "bytes": 277360,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-62",
+      "name": "Sottobosco 62",
+      "role": "shrub",
+      "file": "models/veg-62.glb",
+      "nodes": [],
+      "height": 0.33,
+      "width": 0.37,
+      "depth": 0.4,
+      "triangles": 436,
+      "bytes": 263444,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-63",
+      "name": "Sottobosco 63",
+      "role": "shrub",
+      "file": "models/veg-63.glb",
+      "nodes": [],
+      "height": 0.66,
+      "width": 0.43,
+      "depth": 0.41,
+      "triangles": 404,
+      "bytes": 262788,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-64",
+      "name": "Sottobosco 64",
+      "role": "shrub",
+      "file": "models/veg-64.glb",
+      "nodes": [],
+      "height": 0.69,
+      "width": 0.7,
+      "depth": 0.68,
+      "triangles": 319,
+      "bytes": 260828,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-65",
+      "name": "Sottobosco 65",
+      "role": "shrub",
+      "file": "models/veg-65.glb",
+      "nodes": [],
+      "height": 0.3,
+      "width": 1.29,
+      "depth": 1.05,
+      "triangles": 821,
+      "bytes": 272656,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-66",
+      "name": "Sottobosco 66",
+      "role": "shrub",
+      "file": "models/veg-66.glb",
+      "nodes": [],
+      "height": 0.3,
+      "width": 1.05,
+      "depth": 1.03,
+      "triangles": 852,
+      "bytes": 271660,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-67",
+      "name": "Sottobosco 67",
+      "role": "shrub",
+      "file": "models/veg-67.glb",
+      "nodes": [],
+      "height": 0.68,
+      "width": 0.86,
+      "depth": 0.58,
+      "triangles": 201,
+      "bytes": 259636,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-68",
+      "name": "Sottobosco 68",
+      "role": "shrub",
+      "file": "models/veg-68.glb",
+      "nodes": [],
+      "height": 0.76,
+      "width": 0.66,
+      "depth": 0.6,
+      "triangles": 200,
+      "bytes": 259992,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-70",
+      "name": "Sottobosco 70",
+      "role": "shrub",
+      "file": "models/veg-70.glb",
+      "nodes": [],
+      "height": 0.93,
+      "width": 0.79,
+      "depth": 1.27,
+      "triangles": 13396,
+      "bytes": 438936,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-71",
+      "name": "Sottobosco 71",
+      "role": "shrub",
+      "file": "models/veg-71.glb",
+      "nodes": [],
+      "height": 0.8,
+      "width": 0.71,
+      "depth": 0.89,
+      "triangles": 3838,
+      "bytes": 254812,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-72",
+      "name": "Sottobosco 72",
+      "role": "shrub",
+      "file": "models/veg-72.glb",
+      "nodes": [],
+      "height": 0.77,
+      "width": 0.6,
+      "depth": 0.62,
+      "triangles": 1233,
+      "bytes": 205152,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-73",
+      "name": "Sottobosco 73",
+      "role": "shrub",
+      "file": "models/veg-73.glb",
+      "nodes": [],
+      "height": 0.69,
+      "width": 0.68,
+      "depth": 0.69,
+      "triangles": 1319,
+      "bytes": 208884,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-74",
+      "name": "Sottobosco 74",
+      "role": "shrub",
+      "file": "models/veg-74.glb",
+      "nodes": [],
+      "height": 0.4,
+      "width": 0.57,
+      "depth": 0.48,
+      "triangles": 851,
+      "bytes": 197988,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-75",
+      "name": "Sottobosco 75",
+      "role": "shrub",
+      "file": "models/veg-75.glb",
+      "nodes": [],
+      "height": 0.31,
+      "width": 0.64,
+      "depth": 0.7,
+      "triangles": 1749,
+      "bytes": 213972,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-76",
+      "name": "Sottobosco 76",
+      "role": "shrub",
+      "file": "models/veg-76.glb",
+      "nodes": [],
+      "height": 0.72,
+      "width": 0.66,
+      "depth": 0.68,
+      "triangles": 4838,
+      "bytes": 278696,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-77",
+      "name": "Sottobosco 77",
+      "role": "shrub",
+      "file": "models/veg-77.glb",
+      "nodes": [],
+      "height": 0.82,
+      "width": 0.76,
+      "depth": 0.91,
+      "triangles": 10217,
+      "bytes": 386512,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-79",
+      "name": "Sottobosco 79",
+      "role": "shrub",
+      "file": "models/veg-79.glb",
+      "nodes": [],
+      "height": 0.78,
+      "width": 0.43,
+      "depth": 0.42,
+      "triangles": 488,
+      "bytes": 202244,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-80",
+      "name": "Sottobosco 80",
+      "role": "shrub",
+      "file": "models/veg-80.glb",
+      "nodes": [],
+      "height": 0.88,
+      "width": 0.76,
+      "depth": 0.72,
+      "triangles": 1579,
+      "bytes": 218512,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-81",
+      "name": "Sottobosco 81",
+      "role": "shrub",
+      "file": "models/veg-81.glb",
+      "nodes": [],
+      "height": 0.72,
+      "width": 0.5,
+      "depth": 0.52,
+      "triangles": 478,
+      "bytes": 202148,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-82",
+      "name": "Sottobosco 82",
+      "role": "shrub",
+      "file": "models/veg-82.glb",
+      "nodes": [],
+      "height": 0.54,
+      "width": 0.41,
+      "depth": 0.34,
+      "triangles": 391,
+      "bytes": 199008,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-83",
+      "name": "Sottobosco 83",
+      "role": "shrub",
+      "file": "models/veg-83.glb",
+      "nodes": [],
+      "height": 0.95,
+      "width": 1.08,
+      "depth": 1.06,
+      "triangles": 5223,
+      "bytes": 279520,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-84",
+      "name": "Sottobosco 84",
+      "role": "shrub",
+      "file": "models/veg-84.glb",
+      "nodes": [],
+      "height": 0.84,
+      "width": 0.71,
+      "depth": 0.85,
+      "triangles": 2823,
+      "bytes": 246720,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-85",
+      "name": "Sottobosco 85",
+      "role": "shrub",
+      "file": "models/veg-85.glb",
+      "nodes": [],
+      "height": 0.63,
+      "width": 0.66,
+      "depth": 0.59,
+      "triangles": 1779,
+      "bytes": 219132,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "veg-86",
+      "name": "Sottobosco 86",
+      "role": "shrub",
+      "file": "models/veg-86.glb",
+      "nodes": [],
+      "height": 0.92,
+      "width": 1.32,
+      "depth": 1.42,
+      "triangles": 7504,
+      "bytes": 338900,
+      "usage": "placed",
+      "credits": {
+        "title": "Vegetation Pack",
+        "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073"
+      }
+    },
+    {
+      "slug": "via-s-gemini",
+      "name": "Via S. Gemini",
+      "role": "spare",
+      "file": "models/via-s-gemini.glb",
+      "nodes": [],
+      "height": 8,
+      "width": 42.4,
+      "depth": 13.23,
+      "triangles": 32329,
+      "bytes": 647096,
+      "usage": "reserve",
+      "credits": {
+        "title": "Via S. Gemini (Viterbo - Italy)",
+        "author": "Andrea Spognetta (Spogna) (https://sketchfab.com/spogna)",
+        "license": "CC-BY-NC-4.0",
+        "source": "https://sketchfab.com/3d-models/via-s-gemini-viterbo-italy-608f8339c95f410ea42f2849dd272ce2"
+      }
+    }
+  ],
+  "bytes": 60250236
+}

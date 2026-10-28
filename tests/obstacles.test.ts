@@ -42,6 +42,24 @@ describe('ostacoli cilindrici', () => {
     expect(index.count).toBe(0);
   });
 
+  it('dice quale ostacolo è stato preso, per farlo reagire', () => {
+    const index = new ObstacleIndex();
+    index.add(10, 10, 0.3, 'world-tree');
+    index.add(14, 10, 0.3, 'sign');
+    expect(index.nearest(10.4, 10, 1)?.tag).toBe('world-tree');
+    expect(index.nearest(13.6, 10, 1)?.tag).toBe('sign');
+    // niente entro la portata: l'auto ha preso un muro, non un ostacolo
+    expect(index.nearest(0, 0, 1)).toBeNull();
+  });
+
+  it('conta il bordo dell\'ostacolo, non il centro', () => {
+    const index = new ObstacleIndex();
+    index.add(0, 0, 2);
+    // a 2,5 m dal centro la distanza dal bordo è 0,5: dentro una portata di 0,6
+    expect(index.nearest(2.5, 0, 0.6)).not.toBeNull();
+    expect(index.nearest(2.5, 0, 0.4)).toBeNull();
+  });
+
   it('rimuove un gruppo taggato senza toccare gli altri ostacoli', () => {
     const index = new ObstacleIndex();
     index.add(2, 0, 0.15, 'guardrail');

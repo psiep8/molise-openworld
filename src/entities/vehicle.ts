@@ -49,6 +49,19 @@ interface ExternalWheel {
 
 const WHEEL_SPRAY_COUNT = 128;
 
+/** Urto contro un ostacolo vero (albero, cartello, sasso, casa). */
+export interface CarImpact {
+  /** punto dell'ostacolo, in metri di mondo */
+  x: number;
+  z: number;
+  /** direzione della spinta: dal veicolo verso l'ostacolo, normalizzata */
+  dx: number;
+  dz: number;
+  strength: number;
+  /** tag dell'ostacolo nell'`ObstacleIndex` (null se era un edificio) */
+  tag: string | null;
+}
+
 /**
  * Riconosce i nomi delle ruote esportati dai vari editor: `wheel-fl`,
  * `Wheel_FR`, `wheel_rl.001` (Blender duplica col suffisso) e anche
@@ -210,6 +223,8 @@ export class Vehicle {
   private riderRoot: THREE.Group | null = null;
   /** Evita di pagare il colpo a ogni frame mentre si resta sul bordo. */
   private curbCooldown = 0;
+  /** Urto in attesa di essere letto dal gioco (una volta sola). */
+  private pendingImpact: CarImpact | null = null;
 
   constructor(spec: VehicleSpec = VEHICLES[0]) {
     this.group = new THREE.Group();
@@ -1244,7 +1259,15 @@ export class Vehicle {
     }
   }
 
+  /** Urto da comunicare a chi deve reagire (alberi, cartelli), una volta sola. */
+  consumeImpact(): CarImpact | null {
+    const impact = this.pendingImpact;
+    this.pendingImpact = null;
+    return impact;
+  }
+
   reset(x: number, z: number, yaw: number, ground: GroundSampler): void {
+    this.pendingImpact = null;
     this.state = createCarState(x, z, yaw);
     const y = ground.heightAt(x, z);
     this.group.position.set(x, y, z);
@@ -1303,6 +1326,32 @@ export class Vehicle {
     next.x = body.x;
     next.z = body.z;
     next.speed = body.speed;
+
+    // cosa si è preso: l'indice spinge fuori ma non dice contro cosa. Si cerca
+    // l'ostacolo davanti al muso, dove la collisione è appena avvenuta, così il
+    // gioco può far piegare proprio quell'albero o quel cartello.
+    if (body.hit && obstacles && Math.abs(before.speed) > 3) {
+      const hx = -Math.sin(next.yaw);
+      const hz = -Math.cos(next.yaw);
+      const nose = Math.min(1.6, spec.length * 0.4);
+      const touched = obstacles.nearest(next.x + hx * nose, next.z + hz * nose, 1.8);
+      if (touched) {
+        const dx = touched.x - next.x;
+        const dz = touched.z - next.z;
+        const length = Math.hypot(dx, dz) || 1;
+        const strength = clamp(Math.abs(before.speed) / 16, 0.3, 1);
+        this.pendingImpact = {
+          x: touched.x,
+          z: touched.z,
+          dx: dx / length,
+          dz: dz / length,
+          strength,
+          tag: touched.tag ?? null,
+        };
+        // la carrozzeria accusa il colpo, come per lo scalino del cordolo
+        this.bump = Math.max(this.bump, 0.1 * strength);
+      }
+    }
 
     // lo scalino del cordolo si sente: la carrozzeria sobbalza e l'auto perde
     // un po' di velocità, senza teletrasporti

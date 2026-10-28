@@ -348,6 +348,52 @@ export class GameAudio {
     src.stop(now + 0.16);
   }
 
+  /**
+   * Urto contro un ostacolo: corpo sordo di massa più schegge di rumore.
+   *
+   * `strength` (0…1) arriva dalla velocità d'impatto; `metal` distingue il palo
+   * zincato di un cartello dal tronco o dal muro di un casale.
+   */
+  impact(strength: number, metal = false): void {
+    const ctx = this.ctx;
+    const master = this.master;
+    if (!ctx || !master) return;
+    const amount = Math.max(0, Math.min(1, strength));
+    if (amount <= 0.01) return;
+    const now = ctx.currentTime;
+
+    // corpo: una sinusoide che scende di tono, come la lamiera che assorbe
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(metal ? 190 : 96, now);
+    osc.frequency.exponentialRampToValueAtTime(metal ? 88 : 44, now + 0.22);
+    const body = ctx.createGain();
+    body.gain.setValueAtTime(0.0001, now);
+    body.gain.exponentialRampToValueAtTime(0.05 + amount * 0.14, now + 0.008);
+    body.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
+    osc.connect(body).connect(master);
+    osc.start(now);
+    osc.stop(now + 0.3);
+
+    // schegge: rumore filtrato, brillante sul metallo, cupo su legno e pietra
+    if (this.noise) {
+      const src = ctx.createBufferSource();
+      src.buffer = this.noise;
+      src.playbackRate.value = metal ? 1.6 : 0.85;
+      const filter = ctx.createBiquadFilter();
+      filter.type = metal ? 'bandpass' : 'lowpass';
+      filter.frequency.value = metal ? 2600 : 900;
+      filter.Q.value = metal ? 1.6 : 0.7;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.04 + amount * 0.16, now + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12 + amount * 0.16);
+      src.connect(filter).connect(gain).connect(master);
+      src.start(now);
+      src.stop(now + 0.4);
+    }
+  }
+
   /** Scoppio di scarico: burst di rumore filtrato, breve e irregolare. */
   private crackle(intensity: number): void {
     const ctx = this.ctx;

@@ -45,6 +45,7 @@
 - **Boschi, uliveti e filari**: 14.000 alberi instanziati in modo deterministico (stesso seed → stesso paesaggio), con filari lungo le strade e alberi sparsi su campi e crinali per dare profondità alle distanze. Se `public/geo/canopy.bin` (ETH 10 m) è presente, l'altezza della chioma scala gli alberi e dirada quelli che il satellite non vede; senza il file si torna al comportamento OSM.
 - **Ponti e guardrail**: i tratti OSM `bridge` hanno un impalcato con sponde in cemento e guardrail; la stessa quota è letta dalla fisica, quindi l'auto non passa più sotto il ponte. I guardrail compaiono anche sul lato a valle delle strade di campagna e diventano ostacoli solidi (preset medium+; spenti in minimal/low).
 - **Casali di campagna**: fuori dal paese, lungo le strade rurali, compaiono **masserie, rimesse e ulivi/frutteti** dai GLB del kit (18 case, 11 rimesse e 46 alberi ad alta qualità). La posizione è deterministica e ogni impronta entra nell'indice delle collisioni **prima** di vegetazione ed erba: niente ci passa attraverso e niente ci cresce dentro.
+- **World kit versionato** (`public/worldkit/`, ~60 MB): alberi veri, cespugli, ciuffi d'erba fotografati, sassi, cartelli e casali di campagna dai GLB del proprietario. Non è un asset da scaricare: **è nel repository**, quindi ogni clone, ogni `git pull` e ogni build di produzione lo ha già. Il piazzamento è deterministico e limitato dal preset (da zero su *compatibilità* a ~2.500 oggetti su *ultra*) e collegato al resto del gioco: ondeggia col **vento reale**, si bagna quando **piove**, e tronchi, sassi, cartelli e casali entrano nelle **collisioni**; alberi e cartelli si piegano quando l'auto li prende. Dettagli, pipeline di import e licenze in [docs/WORLDKIT.md](docs/WORLDKIT.md).
 - **Acqua**: torrenti e specchi d'acqua.
 - **Camminata** in prima/terza persona con collisioni contro gli edifici, corsa, salto.
 - **Guida simulata**: cambio automatico a 4-8 marce (o una sola per le elettriche) con strappo e kickdown, curva di coppia/potenza del motore vero, aderenza che limita la partenza (pattinamento), freni da 8,8-18 m/s², retromarcia inserita col freno, pendenza, off-road più lento e freno a mano. HUD con marcia e giri motore.
@@ -273,6 +274,8 @@ src/
     precipitation.ts   pioggia, neve soffice e schizzi sul terreno
     mist.ts            banchi di foschia bassa ancorati al terreno
     citykit.ts         caricamento, normalizzazione e istanze dei GLB del kit
+    worldkit.ts        GLB versionati del world kit: meshopt, metri reali, vento
+    world-props.ts     piazzamento deterministico di alberi, sassi, cartelli, casali
     city-props.ts      arredo del paese e della campagna (alberi, siepi, auto)
     farmsteads.ts      casali, rimesse e alberi da campo + impronte di collisione
     grass.ts           campo d'erba instanziato che segue il giocatore
@@ -307,11 +310,22 @@ src/
     audio.ts           WebAudio procedurale: motore per modello, vento, passi, uccelli
   game.ts              orchestrazione, input, camera, loop
 scripts/
+  import-world-glb.mjs preprocessa i GLB del world kit (semplifica, webp, meshopt)
   fetch-geodata.mjs    download e preprocessing OSM/DEM
   fetch-canopy.mjs     ritaglio ETH Canopy Height 10 m sul bbox
   geo-audit.mjs        controllo copertura, strade, ponti e pendenze
   smoke.mjs            test end-to-end con Chrome headless
   check-street-imagery.mjs  censimento copertura Mapillary sul bbox (richiede token)
+```
+
+### World kit: come si rigenera
+
+Gli originali (zip da ~1 GB) restano fuori da git in `incoming-glb/`; i GLB ottimizzati e il manifest sono versionati.
+
+```bash
+npm run worldkit                 # rigenera public/worldkit/ dagli originali
+npm run worldkit -- --check      # verifica manifest e file senza scrivere
+npm run worldkit -- --file=grass # un solo file sorgente
 ```
 
 ## Dati e licenze
@@ -331,6 +345,7 @@ scripts/
   (idle, camminata, corsa). La licenza concede uso personale e commerciale **con avatar
   Ready Player Me**, vieta di ridistribuire le animazioni come asset a sé stanti.
   Dettagli in `public/models/ATTRIBUTION.md`.
+- **World kit** — vegetazione, sassi, cartelli e una casa di campagna forniti dal proprietario: 36 modelli Sketchfab **CC BY 4.0**, **CC BY-SA 4.0** e (uno solo, non piazzato) **CC BY-NC 4.0**, ottimizzati e **versionati** in `public/worldkit/`. Crediti per modello in [`public/worldkit/ATTRIBUTION.md`](public/worldkit/ATTRIBUTION.md), generati dai metadati dei GLB. Tre file dello zip usano **Sketchfab Standard** e non sono nel repository. Se il progetto diventa commerciale va sostituito *Via S. Gemini* (BY-NC). Dettagli: [docs/WORLDKIT.md](docs/WORLDKIT.md).
 - **City kit (threejsassets.com)** — 38 modelli free del pack *Realistic City* e dei pack
   low-poly (strade, arredo, alberi, case coloniche, auto). Licenza **Free Commercial**:
   i file non sono versionati e si rigenerano con `npm run kit`. Dettagli e tabella ruoli in

@@ -40,6 +40,9 @@ import { ScatterVegetation } from './world/scatter';
 import { buildCityProps } from './world/city-props';
 import { buildFarmsteads } from './world/farmsteads';
 import { loadCityKit, type CityKit } from './world/citykit';
+import { loadWorldKit, setWorldKitSnow, setWorldKitWetness, type WorldKit } from './world/worldkit';
+import type { WorldHitField } from './world/world-hits';
+import { WorldGrass, WorldShrubField, buildWorldProps } from './world/world-props';
 import { CarLibrary } from './world/car-library';
 import { DEFAULT_LIGHTING, DEFAULT_SKY, DEFAULT_SUN, createSky, type SkyRig } from './world/sky';
 import { CloudLayer } from './world/clouds';
@@ -219,6 +222,19 @@ export interface Diagnostics {
     rocks: number;
     wrecks: number;
     piazzas: number;
+  } | null;
+  /** world kit (GLB versionati) e oggetti piazzati in campagna */
+  world: {
+    models: number;
+    triangles: number;
+    trees: number;
+    shrubs: number;
+    distantTrees: number;
+    rocks: number;
+    signs: number;
+    houses: number;
+    /** alberi/cartelli fatti reagire a un urto dell'auto */
+    hitCount: number;
   } | null;
   errorCount: number;
   weather: {
@@ -456,6 +472,21 @@ export class Game {
   private grass?: GrassField;
   private streetLights?: StreetLights;
   private kit: CityKit | null = null;
+  /** World kit (GLB versionati): vegetazione, sassi, cartelli, case di campagna. */
+  private worldKit: WorldKit | null = null;
+  private worldProps: {
+    trees: number;
+    shrubs: number;
+    distantTrees: number;
+    rocks: number;
+    signs: number;
+    houses: number;
+  } | null = null;
+  private worldGrass?: WorldGrass;
+  /** Alberi e cartelli del world kit che si piegano quando l'auto li prende. */
+  private worldHits: WorldHitField | null = null;
+  /** Sottobosco del world kit: rallenta il passo quando ci si cammina dentro. */
+  private worldShrubs: WorldShrubField | null = null;
   /** Auto di serie su GLB (`public/cars/`). */
   private carLibrary: CarLibrary | null = null;
   /** Manifest delle auto GLB: va atteso prima di chiedere un modello. */
@@ -627,6 +658,18 @@ export class Game {
           })
         : Promise.resolve(null);
 
+      // il world kit è **nel repository**: si carica sempre (tranne su
+      // `minimal`) e non dipende da script esterni o licenze da scaricare
+      const worldKitPromise = this.quality.worldProps
+        ? loadWorldKit(
+            `${import.meta.env.BASE_URL}worldkit/`,
+            this.renderer.capabilities.getMaxAnisotropy(),
+          ).catch((error) => {
+            console.warn('world kit non caricato', error);
+            return null;
+          })
+        : Promise.resolve(null);
+
       // auto di serie: il manifest è piccolo e si legge subito; i GLB veri si
       // scaricano solo quando si sceglie quella macchina (fino a 40 MB l'uno)
       const carLibrary = new CarLibrary(
@@ -641,10 +684,11 @@ export class Game {
         if (count === 0) console.info('nessuna auto GLB in public/cars: restano le sagome procedurali');
       });
 
-      const [heights, osm, kit, parcels, canopy] = await Promise.all([
+      const [heights, osm, kit, worldKit, parcels, canopy] = await Promise.all([
         loadHeightfield(base),
         loadOsm(base),
         kitPromise,
+        worldKitPromise,
         loadParcels(base),
         loadCanopy(base),
       ]);
@@ -652,6 +696,7 @@ export class Game {
       this.osm = osm;
       this.parcels = parcels;
       this.kit = kit;
+      this.worldKit = worldKit;
       this.canopy = canopy;
       this.car.setKit(kit);
       this.hud.setLoading(0.32, 'Apro il garage delle auto importate…');
@@ -745,6 +790,33 @@ export class Game {
         this.scene.add(farm.group);
         farmsteadStats = { houses: farm.houses, sheds: farm.sheds, countryTrees: farm.trees };
       }
+      // il world kit riempie la campagna con i GLB del proprietario: case di
+      // campagna (impronte solide), alberi veri, cespugli, sassi e cartelli.
+      // Va fatto qui: dopo i casali ma prima di vegetazione ed erba, così le
+      // nuove impronte sono già nell'indice e nessuno ci cresce dentro.
+      if (this.worldKit) {
+        const props = buildWorldProps(
+          osm,
+          heights,
+          this.roadIndex,
+          this.buildingIndex,
+          this.obstacles,
+          this.worldKit,
+          this.qualityLevel,
+          this.pavedAreas,
+        );
+        this.scene.add(props.group);
+        this.worldHits = props.hits;
+        this.worldShrubs = props.shrubField;
+        this.worldProps = {
+          trees: props.trees,
+          shrubs: props.shrubs,
+          distantTrees: props.distantTrees,
+          rocks: props.rocks,
+          signs: props.signs,
+          houses: props.houses,
+        };
+      }
       this.scene.add(buildDryStoneWalls(osm, heights, this.roadIndex, this.buildingIndex, this.renderer));
       // confini di campo: muretti su bosco/prato, recinzioni su vigne e aie,
       // fossi sui corsi d'acqua minori — la geometria che il DEM non ha
@@ -792,6 +864,10 @@ export class Game {
       }
       this.grass = new GrassField(this.pavedAreas);
       this.scene.add(this.grass.group);
+      if (this.worldKit) {
+        this.worldGrass = new WorldGrass(this.worldKit, this.pavedAreas);
+        this.scene.add(this.worldGrass.group);
+      }
 
       const initial = getVehicle(loadVehicleId());
       const initialCustom = this.customCars.get(initial.id) ?? null;
@@ -2286,6 +2362,9 @@ export class Game {
   /** Strada bagnata: le superfici diventano più lisce e più scure. */
   private applyWetness(wet: number): void {
     const target = clamp(wet, 0, 1);
+    // anche i GLB del world kit (erba, alberi, sassi, cartelli) si bagnano:
+    // la pioggia deve vedersi sul mondo importato, non solo sull'asfalto
+    setWorldKitWetness(target);
     if (Math.abs(target - this.lastWetness) < 0.02) return;
     this.lastWetness = target;
     this.roadsGroup?.traverse((obj) => {
@@ -2413,6 +2492,8 @@ export class Game {
     this.surfaceGripScale = clamp(wetGrip * snowGrip * blackIce, 0.16, 1);
     this.wheelSprayIntensity = rain;
     this.applyWetness(Math.max(this.roadWetness, this.snowPack * 0.5));
+    // la neve non è solo trazione: si posa anche sui modelli importati
+    setWorldKitSnow(this.snowPack);
   }
 
   // -------------------------------------------------------------------------
@@ -3148,6 +3229,15 @@ export class Game {
       Math.max(QUALITY_PRESETS.minimal.grassDensity, this.quality.grassDensity),
       this.osm.areas,
     );
+    this.worldGrass?.update(
+      view.x,
+      view.z,
+      this.heights,
+      this.roadIndex,
+      this.buildingIndex,
+      this.quality.worldProps ? this.quality.grassDensity : 0,
+      this.osm.areas,
+    );
     this.applyManualAtmosphere(dt, focus);
     this.updateSky(focus);
     this.streetLights?.update(this.camera.position, this.nightFactor);
@@ -3383,7 +3473,10 @@ export class Game {
       const onRoad = this.ground.sampleAt(this.player.position.x, this.player.position.z).onRoad;
       const vegetationFactor = onRoad
         ? 1
-        : this.vegetation?.movementFactorAt(this.player.position.x, this.player.position.z) ?? 0.9;
+        : Math.min(
+            this.vegetation?.movementFactorAt(this.player.position.x, this.player.position.z) ?? 0.9,
+            this.worldShrubs?.factorAt(this.player.position.x, this.player.position.z) ?? 1,
+          );
       this.player.update(dt, move, this.ground, this.buildingIndex, this.obstacles, vegetationFactor);
       this.updateWalkCamera(dt);
     } else {
@@ -3399,6 +3492,22 @@ export class Game {
         this.surfaceGripScale,
         this.wheelSprayIntensity,
       );
+      // urto contro alberi e cartelli: il modello colpito si piega e torna su
+      const impact = this.car.consumeImpact();
+      if (impact) {
+        // il colpo si sente: metallo per i cartelli, legno/pietra per il resto
+        this.audio.impact(impact.strength, impact.tag === 'sign');
+      }
+      if (impact && this.worldHits) {
+        this.worldHits.hit({
+          x: impact.x,
+          z: impact.z,
+          dx: impact.dx,
+          dz: impact.dz,
+          strength: impact.strength,
+          tag: impact.tag,
+        });
+      }
       this.updateDriveCamera(dt);
     }
 
@@ -3430,6 +3539,15 @@ export class Game {
       this.roadIndex,
       this.buildingIndex,
       Math.max(QUALITY_PRESETS.minimal.grassDensity, this.quality.grassDensity),
+      this.osm.areas,
+    );
+    this.worldGrass?.update(
+      focus.x,
+      focus.z,
+      this.heights,
+      this.roadIndex,
+      this.buildingIndex,
+      this.quality.worldProps ? this.quality.grassDensity : 0,
       this.osm.areas,
     );
     if (this.manualTime) this.applyManualAtmosphere(dt, focus);
@@ -3796,6 +3914,21 @@ export class Game {
       venue: this.venueOpen?.name ?? null,
       kit: this.kit
         ? { assets: this.kit.count, ...this.cityProps, piazzas: this.pavedAreas.length }
+        : null,
+      world: this.worldKit
+        ? {
+            models: this.worldKit.count,
+            triangles: this.worldKit.triangles,
+            ...(this.worldProps ?? {
+              trees: 0,
+              shrubs: 0,
+              distantTrees: 0,
+              rocks: 0,
+              signs: 0,
+              houses: 0,
+            }),
+            hitCount: this.worldHits?.count ?? 0,
+          }
         : null,
       errorCount: this.errors.length,
       weather: this.realWeatherEnabled

@@ -43,6 +43,15 @@ export function setWind(speedKmh: number, directionDegrees: number): void {
   wind.value.set(-Math.sin(direction) * strength, -Math.cos(direction) * strength);
 }
 
+/**
+ * Tempo condiviso delle animazioni di vento, in secondi. Serve a chi deve
+ * datare un evento nello stesso orologio degli shader (per esempio l'urto di
+ * un cartello: `uTime` del vertice parte da qui).
+ */
+export function windTime(): number {
+  return elapsed;
+}
+
 /** Fa scorrere una texture (normali dell'acqua) a velocità costante, in UV/secondo. */
 export function registerScroll(texture: THREE.Texture, speedU: number, speedV: number): void {
   rollers.push({ texture, speedU, speedV });

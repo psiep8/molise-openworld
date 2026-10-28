@@ -25,6 +25,10 @@ captures/
 public/citykit/
 public/draco/
 
+# originali del world kit (zip del proprietario, ~1 GB): servono solo a
+# rigenerare `public/worldkit/`, che invece è versionato di proposito
+incoming-glb/
+
 # auto di serie su GLB: asset forniti dal proprietario, licenza da verificare
 # prima della distribuzione. Il manifest (slug, muso, misure) è versionato.
 public/cars/*.glb

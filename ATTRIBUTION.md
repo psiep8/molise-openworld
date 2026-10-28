@@ -53,6 +53,21 @@ dell'archivio importato.
 | Volkswagen Crafter | [geyges](https://sketchfab.com/geyges) | [Sketchfab](https://sketchfab.com/3d-models/volkswagen-crafter-647fb3d619c645a4b8e62d80db7cab98) | [SKETCHFAB Standard](https://sketchfab.com/licenses) |
 | Volkswagen Golf GTI (2025) | [geyges](https://sketchfab.com/geyges) | [Sketchfab](https://sketchfab.com/3d-models/volkswagen-golf-gti-2025-84fe6c2b9feb4c8a854d16f3daf33eab) | [SKETCHFAB Standard](https://sketchfab.com/licenses) |
 
+## Modelli del world kit (`public/worldkit/`)
+
+Vegetazione, sassi, cartelli e una casa di campagna forniti dal proprietario.
+A differenza delle auto, questi GLB **sono versionati** (ottimizzati dallo script
+`scripts/import-world-glb.mjs`): ogni clone e ogni build li contiene. La tabella
+per modello, con autore, fonte e licenza, è generata dai metadati dei GLB ed è in
+[`public/worldkit/ATTRIBUTION.md`](public/worldkit/ATTRIBUTION.md); la pipeline e
+i ruoli sono in [docs/WORLDKIT.md](docs/WORLDKIT.md).
+
+- 36 modelli: **CC BY 4.0** e **CC BY-SA 4.0**, più uno **CC BY-NC 4.0**
+  (*Via S. Gemini*, non piazzato nel mondo).
+- Tre file dello zip (`grass (2)`, `realistics_grass_10`, `dry_realistic_grass_lods_1`)
+  sono **Sketchfab Standard** e non sono ridistribuibili: restano fuori dal repo.
+- Se il progetto diventa commerciale, l'asset BY-NC va rimosso o sostituito.
+
 ## Dati geografici e copertura del suolo
 
 - **OpenStreetMap** — dati di strade, edifici, aree e corsi d'acqua in

@@ -40,6 +40,7 @@ Stack: TypeScript + Vite + Three.js (WebGL2), Vitest, nessun framework UI.
 | Quota calpestabile | ✅ nuovo | `src/geo/ground.ts`: unica `groundAt` per gioco, giocatore, auto, pedoni, camera e meteo; include strada, marciapiede e ponte |
 | Edifici | ✅ aggiornato | estrusione + tetti a falde + **cornicione, comignolo, pluviali e balconi**; finestre incassate da normal map dedicata |
 | Vegetazione | ✅ aggiornato | tronchi con corteccia PBR, chiome a card fotografiche con `alphaMap`, vento nei vertici; altezza e densità guidate da **ETH Canopy Height 10 m** (fallback OSM se `canopy.bin` manca) |
+| World kit (GLB versionati) | ✅ nuovo | `public/worldkit/` (148 modelli, ~60 MB) **nel repository**: alberi veri, sottobosco, erba fotografata, sassi, cartelli e casali. Caricamento meshopt, normalizzazione in metri, vento, piazzamento deterministico con budget per preset. Dettagli: [docs/WORLDKIT.md](docs/WORLDKIT.md) |
 | Prati | ✅ aggiornato | 60k ciuffi istanziati, lame sottili su canvas 256 (`alphaTest`), vento; marciapiedi e cordoli restano liberi |
 | Acqua | ✅ aggiornato | nastri torrenti + poligoni laghi con normali scorrevoli e materiale fisico (clearcoat) |
 | Meteo reale | ✅ nuovo | Open-Meteo + sole NOAA, cupola nuvole, pioggia/neve, switch in impostazioni |
@@ -125,6 +126,8 @@ Requisiti: **Node ≥ 22**, browser con WebGL2.
 
 ```bash
 npm ci                 # installa le dipendenze (package-lock committato)
+npm run worldkit       # rigenera public/worldkit/ dagli originali in incoming-glb/
+npm run worldkit -- --check  # verifica manifest e GLB versionati
 npm run dev            # http://127.0.0.1:5173
 npm run build          # tsc --noEmit + vite build
 npm run preview        # serve dist/ su http://127.0.0.1:4173
@@ -183,6 +186,8 @@ src/
     elevation.ts         heightfield + campionamento bilineare, loadHeightfield
     osm.ts               decode osm.json compatto, indici strade/edifici, collisioni
   world/
+    worldkit.ts          GLB versionati del world kit (meshopt, metri reali, vento)
+    world-props.ts       piazzamento deterministico di alberi, sassi, cartelli, casali
     chunks.ts            griglia chunk
     imagery.ts           tile provider Esri, zoom per distanza, composizione texture
     terrain.ts           mesh + streaming + upgrade zoom + normal map
@@ -240,6 +245,46 @@ docs/ARCHITECTURE.md       spiegazione tecnica del motore
   o tile self-hosted): cambiare `ESRI_WORLD_IMAGERY` in `src/world/imagery.ts`.
 
 ---
+
+## 6-bis. World kit: asset 3D versionati
+
+`public/worldkit/` (148 modelli, ~60 MB) **è nel repository**, non è un download.
+Contiene vegetazione, sassi, cartelli e casali forniti dal proprietario, più le
+riserve non ancora piazzate (marciapiedi, guardrail, lampioni, terreni). Un clone,
+un `git pull` e una build di produzione li hanno già; non c'è nessun `npm run` da
+fare su una macchina nuova.
+
+- **Caricamento**: `src/world/worldkit.ts` legge `manifest.json`, scarica solo i
+  file dei ruoli piazzati (`tree`, `shrub`, `tree-distant`, `rock`, `grass`,
+  `sign`, `house`), normalizza ogni modello all'altezza reale in metri e usa il
+  decoder meshopt incluso in three.
+- **Piazzamento**: `src/world/world-props.ts`, deterministico, con budget per
+  preset (`worldPropBudget`). Le case aggiungono un'impronta a `BuildingIndex`
+  **prima** di vegetazione ed erba; i cartelli un ostacolo cilindrico.
+- **Erba fotografata**: `WorldGrass` segue il giocatore (raggio 34 m, max 400
+  ciuffi) e non sostituisce il tappeto procedurale di `grass.ts`.
+- **Meteo e guida**: tutti i materiali importati usano lo stesso `uWind` di
+  chiome ed erba (vento reale) e un `uKitWet` che li scurisce e li lucida con la
+  pioggia, sulla scala di `applyWetness` dell'asfalto. Tronchi (`world-tree`),
+  sagome lontane (`world-tree-far`), sassi (`world-rock`), pali dei cartelli
+  (`sign`) e casali (`world-house`) sono in `ObstacleIndex`: auto e pedone non
+  li attraversano.
+- **Urti**: alberi e cartelli hanno l'attributo per istanza `aHit` (inizio,
+  forza, dx, dz). `src/world/world-hits.ts` trova l'istanza colpita e la shader
+  la fa piegare e tornare a posto in ~1 s; la carrozzeria accusa il colpo con il
+  `bump` già usato per i cordoli e `audio.impact` suona metallo o legno secondo
+  l'ostacolo. Sassi e case sono rigidi.
+- **Neve e sottobosco**: `uKitSnow` imbianca le superfici rivolte in alto (non
+  tronchi e pali) e alza la rugosità; `WorldShrubField` rallenta il passo a 0,55
+  dentro le macchie di sottobosco.
+- **Rigenerazione**: gli originali (zip ~1 GB) vanno in `incoming-glb/`
+  (ignorata da git), poi `npm run worldkit`. Lo script semplifica, converte in
+  metal-rough, riduce le texture a 512–1024 px WebP e comprime con meshopt.
+- **Licenze**: 36 modelli CC BY / CC BY-SA / CC BY-NC, crediti per modello in
+  `public/worldkit/ATTRIBUTION.md`. I tre file **Sketchfab Standard** dello zip
+  (`grass (2)`, `realistics_grass_10`, `dry_realistic_grass_lods_1`) non sono
+  ridistribuibili e restano fuori. **Via S. Gemini è BY-NC**: se il progetto
+  diventa commerciale va rimossa.
 
 ## 7. Grafica: come è organizzata
 
