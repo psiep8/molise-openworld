@@ -106,4 +106,33 @@ describe('groundAt condivisa', () => {
     expect(walk.y).toBeGreaterThan(100 + ROAD_LIFT);
     expect(shoulder.kind).toBe('terrain');
   });
+
+  it('con più indici stradali vince la superficie a priorità più alta', () => {
+    const heights = flatHeights(100);
+    const asphalt = road();
+    const streamed = road({
+      bridge: true,
+      points: [{ x: -60, z: 0 }, { x: 60, z: 0 }],
+    });
+    prepareRoadElevations([asphalt, streamed], heights);
+    const local = new RoadIndex([asphalt], heights);
+    const remote = new RoadIndex([streamed], heights);
+    const ground = new WorldGround(heights, [local, remote]);
+    // Il ponte streamed insiste sullo stesso punto dell'asfalto locale: la
+    // carreggiata sospesa deve vincere, altrimenti l'auto affonderebbe.
+    const sample = ground.sampleAt(0, 0);
+    expect(sample.kind).toBe('bridge');
+    expect(sample.y).toBeCloseTo(100 + BRIDGE_CLEARANCE + ROAD_LIFT, 4);
+  });
+
+  it('accetta un array vivo: aggiungere un indice cambia subito la quota', () => {
+    const heights = flatHeights(100);
+    const asphalt = road();
+    prepareRoadElevations([asphalt], heights);
+    const indexes: RoadIndex[] = [];
+    const ground = new WorldGround(heights, indexes);
+    expect(ground.sampleAt(0, 0).kind).toBe('terrain');
+    indexes.push(new RoadIndex([asphalt], heights));
+    expect(ground.sampleAt(0, 0).kind).toBe('road');
+  });
 });

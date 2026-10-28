@@ -108,6 +108,18 @@ describe('OpenRasterTileCache', () => {
     expect(await Promise.all(blobs.map((blob) => blob.text()))).toEqual(Array(5).fill('tile'));
   });
 
+  it('lega il fetcher al global: window.fetch lanciato come metodo perde this', async () => {
+    let receiver: unknown = null;
+    const fetcher = function (this: unknown) {
+      receiver = this;
+      return Promise.resolve(new Response('tile'));
+    } as unknown as typeof fetch;
+    const cache = new OpenRasterTileCache(undefined, fetcher);
+
+    expect(await (await cache.load('https://tiles.example/1/0/0.png')).text()).toBe('tile');
+    expect(receiver).toBe(globalThis);
+  });
+
   it('propaga l’errore HTTP invece di mascherare una tile mancante', async () => {
     const cache = new OpenRasterTileCache(undefined, async () => new Response(null, { status: 404 }));
     await expect(cache.load('https://tiles.example/1/0/0.png')).rejects.toThrow('HTTP 404');

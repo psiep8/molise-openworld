@@ -74,6 +74,18 @@ describe('indice edifici', () => {
     expect(index.hitsCircle(10.7, 5, 0.6)).toBe(false);
     expect(index.hitsCircle(100, 100, 0.5)).toBe(false);
   });
+
+  it('rimuove le impronte streamed e ricostruisce la griglia', () => {
+    const staticHouse = building(0, 0);
+    const streamed = building(100, 100);
+    const index = new BuildingIndex([staticHouse, streamed]);
+    expect(index.hitsCircle(105, 105, 0.5)).toBe(true);
+    expect(index.remove([streamed])).toBe(1);
+    expect(index.all).toEqual([staticHouse]);
+    expect(index.hitsCircle(105, 105, 0.5)).toBe(false);
+    expect(index.hitsCircle(5, 5, 0.5)).toBe(true);
+    expect(index.remove([building(300, 300)])).toBe(0);
+  });
 });
 
 describe('incroci per strisce e stop', () => {

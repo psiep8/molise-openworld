@@ -190,6 +190,11 @@ export class Heightfield {
     return x >= this.minX && x <= this.maxX && z >= this.minZ && z <= this.maxZ;
   }
 
+  /** Estensione del DEM locale in coordinate mondo. */
+  get bounds(): { minX: number; maxX: number; minZ: number; maxZ: number } {
+    return { minX: this.minX, maxX: this.maxX, minZ: this.minZ, maxZ: this.maxZ };
+  }
+
   private streamedHeightAt(x: number, z: number): number | undefined {
     const lon = this.meta.lon + x / this.meta.metersPerDegLon;
     const lat = this.meta.lat - z / this.meta.metersPerDegLat;

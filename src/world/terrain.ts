@@ -306,11 +306,6 @@ float lcNoise( vec2 p ) {
           diffuseColor.rgb *= 1.0 - 0.34 * uCloudShadow * shade;
         }`,
       )
-      .replace(
-        '#include <normal_fragment_maps>',
-        `#include <normal_fragment_maps>
-        }`,
-      )
       .replace('#include <fog_fragment>', HEIGHT_FOG_FRAGMENT);
   };
   material.customProgramCacheKey = () => 'terrain-pastel-landcover-v4';
@@ -498,13 +493,36 @@ export class Terrain {
     }
   }
 
-  /** Ricostruisce i chunk caricati dopo l'arrivo o la rimozione di quote DEM. */
+  /**
+   * Aggiorna in place i chunk caricati dopo l'arrivo o la rimozione di quote DEM.
+   *
+   * Prima si distruggeva tutto e si ricostruiva due chunk per frame: per un
+   * istante il terreno spariva e la telecamera cadeva nel vuoto. Le quote
+   * cambiano solo fuori dal DEM locale, quindi basta spostare i vertici,
+   * ricalcolare le normali e rigenerare la normal map.
+   */
   refreshElevation(): void {
-    this.queue.length = 0;
-    for (const [key, chunk] of this.chunks) this.disposeChunk(chunk, key);
-    this.lastCx = Number.NaN;
-    this.lastCz = Number.NaN;
-    this.update(this.focusX, this.focusZ, this.lastRadius, true);
+    for (const chunk of this.chunks.values()) {
+      if (chunk.disposed) continue;
+      const centerX = chunkCenter(chunk.cx);
+      const centerZ = chunkCenter(chunk.cz);
+      const geometry = chunk.mesh.geometry;
+      const pos = geometry.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < pos.count; i++) {
+        const wx = centerX + pos.getX(i);
+        const wz = centerZ + pos.getZ(i);
+        pos.setY(i, this.heightfield.heightAt(wx, wz));
+      }
+      pos.needsUpdate = true;
+      geometry.computeVertexNormals();
+      geometry.computeBoundingSphere();
+
+      const normalMap = buildNormalMap(this.heightfield, chunk.cx, chunk.cz);
+      chunk.normalMap.dispose();
+      chunk.normalMap = normalMap;
+      chunk.material.normalMap = normalMap;
+      chunk.material.needsUpdate = true;
+    }
   }
 
   /** Da chiamare ogni frame: costruisce qualche chunk e affina le texture vicine. */

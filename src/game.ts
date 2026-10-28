@@ -20,6 +20,7 @@ import { Terrain, setCloudShadow } from './world/terrain';
 import { Landcover, monthForGameDay } from './world/landcover';
 import { FarTerrain } from './world/far-terrain';
 import { buildBuildings, setWindowGlow } from './world/buildings';
+import { StreamedWorld } from './world/streamed-world';
 import { buildChurch } from './world/church';
 import { buildDryStoneWalls } from './world/dry-stone';
 import { buildFieldBoundaries, loadParcels, type Parcels } from './world/field-boundaries';
@@ -193,6 +194,14 @@ export interface Diagnostics {
     chunks: number;
   } | null;
   route: { distance: number; label: string } | null;
+  /** strade ed edifici arrivati dai bundle XYZ (null se l'endpoint non è configurato) */
+  streamed: {
+    enabled: boolean;
+    tiles: number;
+    roads: number;
+    buildings: number;
+    provider: string;
+  } | null;
   wallet: { cash: number; account: number; total: number; transactions: number };
   needs: { hunger: number; energy: number; fun: number };
   clock: { day: number; minutes: number; label: string };
@@ -329,6 +338,9 @@ export class Game {
   private parcels: Parcels | null = null;
   private osm!: OsmData;
   private roadIndex!: RoadIndex;
+  /** indici stradali vivi: il primo è OSM locale, gli altri arrivano dai bundle */
+  private readonly roadIndexes: RoadIndex[] = [];
+  private streamedWorld: StreamedWorld | null = null;
   private buildingIndex!: BuildingIndex;
   /** pali, cartelli e tronchi: cilindri solidi per auto, pedoni e giocatore */
   private obstacles = new ObstacleIndex();
@@ -338,6 +350,8 @@ export class Game {
   private worldTileManager: WorldTileManager | null = null;
   private lastWorldTileX = Number.NaN;
   private lastWorldTileZ = Number.NaN;
+  /** `?at=lat,lon` per provare lo streaming fuori dal bbox senza console */
+  private spawnOverride: Pt | null = null;
   private landcover: Landcover | null = null;
   private sky!: SkyRig;
   private map!: MapRenderer;
@@ -514,6 +528,13 @@ export class Game {
     // degradazione adattiva, pose fisse. Non cambia il rendering.
     const params = new URLSearchParams(window.location.search);
     this.bench = params.get('bench') === '1';
+    const spawn = params.get('at')?.split(',').map(Number);
+    if (spawn && spawn.length === 2 && spawn.every(Number.isFinite)) {
+      const [lat, lon] = spawn as [number, number];
+      if (lat >= -85 && lat <= 85 && lon >= -180 && lon <= 180) {
+        this.spawnOverride = latLonToWorld(lat, lon);
+      }
+    }
     // Sonda A/B del solo banco prova (`?bench=1&lc=off|base|full`): permette di
     // misurare lo stesso build con e senza copertura del suolo, senza toccare i
     // preset veri. Fuori dal banco non ha effetto.
@@ -651,7 +672,22 @@ export class Game {
       // la stessa quota, altrimenti l'auto passa sotto il ponte che si vede
       prepareRoadElevations(osm.roads, heights);
       this.roadIndex = new RoadIndex(osm.roads, heights, roadPolyline);
-      this.ground = new WorldGround(heights, this.roadIndex);
+      this.roadIndexes.push(this.roadIndex);
+      // Strade ed edifici dei bundle: si costruiscono fuori dal bbox locale,
+      // dentro comanda OSM. L'endpoint è opzionale e il preset può spegnerli.
+      if (OPEN_WORLD_DATA_PROVIDER) {
+        this.streamedWorld = new StreamedWorld({
+          scene: this.scene,
+          heights,
+          renderer: this.renderer,
+          buildings: this.buildingIndex,
+          roadIndexes: this.roadIndexes,
+          detail: this.quality.buildingDetail,
+          kit: this.kit,
+          enabled: this.quality.streamedWorld,
+        });
+      }
+      this.ground = new WorldGround(heights, this.roadIndexes);
       this.roadGraph = buildRoadGraph(osm.roads);
       this.ensureHome();
       this.populateVehicles();
@@ -829,12 +865,18 @@ export class Game {
               this.heights.setStreamedTile(tileKey(tile.tile), tile.elevation);
               this.terrain.refreshElevation();
             }
+            try {
+              this.streamedWorld?.addTile(tile);
+            } catch (error) {
+              console.error(`Errore costruzione tile geografica ${tileKey(tile.tile)}:`, error);
+            }
             const attribution = document.getElementById('attribution');
             if (attribution && !attribution.textContent?.includes(worldDataProvider.attribution)) {
               attribution.textContent += ` · ${worldDataProvider.attribution}`;
             }
           },
           onUnload: (tile) => {
+            this.streamedWorld?.removeTile(tile);
             if (this.heights.removeStreamedTile(tileKey(tile))) this.terrain.refreshElevation();
           },
           onError: (tile, error) => {
@@ -949,7 +991,9 @@ export class Game {
   // -------------------------------------------------------------------------
   private spawnAtStart(): void {
     const saved = this.lifeSave?.position;
-    if (saved) {
+    if (this.spawnOverride) {
+      this.player.spawn(this.spawnOverride.x, this.spawnOverride.z, 0, this.ground);
+    } else if (saved) {
       const safe = this.buildingIndex.resolveCircle(saved.x, saved.z, 0.6);
       this.player.spawn(safe.x, safe.z, 0, this.ground);
     } else {
@@ -2458,6 +2502,7 @@ export class Game {
     this.sky?.setShadowMapSize(this.quality.shadowMapSize);
     this.terrain?.setMaxZoom(this.quality.maxSatelliteZoom);
     this.terrain?.setLandcoverPreset(this.quality.landcover, this.quality.landcoverRadius);
+    this.streamedWorld?.setEnabled(this.quality.streamedWorld);
     if (this.quality.post || this.quality.postAA) {
       // l'SSAO è un pass in più: se il preset lo chiede e la pipeline creata
       // prima non ce l'ha (si è passati da `media` a `alta` in gioco), va
@@ -3382,7 +3427,8 @@ export class Game {
       braking: this.mode === 'drive' ? this.driveInput?.brake : undefined,
       onRoad:
         this.mode === 'drive'
-          ? this.roadIndex.isOnRoad(this.car.state.x, this.car.state.z, 0.4)
+          ? this.roadIndex.isOnRoad(this.car.state.x, this.car.state.z, 0.4) ||
+            this.streamedWorld?.isOnRoad(this.car.state.x, this.car.state.z, 0.4) === true
           : undefined,
     });
 
@@ -3712,6 +3758,9 @@ export class Game {
       degraded: this.degradeStep,
       landcover: this.terrain?.landcoverStats ?? this.landcover?.stats() ?? null,
       route: this.route ? { distance: Math.round(this.route.distance), label: this.routeLabel } : null,
+      streamed: this.streamedWorld && OPEN_WORLD_DATA_PROVIDER
+        ? { ...this.streamedWorld.stats, provider: OPEN_WORLD_DATA_PROVIDER.id }
+        : null,
       wallet: {
         cash: this.wallet.cash,
         account: this.wallet.account,

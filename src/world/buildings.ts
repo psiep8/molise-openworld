@@ -53,12 +53,26 @@ function facadeFamily(area: number, seed: number): FacadeFamily {
  * delle finestre accese è unico per tutto il paese (una sola mesh), quindi basta
  * cambiargli l'emissività: nessuna draw call in più, nessuna luce in più.
  */
-let litGlassMaterial: THREE.MeshStandardMaterial | null = null;
+const litGlassMaterials = new Set<THREE.MeshStandardMaterial>();
 
 export function setWindowGlow(amount: number): void {
-  if (!litGlassMaterial) return;
   const on = clamp(amount, 0, 1);
-  litGlassMaterial.emissiveIntensity = 0.02 + 1.9 * on;
+  for (const material of litGlassMaterials) material.emissiveIntensity = 0.02 + 1.9 * on;
+}
+
+/**
+ * Registra il materiale delle finestre di un gruppo appena costruito.
+ *
+ * I bundle geografici costruiscono un gruppo per tile: senza un insieme di
+ * materiali, `setWindowGlow` avrebbe acceso solo le finestre dell'ultimo tile.
+ */
+export function trackWindowGlowMaterial(material: THREE.MeshStandardMaterial): void {
+  litGlassMaterials.add(material);
+}
+
+/** Da chiamare quando un gruppo streamed viene scaricato. */
+export function releaseWindowGlowMaterial(material: THREE.MeshStandardMaterial): void {
+  litGlassMaterials.delete(material);
 }
 /**
  * Tinte chiare: il colore dei coppi arriva dalla texture CC0, qui si varia solo
@@ -777,7 +791,8 @@ export function buildBuildings(
     emissiveIntensity: 0.02,
     envMapIntensity: 0.7,
   });
-  litGlassMaterial = glassLitMat;
+  trackWindowGlowMaterial(glassLitMat);
+  group.userData.windowGlowMaterial = glassLitMat;
   const roofMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
     ...tiles,

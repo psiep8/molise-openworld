@@ -51,6 +51,14 @@ describe('preset grafici', () => {
     expect(minimal.landcoverRadius).toBe(0);
   });
 
+  it('spegne lo streaming geografico sui preset leggeri', () => {
+    expect(QUALITY_PRESETS.minimal.streamedWorld).toBe(false);
+    expect(QUALITY_PRESETS.low.streamedWorld).toBe(false);
+    for (const level of ['medium', 'high', 'ultra'] as const) {
+      expect(QUALITY_PRESETS[level].streamedWorld).toBe(true);
+    }
+  });
+
   it('accende la copertura del suolo solo dove c’è margine', () => {
     expect(QUALITY_PRESETS.low.landcover).toBe('base');
     expect(QUALITY_PRESETS.low.landcoverRadius).toBe(0);

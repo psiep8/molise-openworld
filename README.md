@@ -206,7 +206,29 @@ WorldCover 10 m (CC BY 4.0) e richiede qualche minuto.
 | rotella | — | allontana/avvicina la telecamera |
 | rotella sulla minimappa | stringe/allarga la mappa | come a piedi |
 
-URL utili: `?autostart=walk` e `?autostart=drive` saltano il menu (usati dallo smoke test).
+URL utili: `?autostart=walk` e `?autostart=drive` saltano il menu (usati dallo smoke test); `?at=lat,lon` fa partire il giocatore in un punto preciso (utile per provare lo streaming fuori dal bbox).
+
+### Prova dei bundle geografici (senza endpoint esterno)
+
+Il repo include un server demo con **un tile sintetico** appena a nord del bbox: una strada, un incrocio e quattro case. Non è geografia reale, serve solo a vedere rendering e collisioni.
+
+```bash
+# terminale 1: bundle demo su http://127.0.0.1:5180
+npm run world:demo
+
+# terminale 2: Vite in modalità demo (legge .env.demo)
+npm run dev:demo
+```
+
+Poi apri:
+
+```text
+http://127.0.0.1:5173/?quality=ultra&autostart=walk&at=41.9237,14.7975
+```
+
+Lo spawn è **dentro** il bbox locale (dove c'è la satellite imagery vera) e guarda verso nord: strada e case sintetiche cominciano pochi metri fuori dal bbox, quindi si vedono senza perdere la mappa reale. Le case bloccano giocatore e auto; la strada alza il piano calpestabile di 20 cm e accende l'indicatore `onRoad`. Dalla console `moliseGame.streamedWorld?.stats` mostra tile, strade ed edifici attivi.
+
+Per un endpoint reale, crea `.env.local` da `.env.example` e imposta `VITE_OPEN_WORLD_DATA_TILE_URL` (template `{z}/{x}/{y}`) e `VITE_OPEN_WORLD_DATA_ATTRIBUTION`. I bundle fuori dal DEM locale vengono disegnati e indicizzati; quelli dentro il bbox sono ritagliati perché lì comanda OSM locale.
 
 ## Verifica
 
@@ -300,7 +322,7 @@ scripts/
 - **Sentinel-2 cloudless 2025** — mosaico satellitare dell'intera area (`public/geo/world-imagery.jpg`): © EOX IT Services GmbH, licenza **CC BY 4.0**, contiene dati Copernicus Sentinel modificati ([s2maps.eu](https://s2maps.eu)). Si rigenera con `npm run geo:imagery`.
 - **Immagini satellitari** — il mosaico Sentinel-2 locale è © EOX IT Services GmbH, **CC BY 4.0**. Il provider raster remoto è disattivato per impostazione predefinita per evitare fonti con licenza proprietaria o condizioni di utilizzo non verificate. Per tile provenienti da un servizio aperto e autorizzato, configurare `VITE_OPEN_IMAGERY_TILE_URL` (template XYZ con `{z}/{x}/{y}`) e `VITE_OPEN_IMAGERY_ATTRIBUTION`; il servizio va ospitato o scelto nel rispetto della sua licenza e dei suoi limiti.
 - **Cache raster offline** — tile aperte scaricate salvate nella Cache API del browser (massimo 2.048 tile, FIFO). Per configurare un endpoint XYZ self-hosted, copiare `.env.example` in `.env.local` e impostare URL e attribuzione.
-- **Bundle geografici XYZ (sperimentale)** — `VITE_OPEN_WORLD_DATA_TILE_URL` accetta un template HTTPS/HTTP con `{z}/{x}/{y}` e `VITE_OPEN_WORLD_DATA_ATTRIBUTION` è obbligatoria. Il servizio deve fornire JSON `schemaVersion: 1` con indirizzo tile, attribuzione, `roads`, `buildings` e una griglia DEM opzionale (`minLon`, `maxLon`, `minLat`, `maxLat`, `width`, `height`, `encoding: "int16-decimeters"`, `values`). Il runtime scarica le tile vicine tramite la cache e applica il DEM alla mesh del terreno; le strade e gli edifici del bundle non sono ancora integrati nella scena o nella fisica. L’endpoint va ospitato o usato nel rispetto della licenza, dell’attribuzione e dei limiti del servizio. Questa fase usa ancora le coordinate locali equirettangolari del gioco: non abilita la navigazione accurata globale.
+- **Bundle geografici XYZ (sperimentale)** — `VITE_OPEN_WORLD_DATA_TILE_URL` accetta un template HTTPS/HTTP con `{z}/{x}/{y}` e `VITE_OPEN_WORLD_DATA_ATTRIBUTION` è obbligatoria. Il servizio deve fornire JSON `schemaVersion: 1` con indirizzo tile, attribuzione, `roads`, `buildings` e una griglia DEM opzionale (`minLon`, `maxLon`, `minLat`, `maxLat`, `width`, `height`, `encoding: "int16-decimeters"`, `values`). Il runtime scarica le tile vicine tramite la cache, applica il DEM al terreno e disegna strade ed edifici **fuori dal bbox locale**; le stesse feature entrano negli indici di collisione e nella quota calpestabile. Le parti dentro il DEM locale sono ritagliate via per non duplicare OSM. Ogni feature è disegnata solo dal tile del suo primo punto, così i bundle possono ripeterla su più tile. Lo streaming si spegne sui preset `minimal`/`low` e richiede l'endpoint configurato. L’endpoint va ospitato o usato nel rispetto della licenza, dell’attribuzione e dei limiti del servizio. Questa fase usa ancora le coordinate locali equirettangolari del gioco: non abilita la navigazione accurata globale.
 - **Immagini stradali (opzionale)** — non ancora usate. `npm run streets` conta quante strade dei cinque comuni hanno una foto entro 50 m: interroga **Panoramax** (API pubblica, nessun account) e, se impostato `MAPILLARY_TOKEN` (gratuito, CC BY-SA 4.0), anche Mapillary. Al 21/10/2026 Panoramax non ha foto nel bbox: la copertura Mapillary è l'unica da verificare.
 - **Meteo** — Open-Meteo, dati CC BY 4.0, senza chiave API. Usato solo se attivi
   "Meteo reale"; il sole è calcolato in locale e non dipende dal servizio.
@@ -335,6 +357,7 @@ GTA è un marchio dei rispettivi proprietari. Questo progetto non è affiliato n
 - **Pedoni**: ci sono (6–18 a seconda della qualità), ma camminano solo sui marciapiedi
   delle strade asfaltate: niente attraversamenti, niente dialoghi, niente folla in piazza.
 - **Traffico**: non c'è; le altre auto in strada sono ancora un desiderio.
+- **Mondo oltre il bbox**: strade ed edifici streamed funzionano, ma le coordinate restano equirettangolari locali. Per una navigazione precisa a scala globale serve un floating origin (o coordinate geocentriche con rebasing), ancora da progettare.
 
 ## Idee per il prossimo giro
 

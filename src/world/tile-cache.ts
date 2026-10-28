@@ -15,13 +15,17 @@ interface CacheStorageLike {
 export class OpenRasterTileCache {
   private cachePromise: Promise<ResponseCache | null> | null = null;
   private readonly inflight = new Map<string, Promise<Blob>>();
+  private readonly fetcher: typeof fetch;
   private warned = false;
 
   constructor(
     private readonly storage: CacheStorageLike | undefined = globalThis.caches,
-    private readonly fetcher: typeof fetch = fetch,
+    fetcher: typeof fetch = fetch,
     private readonly maxEntries = MAX_CACHED_TILES,
   ) {
+    // `window.fetch` è un metodo e in Chromium perde il binding se richiamato
+    // come `this.fetcher(...)`: "Illegal invocation". Lo leghiamo al global.
+    this.fetcher = fetcher.bind(globalThis);
     if (!Number.isInteger(maxEntries) || maxEntries < 1) {
       throw new Error(`cache tile: limite non valido (${maxEntries})`);
     }

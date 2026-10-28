@@ -25,23 +25,53 @@ export interface GroundSampler {
   heightAt(x: number, z: number): number;
 }
 
+/** Priorità delle superfici, la stessa usata da `RoadIndex.sampleSurface`. */
+function surfaceRank(kind: RoadSurfaceSample['kind']): number {
+  if (kind === 'bridge') return 5;
+  if (kind === 'tunnel') return 4;
+  if (kind === 'road') return 3;
+  if (kind === 'sidewalk') return 2;
+  return 1;
+}
+
 export class WorldGround implements GroundSampler {
+  /**
+   * `roads` è un array vivo: lo streamer geografico aggiunge e toglie i propri
+   * indici mentre i tile entrano ed escono dal raggio, senza ricostruire il
+   * terreno né il giocatore.
+   */
+  readonly roads: readonly RoadIndex[];
+
   constructor(
     readonly heights: Heightfield,
-    readonly roads: RoadIndex,
-  ) {}
+    roads: RoadIndex | readonly RoadIndex[],
+  ) {
+    this.roads = Array.isArray(roads) ? roads : [roads as RoadIndex];
+  }
 
   sampleAt(x: number, z: number): GroundSample {
     const terrain = this.heights.heightAt(x, z);
-    const road = this.roads.sampleSurface(x, z, terrain);
-    if (road) {
+    let best: RoadSurfaceSample | null = null;
+    let bestRank = -1;
+    let bestY = -Infinity;
+    for (const index of this.roads) {
+      const road = index.sampleSurface(x, z, terrain);
+      if (!road) continue;
+      const rank = surfaceRank(road.kind);
+      if (rank > bestRank || (rank === bestRank && road.y > bestY + 0.001)) {
+        best = road;
+        bestRank = rank;
+        bestY = road.y;
+      }
+    }
+    if (best) {
       return {
-        y: road.y,
-        lift: road.lift,
-        kind: road.kind,
-        onRoad: road.kind === 'road' || road.kind === 'bridge' || road.kind === 'tunnel',
-        paved: road.paved,
-        surface: road.surface,
+        y: best.y,
+        lift: best.lift,
+        kind: best.kind,
+        onRoad: best.kind === 'road' || best.kind === 'bridge' || best.kind === 'tunnel',
+        paved: best.paved,
+        surface: best.surface,
       };
     }
     return { y: terrain, lift: 0, kind: 'terrain', onRoad: false, paved: false, surface: 'terrain' };

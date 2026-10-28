@@ -29,6 +29,8 @@ export interface GeoRoadFeature {
   surface?: string;
   oneway?: 1 | -1;
   maxspeed?: number;
+  /** Ordine verticale OSM: i ponti hanno layer > 0, le gallerie < 0. */
+  layer?: number;
 }
 
 export interface GeoBuildingFeature {
@@ -319,6 +321,7 @@ function parseRoad(value: unknown, tile: WorldTileCoordinate, index: number): Ge
   if (typeof value.surface === 'string') road.surface = value.surface;
   if (value.oneway === 1 || value.oneway === -1) road.oneway = value.oneway;
   if (typeof value.maxspeed === 'number' && Number.isFinite(value.maxspeed)) road.maxspeed = value.maxspeed;
+  if (typeof value.layer === 'number' && Number.isFinite(value.layer)) road.layer = value.layer;
   return road;
 }
 

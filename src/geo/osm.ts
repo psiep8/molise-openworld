@@ -1033,6 +1033,33 @@ export class BuildingIndex {
     this.index(building);
   }
 
+  /**
+   * Rimuove impronte caricate a runtime (edifici dei bundle geografici).
+   *
+   * La griglia è indicizzata per coordinate, non per proprietario: dopo la
+   * rimozione va ricostruita. Succede solo quando un tile esce dal raggio di
+   * streaming, quindi il costo (qualche migliaio di case) è trascurabile.
+   * Ritorna quante impronte sono state tolte.
+   */
+  remove(buildings: readonly Building[]): number {
+    if (buildings.length === 0) return 0;
+    const doomed = new Set(buildings);
+    let kept = 0;
+    for (const building of this.all) {
+      if (!doomed.has(building)) this.all[kept++] = building;
+    }
+    if (kept === this.all.length) return 0;
+    const removed = this.all.length - kept;
+    this.all.length = kept;
+    this.rebuild();
+    return removed;
+  }
+
+  private rebuild(): void {
+    this.grid.clear();
+    for (const building of this.all) this.index(building);
+  }
+
   near(x: number, z: number): Building[] {
     const cx = Math.floor(x / this.cell);
     const cz = Math.floor(z / this.cell);

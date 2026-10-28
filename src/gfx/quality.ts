@@ -67,6 +67,12 @@ export interface QualityPreset {
    * e su una GPU integrata si sentono tutti.
    */
   buildingDetail: 'full' | 'simple';
+  /**
+   * Strade ed edifici dei bundle geografici XYZ fuori dal DEM locale.
+   * Richiede `VITE_OPEN_WORLD_DATA_TILE_URL`: senza endpoint non c'è nulla da
+   * disegnare. Spento sui preset minimal/low, dove il costo non è giustificato.
+   */
+  streamedWorld: boolean;
   /** chiusini e caditoie (due InstancedMesh, ~600.000 triangoli in mappa) */
   drainage: boolean;
   /** guardrail su ponti e scarpate (due InstancedMesh) */
@@ -108,6 +114,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     weather: 'off',
     kit: false,
     buildingDetail: 'simple',
+    streamedWorld: false,
     drainage: false,
     guardrails: false,
     viewRadius: 1500,
@@ -138,6 +145,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     weather: 'light',
     kit: true,
     buildingDetail: 'simple',
+    streamedWorld: false,
     drainage: false,
     guardrails: false,
     viewRadius: 2200,
@@ -168,6 +176,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     weather: 'full',
     kit: true,
     buildingDetail: 'full',
+    streamedWorld: true,
     drainage: true,
     guardrails: true,
     viewRadius: 2600,
@@ -198,6 +207,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     weather: 'full',
     kit: true,
     buildingDetail: 'full',
+    streamedWorld: true,
     drainage: true,
     guardrails: true,
     viewRadius: 3100,
@@ -228,6 +238,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     weather: 'full',
     kit: true,
     buildingDetail: 'full',
+    streamedWorld: true,
     drainage: true,
     guardrails: true,
     viewRadius: 3100,
