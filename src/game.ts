@@ -830,12 +830,12 @@ export class Game {
       );
 
       this.map = new MapRenderer(osm);
+      const imageryAttribution =
+        OPEN_WORLD_IMAGERY.id === 'local-open-imagery'
+          ? OPEN_WORLD_IMAGERY.attribution
+          : `Sentinel-2 cloudless © EOX IT Services GmbH (CC BY 4.0) · ${OPEN_WORLD_IMAGERY.attribution}`;
       const attribution = document.getElementById('attribution');
       if (attribution) {
-        const imageryAttribution =
-          OPEN_WORLD_IMAGERY.id === 'local-open-imagery'
-            ? OPEN_WORLD_IMAGERY.attribution
-            : `Sentinel-2 cloudless © EOX IT Services GmbH (CC BY 4.0) · ${OPEN_WORLD_IMAGERY.attribution}`;
         attribution.textContent = `© OpenStreetMap contributors · Immagini: ${imageryAttribution}`;
       }
       const startAttribution = document.getElementById('imagery-attribution');

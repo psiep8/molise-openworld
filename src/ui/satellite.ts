@@ -1,6 +1,7 @@
 import { BBOX, latLonToWorld, worldToLatLon } from '../config';
 import { mercatorPixel } from '../geo/geo';
 import { OPEN_WORLD_IMAGERY, type TileProvider } from '../world/imagery';
+import { loadOpenRasterTile } from '../world/tile-cache';
 
 const TILE = 256;
 
@@ -34,17 +35,6 @@ export function tileWorldRect(z: number, x: number, y: number): TileRect {
   return { minX: nw.x, maxX: se.x, minZ: nw.z, maxZ: se.z };
 }
 
-function loadImage(url: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.decoding = 'async';
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error(`tile ${url} non disponibile`));
-    img.src = url;
-  });
-}
-
 /**
  * Cache di tile satellite per la minimappa "radar".
  * Le tile sono caricate in modo lazy e tenute in memoria (LRU semplice),
@@ -66,7 +56,7 @@ export class SatelliteTiles {
 
     const tile: CachedTile = { rect: tileWorldRect(z, x, y), loading: true, failed: false };
     this.cache.set(key, tile);
-    loadImage(this.provider.url(z, x, y))
+    loadOpenRasterTile(this.provider.url(z, x, y))
       .then((img) => {
         tile.img = img;
         tile.loading = false;
@@ -179,7 +169,7 @@ export class SatelliteBasemap {
 
     for (let ty = ty0; ty <= ty1; ty++) {
       for (let tx = tx0; tx <= tx1; tx++) {
-        loadImage(this.provider.url(this.zoom, tx, ty))
+        loadOpenRasterTile(this.provider.url(this.zoom, tx, ty))
           .then((img) => {
             ctx.drawImage(img, tx * TILE - p0.x, ty * TILE - p0.y);
             this.drawn++;

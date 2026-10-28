@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CHUNK_SIZE, WORLD, worldToLatLon } from '../config';
 import { mercatorPixel } from '../geo/geo';
 import { chunkOrigin } from './chunks';
+import { loadOpenRasterTile } from './tile-cache';
 
 /**
  * Mosaico Sentinel-2 cloudless dell'intero mondo (CC BY 4.0, EOX).
@@ -66,18 +67,6 @@ export function zoomForDistance(distance: number): number {
   if (distance <= 500) return 18;
   if (distance <= 3200) return 17;
   return 16;
-}
-
-/** Carica tile raster dal provider aperto configurato. */
-function loadTileImage(provider: TileProvider, z: number, x: number, y: number): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.decoding = 'async';
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error(`tile ${z}/${x}/${y} non disponibile`));
-    img.src = provider.url(z, x, y);
-  });
 }
 
 /**
@@ -200,7 +189,7 @@ export class ImageryStreamer {
     for (let ty = ty0; ty <= ty1; ty++) {
       for (let tx = tx0; tx <= tx1; tx++) {
         jobs.push(
-          loadTileImage(this.provider, zoom, tx, ty)
+          loadOpenRasterTile(this.provider.url(zoom, tx, ty))
             .then((img) => {
               const dx = (tx * TILE - p0.x) * scaleX;
               const dy = (ty * TILE - p0.y) * scaleY;
