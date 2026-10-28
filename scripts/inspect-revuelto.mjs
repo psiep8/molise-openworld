@@ -1,0 +1,30 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
+const CARS = path.join(process.cwd(), 'public', 'cars');
+
+function readGlb(file) {
+  const buffer = fs.readFileSync(file);
+  let offset = 12;
+  let json = null;
+  while (offset < buffer.length) {
+    const length = buffer.readUInt32LE(offset);
+    const type = buffer.readUInt32LE(offset + 4);
+    const chunk = buffer.subarray(offset + 8, offset + 8 + length);
+    if (type === 0x4e4f534a) json = JSON.parse(chunk.toString('utf8'));
+    offset += 8 + length + ((4 - (length % 4)) % 4);
+  }
+  return json;
+}
+
+const rev = readGlb(path.join(CARS, 'lamborgini_revolto.glb'));
+console.log('=== REVUELTO NODES & MESHES ===');
+rev.nodes.forEach((n, i) => {
+  if (n.mesh !== undefined) {
+    const m = rev.meshes[n.mesh];
+    const acc = rev.accessors[m.primitives[0].attributes.POSITION];
+    const name = n.name || m.name;
+    const isW = /wheel|tire|tyre|rim|ruota/i.test(name);
+    console.log(`node[${i}] "${n.name}" (mesh: "${m.name}"): span=[${(acc.max[0]-acc.min[0]).toFixed(2)}, ${(acc.max[1]-acc.min[1]).toFixed(2)}, ${(acc.max[2]-acc.min[2]).toFixed(2)}]`);
+  }
+});
