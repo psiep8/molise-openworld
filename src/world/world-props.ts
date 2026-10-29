@@ -188,7 +188,9 @@ export function buildWorldProps(
   const shrubs = lightVariants(kit, 'shrub', 12, 1400);
   const distant = lightVariants(kit, 'tree-distant', 6, 400);
   const rocks = lightVariants(kit, 'rock', 5, 5000);
-  const signs = lightVariants(kit, 'sign', 4, 2000);
+  // i cartelli europei fotografici sono 3,7–4,8k triangoli: con il vecchio
+  // tetto a 2.000 restavano fuori e si vedevano solo le sagome low-poly
+  const signs = lightVariants(kit, 'sign', 8, 6000);
   const houses = kit.variants('house').slice(0, 1);
 
   const treeSpots: WorldSpot[] = [];

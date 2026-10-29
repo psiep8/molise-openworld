@@ -28,6 +28,10 @@ describe('preset grafici', () => {
       expect(big.pixelRatio).toBeGreaterThanOrEqual(small.pixelRatio);
       expect(big.shadowMapSize).toBeGreaterThanOrEqual(small.shadowMapSize);
       expect(big.pointLights).toBeGreaterThanOrEqual(small.pointLights);
+      expect(big.groundDetail).toBeGreaterThanOrEqual(small.groundDetail);
+      expect(big.cropDensity).toBeGreaterThanOrEqual(small.cropDensity);
+      expect(big.villageScenes).toBeGreaterThanOrEqual(small.villageScenes);
+      expect(big.roadside).toBeGreaterThanOrEqual(small.roadside);
       // una volta arrivato il dettaglio pieno, i preset più alti lo tengono
       if (small.buildingDetail === 'full') expect(big.buildingDetail).toBe('full');
     }
@@ -44,6 +48,11 @@ describe('preset grafici', () => {
     expect(minimal.weather).toBe('light');
     expect(minimal.buildingDetail).toBe('simple');
     expect(minimal.drainage).toBe(false);
+    expect(minimal.groundDetail).toBe(0);
+    expect(minimal.cropDensity).toBe(0);
+    expect(minimal.villageScenes).toBe(0);
+    expect(minimal.roadside).toBe(0);
+    expect(QUALITY_PRESETS.medium.roadside).toBeGreaterThan(0);
     expect(minimal.trees).toBeGreaterThan(1000);
     expect(minimal.renderScaleFloor).toBeLessThan(QUALITY_PRESETS.ultra.renderScaleFloor);
     // la copertura del suolo costa campioni: sul preset di compatibilità è spenta

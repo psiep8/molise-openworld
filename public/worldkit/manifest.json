@@ -4,6 +4,50 @@
   "note": "GLB ottimizzati e versionati: ogni clone/pull e ogni build li contiene. Ruoli e crediti qui sotto.",
   "models": [
     {
+      "slug": "bridge-highway",
+      "name": "Ponte autostradale",
+      "role": "bridge",
+      "file": "models/bridge-highway.glb",
+      "nodes": [],
+      "height": 20.21,
+      "width": 10,
+      "depth": 20,
+      "normalize": "footprint",
+      "scaleTo": 20,
+      "triangles": 592,
+      "bytes": 1350120,
+      "usage": "reserve",
+      "nonCommercial": true,
+      "credits": {
+        "title": "Highway Bridge, Chinese style",
+        "author": "samuel.brunner (https://sketchfab.com/samuel.brunner)",
+        "license": "CC-BY-NC-4.0",
+        "source": "https://sketchfab.com/3d-models/highway-bridge-chinese-style-c2a8fa8acca840c782560ce32023e2e8"
+      }
+    },
+    {
+      "slug": "bridge-modular",
+      "name": "Ponte modulare",
+      "role": "bridge",
+      "file": "models/bridge-modular.glb",
+      "nodes": [],
+      "height": 1.11,
+      "width": 18,
+      "depth": 14.36,
+      "normalize": "footprint",
+      "scaleTo": 18,
+      "triangles": 36633,
+      "bytes": 982772,
+      "usage": "reserve",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Modular Bridge ( low Poly ) Game Ready.",
+        "author": "Salah3D (https://sketchfab.com/abbasyounis214)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/modular-bridge-low-poly-game-ready-0d7261538b4e4433b230f083a0cef38f"
+      }
+    },
+    {
       "slug": "cerchi-di-pioggia",
       "name": "Cerchi di pioggia",
       "role": "spare",
@@ -15,6 +59,8 @@
       "triangles": 84,
       "bytes": 164036,
       "usage": "reserve",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Rain drops circles | Download = Like please",
         "author": "VRA (https://sketchfab.com/architect47)",
@@ -34,6 +80,8 @@
       "triangles": 28798,
       "bytes": 377932,
       "usage": "reserve",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Santa Maria del Rosario, Venice, Italy",
         "author": "rmass (https://sketchfab.com/rickymassaro)",
@@ -50,9 +98,11 @@
       "height": 0.5,
       "width": 0.59,
       "depth": 0.58,
+      "normalize": "height",
       "triangles": 8160,
       "bytes": 149536,
       "usage": "reserve",
+      "nonCommercial": false,
       "credits": {
         "title": "Clover Spring",
         "author": "3dhdscan (https://sketchfab.com/3dhdscan)",
@@ -61,41 +111,69 @@
       }
     },
     {
-      "slug": "cordolo-in-pietra",
-      "name": "Cordolo in pietra",
-      "role": "spare",
-      "file": "models/cordolo-in-pietra.glb",
+      "slug": "curb-modular-long",
+      "name": "Cordolo modulare lungo",
+      "role": "curb",
+      "file": "models/curb-modular-long.glb",
       "nodes": [],
-      "height": 0.3,
-      "width": 2.78,
+      "height": 0.23,
+      "width": 5.43,
+      "depth": 0.06,
+      "normalize": "footprint",
+      "scaleTo": 5.43,
+      "triangles": 1080,
+      "bytes": 93828,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Modular City Road Pack – Game Ready",
+        "author": "Salah3D (https://sketchfab.com/abbasyounis214)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/modular-city-road-pack-game-ready-d9df5cfa079f4da8a18ef1372c00d01c"
+      }
+    },
+    {
+      "slug": "curb-modular-short",
+      "name": "Cordolo modulare corto",
+      "role": "curb",
+      "file": "models/curb-modular-short.glb",
+      "nodes": [],
+      "height": 0.23,
+      "width": 1.14,
+      "depth": 0.06,
+      "normalize": "footprint",
+      "scaleTo": 1.14,
+      "triangles": 216,
+      "bytes": 77800,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Modular City Road Pack – Game Ready",
+        "author": "Salah3D (https://sketchfab.com/abbasyounis214)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/modular-city-road-pack-game-ready-d9df5cfa079f4da8a18ef1372c00d01c"
+      }
+    },
+    {
+      "slug": "curb-stone",
+      "name": "Cordolo in pietra",
+      "role": "curb",
+      "file": "models/curb-stone.glb",
+      "nodes": [],
+      "height": 0.16,
+      "width": 2.8,
       "depth": 0.15,
-      "triangles": 9587,
-      "bytes": 263464,
-      "usage": "reserve",
+      "normalize": "footprint",
+      "scaleTo": 2.8,
+      "triangles": 19002,
+      "bytes": 403672,
+      "usage": "placed",
+      "nonCommercial": false,
       "credits": {
         "title": "Rocky Curb Scan",
         "author": "NScans (https://sketchfab.com/nathanreynolds147)",
         "license": "CC-BY-4.0",
         "source": "https://sketchfab.com/3d-models/rocky-curb-scan-bd498097eeee4dc9b446045044f59e89"
-      }
-    },
-    {
-      "slug": "cordolo-scan",
-      "name": "Cordolo scan",
-      "role": "spare",
-      "file": "models/cordolo-scan.glb",
-      "nodes": [],
-      "height": 0.3,
-      "width": 248.34,
-      "depth": 371.68,
-      "triangles": 290522,
-      "bytes": 7239268,
-      "usage": "reserve",
-      "credits": {
-        "title": "Sidewalk Curb FREE 3D Scan Project A3",
-        "author": "LordSamueliSolo (https://sketchfab.com/LadyLionStudios)",
-        "license": "CC-BY-4.0",
-        "source": "https://sketchfab.com/3d-models/sidewalk-curb-free-3d-scan-project-a3-db5a1e839a0640b08b64163f4f650bd0"
       }
     },
     {
@@ -110,6 +188,8 @@
       "triangles": 108,
       "bytes": 178052,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -129,6 +209,8 @@
       "triangles": 101,
       "bytes": 177748,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -148,6 +230,8 @@
       "triangles": 36,
       "bytes": 176900,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -167,6 +251,8 @@
       "triangles": 109,
       "bytes": 178104,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -186,6 +272,8 @@
       "triangles": 109,
       "bytes": 177892,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -205,6 +293,8 @@
       "triangles": 109,
       "bytes": 177840,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -224,6 +314,8 @@
       "triangles": 113,
       "bytes": 177952,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -243,6 +335,8 @@
       "triangles": 109,
       "bytes": 178112,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -262,6 +356,8 @@
       "triangles": 40,
       "bytes": 176840,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -281,6 +377,8 @@
       "triangles": 92,
       "bytes": 177600,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -300,6 +398,8 @@
       "triangles": 24,
       "bytes": 176640,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -319,6 +419,8 @@
       "triangles": 67,
       "bytes": 177532,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -338,6 +440,8 @@
       "triangles": 366,
       "bytes": 183328,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -357,6 +461,8 @@
       "triangles": 286,
       "bytes": 179556,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -376,6 +482,8 @@
       "triangles": 286,
       "bytes": 181084,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -395,6 +503,8 @@
       "triangles": 156,
       "bytes": 196788,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -414,6 +524,8 @@
       "triangles": 338,
       "bytes": 151960,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -433,6 +545,8 @@
       "triangles": 264,
       "bytes": 147204,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -452,6 +566,8 @@
       "triangles": 338,
       "bytes": 152108,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -471,11 +587,146 @@
       "triangles": 129,
       "bytes": 31348,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
         "license": "CC-BY-4.0",
         "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "field-dry-grass",
+      "name": "Erba secca sottile",
+      "role": "field",
+      "file": "models/field-dry-grass.glb",
+      "nodes": [],
+      "height": 0.11,
+      "width": 3.38,
+      "depth": 3.4,
+      "normalize": "footprint",
+      "scaleTo": 3.4,
+      "triangles": 11518,
+      "bytes": 205864,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Dry Thin Grass",
+        "author": "ROY (https://sketchfab.com/roy.gearloft.in)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/dry-thin-grass-43f57bef322c4f4597428d290b498764"
+      }
+    },
+    {
+      "slug": "field-garden",
+      "name": "Campo e orto",
+      "role": "field",
+      "file": "models/field-garden.glb",
+      "nodes": [],
+      "height": 3.61,
+      "width": 34,
+      "depth": 28.04,
+      "normalize": "footprint",
+      "scaleTo": 34,
+      "triangles": 11518,
+      "bytes": 435032,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Field and Garden",
+        "author": "Dominik Hagmann (https://sketchfab.com/dominik.hagmann)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/field-and-garden-2a0e1033e935452cb03d17c50fb12807"
+      }
+    },
+    {
+      "slug": "field-green",
+      "name": "Campo verde",
+      "role": "field",
+      "file": "models/field-green.glb",
+      "nodes": [],
+      "height": 1.14,
+      "width": 11.84,
+      "depth": 12,
+      "normalize": "footprint",
+      "scaleTo": 12,
+      "triangles": 3456,
+      "bytes": 150144,
+      "usage": "placed",
+      "nonCommercial": true,
+      "credits": {
+        "title": "Green Field",
+        "author": "Somersby (https://sketchfab.com/Somersby)",
+        "license": "CC-BY-NC-4.0",
+        "source": "https://sketchfab.com/3d-models/green-field-106c2c58f6d743c7897e327a9152ea54"
+      }
+    },
+    {
+      "slug": "field-green-lush",
+      "name": "Campo verde fitto",
+      "role": "field",
+      "file": "models/field-green-lush.glb",
+      "nodes": [],
+      "height": 1.14,
+      "width": 11.84,
+      "depth": 12,
+      "normalize": "footprint",
+      "scaleTo": 12,
+      "triangles": 3456,
+      "bytes": 113716,
+      "usage": "placed",
+      "nonCommercial": true,
+      "credits": {
+        "title": "Green Field (Greener)",
+        "author": "Somersby (https://sketchfab.com/Somersby)",
+        "license": "CC-BY-NC-4.0",
+        "source": "https://sketchfab.com/3d-models/green-field-greener-8399c00672134b828ca6cf2363a95085"
+      }
+    },
+    {
+      "slug": "field-maria",
+      "name": "Campo Maria",
+      "role": "field",
+      "file": "models/field-maria.glb",
+      "nodes": [],
+      "height": 10.98,
+      "width": 30,
+      "depth": 16.01,
+      "normalize": "footprint",
+      "scaleTo": 30,
+      "hero": true,
+      "triangles": 447327,
+      "bytes": 17685096,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Maria Tach Field",
+        "author": "Francesco Coldesina (https://sketchfab.com/topfrank2013)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/maria-tach-field-97750e1a8d264eb8aa2caa28128ba1d1"
+      }
+    },
+    {
+      "slug": "field-tall-green",
+      "name": "Campo alto e verde",
+      "role": "field",
+      "file": "models/field-tall-green.glb",
+      "nodes": [],
+      "height": 1.56,
+      "width": 16.14,
+      "depth": 16.35,
+      "normalize": "footprint",
+      "scaleTo": 16.35,
+      "triangles": 3456,
+      "bytes": 203964,
+      "usage": "placed",
+      "nonCommercial": true,
+      "credits": {
+        "title": "Tall Green Field",
+        "author": "Somersby (https://sketchfab.com/Somersby)",
+        "license": "CC-BY-NC-4.0",
+        "source": "https://sketchfab.com/3d-models/tall-green-field-7598babd6ced44019806a7879bf60656"
       }
     },
     {
@@ -490,6 +741,8 @@
       "triangles": 127,
       "bytes": 139080,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -509,6 +762,8 @@
       "triangles": 63,
       "bytes": 138128,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -528,6 +783,8 @@
       "triangles": 26,
       "bytes": 137784,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -547,6 +804,8 @@
       "triangles": 34,
       "bytes": 137828,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -566,6 +825,8 @@
       "triangles": 97,
       "bytes": 138580,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -585,6 +846,8 @@
       "triangles": 99,
       "bytes": 138612,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -604,6 +867,8 @@
       "triangles": 51,
       "bytes": 138020,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -623,6 +888,8 @@
       "triangles": 46,
       "bytes": 137992,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Forest Tree Pack",
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
@@ -639,9 +906,11 @@
       "height": 0.5,
       "width": 0.25,
       "depth": 0.3,
+      "normalize": "height",
       "triangles": 37,
       "bytes": 113240,
       "usage": "placed",
+      "nonCommercial": false,
       "credits": {
         "title": "Simple grass chunks",
         "author": "3dhdscan (https://sketchfab.com/3dhdscan)",
@@ -658,9 +927,11 @@
       "height": 0.45,
       "width": 0.46,
       "depth": 0.53,
+      "normalize": "height",
       "triangles": 12,
       "bytes": 64304,
       "usage": "placed",
+      "nonCommercial": false,
       "credits": {
         "title": "Simple grass chunks",
         "author": "3dhdscan (https://sketchfab.com/3dhdscan)",
@@ -677,9 +948,11 @@
       "height": 0.62,
       "width": 0.73,
       "depth": 0.79,
+      "normalize": "height",
       "triangles": 1555,
       "bytes": 64776,
       "usage": "placed",
+      "nonCommercial": false,
       "credits": {
         "title": "Grass",
         "author": "Cosmic_dust (https://sketchfab.com/Cosmic_dust)",
@@ -696,9 +969,11 @@
       "height": 0.55,
       "width": 0.74,
       "depth": 0.82,
+      "normalize": "height",
       "triangles": 1535,
       "bytes": 49456,
       "usage": "placed",
+      "nonCommercial": false,
       "credits": {
         "title": "Grass",
         "author": "Cosmic_dust (https://sketchfab.com/Cosmic_dust)",
@@ -715,9 +990,11 @@
       "height": 0.55,
       "width": 1.42,
       "depth": 1.42,
+      "normalize": "height",
       "triangles": 346,
       "bytes": 1084844,
       "usage": "placed",
+      "nonCommercial": false,
       "credits": {
         "title": "Hand Painted Grasses",
         "author": "PiyalakNuchim (https://sketchfab.com/PiyalakNuchim)",
@@ -734,9 +1011,11 @@
       "height": 0.35,
       "width": 0.65,
       "depth": 0.66,
+      "normalize": "height",
       "triangles": 517,
       "bytes": 122900,
       "usage": "placed",
+      "nonCommercial": false,
       "credits": {
         "title": "Grass patches",
         "author": "DJMaesen (https://sketchfab.com/bumstrum)",
@@ -753,9 +1032,11 @@
       "height": 0.4,
       "width": 0.54,
       "depth": 0.57,
+      "normalize": "height",
       "triangles": 236,
       "bytes": 118640,
       "usage": "placed",
+      "nonCommercial": false,
       "credits": {
         "title": "Grass patches",
         "author": "DJMaesen (https://sketchfab.com/bumstrum)",
@@ -772,9 +1053,11 @@
       "height": 0.32,
       "width": 0.71,
       "depth": 0.81,
+      "normalize": "height",
       "triangles": 1157,
       "bytes": 132316,
       "usage": "placed",
+      "nonCommercial": false,
       "credits": {
         "title": "Grass patches",
         "author": "DJMaesen (https://sketchfab.com/bumstrum)",
@@ -791,9 +1074,11 @@
       "height": 0.45,
       "width": 1.45,
       "depth": 2.13,
+      "normalize": "height",
       "triangles": 1554,
       "bytes": 1289772,
       "usage": "placed",
+      "nonCommercial": false,
       "credits": {
         "title": "Realtime Grass",
         "author": "mfhscoobydoo (https://sketchfab.com/mfhscoobydoo)",
@@ -810,9 +1095,11 @@
       "height": 0.8,
       "width": 1.65,
       "depth": 2.75,
+      "normalize": "height",
       "triangles": 82943,
       "bytes": 1498844,
       "usage": "reserve",
+      "nonCommercial": false,
       "credits": {
         "title": "Grass",
         "author": "Epic_Tree_Store (https://sketchfab.com/johngreenstone)",
@@ -829,9 +1116,11 @@
       "height": 0.7,
       "width": 1.48,
       "depth": 1.23,
+      "normalize": "height",
       "triangles": 18307,
       "bytes": 442416,
       "usage": "reserve",
+      "nonCommercial": false,
       "credits": {
         "title": "Grass",
         "author": "Epic_Tree_Store (https://sketchfab.com/johngreenstone)",
@@ -840,17 +1129,130 @@
       }
     },
     {
+      "slug": "ground-bank-tile",
+      "name": "Terra di scarpata",
+      "role": "ground",
+      "file": "models/ground-bank-tile.glb",
+      "nodes": [],
+      "height": 2.53,
+      "width": 16.87,
+      "depth": 22,
+      "normalize": "footprint",
+      "scaleTo": 22,
+      "triangles": 38678,
+      "bytes": 795816,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Ground",
+        "author": "Zhoslen.Makoev (https://sketchfab.com/Zhoslen.Makoev)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/ground-28348668d86f454880166a8e6b6293dd"
+      }
+    },
+    {
+      "slug": "ground-field-tile",
+      "name": "Terra di campo",
+      "role": "ground",
+      "file": "models/ground-field-tile.glb",
+      "nodes": [],
+      "height": 1.19,
+      "width": 20,
+      "depth": 18.18,
+      "normalize": "footprint",
+      "scaleTo": 20,
+      "triangles": 17274,
+      "bytes": 357152,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "\"Ground 2\"",
+        "author": "Mehmet Kozal (https://sketchfab.com/mkozal)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/ground-2-6ca627f164754ce3a963715b37f7cbdb"
+      }
+    },
+    {
+      "slug": "ground-meadow-tile",
+      "name": "Terra di prato",
+      "role": "ground",
+      "file": "models/ground-meadow-tile.glb",
+      "nodes": [],
+      "height": 0,
+      "width": 18,
+      "depth": 18,
+      "normalize": "footprint",
+      "scaleTo": 18,
+      "triangles": 17278,
+      "bytes": 981068,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Ground",
+        "author": "altbelian (https://sketchfab.com/altbelian)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/ground-535f79432a3d48619dd1fdd8500b0beb"
+      }
+    },
+    {
+      "slug": "ground-mud",
+      "name": "Fango",
+      "role": "ground",
+      "file": "models/ground-mud.glb",
+      "nodes": [],
+      "height": 0,
+      "width": 16,
+      "depth": 16,
+      "normalize": "footprint",
+      "scaleTo": 16,
+      "triangles": 2,
+      "bytes": 492176,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Mud Material",
+        "author": "KINXZ (https://sketchfab.com/kinxz)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/mud-material-8f6c45d163b24b02a845dd47561a6efe"
+      }
+    },
+    {
+      "slug": "ground-photo-small",
+      "name": "Zolla di terra fotografata",
+      "role": "ground",
+      "file": "models/ground-photo-small.glb",
+      "nodes": [],
+      "height": 0.53,
+      "width": 4.58,
+      "depth": 5,
+      "normalize": "footprint",
+      "scaleTo": 5,
+      "triangles": 6710,
+      "bytes": 247316,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Photoscanned Patch of Ground",
+        "author": "chrisg4919 (https://sketchfab.com/chrisg4919)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/photoscanned-patch-of-ground-c92e083da06d4295849c9f67e84c3664"
+      }
+    },
+    {
       "slug": "guardrail",
       "name": "Guardrail",
-      "role": "spare",
+      "role": "guardrail",
       "file": "models/guardrail.glb",
       "nodes": [],
-      "height": 0.8,
+      "height": 1.48,
       "width": 0.52,
-      "depth": 10.04,
+      "depth": 10,
+      "normalize": "footprint",
+      "scaleTo": 10,
       "triangles": 524,
-      "bytes": 69092,
-      "usage": "reserve",
+      "bytes": 67884,
+      "usage": "placed",
+      "nonCommercial": false,
       "credits": {
         "title": "guardrail road",
         "author": "danimow (https://sketchfab.com/danimow)",
@@ -859,17 +1261,42 @@
       }
     },
     {
-      "slug": "guardrail-e-terminale",
-      "name": "Guardrail e terminale",
-      "role": "spare",
-      "file": "models/guardrail-e-terminale.glb",
+      "slug": "guardrail-heavy",
+      "name": "Protezione stradale",
+      "role": "guardrail",
+      "file": "models/guardrail-heavy.glb",
       "nodes": [],
-      "height": 1,
-      "width": 4.34,
-      "depth": 0.4,
+      "height": 1.5,
+      "width": 0.46,
+      "depth": 7.7,
+      "normalize": "footprint",
+      "scaleTo": 7.7,
+      "triangles": 8886,
+      "bytes": 107692,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Roadside Guard",
+        "author": "Safat_Rules (https://sketchfab.com/Ahmed.Almousa)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/roadside-guard-fb00e3946d4e47fa893f3e2671c77f6b"
+      }
+    },
+    {
+      "slug": "guardrail-terminal",
+      "name": "Guardrail e terminale",
+      "role": "guardrail",
+      "file": "models/guardrail-terminal.glb",
+      "nodes": [],
+      "height": 1.09,
+      "width": 4.3,
+      "depth": 0.39,
+      "normalize": "footprint",
+      "scaleTo": 4.3,
       "triangles": 2936,
-      "bytes": 116944,
-      "usage": "reserve",
+      "bytes": 112948,
+      "usage": "placed",
+      "nonCommercial": false,
       "credits": {
         "title": "GuardRail and Terminal",
         "author": "xplanepilot (https://sketchfab.com/xplanepilot)",
@@ -878,22 +1305,24 @@
       }
     },
     {
-      "slug": "lampione",
-      "name": "Lampione",
+      "slug": "infrastruttura-urbana",
+      "name": "Infrastruttura urbana",
       "role": "spare",
-      "file": "models/lampione.glb",
+      "file": "models/infrastruttura-urbana.glb",
       "nodes": [],
-      "height": 7,
-      "width": 1.32,
-      "depth": 2.27,
-      "triangles": 6640,
-      "bytes": 88236,
+      "height": 16.5,
+      "width": 2663.73,
+      "depth": 2875.62,
+      "triangles": 105769,
+      "bytes": 2722460,
       "usage": "reserve",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
-        "title": "Ligh Pole",
-        "author": "cimon (https://sketchfab.com/aithmad2005)",
+        "title": "City infrastructure Map 3",
+        "author": "PropShop™ (https://sketchfab.com/syedabbas0815)",
         "license": "CC-BY-4.0",
-        "source": "https://sketchfab.com/3d-models/ligh-pole-ec7769b4e00a4b82999b2769ffef05d7"
+        "source": "https://sketchfab.com/3d-models/city-infrastructure-map-3-1c6262eb26b94ec0b7565211268fb577"
       }
     },
     {
@@ -908,49 +1337,13 @@
       "triangles": 840,
       "bytes": 56980,
       "usage": "reserve",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Sci-Fi Path Light Pole (Low Poly)",
         "author": "Skipperino (https://sketchfab.com/skipperino)",
         "license": "CC-BY-4.0",
         "source": "https://sketchfab.com/3d-models/sci-fi-path-light-pole-low-poly-7516615fa4dd44adbe0c66f4ae4de6b5"
-      }
-    },
-    {
-      "slug": "marciapiede-8-m",
-      "name": "Marciapiede 8 m",
-      "role": "spare",
-      "file": "models/marciapiede-8-m.glb",
-      "nodes": [],
-      "height": 0.2,
-      "width": 1.54,
-      "depth": 8.12,
-      "triangles": 11514,
-      "bytes": 160436,
-      "usage": "reserve",
-      "credits": {
-        "title": "sidewalk 8m long - HQ",
-        "author": "SPLEEN VISION (https://sketchfab.com/spleen.vision)",
-        "license": "CC-BY-4.0",
-        "source": "https://sketchfab.com/3d-models/sidewalk-8m-long-hq-e80922f5accb4f8ba7b66e6ca903748c"
-      }
-    },
-    {
-      "slug": "marciapiede-lungo",
-      "name": "Marciapiede lungo",
-      "role": "spare",
-      "file": "models/marciapiede-lungo.glb",
-      "nodes": [],
-      "height": 0.2,
-      "width": 0.99,
-      "depth": 6.12,
-      "triangles": 11512,
-      "bytes": 148128,
-      "usage": "reserve",
-      "credits": {
-        "title": "HQ free long sidewalk 3",
-        "author": "SPLEEN VISION (https://sketchfab.com/spleen.vision)",
-        "license": "CC-BY-4.0",
-        "source": "https://sketchfab.com/3d-models/hq-free-long-sidewalk-3-6f62617b9f1f4de88646b1d8fd007e8a"
       }
     },
     {
@@ -965,30 +1358,13 @@
       "triangles": 1800,
       "bytes": 1015400,
       "usage": "reserve",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "falling snow loop",
         "author": "Elin (https://sketchfab.com/ElinHohler)",
         "license": "CC-BY-4.0",
         "source": "https://sketchfab.com/3d-models/falling-snow-loop-a19b97d7e64548b998eaeb4d8477c24c"
-      }
-    },
-    {
-      "slug": "palo-della-luce",
-      "name": "Palo della luce",
-      "role": "spare",
-      "file": "models/palo-della-luce.glb",
-      "nodes": [],
-      "height": 6,
-      "width": 3.19,
-      "depth": 0.49,
-      "triangles": 326,
-      "bytes": 16096,
-      "usage": "reserve",
-      "credits": {
-        "title": "light pole",
-        "author": "joeynaja (https://sketchfab.com/joeynaja)",
-        "license": "CC-BY-4.0",
-        "source": "https://sketchfab.com/3d-models/light-pole-74b78e2d021c4f7d82c206aac7a39954"
       }
     },
     {
@@ -1003,6 +1379,8 @@
       "triangles": 7861,
       "bytes": 66076,
       "usage": "reserve",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Electric Light Pole",
         "author": "Cau Hi (https://sketchfab.com/nt.chitam)",
@@ -1022,30 +1400,13 @@
       "triangles": 11517,
       "bytes": 193368,
       "usage": "reserve",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Realistic Walkway",
         "author": "OrbArts (https://sketchfab.com/orbarts)",
         "license": "CC-BY-SA-4.0",
         "source": "https://sketchfab.com/3d-models/realistic-walkway-8050b15ec2d44b14b843831b41fcb3ba"
-      }
-    },
-    {
-      "slug": "protezione-stradale",
-      "name": "Protezione stradale",
-      "role": "spare",
-      "file": "models/protezione-stradale.glb",
-      "nodes": [],
-      "height": 1.2,
-      "width": 0.46,
-      "depth": 7.73,
-      "triangles": 21397,
-      "bytes": 242120,
-      "usage": "reserve",
-      "credits": {
-        "title": "Roadside Guard",
-        "author": "Safat_Rules (https://sketchfab.com/Ahmed.Almousa)",
-        "license": "CC-BY-4.0",
-        "source": "https://sketchfab.com/3d-models/roadside-guard-fb00e3946d4e47fa893f3e2671c77f6b"
       }
     },
     {
@@ -1057,9 +1418,11 @@
       "height": 2.4,
       "width": 12.08,
       "depth": 11.95,
+      "normalize": "height",
       "triangles": 3840,
       "bytes": 147544,
       "usage": "placed",
+      "nonCommercial": false,
       "credits": {
         "title": "Rock terrain",
         "author": "Lassi Kaukonen (https://sketchfab.com/thesidekick)",
@@ -1076,9 +1439,11 @@
       "height": 8,
       "width": 23.43,
       "depth": 23.21,
+      "normalize": "height",
       "triangles": 54911,
       "bytes": 2424256,
       "usage": "placed",
+      "nonCommercial": false,
       "credits": {
         "title": "Casa Di Abitazione",
         "author": "labarch (https://sketchfab.com/labarch)",
@@ -1098,11 +1463,101 @@
       "triangles": 43317,
       "bytes": 1712592,
       "usage": "reserve",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Low Poly Tree Scene Free",
         "author": "Nicholas-3D (https://sketchfab.com/Nicholas01)",
         "license": "CC-BY-4.0",
         "source": "https://sketchfab.com/3d-models/low-poly-tree-scene-free-89daa5e21f0d4f08a59dba0d566e88bd"
+      }
+    },
+    {
+      "slug": "sidewalk-8m",
+      "name": "Marciapiede 8 m",
+      "role": "sidewalk",
+      "file": "models/sidewalk-8m.glb",
+      "nodes": [],
+      "height": 0.35,
+      "width": 1.54,
+      "depth": 8.1,
+      "normalize": "footprint",
+      "scaleTo": 8.1,
+      "triangles": 11519,
+      "bytes": 141708,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "sidewalk 8m long - HQ",
+        "author": "SPLEEN VISION (https://sketchfab.com/spleen.vision)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/sidewalk-8m-long-hq-e80922f5accb4f8ba7b66e6ca903748c"
+      }
+    },
+    {
+      "slug": "sidewalk-long",
+      "name": "Marciapiede lungo",
+      "role": "sidewalk",
+      "file": "models/sidewalk-long.glb",
+      "nodes": [],
+      "height": 0.14,
+      "width": 0.98,
+      "depth": 6.1,
+      "normalize": "footprint",
+      "scaleTo": 6.1,
+      "triangles": 11512,
+      "bytes": 133896,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "HQ free long sidewalk 3",
+        "author": "SPLEEN VISION (https://sketchfab.com/spleen.vision)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/hq-free-long-sidewalk-3-6f62617b9f1f4de88646b1d8fd007e8a"
+      }
+    },
+    {
+      "slug": "sidewalk-module-a",
+      "name": "Marciapiede modulare A",
+      "role": "sidewalk",
+      "file": "models/sidewalk-module-a.glb",
+      "nodes": [],
+      "height": 0.14,
+      "width": 6.03,
+      "depth": 10.52,
+      "normalize": "footprint",
+      "scaleTo": 10.52,
+      "triangles": 10,
+      "bytes": 39532,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Road Modular",
+        "author": "mortalityrexotable (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/road-modular-74f74f8569ac410f80266d3f1603bffd"
+      }
+    },
+    {
+      "slug": "sidewalk-module-b",
+      "name": "Marciapiede modulare B",
+      "role": "sidewalk",
+      "file": "models/sidewalk-module-b.glb",
+      "nodes": [],
+      "height": 0.14,
+      "width": 6.03,
+      "depth": 16.9,
+      "normalize": "footprint",
+      "scaleTo": 16.9,
+      "triangles": 10,
+      "bytes": 39536,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Road Modular",
+        "author": "mortalityrexotable (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/road-modular-74f74f8569ac410f80266d3f1603bffd"
       }
     },
     {
@@ -1117,6 +1572,8 @@
       "triangles": 1158,
       "bytes": 28248,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Roadside billboards with Icons/Text (UE)",
         "author": "MAYUR (https://sketchfab.com/mayur_)",
@@ -1136,11 +1593,139 @@
       "triangles": 1142,
       "bytes": 28848,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Roadside billboards with Icons/Text (UE)",
         "author": "MAYUR (https://sketchfab.com/mayur_)",
         "license": "CC-BY-4.0",
         "source": "https://sketchfab.com/3d-models/roadside-billboards-with-iconstext-ue-d4edf394ad834e1c817e13d9e8d5226c"
+      }
+    },
+    {
+      "slug": "sign-eu-01",
+      "name": "Cartello europeo 01",
+      "role": "sign",
+      "file": "models/sign-eu-01.glb",
+      "nodes": [],
+      "height": 2.9,
+      "width": 0.77,
+      "depth": 0.09,
+      "normalize": "height",
+      "triangles": 4794,
+      "bytes": 139404,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Road signs pack",
+        "author": "robiworks (https://sketchfab.com/robiworks)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/road-signs-pack-7fac2b1b6c5746daa4ac773441c45180"
+      }
+    },
+    {
+      "slug": "sign-eu-02",
+      "name": "Cartello europeo 02",
+      "role": "sign",
+      "file": "models/sign-eu-02.glb",
+      "nodes": [],
+      "height": 2.9,
+      "width": 0.53,
+      "depth": 0.09,
+      "normalize": "height",
+      "triangles": 3744,
+      "bytes": 108700,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Road signs pack",
+        "author": "robiworks (https://sketchfab.com/robiworks)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/road-signs-pack-7fac2b1b6c5746daa4ac773441c45180"
+      }
+    },
+    {
+      "slug": "sign-eu-05",
+      "name": "Cartello europeo 05",
+      "role": "sign",
+      "file": "models/sign-eu-05.glb",
+      "nodes": [],
+      "height": 2.9,
+      "width": 0.77,
+      "depth": 0.09,
+      "normalize": "height",
+      "triangles": 4796,
+      "bytes": 59552,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Road signs pack",
+        "author": "robiworks (https://sketchfab.com/robiworks)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/road-signs-pack-7fac2b1b6c5746daa4ac773441c45180"
+      }
+    },
+    {
+      "slug": "sign-eu-09",
+      "name": "Cartello europeo 09",
+      "role": "sign",
+      "file": "models/sign-eu-09.glb",
+      "nodes": [],
+      "height": 2.9,
+      "width": 0.51,
+      "depth": 0.09,
+      "normalize": "height",
+      "triangles": 3744,
+      "bytes": 120812,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Road signs pack",
+        "author": "robiworks (https://sketchfab.com/robiworks)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/road-signs-pack-7fac2b1b6c5746daa4ac773441c45180"
+      }
+    },
+    {
+      "slug": "sign-eu-12",
+      "name": "Cartello europeo 12",
+      "role": "sign",
+      "file": "models/sign-eu-12.glb",
+      "nodes": [],
+      "height": 2.9,
+      "width": 0.77,
+      "depth": 0.09,
+      "normalize": "height",
+      "triangles": 4796,
+      "bytes": 96772,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Road signs pack",
+        "author": "robiworks (https://sketchfab.com/robiworks)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/road-signs-pack-7fac2b1b6c5746daa4ac773441c45180"
+      }
+    },
+    {
+      "slug": "sign-eu-14",
+      "name": "Cartello europeo 14",
+      "role": "sign",
+      "file": "models/sign-eu-14.glb",
+      "nodes": [],
+      "height": 2.9,
+      "width": 0.77,
+      "depth": 0.09,
+      "normalize": "height",
+      "triangles": 4796,
+      "bytes": 74580,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Road signs pack",
+        "author": "robiworks (https://sketchfab.com/robiworks)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/road-signs-pack-7fac2b1b6c5746daa4ac773441c45180"
       }
     },
     {
@@ -1155,11 +1740,34 @@
       "triangles": 1158,
       "bytes": 27984,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Roadside billboards with Icons/Text (UE)",
         "author": "MAYUR (https://sketchfab.com/mayur_)",
         "license": "CC-BY-4.0",
         "source": "https://sketchfab.com/3d-models/roadside-billboards-with-iconstext-ue-d4edf394ad834e1c817e13d9e8d5226c"
+      }
+    },
+    {
+      "slug": "sign-modular",
+      "name": "Segnale modulare",
+      "role": "sign",
+      "file": "models/sign-modular.glb",
+      "nodes": [],
+      "height": 2.4,
+      "width": 1.54,
+      "depth": 0.15,
+      "normalize": "height",
+      "triangles": 788,
+      "bytes": 51996,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Modular City Road Pack – Game Ready",
+        "author": "Salah3D (https://sketchfab.com/abbasyounis214)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/modular-city-road-pack-game-ready-d9df5cfa079f4da8a18ef1372c00d01c"
       }
     },
     {
@@ -1174,11 +1782,34 @@
       "triangles": 1158,
       "bytes": 26520,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Roadside billboards with Icons/Text (UE)",
         "author": "MAYUR (https://sketchfab.com/mayur_)",
         "license": "CC-BY-4.0",
         "source": "https://sketchfab.com/3d-models/roadside-billboards-with-iconstext-ue-d4edf394ad834e1c817e13d9e8d5226c"
+      }
+    },
+    {
+      "slug": "sign-stop-modular",
+      "name": "Cartello STOP modulare",
+      "role": "sign",
+      "file": "models/sign-stop-modular.glb",
+      "nodes": [],
+      "height": 2.38,
+      "width": 0.14,
+      "depth": 0.83,
+      "normalize": "height",
+      "triangles": 60,
+      "bytes": 40872,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Road Modular",
+        "author": "mortalityrexotable (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/road-modular-74f74f8569ac410f80266d3f1603bffd"
       }
     },
     {
@@ -1193,6 +1824,8 @@
       "triangles": 1142,
       "bytes": 28832,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Roadside billboards with Icons/Text (UE)",
         "author": "MAYUR (https://sketchfab.com/mayur_)",
@@ -1212,11 +1845,139 @@
       "triangles": 576662,
       "bytes": 10396772,
       "usage": "reserve",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Snow Road (raw scan) Freebie",
         "author": "Vlad (https://sketchfab.com/ssh4)",
         "license": "CC-BY-SA-4.0",
         "source": "https://sketchfab.com/3d-models/snow-road-raw-scan-freebie-d6f6fb4341f64ee1abe0974d350b0d32"
+      }
+    },
+    {
+      "slug": "straw-bale",
+      "name": "Balla di paglia",
+      "role": "bale",
+      "file": "models/straw-bale.glb",
+      "nodes": [],
+      "height": 1.35,
+      "width": 1.58,
+      "depth": 1.42,
+      "normalize": "height",
+      "triangles": 6221,
+      "bytes": 260500,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "A round bundle of straw in the field",
+        "author": "3dhdscan (https://sketchfab.com/3dhdscan)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/a-round-bundle-of-straw-in-the-field-7764eb5d300545fc8d9ff3ffabbe2d36"
+      }
+    },
+    {
+      "slug": "streetlight-dual",
+      "name": "Lampione doppio",
+      "role": "streetlight",
+      "file": "models/streetlight-dual.glb",
+      "nodes": [],
+      "height": 7.8,
+      "width": 4.99,
+      "depth": 0.37,
+      "normalize": "height",
+      "triangles": 348,
+      "bytes": 5272,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Road Modular",
+        "author": "mortalityrexotable (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/road-modular-74f74f8569ac410f80266d3f1603bffd"
+      }
+    },
+    {
+      "slug": "streetlight-lamp",
+      "name": "Lampione",
+      "role": "streetlight",
+      "file": "models/streetlight-lamp.glb",
+      "nodes": [],
+      "height": 7,
+      "width": 1.23,
+      "depth": 2.11,
+      "normalize": "height",
+      "triangles": 7838,
+      "bytes": 93304,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Ligh Pole",
+        "author": "cimon (https://sketchfab.com/aithmad2005)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/ligh-pole-ec7769b4e00a4b82999b2769ffef05d7"
+      }
+    },
+    {
+      "slug": "streetlight-pole",
+      "name": "Palo della luce",
+      "role": "streetlight",
+      "file": "models/streetlight-pole.glb",
+      "nodes": [],
+      "height": 6,
+      "width": 3.45,
+      "depth": 0.53,
+      "normalize": "height",
+      "triangles": 326,
+      "bytes": 16100,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "light pole",
+        "author": "joeynaja (https://sketchfab.com/joeynaja)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/light-pole-74b78e2d021c4f7d82c206aac7a39954"
+      }
+    },
+    {
+      "slug": "streetlight-single",
+      "name": "Lampione singolo",
+      "role": "streetlight",
+      "file": "models/streetlight-single.glb",
+      "nodes": [],
+      "height": 7.8,
+      "width": 2.68,
+      "depth": 0.37,
+      "normalize": "height",
+      "triangles": 280,
+      "bytes": 4620,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Road Modular",
+        "author": "mortalityrexotable (https://sketchfab.com/mortalityrexotable)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/road-modular-74f74f8569ac410f80266d3f1603bffd"
+      }
+    },
+    {
+      "slug": "svincolo-autostradale",
+      "name": "Svincolo autostradale",
+      "role": "spare",
+      "file": "models/svincolo-autostradale.glb",
+      "nodes": [],
+      "height": 6,
+      "width": 198.63,
+      "depth": 198.63,
+      "triangles": 9097,
+      "bytes": 74936,
+      "usage": "reserve",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Road / Highway",
+        "author": "ROY (https://sketchfab.com/roy.gearloft.in)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/road-highway-ffd36f67b0c8476eac5788244158394c"
       }
     },
     {
@@ -1231,6 +1992,8 @@
       "triangles": 23038,
       "bytes": 570448,
       "usage": "reserve",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Terrain",
         "author": "DJMaesen (https://sketchfab.com/bumstrum)",
@@ -1250,6 +2013,8 @@
       "triangles": 5936,
       "bytes": 224604,
       "usage": "reserve",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Road Terrain",
         "author": "jimbogies (https://sketchfab.com/jimbogies)",
@@ -1269,6 +2034,8 @@
       "triangles": 28782,
       "bytes": 367728,
       "usage": "reserve",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Terrain",
         "author": "FNG (https://sketchfab.com/FirstNG)",
@@ -1288,6 +2055,8 @@
       "triangles": 28791,
       "bytes": 3703008,
       "usage": "reserve",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Big Terrain",
         "author": "Dogus ß ô â (https://sketchfab.com/Dogus.Berk.Bayram)",
@@ -1307,6 +2076,8 @@
       "triangles": 32709,
       "bytes": 689552,
       "usage": "reserve",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "HQ tracks in wet sand and mud",
         "author": "SPLEEN VISION (https://sketchfab.com/spleen.vision)",
@@ -1323,9 +2094,11 @@
       "height": 12,
       "width": 9.23,
       "depth": 8.59,
+      "normalize": "height",
       "triangles": 17068,
       "bytes": 970216,
       "usage": "placed",
+      "nonCommercial": false,
       "credits": {
         "title": "Realistic Trees Pack of 2 Free",
         "author": "Nicholas-3D (https://sketchfab.com/Nicholas01)",
@@ -1342,14 +2115,37 @@
       "height": 10.5,
       "width": 9.36,
       "depth": 10.41,
+      "normalize": "height",
       "triangles": 16326,
       "bytes": 1074332,
       "usage": "placed",
+      "nonCommercial": false,
       "credits": {
         "title": "Realistic Trees Pack of 2 Free",
         "author": "Nicholas-3D (https://sketchfab.com/Nicholas01)",
         "license": "CC-BY-4.0",
         "source": "https://sketchfab.com/3d-models/realistic-trees-pack-of-2-free-08b4a9eac77a40419fd59402cc7b2deb"
+      }
+    },
+    {
+      "slug": "vecchio-quartiere",
+      "name": "Vecchio quartiere",
+      "role": "spare",
+      "file": "models/vecchio-quartiere.glb",
+      "nodes": [],
+      "height": 7,
+      "width": 42.24,
+      "depth": 59.72,
+      "triangles": 964,
+      "bytes": 189356,
+      "usage": "reserve",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Old Street Pack",
+        "author": "iagoArt3D (https://sketchfab.com/iagoDev)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/old-street-pack-a633537bfc7c4d99a3a618662513cbf9"
       }
     },
     {
@@ -1364,6 +2160,8 @@
       "triangles": 327,
       "bytes": 105476,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1383,6 +2181,8 @@
       "triangles": 519,
       "bytes": 109120,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1402,6 +2202,8 @@
       "triangles": 341,
       "bytes": 105916,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1421,6 +2223,8 @@
       "triangles": 16239,
       "bytes": 399368,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1440,6 +2244,8 @@
       "triangles": 586,
       "bytes": 133480,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1459,6 +2265,8 @@
       "triangles": 2149,
       "bytes": 156024,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1478,6 +2286,8 @@
       "triangles": 13842,
       "bytes": 356580,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1497,6 +2307,8 @@
       "triangles": 4847,
       "bytes": 204860,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1516,6 +2328,8 @@
       "triangles": 3998,
       "bytes": 193616,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1535,6 +2349,8 @@
       "triangles": 1245,
       "bytes": 224136,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1554,6 +2370,8 @@
       "triangles": 359,
       "bytes": 200232,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1573,6 +2391,8 @@
       "triangles": 1243,
       "bytes": 219776,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1592,6 +2412,8 @@
       "triangles": 360,
       "bytes": 202908,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1611,6 +2433,8 @@
       "triangles": 334,
       "bytes": 201732,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1630,6 +2454,8 @@
       "triangles": 215,
       "bytes": 197884,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1649,6 +2475,8 @@
       "triangles": 685,
       "bytes": 206940,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1668,6 +2496,8 @@
       "triangles": 15950,
       "bytes": 272792,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1687,6 +2517,8 @@
       "triangles": 11192,
       "bytes": 225500,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1706,6 +2538,8 @@
       "triangles": 12779,
       "bytes": 244412,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1725,6 +2559,8 @@
       "triangles": 11667,
       "bytes": 231984,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1744,6 +2580,8 @@
       "triangles": 14111,
       "bytes": 256480,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1763,6 +2601,8 @@
       "triangles": 27668,
       "bytes": 391384,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1782,6 +2622,8 @@
       "triangles": 3647,
       "bytes": 248620,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1801,6 +2643,8 @@
       "triangles": 9577,
       "bytes": 360992,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1820,6 +2664,8 @@
       "triangles": 33755,
       "bytes": 872548,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1839,6 +2685,8 @@
       "triangles": 17896,
       "bytes": 538436,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1858,6 +2706,8 @@
       "triangles": 11200,
       "bytes": 416412,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1877,6 +2727,8 @@
       "triangles": 290,
       "bytes": 172740,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1896,6 +2748,8 @@
       "triangles": 360,
       "bytes": 174184,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1915,6 +2769,8 @@
       "triangles": 532,
       "bytes": 179520,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1934,6 +2790,8 @@
       "triangles": 2078,
       "bytes": 217364,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1953,6 +2811,8 @@
       "triangles": 3205,
       "bytes": 240624,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1972,6 +2832,8 @@
       "triangles": 369,
       "bytes": 179040,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -1991,6 +2853,8 @@
       "triangles": 59,
       "bytes": 174592,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2010,6 +2874,8 @@
       "triangles": 88,
       "bytes": 174884,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2029,6 +2895,8 @@
       "triangles": 189,
       "bytes": 176436,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2048,6 +2916,8 @@
       "triangles": 238,
       "bytes": 177220,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2067,6 +2937,8 @@
       "triangles": 411,
       "bytes": 179664,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2086,6 +2958,8 @@
       "triangles": 410,
       "bytes": 179676,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2105,6 +2979,8 @@
       "triangles": 482,
       "bytes": 181044,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2124,6 +3000,8 @@
       "triangles": 158,
       "bytes": 85136,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2143,6 +3021,8 @@
       "triangles": 166,
       "bytes": 85260,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2162,6 +3042,8 @@
       "triangles": 199,
       "bytes": 85804,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2181,6 +3063,8 @@
       "triangles": 364,
       "bytes": 88168,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2200,6 +3084,8 @@
       "triangles": 233,
       "bytes": 86244,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2219,6 +3105,8 @@
       "triangles": 211,
       "bytes": 85800,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2238,6 +3126,8 @@
       "triangles": 135,
       "bytes": 84820,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2257,6 +3147,8 @@
       "triangles": 172,
       "bytes": 85352,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2276,6 +3168,8 @@
       "triangles": 62,
       "bytes": 191092,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2295,6 +3189,8 @@
       "triangles": 447,
       "bytes": 200832,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2314,6 +3210,8 @@
       "triangles": 326,
       "bytes": 197516,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2333,6 +3231,8 @@
       "triangles": 100,
       "bytes": 192304,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2352,6 +3252,8 @@
       "triangles": 1067,
       "bytes": 277360,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2371,6 +3273,8 @@
       "triangles": 436,
       "bytes": 263444,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2390,6 +3294,8 @@
       "triangles": 404,
       "bytes": 262788,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2409,6 +3315,8 @@
       "triangles": 319,
       "bytes": 260828,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2428,6 +3336,8 @@
       "triangles": 821,
       "bytes": 272656,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2447,6 +3357,8 @@
       "triangles": 852,
       "bytes": 271660,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2466,6 +3378,8 @@
       "triangles": 201,
       "bytes": 259636,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2485,6 +3399,8 @@
       "triangles": 200,
       "bytes": 259992,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2504,6 +3420,8 @@
       "triangles": 13396,
       "bytes": 438936,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2523,6 +3441,8 @@
       "triangles": 3838,
       "bytes": 254812,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2542,6 +3462,8 @@
       "triangles": 1233,
       "bytes": 205152,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2561,6 +3483,8 @@
       "triangles": 1319,
       "bytes": 208884,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2580,6 +3504,8 @@
       "triangles": 851,
       "bytes": 197988,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2599,6 +3525,8 @@
       "triangles": 1749,
       "bytes": 213972,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2618,6 +3546,8 @@
       "triangles": 4838,
       "bytes": 278696,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2637,6 +3567,8 @@
       "triangles": 10217,
       "bytes": 386512,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2656,6 +3588,8 @@
       "triangles": 488,
       "bytes": 202244,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2675,6 +3609,8 @@
       "triangles": 1579,
       "bytes": 218512,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2694,6 +3630,8 @@
       "triangles": 478,
       "bytes": 202148,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2713,6 +3651,8 @@
       "triangles": 391,
       "bytes": 199008,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2732,6 +3672,8 @@
       "triangles": 5223,
       "bytes": 279520,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2751,6 +3693,8 @@
       "triangles": 2823,
       "bytes": 246720,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2770,6 +3714,8 @@
       "triangles": 1779,
       "bytes": 219132,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2789,6 +3735,8 @@
       "triangles": 7504,
       "bytes": 338900,
       "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
       "credits": {
         "title": "Vegetation Pack",
         "author": "golukumar (https://sketchfab.com/mortalityrexotable)",
@@ -2808,13 +3756,81 @@
       "triangles": 32329,
       "bytes": 647096,
       "usage": "reserve",
+      "normalize": "height",
+      "nonCommercial": true,
       "credits": {
         "title": "Via S. Gemini (Viterbo - Italy)",
         "author": "Andrea Spognetta (Spogna) (https://sketchfab.com/spogna)",
         "license": "CC-BY-NC-4.0",
         "source": "https://sketchfab.com/3d-models/via-s-gemini-viterbo-italy-608f8339c95f410ea42f2849dd272ce2"
       }
+    },
+    {
+      "slug": "village-canal",
+      "name": "Villaggio con canale",
+      "role": "village",
+      "file": "models/village-canal.glb",
+      "nodes": [],
+      "height": 2.89,
+      "width": 150,
+      "depth": 149.74,
+      "normalize": "footprint",
+      "scaleTo": 150,
+      "triangles": 36480,
+      "bytes": 344968,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Village, farmland and irrigation canal",
+        "author": "Metazeon (https://sketchfab.com/Metazeon)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/village-farmland-and-irrigation-canal-43a0f7d47d764b5280c3ef20b2d67f81"
+      }
+    },
+    {
+      "slug": "village-canal-wide",
+      "name": "Villaggio con canale (largo)",
+      "role": "village",
+      "file": "models/village-canal-wide.glb",
+      "nodes": [],
+      "height": 14.9,
+      "width": 170,
+      "depth": 108.82,
+      "normalize": "footprint",
+      "scaleTo": 170,
+      "triangles": 36478,
+      "bytes": 489044,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Village, farmland and irrigation canal",
+        "author": "Metazeon (https://sketchfab.com/Metazeon)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/village-farmland-and-irrigation-canal-244c4f2b98b24a3fb5424a8bba69505d"
+      }
+    },
+    {
+      "slug": "village-country-road",
+      "name": "Villaggio, strada e torre",
+      "role": "village",
+      "file": "models/village-country-road.glb",
+      "nodes": [],
+      "height": 27.83,
+      "width": 153.6,
+      "depth": 155,
+      "normalize": "footprint",
+      "scaleTo": 155,
+      "triangles": 36480,
+      "bytes": 422660,
+      "usage": "placed",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Village, country road, farm, transformer tower",
+        "author": "Metazeon (https://sketchfab.com/Metazeon)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/village-country-road-farm-transformer-tower-78be3dc764d14c58a1382771eeae00a4"
+      }
     }
   ],
-  "bytes": 60250236
+  "bytes": 82441092
 }

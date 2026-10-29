@@ -48,6 +48,12 @@ export interface QualityPreset {
   maxSatelliteZoom: number;
   /** densità del tappeto d'erba, 0…1 */
   grassDensity: number;
+  /** zolle GLB di terreno fotogrammetrico intorno al giocatore */
+  groundDetail: number;
+  /** densita del grano procedurale nei campi, 0...1 */
+  cropDensity: number;
+  /** scene di villaggio Metazeon visibili (0-3) */
+  villageScenes: number;
   /** alberi istanziati alla costruzione del mondo */
   trees: number;
   /** cespugli sotto gli alberi */
@@ -83,6 +89,12 @@ export interface QualityPreset {
   drainage: boolean;
   /** guardrail su ponti e scarpate (due InstancedMesh) */
   guardrails: boolean;
+  /**
+   * Moduli GLB di arredo stradale (marciapiedi e cordoli) lungo le provinciali.
+   * I lampioni e i guardrail usano i GLB al posto della geometria procedurale
+   * quando il world kit è caricato; qui si limita solo il numero di moduli.
+   */
+  roadside: number;
   /** raggio di streaming del terreno in metri */
   viewRadius: number;
   /**
@@ -113,6 +125,9 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     ssao: false,
     maxSatelliteZoom: 15,
     grassDensity: 0.4,
+    groundDetail: 0,
+    cropDensity: 0,
+    villageScenes: 0,
     trees: 6000,
     shrubs: 900,
     pedestrians: 0,
@@ -124,6 +139,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     streamedWorld: false,
     drainage: false,
     guardrails: false,
+    roadside: 0,
     viewRadius: 1500,
     landcover: 'off',
     landcoverRadius: 0,
@@ -145,6 +161,9 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     ssao: false,
     maxSatelliteZoom: 16,
     grassDensity: 0.4,
+    groundDetail: 8,
+    cropDensity: 0.24,
+    villageScenes: 0,
     trees: 6000,
     shrubs: 900,
     pedestrians: 4,
@@ -156,6 +175,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     streamedWorld: false,
     drainage: false,
     guardrails: false,
+    roadside: 0,
     viewRadius: 2200,
     landcover: 'base',
     landcoverRadius: 0,
@@ -177,6 +197,9 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     ssao: false,
     maxSatelliteZoom: 17,
     grassDensity: 0.45,
+    groundDetail: 22,
+    cropDensity: 0.55,
+    villageScenes: 1,
     trees: 14000,
     shrubs: 2200,
     pedestrians: 10,
@@ -188,6 +211,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     streamedWorld: true,
     drainage: true,
     guardrails: true,
+    roadside: 80,
     viewRadius: 2600,
     landcover: 'full',
     landcoverRadius: 1400,
@@ -209,6 +233,9 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     ssao: true,
     maxSatelliteZoom: 18,
     grassDensity: 0.72,
+    groundDetail: 38,
+    cropDensity: 0.85,
+    villageScenes: 2,
     trees: 20000,
     shrubs: 3400,
     pedestrians: 18,
@@ -220,6 +247,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     streamedWorld: true,
     drainage: true,
     guardrails: true,
+    roadside: 140,
     viewRadius: 3100,
     landcover: 'full',
     landcoverRadius: 1900,
@@ -241,6 +269,9 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     ssao: true,
     maxSatelliteZoom: 18,
     grassDensity: 1,
+    groundDetail: 54,
+    cropDensity: 1,
+    villageScenes: 3,
     trees: 26000,
     shrubs: 4000,
     pedestrians: 22,
@@ -252,6 +283,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     streamedWorld: true,
     drainage: true,
     guardrails: true,
+    roadside: 200,
     viewRadius: 3100,
     landcover: 'full',
     landcoverRadius: 2300,

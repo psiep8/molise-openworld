@@ -34,6 +34,15 @@ export type WorldRole =
   | 'grass'
   | 'sign'
   | 'house'
+  | 'ground'
+  | 'field'
+  | 'bale'
+  | 'village'
+  | 'sidewalk'
+  | 'curb'
+  | 'guardrail'
+  | 'streetlight'
+  | 'bridge'
   | 'spare';
 
 export interface WorldCredit {
@@ -55,6 +64,18 @@ export interface WorldModelEntry {
   triangles: number;
   bytes: number;
   usage: 'placed' | 'reserve';
+  /**
+   * Come normalizzare il modello: `height` per alberi e case, `footprint` per
+   * le fotogrammetrie di terreno quasi piatte. Senza questo un piano da 602 m
+   * diviso per un'altezza di 1 mm diventerebbe largo centinaia di chilometri.
+   */
+  normalize?: 'height' | 'footprint';
+  /** dimensione orizzontale target quando `normalize === 'footprint'` */
+  scaleTo?: number;
+  /** CC BY-NC: escluso dalle build commerciali (`VITE_COMMERCIAL_BUILD=1`). */
+  nonCommercial?: boolean;
+  /** asset unico ad alta densità: il runtime ne piazza al massimo un esemplare */
+  hero?: boolean;
   credits: WorldCredit;
 }
 
@@ -84,13 +105,15 @@ export interface WorldAsset {
   size: THREE.Vector3;
   /** triangoli della variante: serve al piazzamento per scegliere quelle leggere */
   triangles: number;
+  /** asset unico ad alta densità (fotogrammetria di fili d'erba) */
+  hero?: boolean;
   parts: WorldPart[];
 }
 
 /** Ruoli che ondeggiano col vento condiviso (velocità e direzione dal meteo). */
-const WIND_ROLES: ReadonlySet<WorldRole> = new Set(['tree', 'shrub', 'grass', 'sign']);
-/** Ruoli che si piegano quando l'auto li prende: il sasso e la casa no. */
-const HIT_ROLES: ReadonlySet<WorldRole> = new Set(['tree', 'shrub', 'sign']);
+const WIND_ROLES: ReadonlySet<WorldRole> = new Set(['tree', 'shrub', 'grass', 'field', 'sign']);
+/** Ruoli che si piegano quando l'auto li prende: il sasso, la terra e la casa no. */
+const HIT_ROLES: ReadonlySet<WorldRole> = new Set(['tree', 'shrub', 'field', 'sign']);
 
 /** Uniform di bagnato di tutti i materiali del kit, pilotati dalla pioggia. */
 const wetUniforms: THREE.IUniform<number>[] = [];
@@ -118,7 +141,7 @@ export function setWorldKitSnow(snow: number): void {
 
 /** Materiali che non devono proiettare ombre: card, decal, vetri. */
 function castsShadow(role: WorldRole, material: THREE.Material): boolean {
-  if (role === 'grass' || role === 'shrub') return false;
+  if (role === 'grass' || role === 'shrub' || role === 'field' || role === 'ground') return false;
   if (material.transparent) return false;
   return true;
 }
@@ -150,18 +173,27 @@ function applySurface(material: THREE.MeshStandardMaterial, role: WorldRole, hei
   const store = material.userData as { kitWet?: THREE.IUniform<number>; kitSnow?: THREE.IUniform<number> };
   store.kitWet = wet;
   store.kitSnow = snow;
-  // sasso e casa non ondeggiano: hanno comunque bisogno del bagnato
+  // sasso, terra e casa non ondeggiano: hanno comunque bisogno del bagnato
   const sway = !WIND_ROLES.has(role)
     ? 0
     : role === 'grass'
       ? 1.1
       : role === 'shrub'
         ? 0.55
-        : role === 'sign'
-          ? 0.05
-          : 0.4;
+        : role === 'field'
+          ? 0.7
+          : role === 'sign'
+            ? 0.05
+            : 0.4;
   const hit = HIT_ROLES.has(role);
-  const pass = role === 'grass' || role === 'shrub';
+  const pass = role === 'grass' || role === 'shrub' || role === 'field';
+  // le zolle di terra devono stare sopra il triangolo del DEM senza
+  // z-fighting: è l'unico ruolo che vive a pochi centimetri dal terreno
+  if (role === 'ground') {
+    material.polygonOffset = true;
+    material.polygonOffsetFactor = -2;
+    material.polygonOffsetUnits = -4;
+  }
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = uTime;
     shader.uniforms.uWind = uWind;
@@ -293,8 +325,12 @@ function buildAsset(
   const box = subtreeBox(selected);
   if (box.isEmpty()) return null;
   const size = box.getSize(new THREE.Vector3());
-  const measured = Math.max(size.y, 0.001);
-  const scale = entry.height / measured;
+  const footprint = entry.normalize === 'footprint';
+  const target = footprint ? (entry.scaleTo ?? entry.width ?? 1) : entry.height;
+  const measured = footprint
+    ? Math.max(size.x, size.z, 0.001)
+    : Math.max(size.y, 0.001);
+  const scale = target / measured;
   // centro in x/z e base a y = 0, in un colpo solo: la geometria finale è già
   // pronta per l'istanza, che applica solo posizione, yaw e scala variabile
   const center = box.getCenter(new THREE.Vector3());
@@ -352,6 +388,7 @@ function buildAsset(
     name: entry.name,
     size: new THREE.Vector3(size.x * scale, size.y * scale, size.z * scale),
     triangles: Math.round(triangles),
+    hero: entry.hero,
     parts,
   };
 }
@@ -364,6 +401,16 @@ export class WorldKit {
       const list = this.assets.get(asset.role);
       if (list) list.push(asset);
       else this.assets.set(asset.role, [asset]);
+    }
+  }
+
+  /** Aggiunge un altro kit caricato in differita (per esempio i villaggi). */
+  add(other: WorldKit | null): void {
+    if (!other) return;
+    for (const [role, list] of other.assets) {
+      const own = this.assets.get(role);
+      if (own) own.push(...list);
+      else this.assets.set(role, [...list]);
     }
   }
 
@@ -479,7 +526,23 @@ interface Manifest {
 export async function loadWorldKit(
   base = `${import.meta.env.BASE_URL}worldkit/`,
   anisotropy = 4,
-  roles: readonly WorldRole[] = ['tree', 'shrub', 'tree-distant', 'rock', 'grass', 'sign', 'house'],
+  roles: readonly WorldRole[] = [
+    'tree',
+    'shrub',
+    'tree-distant',
+    'rock',
+    'grass',
+    'sign',
+    'house',
+    'ground',
+    'field',
+    'bale',
+    'village',
+    'sidewalk',
+    'curb',
+    'guardrail',
+    'streetlight',
+  ],
 ): Promise<WorldKit | null> {
   let manifest: Manifest;
   try {
@@ -490,8 +553,16 @@ export async function loadWorldKit(
     return null;
   }
   const wanted = new Set(roles);
+  const commercial = import.meta.env.VITE_COMMERCIAL_BUILD === '1';
   const entries = (manifest.models ?? []).filter(
-    (entry) => entry.role && entry.slug && wanted.has(entry.role),
+    (entry) =>
+      entry.role &&
+      entry.slug &&
+      wanted.has(entry.role) &&
+      // le riserve restano nel manifest ma non si scaricano: un ponte da 36k
+      // triangoli non deve pesare su un preset che non lo piazza.
+      entry.usage !== 'reserve' &&
+      !(commercial && entry.nonCommercial),
   );
   if (entries.length === 0) return null;
 

@@ -24,12 +24,23 @@ interface MapArea {
   maxZ: number;
 }
 
+interface MapBuilding {
+  pts: number[];
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
 const AREA_FILL: Record<string, string> = {
   wood: 'rgba(46, 66, 39, 0.55)',
   forest: 'rgba(46, 66, 39, 0.55)',
   scrub: 'rgba(69, 82, 47, 0.4)',
   meadow: 'rgba(105, 116, 66, 0.28)',
   grassland: 'rgba(105, 116, 66, 0.28)',
+  farmland: 'rgba(112, 104, 61, 0.34)',
+  farm: 'rgba(112, 104, 61, 0.34)',
+  allotments: 'rgba(99, 101, 55, 0.36)',
   water: 'rgba(47, 83, 96, 0.85)',
   residential: 'rgba(92, 88, 78, 0.35)',
   industrial: 'rgba(92, 88, 78, 0.35)',
@@ -39,8 +50,8 @@ const AREA_FILL: Record<string, string> = {
   park: 'rgba(66, 88, 50, 0.35)',
 };
 
-const ASPHALT = '#d7d0bd';
-const DIRT = '#95866a';
+const ASPHALT = '#f0e8d3';
+const DIRT = '#b99d74';
 
 function packRoads(osm: OsmData): MapRoad[] {
   return osm.roads.map((r) => {
@@ -74,6 +85,17 @@ function packAreas(osm: OsmData): MapArea[] {
   return out;
 }
 
+function packBuildings(osm: OsmData): MapBuilding[] {
+  const out: MapBuilding[] = [];
+  for (const building of osm.buildings) {
+    if (building.points.length < 3) continue;
+    const pts: number[] = [];
+    for (const p of building.points) pts.push(p.x, p.z);
+    out.push({ pts, ...building.bounds });
+  }
+  return out;
+}
+
 export interface MapView {
   x: number;
   z: number;
@@ -103,6 +125,7 @@ export interface MinimapOptions {
 export class MapRenderer {
   private readonly roads: MapRoad[];
   private readonly areas: MapArea[];
+  private readonly buildings: MapBuilding[];
   private staticMap: HTMLCanvasElement | null = null;
   private readonly mapScale: number;
   private readonly mapPad = 48;
@@ -119,6 +142,7 @@ export class MapRenderer {
   constructor(osm: OsmData, provider: TileProvider = OPEN_WORLD_IMAGERY) {
     this.roads = packRoads(osm);
     this.areas = packAreas(osm);
+    this.buildings = packBuildings(osm);
     this.mapScale = (1600 - this.mapPad * 2) / WORLD.width;
     this.buildStatic();
     this.satTiles = new SatelliteTiles(provider, () => this.onUpdate?.());
@@ -157,6 +181,21 @@ export class MapRenderer {
       }
       ctx.closePath();
       ctx.fillStyle = a.color;
+      ctx.fill();
+    }
+
+    // impronte degli edifici: a scala ravvicinata danno il riferimento che il
+    // satellite sfocato non riesce più a dare
+    ctx.fillStyle = 'rgba(45, 42, 37, 0.9)';
+    for (const b of this.buildings) {
+      ctx.beginPath();
+      for (let i = 0; i < b.pts.length; i += 2) {
+        const x = b.pts[i]!;
+        const z = b.pts[i + 1]!;
+        if (i === 0) ctx.moveTo(x, z);
+        else ctx.lineTo(x, z);
+      }
+      ctx.closePath();
       ctx.fill();
     }
 
@@ -368,10 +407,15 @@ export class MapRenderer {
     ctx.beginPath();
     ctx.arc(cx, cy, size / 2 - 3, 0, Math.PI * 2);
     ctx.clip();
-    ctx.fillStyle = this.radar ? '#26301f' : '#16201b';
+    // Il satellite resta la base della minimappa a ogni zoom. Prima sotto i
+    // 650 m veniva sostituito dalla mappa vettoriale: era nitido, ma non si
+    // vedeva più il terreno vero. Ora la foto locale (fino a z18) fa da sfondo
+    // e le strade vettoriali restano sopra come guida.
+    const radarClose = this.radar;
+    ctx.fillStyle = radarClose ? '#26301f' : '#16201b';
     ctx.fillRect(0, 0, size, size);
 
-    if (this.radar) {
+    if (radarClose) {
       // zoom delle tile scelto perché un pixel di tile copra ~un pixel di
       // canvas: a 300 m la z17 mostrava pixel grandi e la strada sembrava
       // sfocata, a 200 m serviva la z18
@@ -381,7 +425,7 @@ export class MapRenderer {
     }
 
     const half = viewMeters / 2;
-    if (!this.radar) {
+    if (!radarClose) {
       for (const a of this.areas) {
         if (a.maxX < view.x - half || a.minX > view.x + half || a.maxZ < view.z - half || a.minZ > view.z + half) continue;
         ctx.beginPath();
@@ -397,6 +441,23 @@ export class MapRenderer {
       }
     }
 
+    // Le impronte degli edifici restano leggibili anche sopra la foto: a scala
+    // ravvicinata danno il riferimento che i 3,5 m/px del satellite non hanno.
+    // Sopra la foto sono più trasparenti per non coprire il terreno.
+    ctx.fillStyle = radarClose ? 'rgba(45, 42, 37, 0.52)' : 'rgba(45, 42, 37, 0.9)';
+    for (const b of this.buildings) {
+      if (b.maxX < view.x - half || b.minX > view.x + half || b.maxZ < view.z - half || b.minZ > view.z + half) continue;
+      ctx.beginPath();
+      for (let i = 0; i < b.pts.length; i += 2) {
+        const px = cx + (b.pts[i]! - view.x) * k;
+        const py = cy + (b.pts[i + 1]! - view.z) * k;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+    }
+
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     for (const r of this.roads) {
@@ -408,15 +469,21 @@ export class MapRenderer {
         if (i === 0) ctx.moveTo(px, py);
         else ctx.lineTo(px, py);
       }
-      if (this.radar) {
+      if (radarClose) {
         // sopra la foto aerea bastano poche strade evidenziate
         ctx.lineWidth = Math.max(1.1, r.width * k * 0.55) * u;
         ctx.strokeStyle = r.paved ? 'rgba(255, 246, 219, 0.72)' : 'rgba(226, 202, 154, 0.5)';
         ctx.globalAlpha = 0.8;
       } else {
-        ctx.lineWidth = Math.max(1, r.paved ? 2.6 : 1.2) * u;
+        const width = Math.max(1, r.paved ? 2.8 : 1.35) * u;
+        // bordo scuro: separa la strada dai campi anche su sfondo chiaro
+        ctx.lineWidth = width + 2.2 * u;
+        ctx.strokeStyle = 'rgba(12, 16, 13, 0.72)';
+        ctx.globalAlpha = 1;
+        ctx.stroke();
+        ctx.lineWidth = width;
         ctx.strokeStyle = r.paved ? ASPHALT : DIRT;
-        ctx.globalAlpha = r.paved ? 0.95 : 0.7;
+        ctx.globalAlpha = r.paved ? 1 : 0.8;
       }
       ctx.stroke();
     }

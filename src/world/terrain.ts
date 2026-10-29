@@ -161,12 +161,14 @@ float cloudNoise( vec2 p ) {
         '#include <map_fragment>',
         `#include <map_fragment>
         float slope = smoothstep( 0.48, 0.78, 1.0 - clamp( normalize( vDetailNormal ).y, 0.0, 1.0 ) );
-        float aerialLum = dot( diffuseColor.rgb, vec3( 0.299, 0.587, 0.114 ) );
-        vec3 sage = vec3( 0.42, 0.49, 0.34 );
-        vec3 earth = vec3( 0.52, 0.44, 0.32 );
+        vec3 sage = vec3( 0.40, 0.48, 0.31 );
+        vec3 earth = vec3( 0.48, 0.40, 0.28 );
         vec3 flatColor = mix( sage, earth, slope );
-        float softLum = clamp( 0.9 + ( aerialLum - 0.5 ) * 0.24, 0.78, 1.08 );
-        diffuseColor.rgb = mix( diffuseColor.rgb, flatColor * softLum, 0.82 );
+        float macro = cloudNoise( vDetailWorld.xz * 0.021 );
+        // niente fotografia: il colore nasce da pendenza e rumore procedurale.
+        // La vecchia miscela 0.82 lasciava intravedere i confini dei campi
+        // satellitari anche a un metro da terra.
+        diffuseColor.rgb = flatColor * ( 0.88 + ( macro - 0.5 ) * 0.16 );
         // ombre delle nuvole: due rumori sovrapposti che scorrono col vento
         if ( uCloudShadow > 0.01 ) {
           vec2 cp = vDetailWorld.xz * 0.0016 + uCloudDrift;
@@ -177,7 +179,7 @@ float cloudNoise( vec2 p ) {
       )
       .replace('#include <fog_fragment>', HEIGHT_FOG_FRAGMENT);
   };
-  material.customProgramCacheKey = () => 'terrain-pastel-v4';
+  material.customProgramCacheKey = () => 'terrain-pastel-procedural-v1';
 }
 
 interface LandcoverUniformState {
@@ -284,14 +286,13 @@ float lcNoise( vec2 p ) {
           : texture2D( uLcBase, lcBaseUV );
         float lcCoverage = step( 0.004, lc.r + lc.g + lc.b + lc.a );
         float rockWeight = lc.a;
-        vec3 cropColor = vec3( 0.67, 0.56, 0.34 );
-        vec3 grassColor = vec3( 0.43, 0.51, 0.35 );
-        vec3 forestColor = vec3( 0.30, 0.39, 0.28 );
-        vec3 soilColor = vec3( 0.53, 0.45, 0.34 );
+        vec3 cropColor = vec3( 0.64, 0.53, 0.31 );
+        vec3 grassColor = vec3( 0.38, 0.48, 0.30 );
+        vec3 forestColor = vec3( 0.25, 0.35, 0.22 );
+        vec3 soilColor = vec3( 0.49, 0.41, 0.29 );
         vec3 classColor = lc.r * cropColor + lc.g * grassColor + lc.b * forestColor + rockWeight * soilColor;
-        float aerialLum = dot( diffuseColor.rgb, vec3( 0.299, 0.587, 0.114 ) );
-        float lowFrequencyLum = clamp( 0.9 + ( aerialLum - 0.5 ) * 0.24, 0.78, 1.08 );
-        vec3 mappedColor = classColor * lowFrequencyLum * uSeasonGlobal;
+        float lcMacro = lcNoise( vDetailWorld.xz * 0.07 );
+        vec3 mappedColor = classColor * ( 0.9 + ( lcMacro - 0.5 ) * 0.16 ) * uSeasonGlobal;
 
         // Grana fotografica per classe + solchi dei campi: è il livello che
         // mancava sotto il satellite. Senza queste texture resterebbe il
@@ -301,12 +302,11 @@ float lcNoise( vec2 p ) {
         vec4 lcField = texture2D( uLcFields, lcBaseUV );
         vec2 lcFieldDir = lcField.rg * 2.0 - 1.0;
         float lcFurrow = sin( dot( vDetailWorld.xz, lcFieldDir ) * 1.7 + lcNoise( vDetailWorld.xz * 0.08 ) * 2.0 );
-        float lcMacro = lcNoise( vDetailWorld.xz * 0.07 );
-        mappedColor *= ( 0.84 + 0.32 * lcDetailValue ) * ( 0.92 + 0.16 * lcMacro );
-        mappedColor *= 1.0 + lcFurrow * 0.028 * lcField.b;
-        // un filo di colore satellite: la classificazione resta la base, ma i
-        // campi veri non sono mai di un verde unico
-        mappedColor = mix( mappedColor, diffuseColor.rgb * uSeasonGlobal, 0.18 );
+        float lcFine = lcNoise( vDetailWorld.xz * 1.35 );
+        mappedColor *= ( 0.82 + 0.36 * lcDetailValue ) * ( 0.93 + 0.14 * lcMacro ) * ( 0.98 + 0.04 * lcFine );
+        mappedColor *= 1.0 + lcFurrow * 0.055 * lcField.b;
+        // zero fotografia: la classificazione del suolo è l'unica sorgente.
+        // Gli asset 3D (zolle, grano, fango) coprono il primo piano.
 
         bool outsideGeo = abs( vDetailWorld.x ) > uWorldHalfBounds.x || abs( vDetailWorld.z ) > uWorldHalfBounds.y;
         if ( outsideGeo ) {
@@ -331,7 +331,7 @@ float lcNoise( vec2 p ) {
       )
       .replace('#include <fog_fragment>', HEIGHT_FOG_FRAGMENT);
   };
-  material.customProgramCacheKey = () => 'terrain-pastel-landcover-v5';
+  material.customProgramCacheKey = () => 'terrain-pastel-landcover-v6';
   return uniforms;
 }
 

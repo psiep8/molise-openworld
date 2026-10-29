@@ -56,6 +56,8 @@ const ATTRIBUTION = path.join(OUT_DIR, 'ATTRIBUTION.md');
 
 const args = new Set(process.argv.slice(2));
 const checkOnly = args.has('--check');
+/** Rigenera solo i file filtrati, conservando le voci già presenti nel manifest. */
+const merge = args.has('--merge');
 const onlyArg = [...args].find((a) => a.startsWith('--only='));
 const only = onlyArg
   ? onlyArg
@@ -76,6 +78,16 @@ const BUDGET = {
   rock: { tris: 4000, texture: 512 },
   house: { tris: 45000, texture: 1024 },
   sign: { tris: 5000, texture: 512 },
+  ground: { tris: 18000, texture: 1024 },
+  groundSmall: { tris: 7000, texture: 512 },
+  field: { tris: 12000, texture: 1024 },
+  bale: { tris: 6500, texture: 512 },
+  village: { tris: 38000, texture: 1024 },
+  sidewalk: { tris: 12000, texture: 512 },
+  curb: { tris: 10000, texture: 512 },
+  guardrail: { tris: 3200, texture: 512 },
+  streetlight: { tris: 7000, texture: 512 },
+  bridge: { tris: 40000, texture: 1024 },
   spare: { tris: 9000, texture: 1024 },
 };
 
@@ -221,7 +233,453 @@ const SOURCES = [
     assets: [{ slug: 'grass-painted', name: 'Erba dipinta', role: 'grass', height: 0.55, budget: 'grass' }],
   },
 
-  // --- riserve: nel repo, non ancora piazzate --------------------------------
+  // --- suolo, campi e arredo agricolo ---------------------------------------
+  // Questi scan sono fotogrammetrie di terreno e coltivi. Il `footprint` è la
+  // dimensione orizzontale a cui viene portato il modello: un piano da 602 m
+  // (mud_material) non può essere normalizzato in altezza, altrimenti diventa
+  // largo chilometri. Il runtime userà `normalize: "footprint"`.
+  {
+    file: 'photoscanned_patch_of_ground.glb',
+    usage: 'placed',
+    assets: [
+      {
+        slug: 'ground-photo-small',
+        name: 'Zolla di terra fotografata',
+        role: 'ground',
+        footprint: 5,
+        budget: 'groundSmall',
+      },
+    ],
+  },
+  {
+    file: 'ground (1).glb',
+    usage: 'placed',
+    assets: [
+      {
+        slug: 'ground-meadow-tile',
+        name: 'Terra di prato',
+        role: 'ground',
+        footprint: 18,
+        budget: 'ground',
+      },
+    ],
+  },
+  {
+    file: 'ground_2.glb',
+    usage: 'placed',
+    assets: [
+      {
+        slug: 'ground-field-tile',
+        name: 'Terra di campo',
+        role: 'ground',
+        footprint: 20,
+        budget: 'ground',
+      },
+    ],
+  },
+  {
+    file: 'ground.glb',
+    usage: 'placed',
+    assets: [
+      {
+        slug: 'ground-bank-tile',
+        name: 'Terra di scarpata',
+        role: 'ground',
+        footprint: 22,
+        budget: 'ground',
+      },
+    ],
+  },
+  {
+    file: 'mud_material.glb',
+    usage: 'placed',
+    assets: [
+      {
+        slug: 'ground-mud',
+        name: 'Fango',
+        role: 'ground',
+        footprint: 16,
+        budget: 'ground',
+        muddy: true,
+      },
+    ],
+  },
+  {
+    file: 'a_round_bundle_of_straw_in_the_field.glb',
+    usage: 'placed',
+    assets: [
+      {
+        slug: 'straw-bale',
+        name: 'Balla di paglia',
+        role: 'bale',
+        height: 1.35,
+        budget: 'bale',
+      },
+    ],
+  },
+  {
+    file: 'dry_thin_grass.glb',
+    usage: 'placed',
+    assets: [
+      {
+        slug: 'field-dry-grass',
+        name: 'Erba secca sottile',
+        role: 'field',
+        footprint: 3.4,
+        budget: 'field',
+      },
+    ],
+  },
+  {
+    file: 'maria_tach_field.glb',
+    usage: 'placed',
+    assets: [
+      {
+        slug: 'field-maria',
+        name: 'Campo Maria',
+        role: 'field',
+        footprint: 30,
+        budget: 'field',
+        // fotogrammetria di fili d'erba separati: meshoptimizer non può
+        // collassare componenti disconnesse, resta un asset "hero" da 450k
+        // triangoli. Il runtime ne piazza al massimo un esemplare.
+        hero: true,
+      },
+    ],
+  },
+  {
+    file: 'field_and_garden.glb',
+    usage: 'placed',
+    assets: [
+      {
+        slug: 'field-garden',
+        name: 'Campo e orto',
+        role: 'field',
+        footprint: 34,
+        budget: 'field',
+      },
+    ],
+  },
+  // CC BY-NC: entra nel repo (attribuzione obbligatoria) ma il caricatore lo
+  // esclude quando `VITE_COMMERCIAL_BUILD=1`. La build demo locale è non
+  // commerciale; per una build commerciale questi due file non si usano.
+  {
+    file: 'green_field.glb',
+    usage: 'placed',
+    assets: [
+      {
+        slug: 'field-green',
+        name: 'Campo verde',
+        role: 'field',
+        footprint: 12,
+        budget: 'field',
+        nonCommercial: true,
+      },
+    ],
+  },
+  {
+    file: 'green_field_greener.glb',
+    usage: 'placed',
+    assets: [
+      {
+        slug: 'field-green-lush',
+        name: 'Campo verde fitto',
+        role: 'field',
+        footprint: 12,
+        budget: 'field',
+        nonCommercial: true,
+      },
+    ],
+  },
+  // Scene Metazeon: 200–370 m di fotogrammetria. Vengono ridotte a ~150 m e
+  // restano avantieri lontani, fuori dalla zona guidabile vicino a Palata.
+  {
+    file: 'village_country_road_farm_transformer_tower.glb',
+    usage: 'placed',
+    assets: [
+      {
+        slug: 'village-country-road',
+        name: 'Villaggio, strada e torre',
+        role: 'village',
+        footprint: 155,
+        budget: 'village',
+      },
+    ],
+  },
+  {
+    file: 'village_farmland_and_irrigation_canal.glb',
+    usage: 'placed',
+    assets: [
+      {
+        slug: 'village-canal',
+        name: 'Villaggio con canale',
+        role: 'village',
+        footprint: 150,
+        budget: 'village',
+      },
+    ],
+  },
+  {
+    file: 'village_farmland_and_irrigation_canal (1).glb',
+    usage: 'placed',
+    assets: [
+      {
+        slug: 'village-canal-wide',
+        name: 'Villaggio con canale (largo)',
+        role: 'village',
+        footprint: 170,
+        budget: 'village',
+      },
+    ],
+  },
+
+  // --- arredo stradale: ruoli nuovi, piazzati lungo le strade ---------------
+  // Marciapiedi, cordoli, guardrail e lampioni erano le 26 riserve del vecchio
+  // manifest. Ora hanno un ruolo vero e vengono caricati solo se il preset li
+  // usa (`quality.roadside`). Il manto procedurale resta l'unica superficie
+  // guidabile: questi GLB sono dettaglio visivo e collisioni ai bordi.
+  {
+    file: 'sidewalk_8m_long_-_hq.glb',
+    usage: 'placed',
+    assets: [
+      {
+        slug: 'sidewalk-8m',
+        name: 'Marciapiede 8 m',
+        role: 'sidewalk',
+        footprint: 8.1,
+        budget: 'sidewalk',
+      },
+    ],
+  },
+  {
+    file: 'hq_free_long_sidewalk_3.glb',
+    usage: 'placed',
+    assets: [
+      {
+        slug: 'sidewalk-long',
+        name: 'Marciapiede lungo',
+        role: 'sidewalk',
+        footprint: 6.1,
+        budget: 'sidewalk',
+      },
+    ],
+  },
+  {
+    file: 'rocky_curb_scan.glb',
+    usage: 'placed',
+    assets: [
+      {
+        slug: 'curb-stone',
+        name: 'Cordolo in pietra',
+        role: 'curb',
+        footprint: 2.8,
+        budget: 'curb',
+      },
+    ],
+  },
+  {
+    file: 'guardrail_road.glb',
+    usage: 'placed',
+    assets: [
+      {
+        slug: 'guardrail',
+        name: 'Guardrail',
+        role: 'guardrail',
+        footprint: 10,
+        budget: 'guardrail',
+      },
+    ],
+  },
+  {
+    file: 'guardrail_and_terminal.glb',
+    usage: 'placed',
+    assets: [
+      {
+        slug: 'guardrail-terminal',
+        name: 'Guardrail e terminale',
+        role: 'guardrail',
+        footprint: 4.3,
+        budget: 'guardrail',
+      },
+    ],
+  },
+  {
+    file: 'roadside_guard.glb',
+    usage: 'placed',
+    assets: [
+      {
+        slug: 'guardrail-heavy',
+        name: 'Protezione stradale',
+        role: 'guardrail',
+        footprint: 7.7,
+        budget: 'guardrail',
+      },
+    ],
+  },
+  {
+    file: 'light_pole.glb',
+    usage: 'placed',
+    assets: [
+      {
+        slug: 'streetlight-pole',
+        name: 'Palo della luce',
+        role: 'streetlight',
+        height: 6,
+        budget: 'streetlight',
+      },
+    ],
+  },
+  {
+    file: 'ligh_pole.glb',
+    usage: 'placed',
+    assets: [
+      {
+        slug: 'streetlight-lamp',
+        name: 'Lampione',
+        role: 'streetlight',
+        height: 7,
+        budget: 'streetlight',
+      },
+    ],
+  },
+  {
+    // pack modulare: i pezzi sono figli diretti del contenitore. Sidewalk 1/2
+    // sono quasi gratis (10 tri) e danno subito un modulo da 10 e 17 m.
+    file: 'road_modular.glb',
+    usage: 'placed',
+    assets: [
+      {
+        slug: 'sidewalk-module-a',
+        name: 'Marciapiede modulare A',
+        role: 'sidewalk',
+        footprint: 10.52,
+        budget: 'sidewalk',
+        nodes: ['Sidewalk 1_0_73'],
+      },
+      {
+        slug: 'sidewalk-module-b',
+        name: 'Marciapiede modulare B',
+        role: 'sidewalk',
+        footprint: 16.9,
+        budget: 'sidewalk',
+        nodes: ['Sidewalk 2_1_75'],
+      },
+      {
+        slug: 'streetlight-dual',
+        name: 'Lampione doppio',
+        role: 'streetlight',
+        height: 7.8,
+        budget: 'streetlight',
+        nodes: ['Dual light pole.000_38_9'],
+      },
+      {
+        slug: 'streetlight-single',
+        name: 'Lampione singolo',
+        role: 'streetlight',
+        height: 7.8,
+        budget: 'streetlight',
+        nodes: ['Light pole.001_27_21'],
+      },
+      {
+        slug: 'sign-stop-modular',
+        name: 'Cartello STOP modulare',
+        role: 'sign',
+        height: 2.38,
+        budget: 'sign',
+        nodes: ['Stop sign_45_87'],
+      },
+    ],
+  },
+  {
+    // cordoli sottili del pack città: 5,4 m e 1,1 m, una draw call ciascuno
+    file: 'modular_city_road_pack__game_ready.glb',
+    usage: 'placed',
+    assets: [
+      {
+        slug: 'curb-modular-long',
+        name: 'Cordolo modulare lungo',
+        role: 'curb',
+        footprint: 5.43,
+        budget: 'curb',
+        nodes: ['Plane.004_19'],
+      },
+      {
+        slug: 'curb-modular-short',
+        name: 'Cordolo modulare corto',
+        role: 'curb',
+        footprint: 1.14,
+        budget: 'curb',
+        nodes: ['Plane.003_18'],
+      },
+      {
+        slug: 'sign-modular',
+        name: 'Segnale modulare',
+        role: 'sign',
+        height: 2.4,
+        budget: 'sign',
+        nodes: ['Cylinder_14'],
+      },
+    ],
+  },
+  {
+    // cartelli europei veri: sei facce leggibili, semplificate a 5k tri
+    file: 'road_signs_pack.glb',
+    usage: 'placed',
+    assets: ['01', '02', '05', '09', '12', '14'].map((id, index) => ({
+      slug: `sign-eu-${id}`,
+      name: `Cartello europeo ${id}`,
+      role: 'sign',
+      height: 2.9,
+      budget: 'sign',
+      nodes: [`vm_ST_sign_${id}`],
+      variant: index,
+    })),
+  },
+  // CC BY-NC: entra nel repo con attribuzione, ma il caricatore lo esclude
+  // quando `VITE_COMMERCIAL_BUILD=1`.
+  {
+    file: 'tall_green_field.glb',
+    usage: 'placed',
+    assets: [
+      {
+        slug: 'field-tall-green',
+        name: 'Campo alto e verde',
+        role: 'field',
+        footprint: 16.35,
+        budget: 'field',
+        nonCommercial: true,
+      },
+    ],
+  },
+  {
+    file: 'modular_bridge__low_poly__game_ready.glb',
+    usage: 'reserve',
+    assets: [
+      {
+        slug: 'bridge-modular',
+        name: 'Ponte modulare',
+        role: 'bridge',
+        footprint: 18,
+        budget: 'bridge',
+      },
+    ],
+  },
+  {
+    file: 'highway_bridge_chinese_style.glb',
+    usage: 'reserve',
+    assets: [
+      {
+        slug: 'bridge-highway',
+        name: 'Ponte autostradale',
+        role: 'bridge',
+        footprint: 20,
+        budget: 'bridge',
+        nonCommercial: true,
+      },
+    ],
+  },
+
+  // --- altre riserve: nel repo, non caricate all'avvio ----------------------
   { file: 'big_terrain.glb', usage: 'reserve', pack: { total: 30000, texture: 512, role: 'spare', height: 12, name: 'Terreno grande' } },
   { file: 'terrain.glb', usage: 'reserve', pack: { total: 24000, texture: 512, role: 'spare', height: 8, name: 'Terreno' } },
   { file: 'terrain (1).glb', usage: 'reserve', pack: { total: 30000, texture: 512, role: 'spare', height: 8, name: 'Terreno (FNG)' } },
@@ -229,15 +687,6 @@ const SOURCES = [
   { file: 'snow_road_raw_scan_freebie.glb', usage: 'reserve', pack: { total: 30000, texture: 512, role: 'spare', height: 4, name: 'Strada innevata' } },
   { file: 'hq_tracks_in_wet_sand_and_mud.glb', usage: 'reserve', pack: { total: 30000, texture: 512, role: 'spare', height: 3, name: 'Tracce nel fango' } },
   { file: 'realistic_walkway.glb', usage: 'reserve', pack: { total: 12000, texture: 512, role: 'spare', height: 1, name: 'Passerella' } },
-  { file: 'sidewalk_8m_long_-_hq.glb', usage: 'reserve', pack: { total: 12000, texture: 512, role: 'spare', height: 0.2, name: 'Marciapiede 8 m' } },
-  { file: 'hq_free_long_sidewalk_3.glb', usage: 'reserve', pack: { total: 12000, texture: 512, role: 'spare', height: 0.2, name: 'Marciapiede lungo' } },
-  { file: 'rocky_curb_scan.glb', usage: 'reserve', pack: { total: 10000, texture: 512, role: 'spare', height: 0.3, name: 'Cordolo in pietra' } },
-  { file: 'sidewalk_curb_free_3d_scan_project_a3.glb', usage: 'reserve', pack: { total: 12000, texture: 512, role: 'spare', height: 0.3, name: 'Cordolo scan' } },
-  { file: 'guardrail_and_terminal.glb', usage: 'reserve', pack: { total: 3000, texture: 512, role: 'spare', height: 1, name: 'Guardrail e terminale' } },
-  { file: 'guardrail_road.glb', usage: 'reserve', pack: { total: 600, texture: 512, role: 'spare', height: 0.8, name: 'Guardrail' } },
-  { file: 'roadside_guard.glb', usage: 'reserve', pack: { total: 20000, texture: 512, role: 'spare', height: 1.2, name: 'Protezione stradale' } },
-  { file: 'light_pole.glb', usage: 'reserve', pack: { total: 400, texture: 512, role: 'spare', height: 6, name: 'Palo della luce' } },
-  { file: 'ligh_pole.glb', usage: 'reserve', pack: { total: 3000, texture: 512, role: 'spare', height: 7, name: 'Lampione' } },
   { file: 'electric_light_pole.glb', usage: 'reserve', pack: { total: 8000, texture: 512, role: 'spare', height: 9, name: 'Palo elettrico' } },
   { file: 'sci-fi_path_light_pole_low_poly.glb', usage: 'reserve', pack: { total: 900, texture: 512, role: 'spare', height: 4, name: 'Lampione da sentiero' } },
   { file: 'rain_drops_circles__download__like_please.glb', usage: 'reserve', pack: { total: 100, texture: 256, role: 'spare', height: 0.5, name: 'Cerchi di pioggia' } },
@@ -245,6 +694,9 @@ const SOURCES = [
   { file: 'santa_maria_del_rosario_venice_italy.glb', usage: 'reserve', pack: { total: 30000, texture: 512, role: 'spare', height: 18, name: 'Chiesa (Venezia)' } },
   { file: 'via_s._gemini_viterbo_-_italy.glb', usage: 'reserve', pack: { total: 30000, texture: 512, role: 'spare', height: 8, name: 'Via S. Gemini' } },
   { file: 'low_poly_tree_scene_free.glb', usage: 'reserve', pack: { total: 40000, texture: 512, role: 'spare', height: 15, name: 'Scena di bosco' } },
+  { file: 'old_street_pack.glb', usage: 'reserve', pack: { total: 9000, texture: 512, role: 'spare', height: 7, name: 'Vecchio quartiere' } },
+  { file: 'road__highway.glb', usage: 'reserve', pack: { total: 9000, texture: 512, role: 'spare', height: 6, name: 'Svincolo autostradale' } },
+  { file: 'city_infrastructure_map_3.glb', usage: 'reserve', pack: { total: 30000, texture: 1024, role: 'spare', height: 16.5, name: 'Infrastruttura urbana' } },
 ];
 
 /** Licenze che permettono di versionare il file nel repository. */
@@ -310,10 +762,61 @@ function worldSize(node) {
   };
 }
 
+/**
+ * Dimensioni finali nel gioco.
+ *
+ * I modelli verticali (alberi, case) si normalizzano sull'altezza. I piani di
+ * terreno fotogrammetrici hanno altezza quasi zero: normalizzarli sull'asse Y
+ * li farebbe diventare larghi chilometri. Per quelli si usa `footprint`, cioè
+ * la dimensione orizzontale.
+ */
+function normalizedSize(size, entry) {
+  if (entry.footprint) {
+    const scale = entry.footprint / Math.max(size.width, size.depth, 0.001);
+    return {
+      width: size.width * scale,
+      height: size.height * scale,
+      depth: size.depth * scale,
+      scaleTo: entry.footprint,
+      normalize: 'footprint',
+    };
+  }
+  const target = entry.height ?? 1;
+  const scale = target / Math.max(size.height, 0.0001);
+  return {
+    width: size.width * scale,
+    height: size.height * scale,
+    depth: size.depth * scale,
+    scaleTo: undefined,
+    normalize: 'height',
+  };
+}
+
 function stripUnlit(document) {
   for (const material of document.getRoot().listMaterials()) {
     const unlit = material.getExtension('KHR_materials_unlit');
     if (unlit) unlit.dispose();
+  }
+}
+
+/**
+ * Rende compatibili le primitive per `join`.
+ *
+ * Gli scan Sketchfab spesso hanno una mesh per ogni pezzo della scena con
+ * attributi leggermente diversi (un pezzo con le tangenti, uno con UV2, uno
+ * senza normali). `join` allora rinuncia e la semplificazione lavora su 22
+ * mesh separate: un campo di fili d'erba resta a 450.000 triangoli. Qui si
+ * tolgono gli attributi che non servono e si fondono le primitive dello stesso
+ * materiale, così meshoptimizer può davvero scendere al budget.
+ */
+function unifyForJoin(document) {
+  for (const mesh of document.getRoot().listMeshes()) {
+    for (const primitive of mesh.listPrimitives()) {
+      for (const name of ['TANGENT', 'TEXCOORD_1', 'TEXCOORD_2', 'COLOR_0', 'JOINTS_0', 'WEIGHTS_0']) {
+        if (primitive.getAttribute(name)) primitive.setAttribute(name, null);
+      }
+      for (const target of primitive.listTargets()) primitive.removeTarget(target);
+    }
   }
 }
 
@@ -324,11 +827,16 @@ function isolate(document, names) {
   for (const name of names) {
     const node = root.listNodes().find((entry) => entry.getName() === name);
     if (!node) throw new Error(`nodo "${name}" non trovato`);
-    selected.push(node);
+    // Nel pack il nodo eredita scala e rotazione dai contenitori Sketchfab
+    // (`0.01` sui cartelli, `-90°` sul modello): togliendolo dal padre senza
+    // cuocere la world matrix diventerebbe 100 volte piú grande o coricato.
+    selected.push({ node, world: node.getWorldMatrix() });
   }
-  for (const node of selected) {
+  for (const entry of selected) {
+    const node = entry.node;
     const parent = node.getParentNode();
     if (parent) parent.removeChild(node);
+    node.setMatrix(entry.world);
     scene.addChild(node);
   }
   for (const other of root.listScenes()) if (other !== scene) other.dispose();
@@ -489,6 +997,16 @@ async function main() {
   };
   const credits = new Map();
   const skipped = [];
+  let priorModels = [];
+  if (merge) {
+    try {
+      const prior = JSON.parse(await readFile(MANIFEST, 'utf8'));
+      priorModels = Array.isArray(prior.models) ? prior.models : [];
+      for (const model of priorModels) credits.set(`prior:${model.slug}`, model.credits);
+    } catch {
+      log('! --merge: manifest precedente assente, riparto da zero');
+    }
+  }
 
   for (const definition of SOURCES) {
     if (!available.has(definition.file)) {
@@ -535,6 +1053,7 @@ async function main() {
         const scene = document.getRoot().listScenes()[0];
         const size = scene ? worldSize(scene) : { width: 1, height: 1, depth: 1 };
         const slug = slugify(pack.name ?? definition.file.replace(/\.glb$/i, ''));
+        const nonCommercial = /-NC/i.test(license);
         setProvenance(document, meta);
         const bytes = await io.writeBinary(document);
         if (!checkOnly) await writeFile(path.join(MODEL_DIR, `${slug}.glb`), bytes);
@@ -550,6 +1069,8 @@ async function main() {
           triangles: tris,
           bytes: bytes.byteLength,
           usage: definition.usage,
+          normalize: 'height',
+          nonCommercial,
           credits: meta,
         });
         log(`   ${slug}: ${before} -> ${tris} tris, ${(bytes.byteLength / 1e6).toFixed(2)} MB`);
@@ -580,6 +1101,7 @@ async function main() {
         const copy = cloneDocument(document);
         isolate(copy, entry.nodes);
         await copy.transform(prune(), dedup());
+        unifyForJoin(copy);
         // le primitive dello stesso materiale diventano una draw call sola
         try {
           await copy.transform(join({ keepNamed: false }));
@@ -620,6 +1142,8 @@ async function main() {
           })(),
           bytes: bytes.byteLength,
           usage: definition.usage,
+          normalize: 'height',
+          nonCommercial: /-NC/i.test(license),
           credits: meta,
         });
         log(`   ${entry.slug} (${entry.role}): ${(bytes.byteLength / 1e3).toFixed(0)} KB`);
@@ -635,6 +1159,7 @@ async function main() {
       if (entry.nodes) isolate(copy, entry.nodes);
       await copy.transform(prune(), dedup());
       await prepareSurface(copy, definition.pack?.texture ?? BUDGET[entry.budget ?? 'spare'].texture);
+      unifyForJoin(copy);
       try {
         await copy.transform(join({ keepNamed: false }));
       } catch {
@@ -651,18 +1176,23 @@ async function main() {
       const scene = copy.getRoot().listScenes()[0];
       const size = scene ? worldSize(scene) : { width: 1, height: 1, depth: 1 };
       const slug = entry.slug;
+      const finalSize = normalizedSize(size, entry);
       manifest.models.push({
         slug,
         name: entry.name,
         role: entry.role,
         file: `models/${slug}.glb`,
         nodes: [],
-        height: Number(entry.height.toFixed(2)),
-        width: Number(((size.width / Math.max(size.height, 0.0001)) * entry.height).toFixed(2)),
-        depth: Number(((size.depth / Math.max(size.height, 0.0001)) * entry.height).toFixed(2)),
+        height: Number(finalSize.height.toFixed(2)),
+        width: Number(finalSize.width.toFixed(2)),
+        depth: Number(finalSize.depth.toFixed(2)),
+        normalize: finalSize.normalize,
+        ...(finalSize.scaleTo ? { scaleTo: Number(finalSize.scaleTo.toFixed(2)) } : {}),
+        ...(entry.hero ? { hero: true } : {}),
         triangles: tris,
         bytes: bytes.byteLength,
         usage: definition.usage,
+        nonCommercial: Boolean(entry.nonCommercial || /-NC/i.test(license)),
         credits: meta,
       });
       log(`   ${slug} (${entry.role}): ${tris} tris, ${(bytes.byteLength / 1e6).toFixed(2)} MB`);
@@ -674,6 +1204,13 @@ async function main() {
     return;
   }
 
+  if (merge && priorModels.length) {
+    const fresh = new Set(manifest.models.map((model) => model.slug));
+    manifest.models = [
+      ...priorModels.filter((model) => !fresh.has(model.slug)),
+      ...manifest.models,
+    ];
+  }
   manifest.models.sort((a, b) => a.slug.localeCompare(b.slug));
   const total = manifest.models.reduce((sum, m) => sum + m.bytes, 0);
   manifest.bytes = total;
@@ -698,7 +1235,16 @@ async function main() {
     '| Modello | Autore | Fonte | Licenza |',
     '| --- | --- | --- | --- |',
   ];
-  for (const meta of [...credits.values()].sort((a, b) => a.title.localeCompare(b.title))) {
+  // I crediti si leggono dal manifest finale, non dalla mappa dei file letti:
+  // con `--merge` la mappa contiene anche le voci di riserve poi rimosse, che
+  // resterebbero per sempre in ATTRIBUTION.md.
+  const creditByTitle = new Map();
+  for (const model of manifest.models) {
+    const credit = model.credits;
+    const key = `${credit.title}|${credit.author}|${credit.license}|${credit.source}`;
+    if (!creditByTitle.has(key)) creditByTitle.set(key, credit);
+  }
+  for (const meta of [...creditByTitle.values()].sort((a, b) => a.title.localeCompare(b.title))) {
     const source = meta.source ? `[Sketchfab](${meta.source})` : '—';
     lines.push(`| ${meta.title} | ${meta.author} | ${source} | ${meta.license} |`);
   }

@@ -43,6 +43,8 @@ import { loadCityKit, type CityKit } from './world/citykit';
 import { loadWorldKit, setWorldKitSnow, setWorldKitWetness, type WorldKit } from './world/worldkit';
 import type { WorldHitField } from './world/world-hits';
 import { WorldGrass, WorldShrubField, buildWorldProps } from './world/world-props';
+import { WorldFieldDetail, buildStrawBales, buildVillageScenes } from './world/field-detail';
+import { buildRoadsideKit } from './world/roadside-kit';
 import { CarLibrary } from './world/car-library';
 import { DEFAULT_LIGHTING, DEFAULT_SKY, DEFAULT_SUN, createSky, type SkyRig } from './world/sky';
 import { CloudLayer } from './world/clouds';
@@ -235,6 +237,8 @@ export interface Diagnostics {
     houses: number;
     /** alberi/cartelli fatti reagire a un urto dell'auto */
     hitCount: number;
+    /** moduli GLB di marciapiede e cordolo piazzati fuori dal paese */
+    roadside: { sidewalks: number; curbs: number };
   } | null;
   errorCount: number;
   weather: {
@@ -482,7 +486,11 @@ export class Game {
     signs: number;
     houses: number;
   } | null = null;
+  /** Moduli GLB di marciapiede/cordolo piazzati fuori dal costruito. */
+  private roadsideStats: { sidewalks: number; curbs: number } | null = null;
   private worldGrass?: WorldGrass;
+  /** Zolle, campi, grano e fango di prossimità. */
+  private fieldDetail: WorldFieldDetail | null = null;
   /** Alberi e cartelli del world kit che si piegano quando l'auto li prende. */
   private worldHits: WorldHitField | null = null;
   /** Sottobosco del world kit: rallenta il passo quando ci si cammina dentro. */
@@ -748,6 +756,7 @@ export class Game {
         heights,
         this.renderer,
         this.quality.pointLights,
+        this.worldKit,
       );
       this.scene.add(this.streetLights.group);
       // ogni lampione è un palo vero: si registra come ostacolo cilindrico
@@ -820,6 +829,20 @@ export class Game {
           signs: props.signs,
           houses: props.houses,
         };
+      }
+      // marciapiedi e cordoli GLB fuori dal paese: il nastro procedurale resta
+      // l'unica superficie con quota e fisica, questi moduli sono il dettaglio
+      // fotografico del ciglio (e le riserve che prima non si caricavano).
+      if (this.worldKit && this.quality.roadside > 0) {
+        const roadside = buildRoadsideKit(
+          osm,
+          heights,
+          this.roadIndex,
+          this.worldKit,
+          this.quality.roadside,
+        );
+        this.scene.add(roadside.group);
+        this.roadsideStats = { sidewalks: roadside.sidewalks, curbs: roadside.curbs };
       }
       this.scene.add(buildDryStoneWalls(osm, heights, this.roadIndex, this.buildingIndex, this.renderer));
       // confini di campo: muretti su bosco/prato, recinzioni su vigne e aie,
@@ -926,10 +949,34 @@ export class Game {
       // senza i file la promessa si risolve lo stesso e resta il vecchio shader
       await this.landcover.load();
       this.landcover.setSeason(monthForGameDay(this.gameDay));
+      const landcoverSurface = (x: number, z: number) => this.landcover?.surfaceAt(x, z) ?? null;
+      if (this.worldKit && this.quality.worldProps) {
+        this.fieldDetail = new WorldFieldDetail(
+          this.worldKit,
+          this.pavedAreas,
+          landcoverSurface,
+        );
+        this.scene.add(this.fieldDetail.group);
+        this.scene.add(
+          buildStrawBales(
+            this.worldKit,
+            this.osm,
+            heights,
+            this.roadIndex,
+            this.buildingIndex,
+            this.obstacles,
+            landcoverSurface,
+            this.quality.level === 'ultra' ? 46 : this.quality.level === 'high' ? 38 : 26,
+          ),
+        );
+      }
       // la fisica fuori strada usa la stessa classificazione del terreno:
-      // un campo arato è terra, un prato è erba, la roccia è ghiaia
-      this.ground.setSurfaceProvider((x, z) => this.landcover?.surfaceAt(x, z) ?? null);
-      this.worldGrass?.setSurfaceProvider((x, z) => this.landcover?.surfaceAt(x, z) ?? null);
+      // un campo arato è terra, un prato è erba, la roccia è ghiaia. Le zolle
+      // di fango del dettaglio hanno la precedenza perché sono a scala umana.
+      this.ground.setSurfaceProvider(
+        (x, z) => this.fieldDetail?.surfaceOverride(x, z) ?? landcoverSurface(x, z),
+      );
+      this.worldGrass?.setSurfaceProvider(landcoverSurface);
       this.terrain = new Terrain(
         heights,
         imagery,
@@ -939,6 +986,11 @@ export class Game {
         osm.roads.filter((road) => road.tunnel && !road.bridge),
       );
       this.scene.add(this.terrain.group);
+      if (this.worldKit) {
+        this.scene.add(
+          buildVillageScenes(this.worldKit, heights, this.roadIndex, this.quality.villageScenes),
+        );
+      }
       const worldDataProvider = OPEN_WORLD_DATA_PROVIDER;
       if (worldDataProvider) {
         this.worldTileManager = new WorldTileManager(worldDataProvider, undefined, {
@@ -2542,13 +2594,17 @@ export class Game {
     this.obstacles.removeTag('guardrail');
     if (this.guardrailsGroup) {
       this.scene.remove(this.guardrailsGroup);
-      this.guardrailsGroup.traverse((obj) => {
-        const mesh = obj as THREE.Mesh;
-        mesh.geometry?.dispose();
-        const material = mesh.material;
-        if (Array.isArray(material)) material.forEach((m) => m.dispose());
-        else material?.dispose();
-      });
+      // I moduli GLB condividono geometria e materiali con il resto del world
+      // kit: liberarli qui romperebbe alberi e cartelli al cambio preset.
+      if (!this.guardrailsGroup.userData.kit) {
+        this.guardrailsGroup.traverse((obj) => {
+          const mesh = obj as THREE.Mesh;
+          mesh.geometry?.dispose();
+          const material = mesh.material;
+          if (Array.isArray(material)) material.forEach((m) => m.dispose());
+          else material?.dispose();
+        });
+      }
       this.guardrailsGroup = null;
     }
     if (!this.quality.guardrails) return;
@@ -2558,6 +2614,7 @@ export class Game {
     const guardrails = buildGuardrails(this.osm, this.heights, this.ground, {
       maxSpans: this.quality.level === 'medium' ? 4200 : 7000,
       obstacles: this.obstacles,
+      kit: this.worldKit,
     });
     this.guardrailsGroup = guardrails.group;
     this.scene.add(guardrails.group);
@@ -3246,6 +3303,16 @@ export class Game {
       this.quality.worldProps ? this.quality.grassDensity : 0,
       this.osm.areas,
     );
+    this.fieldDetail?.update(
+      view.x,
+      view.z,
+      this.heights,
+      this.roadIndex,
+      this.buildingIndex,
+      this.osm.areas,
+      this.quality.worldProps ? this.quality.groundDetail : 0,
+      this.quality.worldProps ? this.quality.cropDensity : 0,
+    );
     this.applyManualAtmosphere(dt, focus);
     this.updateSky(focus);
     this.streetLights?.update(this.camera.position, this.nightFactor);
@@ -3484,6 +3551,7 @@ export class Game {
         : Math.min(
             this.vegetation?.movementFactorAt(this.player.position.x, this.player.position.z) ?? 0.9,
             this.worldShrubs?.factorAt(this.player.position.x, this.player.position.z) ?? 1,
+            this.fieldDetail?.factorAt(this.player.position.x, this.player.position.z) ?? 1,
           );
       this.player.update(dt, move, this.ground, this.buildingIndex, this.obstacles, vegetationFactor);
       this.updateWalkCamera(dt);
@@ -3496,9 +3564,10 @@ export class Game {
       // `0.9` è il fattore del campo aperto, `0.55` la macchia fitta del kit
       const looseFactor = this.vegetation?.movementFactorAt(this.car.state.x, this.car.state.z) ?? 0.9;
       const shrubFactor = this.worldShrubs?.factorAt(this.car.state.x, this.car.state.z) ?? 1;
+      const cropFactor = this.fieldDetail?.factorAt(this.car.state.x, this.car.state.z) ?? 1;
       const vegetationDrag = carGround.onRoad
         ? 0
-        : clamp(Math.max(1 - shrubFactor, (0.9 - looseFactor) / 0.9), 0, 0.55);
+        : clamp(Math.max(1 - shrubFactor, 1 - cropFactor, (0.9 - looseFactor) / 0.9), 0, 0.55);
       this.car.update(
         dt,
         this.driveInput,
@@ -3596,6 +3665,16 @@ export class Game {
       this.buildingIndex,
       this.quality.worldProps ? this.quality.grassDensity : 0,
       this.osm.areas,
+    );
+    this.fieldDetail?.update(
+      focus.x,
+      focus.z,
+      this.heights,
+      this.roadIndex,
+      this.buildingIndex,
+      this.osm.areas,
+      this.quality.worldProps ? this.quality.groundDetail : 0,
+      this.quality.worldProps ? this.quality.cropDensity : 0,
     );
     if (this.manualTime) this.applyManualAtmosphere(dt, focus);
     else if (this.realWeatherEnabled) this.applyWeatherVisuals(dt, focus);
@@ -3975,6 +4054,7 @@ export class Game {
               houses: 0,
             }),
             hitCount: this.worldHits?.count ?? 0,
+            roadside: this.roadsideStats ?? { sidewalks: 0, curbs: 0 },
           }
         : null,
       errorCount: this.errors.length,

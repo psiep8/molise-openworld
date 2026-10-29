@@ -7,6 +7,7 @@ import { CURB_HEIGHT, ROAD_LIFT, type BuildingIndex, type OsmData } from '../geo
 import { pbr } from '../gfx/textures';
 import type { CityKit } from './citykit';
 import type { QualityLevel } from '../gfx/quality';
+import type { WorldKit, WorldSpot } from './worldkit';
 
 /** Punto di impianto di un lampione: `yaw` punta il braccio verso la strada. */
 export interface LampSpot {
@@ -37,11 +38,46 @@ export class StreetLights {
   private readonly pool: THREE.PointLight[] = [];
   private readonly spots: { x: number; y: number; z: number }[] = [];
 
-  constructor(spots: LampSpot[], heights: Heightfield, renderer: THREE.WebGLRenderer, maxLights = 7) {
+  constructor(
+    spots: LampSpot[],
+    heights: Heightfield,
+    renderer: THREE.WebGLRenderer,
+    maxLights = 7,
+    kit: WorldKit | null = null,
+  ) {
     this.group.name = 'street-lights';
     if (spots.length === 0) {
       this.headMaterial = new THREE.MeshStandardMaterial();
       this.glassMaterial = new THREE.MeshStandardMaterial();
+      return;
+    }
+
+    // Se il world kit ha i lampioni GLB, il palo procedurale non serve: si
+    // istanziano i modelli (2-4 varianti) e restano solo le PointLight del pool.
+    const streetlightAssets = kit?.variants('streetlight') ?? [];
+    if (streetlightAssets.length > 0) {
+      // materiali segnaposto: i GLB hanno i propri, `update` li lascia spenti
+      this.headMaterial = new THREE.MeshStandardMaterial();
+      this.glassMaterial = new THREE.MeshStandardMaterial();
+      const kitSpots: WorldSpot[] = spots.map((spot, index) => ({
+        x: spot.x,
+        y: heights.heightAt(spot.x, spot.z),
+        z: spot.z,
+        yaw: spot.yaw,
+        scale: 1,
+        variant: index % streetlightAssets.length,
+      }));
+      this.group.add(kit!.instances('streetlight', kitSpots, { castShadow: true }));
+      for (const spot of spots) {
+        // la luce resta alla quota dell'apparecchio, non a terra
+        this.spots.push({ x: spot.x, y: heights.heightAt(spot.x, spot.z) + 5.4, z: spot.z });
+      }
+      for (let i = 0; i < maxLights; i++) {
+        const light = new THREE.PointLight(0xffd7a0, 0, 48, 2);
+        light.visible = false;
+        this.group.add(light);
+        this.pool.push(light);
+      }
       return;
     }
 
