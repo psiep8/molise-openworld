@@ -273,6 +273,8 @@ export interface Diagnostics {
 const ROUTE_DRIVE_SPEED = 11.1;
 /** Esposizione diurna: tarata sui materiali chiari del paese (intonaco, coppi, asfalto). */
 const EXPOSURE_DAY = 0.62;
+/** Sotto questa velocità si può scendere dall'auto (km/h). */
+const EXIT_MAX_KMH = 3;
 
 /**
  * Pose fisse del banco prova (`?bench=1`).
@@ -3256,6 +3258,13 @@ export class Game {
 
   private exitCar(): void {
     if (this.mode !== 'drive' || this.carTransition) return;
+    // A velocità non si scende: il personaggio resterebbe fermo mentre l'auto
+    // proseguirebbe per conto suo, con la telecamera che salta via.
+    const speedKmh = Math.hypot(this.car.state.vx, this.car.state.vy) * 3.6;
+    if (speedKmh > EXIT_MAX_KMH) {
+      this.hud.toast('Fermati per scendere');
+      return;
+    }
     this.mode = 'walk';
     const rx = Math.cos(this.car.state.yaw);
     const rz = -Math.sin(this.car.state.yaw);

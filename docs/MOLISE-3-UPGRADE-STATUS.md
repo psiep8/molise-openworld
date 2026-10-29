@@ -4,6 +4,9 @@ Aggiornato il 29 ottobre 2026. Descrive ciò che è stato implementato e
 verificato su `upgrade/molise-3-task-a-b` e sul ramo del Task C. Le verifiche
 visive in gioco restano indicate esplicitamente quando non eseguite.
 
+Il piano di prova passo-passo usato per la verifica manuale è in
+[MOLISE-TEST-PLAN.md](MOLISE-TEST-PLAN.md).
+
 ## Task A — guida, superfici e tracce
 
 ### Implementato
@@ -129,9 +132,9 @@ visive in gioco restano indicate esplicitamente quando non eseguite.
 - L'adattamento al terreno è inclinazione del corpo + quota media dei piedi, non
   IK a due ossa: su scalini netti il piede può ancora attraversare il bordo.
 - Il rig procedurale di fallback non ha la posa seduta (solo il corpo GLB).
-- La direzione delle rotazioni della posa seduta sulle ossa Mixamo non è stata
-  verificata a schermo: i valori sono additivi e limitati, ma vanno guardati in
-  gioco.
+- La posa seduta è verificata a schermo solo sull'avatar in piedi/seduto
+  dell'harness: in auto il busto resta nella posizione della clip di riposo e le
+  mani non raggiungono il volante.
 
 ## Verifiche di questa sessione
 
@@ -150,6 +153,15 @@ visive in gioco restano indicate esplicitamente quando non eseguite.
 - `npm run smoke` completo: la prima scheda ha guidato e reso l'immagine, ma il
   rerun con la scheda `autostart=walk` è andato in timeout sotto SwiftShader e
   non viene contato come prova superata.
-- La posa seduta sulle ossa non è stata giudicata a schermo: la transizione
-  funziona (ingresso e uscita completano, nessun errore), ma la direzione delle
-  rotazioni va guardata da vicino.
+- Posa seduta (C13 del piano di test) guardata a schermo sull'harness
+  (`/harness.html`, `setSeatProgress(1)` sui tre avatar, vista frontale e di
+  profilo): cosce in avanti, ginocchia che si piegano indietro, piedi a terra,
+  nessuna rotazione invertita. Restano fuori le mani sul volante (non previste).
+- Fase 0 del piano di test: tutti e sette i controlli trovano le modifiche
+  (`wheelSlip`/`vy` in `car.ts`, `molise.skid-marks`, `locomotion` in
+  `human-model.ts`/`player.ts`/`pedestrians.ts`, `surfaces` in `vehicle.ts`,
+  `ground-cover` in `field-detail.ts`).
+- Uscita dall'auto in movimento (C16): prima si poteva scendere a qualsiasi
+  velocità, restando fermi mentre l'auto proseguiva. Ora sopra 3 km/h l'uscita è
+  rifiutata con l'avviso *Fermati per scendere*; verificato in gioco a 15 km/h
+  (resta in guida, avviso mostrato) e da fermo (scende, modalità a piedi).
