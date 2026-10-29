@@ -85,9 +85,10 @@ export function surfaceConditions(
   const iceGrip = 1 - ice * (1 - material.iceFactor);
   const waterDepth = smoothstep(0.25, 0.7, water);
   const speedFactor = smoothstep(80 / 3.6, 125 / 3.6, Math.abs(speed));
-  const aquaplane = material.id === 'asphalt'
-    ? 1 - waterDepth * speedFactor * 0.88
-    : 1;
+  // Anche da fermo un velo d'acqua lubrifica la gomma: il film riduce il picco
+  // di circa il 10%, poi l'aquaplaning vero aggiunge il resto con la velocità.
+  const paved = material.id === 'asphalt' || material.id === 'concrete' || material.id === 'cobblestone';
+  const aquaplane = paved ? 1 - waterDepth * (0.1 + 0.78 * speedFactor) : 1;
   return {
     muPeak: Math.max(0.04, muPeak * wetGrip * snowGrip * iceGrip * aquaplane),
     muSlide: Math.max(0.035, muSlide * wetGrip * snowGrip * iceGrip * aquaplane),

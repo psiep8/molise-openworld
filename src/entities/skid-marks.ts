@@ -177,7 +177,10 @@ export class SkidMarks {
   /** Serializza le tracce di una zona per poterle ripristinare al rientro nel chunk. */
   serializeChunk(chunkKey: string): Float32Array {
     const activeData = this.packVisibleChunk(chunkKey);
-    if (activeData) return this.toExternalData(activeData);
+    // Un chunk visibile senza istanze restituisce un array vuoto, che è
+    // "truthy": senza il controllo sulla lunghezza si perderebbe la copia
+    // salvata e il ripristino sembrerebbe non funzionare.
+    if (activeData && activeData.length > 0) return this.toExternalData(activeData);
     const stored = this.chunks.get(chunkKey);
     if (!stored) return new Float32Array();
     const age = Math.max(0, this.elapsed - stored.savedAt);

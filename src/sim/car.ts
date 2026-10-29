@@ -205,6 +205,11 @@ const MAX_YAW_RATE = 2.7;
 
 const clamp = (v: number, a: number, b: number): number => (v < a ? a : v > b ? b : v);
 
+function smoothstep(edge0: number, edge1: number, value: number): number {
+  const t = clamp((value - edge0) / (edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
 export function createCarState(x: number, z: number, yaw = 0): CarState {
   const slip = (): WheelSlip => ({ long: 0, lat: 0, load: 0.25, locked: false });
   return {
@@ -311,7 +316,8 @@ export function stepCar(
   // senza questo, con la coppia già oltre il limite di aderenza non cambierebbe
   // nulla fino a metà della scala di velocità
   const boostGrip = input.boost ? 1.18 : 1;
-  const tractionLimit =
+  const driveLayout = tuning.drive ?? 'rwd';
+  const baseTractionLimit =
     tuning.grip * surface.grip * normalLoad * tuning.tractionShare * boostGrip * gripScale;
 
   // in retromarcia è il freno a dare gas all'indietro
@@ -319,6 +325,25 @@ export function stepCar(
   const driveSign = forward ? 1 : -1;
   const shiftCut = next.shiftTimer > 0 ? 0 : 1;
   const demand = gearForce * driveInput * driveSign * shiftCut * (input.boost ? 1.25 : 1);
+
+  // Il trasferimento di carico in accelerazione non è un dettaglio da
+  // supercar: la trazione posteriore scarica il muso e carica il retrotreno,
+  // la trazione anteriore fa l'opposto. Senza questo termine una P900 e una
+  // berlina con la stessa gomma partivano uguali, e le testate posteriori
+  // risultavano tutte troppo lente. La stima usa la forza del passo corrente;
+  // una sola iterazione basta perché il termine è piccolo e stabile.
+  let tractionShare = tuning.tractionShare;
+  if (driveLayout !== 'awd') {
+    const accelEstimate = Math.min(Math.abs(demand), baseTractionLimit) / tuning.mass;
+    const transfer = accelEstimate * (tuning.centerOfGravityHeight ?? 0.5) /
+      (tuning.gravity * tuning.wheelbase);
+    tractionShare = clamp(
+      tuning.tractionShare + (driveLayout === 'rwd' ? transfer : -transfer),
+      0.15,
+      1,
+    );
+  }
+  const tractionLimit = baseTractionLimit * (tractionShare / Math.max(0.01, tuning.tractionShare));
   const topMaterial = surfaceConditions(
     env.surface ?? (env.onRoad ? 'asphalt' : 'terrain'),
     env.weather,
@@ -558,6 +583,15 @@ export function stepCar(
     } else {
       next.vy += (lateralAccel - next.yawRate * next.vx) * h;
       next.vy *= Math.exp(-0.04 * h);
+      // A bassa velocità il modello laterale converge più lentamente del
+      // Cinematico e l'auto sembrava sterzare come un tram. Il blend vale solo
+      // sotto ~45 km/h e sparisce prima dei 50, dove la prova di stabilità
+      // impone una curva dolce: sopra quella soglia resta la dinamica pura.
+      const lowSpeed = 1 - smoothstep(9, 13, Math.abs(next.vx));
+      if (lowSpeed > 0) {
+        const kinematic = (next.vx / tuning.wheelbase) * Math.tan(delta) * surface.grip;
+        next.yawRate += (kinematic - next.yawRate) * (1 - Math.exp(-10 * lowSpeed * h));
+      }
     }
 
     const yawCap = Math.min(MAX_YAW_RATE, LATERAL_GRIP * surface.grip /
