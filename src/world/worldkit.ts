@@ -32,6 +32,7 @@ export type WorldRole =
   | 'tree-distant'
   | 'rock'
   | 'grass'
+  | 'grass-hero'
   | 'sign'
   | 'house'
   | 'ground'
@@ -111,7 +112,14 @@ export interface WorldAsset {
 }
 
 /** Ruoli che ondeggiano col vento condiviso (velocità e direzione dal meteo). */
-const WIND_ROLES: ReadonlySet<WorldRole> = new Set(['tree', 'shrub', 'grass', 'field', 'sign']);
+const WIND_ROLES: ReadonlySet<WorldRole> = new Set([
+  'tree',
+  'shrub',
+  'grass',
+  'grass-hero',
+  'field',
+  'sign',
+]);
 /** Ruoli che si piegano quando l'auto li prende: il sasso, la terra e la casa no. */
 const HIT_ROLES: ReadonlySet<WorldRole> = new Set(['tree', 'shrub', 'field', 'sign']);
 
@@ -141,7 +149,9 @@ export function setWorldKitSnow(snow: number): void {
 
 /** Materiali che non devono proiettare ombre: card, decal, vetri. */
 function castsShadow(role: WorldRole, material: THREE.Material): boolean {
-  if (role === 'grass' || role === 'shrub' || role === 'field' || role === 'ground') return false;
+  if (role === 'grass' || role === 'grass-hero' || role === 'shrub' || role === 'field' || role === 'ground') {
+    return false;
+  }
   if (material.transparent) return false;
   return true;
 }
@@ -176,7 +186,7 @@ function applySurface(material: THREE.MeshStandardMaterial, role: WorldRole, hei
   // sasso, terra e casa non ondeggiano: hanno comunque bisogno del bagnato
   const sway = !WIND_ROLES.has(role)
     ? 0
-    : role === 'grass'
+    : role === 'grass' || role === 'grass-hero'
       ? 1.1
       : role === 'shrub'
         ? 0.55
@@ -186,7 +196,7 @@ function applySurface(material: THREE.MeshStandardMaterial, role: WorldRole, hei
             ? 0.05
             : 0.4;
   const hit = HIT_ROLES.has(role);
-  const pass = role === 'grass' || role === 'shrub' || role === 'field';
+  const pass = role === 'grass' || role === 'grass-hero' || role === 'shrub' || role === 'field';
   // le zolle di terra devono stare sopra il triangolo del DEM senza
   // z-fighting: è l'unico ruolo che vive a pochi centimetri dal terreno
   if (role === 'ground') {
@@ -532,6 +542,7 @@ export async function loadWorldKit(
     'tree-distant',
     'rock',
     'grass',
+    'grass-hero',
     'sign',
     'house',
     'ground',

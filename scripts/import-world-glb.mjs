@@ -181,14 +181,14 @@ const SOURCES = [
   },
   {
     // questi due "tile" sono zolle fotografate da 83k e 18k triangoli: come
-    // ciuffo da istanziare centinaia di volte sono insostenibili, restano in
-    // riserva per un futuro tappeto a LOD
+    // ciuffo da istanziare centinaia di volte sono insostenibili, ma poche
+    // istanze vicino alla camera (ruolo `grass-hero`) valgono l'intero prato
     file: 'grass (1).glb',
-    usage: 'reserve',
+    usage: 'placed',
     pack: { total: 60000, texture: 512 },
     assets: [
-      { slug: 'grass-tile-a', name: 'Zolla d\u2019erba fitta', role: 'spare', height: 0.8, budget: 'spare', nodes: ['Tile_1'] },
-      { slug: 'grass-tile-b', name: 'Zolla d\u2019erba rada', role: 'spare', height: 0.7, budget: 'spare', nodes: ['Tile_2'] },
+      { slug: 'grass-tile-a', name: 'Zolla d\u2019erba fitta', role: 'grass-hero', height: 0.8, budget: 'spare', nodes: ['Tile_1'] },
+      { slug: 'grass-tile-b', name: 'Zolla d\u2019erba rada', role: 'grass-hero', height: 0.7, budget: 'spare', nodes: ['Tile_2'] },
     ],
   },
   {

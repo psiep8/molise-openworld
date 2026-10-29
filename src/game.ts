@@ -239,6 +239,8 @@ export interface Diagnostics {
     hitCount: number;
     /** moduli GLB di marciapiede e cordolo piazzati fuori dal paese */
     roadside: { sidewalks: number; curbs: number };
+    /** zolle fotogrammetriche `grass-hero` attorno al giocatore */
+    heroGrass: number;
   } | null;
   errorCount: number;
   weather: {
@@ -4055,6 +4057,7 @@ export class Game {
             }),
             hitCount: this.worldHits?.count ?? 0,
             roadside: this.roadsideStats ?? { sidewalks: 0, curbs: 0 },
+            heroGrass: this.worldGrass?.heroCount ?? 0,
           }
         : null,
       errorCount: this.errors.length,

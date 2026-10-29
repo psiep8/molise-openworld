@@ -1089,7 +1089,7 @@
     {
       "slug": "grass-tile-a",
       "name": "Zolla d’erba fitta",
-      "role": "spare",
+      "role": "grass-hero",
       "file": "models/grass-tile-a.glb",
       "nodes": [],
       "height": 0.8,
@@ -1098,7 +1098,7 @@
       "normalize": "height",
       "triangles": 82943,
       "bytes": 1498844,
-      "usage": "reserve",
+      "usage": "placed",
       "nonCommercial": false,
       "credits": {
         "title": "Grass",
@@ -1110,7 +1110,7 @@
     {
       "slug": "grass-tile-b",
       "name": "Zolla d’erba rada",
-      "role": "spare",
+      "role": "grass-hero",
       "file": "models/grass-tile-b.glb",
       "nodes": [],
       "height": 0.7,
@@ -1119,7 +1119,7 @@
       "normalize": "height",
       "triangles": 18307,
       "bytes": 442416,
-      "usage": "reserve",
+      "usage": "placed",
       "nonCommercial": false,
       "credits": {
         "title": "Grass",

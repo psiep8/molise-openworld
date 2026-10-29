@@ -1,7 +1,7 @@
 # Riserve del world kit — TODO
 
-Stato al **29 ottobre 2026**. Il world kit ha **181 modelli** (78,6 MiB): 159
-caricati dai preset normali e 22 ancora `usage: "reserve"`. Le riserve restano
+Stato al **29 ottobre 2026**. Il world kit ha **181 modelli** (78,6 MiB): 161
+caricati dai preset normali e 20 ancora `usage: "reserve"`. Le riserve restano
 nel manifest e nel repository, ma `loadWorldKit()` non le scarica: non pesano su
 VRAM, memoria o tempo di avvio.
 
@@ -9,11 +9,11 @@ VRAM, memoria o tempo di avvio.
 
 Le 26 riserve originali non sono più un blocco unico:
 
-- **8 sono diventate oggetti di gioco** con ruoli veri (vedi tabella sotto);
+- **10 sono diventate oggetti di gioco** con ruoli veri (vedi tabella sotto);
 - **1 è stata scartata** perché non decimabile in modo utile (`cordolo-scan`,
   ancora ~330k triangoli dopo la semplificazione: il modulo da 2,8 m non vale
   il costo);
-- **17 restano riserve** (terreni enormi, VFX, landmark, share-alike).
+- **15 restano riserve** (terreni enormi, VFX, landmark, share-alike).
 
 In più sono entrati nel repository, come riserve o come arredo piazzato, i pack
 stradali nuovi: `modular_city_road_pack`, `road_modular`, `road_signs_pack`,
@@ -34,6 +34,7 @@ piazza.
 | `curb` | `curb-stone`, `curb-modular-long/short` | stesso kit, appena fuori dal bordo strada |
 | `guardrail` | `guardrail`, `guardrail-terminal`, `guardrail-heavy` | `world/guardrails.ts`, sulle stesse campate procedurali |
 | `streetlight` | `streetlight-pole/lamp/dual/single` | `world/street-furniture.ts`, al posto dei pali procedurali |
+| `grass-hero` | `grass-tile-a`, `grass-tile-b` | `world/world-props.ts` (`WorldGrass`), poche zolle fotogrammetriche entro 22 m |
 | `bridge` | `bridge-modular`, `bridge-highway` | **riserva**: ruolo pronto, piazzamento non ancora fatto |
 
 ## Regole prima di caricare una riserva
@@ -51,6 +52,21 @@ piazza.
 4. **Budget**: una riserva pesante non entra nel world kit globale. Meglio un
    ruolo a caricamento lazy, un limite per preset e una distanza di culling.
    Il manifest deve restare sotto i 90 MiB (oggi 78,6 MiB).
+
+## Erba fotogrammetrica: `grass-hero`
+
+- `grass-tile-a` (83k tri) e `grass-tile-b` (18k tri) sono due zolle scansite,
+  alte 0,8/0,7 m e larghe 1,6×2,7 m dopo la normalizzazione. Non entrano nel
+  tappeto procedurale (che usa varianti sotto i 2.500 triangoli), ma poche
+  istanze a pochi metri dalla camera danno il dettaglio che i ciuffi low-poly
+  non hanno.
+- `WorldGrass.placeHeroGrass()` ne piazza `round(12 × grassDensity)` (0 su
+  `minimal`, 5 a `medium`, 12 a `ultra`) entro 22 m, solo su prato/bosco, fuori
+  da strade ed edifici, con pendenza locale sotto 0,55 m: il bordo della zolla
+  non deve sollevarsi dal DEM.
+- Sono attraversabili come l'erba normale (`pass-through`), ondeggiano col vento
+  condiviso e non proiettano ombre. Costo misurato: cinque zolle a `medium`
+  valgono ~0,4 M triangoli su ~45 M, sotto l'1% di fps.
 
 ## Arredo stradale: com'è collegato
 
@@ -77,18 +93,17 @@ piazza.
 | --- | --- | --- | --- | --- | --- | --- |
 | `terreno-fng` | Terreno (FNG) | FNG | CC-BY-4.0 | 4 × 8 × 4 | 28.782 | Zolla 4 × 4 m, troppo densa per un tappeto: usarla come decal di primo piano o decimare. |
 | `terreno-grande` | Terreno grande | Dogus Berk Bayram | CC-BY-4.0 | 2.500 × 12 × 2.000 | 28.791 | Una sola mesh da 2,5 × 2 km: non è sovrapponibile al DEM senza una reprojection; buona solo come sfondo lontano. |
-| `grass-tile-a` | Zolla d’erba fitta | Epic_Tree_Store | CC-BY-4.0 | 1,6 × 0,8 × 2,8 | 82.943 | Hero asset: 83k tri per 4 m², massimo poche istanze vicino alla camera. |
-| `grass-tile-b` | Zolla d’erba rada | Epic_Tree_Store | CC-BY-4.0 | 1,5 × 0,7 × 1,2 | 18.307 | Variante più leggera, ancora troppo pesante per un campo intero. |
 | `terreno` | Terreno | DJMaesen | CC-BY-4.0 | 78.636 × 8 × 78.636 | 23.038 | Estensione assurda: il modello va riprocessato/normalizzato prima di qualunque uso. |
 | `terreno-di-strada` | Terreno di strada | jimbogies | CC-BY-4.0 | 12.006 × 3 × 6.962 | 5.936 | Striscia da 12 km: buona per un fondale, non per il terreno giocabile. |
 | `tracce-nel-fango` | Tracce nel fango | SPLEEN VISION | CC-BY-4.0 | 4,5 × 3 × 4,9 | 32.709 | Meglio estrarne una texture di decal che istanziare 33k tri per impronta. |
 
-> Il dettaglio vicino oggi è coperto da `world/field-detail.ts`: zolle `ground`,
-> accenti `field`, grano procedurale, fango e balle di paglia. La fisica usa la
-> classificazione `landcover` (`dirt` / `grass` / `rock`). Queste riserve
-> servirebbero solo a sostituire le zolle attuali con scan più pesanti: l'ordine
-> giusto è prima il decal a basso costo, poi il GLB solo dove la camera è a
-> pochi metri.
+> Il dettaglio vicino è coperto da `world/field-detail.ts`: zolle `ground`,
+> accenti `field`, grano procedurale, fango e balle di paglia; a pochi metri
+> dalla camera si aggiungono le zolle `grass-hero`. La fisica usa la
+> classificazione `landcover` (`dirt` / `grass` / `rock`). Le riserve qui sopra
+> servirebbero solo a sostituire le zolle attuali con scan ancora più pesanti:
+> l'ordine giusto è prima il decal a basso costo, poi il GLB solo dove la camera
+> è a pochi metri.
 
 ### P2 — vegetazione e atmosfera
 

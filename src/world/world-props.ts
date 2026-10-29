@@ -531,6 +531,16 @@ export class WorldShrubField {
 const GRASS_RADIUS = 34;
 /** Ciuffi veri richiesti a densità piena (poi ridotti dal preset). */
 const GRASS_MAX = 400;
+/**
+ * Zolle fotogrammetriche d'erba ad alta densità (ruolo `grass-hero`).
+ *
+ * `grass-tile-a` e `grass-tile-b` sono scan da 83k e 18k triangoli: non
+ * possono fare il tappeto, ma a pochi metri dalla camera valgono l'intero
+ * prato procedurale. Se ne piazzano poche, solo su prato o bosco e solo su
+ * terreno quasi piano, dove il bordo non affonda nel DEM.
+ */
+const GRASS_HERO_MAX = 12;
+const GRASS_HERO_RADIUS = GRASS_RADIUS * 0.65;
 
 /**
  * Erba fotografata intorno al giocatore.
@@ -550,6 +560,9 @@ export class WorldGrass {
   private originZ = Number.NaN;
   private density = -1;
   private readonly variants: WorldAsset[];
+  private readonly heroVariants: WorldAsset[];
+  /** zolle `grass-hero` piazzate nell'ultimo rebuild (diagnostica) */
+  heroCount = 0;
   /** Superficie landcover: evita ciuffi verdi sopra un campo arato. */
   private surfaceAt: ((x: number, z: number) => string | null) | null = null;
 
@@ -563,6 +576,9 @@ export class WorldGrass {
       .filter((asset) => asset.triangles <= 2500)
       .sort((a, b) => a.triangles - b.triangles)
       .slice(0, 7);
+    // le zolle hero non entrano nel tappeto: sono scan pesanti, si piazzano
+    // poche istanze e solo vicino alla camera (vedi `update`)
+    this.heroVariants = kit.variants('grass-hero');
     this.group.name = 'world-grass';
   }
 
@@ -580,9 +596,10 @@ export class WorldGrass {
     density: number,
     areas: OsmData['areas'] = [],
   ): void {
-    if (this.variants.length === 0) return;
+    if (this.variants.length === 0 && this.heroVariants.length === 0) return;
     const d = Math.max(0, Math.min(1, density));
     if (d <= 0.01) {
+      this.heroCount = 0;
       for (const mesh of this.meshes) mesh.visible = false;
       return;
     }
@@ -651,6 +668,81 @@ export class WorldGrass {
       this.meshes.push(group);
       this.group.add(group);
     }
+    const heroSpots = this.placeHeroGrass(x, z, heights, roads, buildings, d);
+    this.heroCount = heroSpots.length;
+    if (heroSpots.length) {
+      const group = this.kit.instances('grass-hero', heroSpots, {
+        castShadow: false,
+        receiveShadow: true,
+      });
+      this.meshes.push(group);
+      this.group.add(group);
+    }
+  }
+
+  /**
+   * Poche zolle d'erba fotogrammetriche attorno al giocatore.
+   *
+   * Stanno solo su prato/bosco, lontane dalla strada e su terreno quasi piano:
+   * una zolla da 2,7 m su un pendio mostrerebbe il bordo sollevato, e una
+   * macchia verde in mezzo a un campo arato sembrerebbe un errore. La base è
+   * già a y = 0 nel GLB, quindi basta appoggiarla alla quota del DEM.
+   */
+  private placeHeroGrass(
+    x: number,
+    z: number,
+    heights: Heightfield,
+    roads: RoadIndex,
+    buildings: BuildingIndex,
+    density: number,
+  ): WorldSpot[] {
+    const wanted = Math.round(GRASS_HERO_MAX * density);
+    if (wanted <= 0 || this.heroVariants.length === 0) return [];
+    const n = this.mask.n;
+    const cell = this.mask.cellSize;
+    let count = 0;
+    for (let j = 0; j < n; j++) {
+      for (let i = 0; i < n; i++) {
+        if (!this.mask.isBlocked(i, j)) this.valid[count++] = j * n + i;
+      }
+    }
+    if (count === 0) return [];
+    const rng = mulberry32((Math.round(x * 17 + z * 11) | 1) ^ 0x5e11);
+    const spots: WorldSpot[] = [];
+    for (let attempt = 0; attempt < wanted * 16 && spots.length < wanted; attempt++) {
+      const idx = this.valid[Math.floor(rng() * count)]!;
+      const i = idx % n;
+      const j = (idx - i) / n;
+      const px = this.mask.originX + (i + rng()) * cell;
+      const pz = this.mask.originZ + (j + rng()) * cell;
+      const distance = Math.hypot(px - x, pz - z);
+      if (distance < 2.4 || distance > GRASS_HERO_RADIUS) continue;
+      const cover = this.mask.coverAt(i, j);
+      if (cover !== COVER_MEADOW && cover !== COVER_WOOD) continue;
+      const surface = this.surfaceAt?.(px, pz);
+      if (surface === 'dirt' || surface === 'rock') continue;
+      if (roads.isOnRoad(px, pz, 1.8)) continue;
+      if (buildings.hitsCircle(px, pz, 1.6)) continue;
+      // pendenza locale sui quattro lati della zolla
+      const rise =
+        Math.abs(this.mask.heightAt(px - 1.2, pz) - this.mask.heightAt(px + 1.2, pz)) +
+        Math.abs(this.mask.heightAt(px, pz - 1.2) - this.mask.heightAt(px, pz + 1.2));
+      if (rise > 0.55) continue;
+      // le zolle sono quadrati di prato scan: se restano isolate si vede il
+      // bordo tagliato. Avvicinandole un po' i fili si sovrappongono e la
+      // cucitura sparisce.
+      if (spots.some((spot) => Math.hypot(spot.x - px, spot.z - pz) < 1.1)) continue;
+      spots.push({
+        x: px,
+        y: heights.heightAt(px, pz) - 0.08,
+        z: pz,
+        yaw: rng() * Math.PI * 2,
+        // le zolle arrivano già a 0,8 m: qui si varia solo un po' la taglia
+        scale: 0.6 + rng() * 0.4,
+        variant: Math.floor(rng() * this.heroVariants.length),
+      });
+    }
+    return spots;
   }
 
   dispose(): void {
