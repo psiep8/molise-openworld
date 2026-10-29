@@ -58,6 +58,10 @@ in gioco.
 
 **Non implementato.** Avvio suggerito, dopo le verifiche A/B:
 
+- Branch di lavoro predisposto: `upgrade/molise-3-task-c`, basato sul branch
+  pubblicato A/B. Nessuna modifica runtime di C è inclusa finché non partono
+  l'inventario dei rig/clip e l'implementazione del primo incremento.
+
 1. Inventariare `human-model.ts`, `player.ts`, `pedestrians.ts` e i clip/rig
    disponibili; mantenere le animazioni e gli asset esistenti come fallback.
 2. Separare una macchina a stati pura per locomozione e blend, con test di pesi,
