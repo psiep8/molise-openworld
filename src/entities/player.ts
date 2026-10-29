@@ -780,17 +780,20 @@ export class Player {
 
     // Adattamento al terreno: inclinazione misurata sui due piedi e quota media
     // usata per appoggiare il corpo, non per farlo sprofondare a metà pendio.
+    // Il sampler va passato come funzione: `heightAt` usa `this` e slegato dal
+    // suo oggetto esploderebbe su `sampleAt` undefined.
+    const heightAt = (x: number, z: number): number => ground.heightAt(x, z);
     const tilt = this.grounded
-      ? terrainTilt(ground.heightAt, this.position.x, this.position.z, this.yaw)
+      ? terrainTilt(heightAt, this.position.x, this.position.z, this.yaw)
       : { pitch: 0, roll: 0 };
     const feet = this.grounded
-      ? footHeights(ground.heightAt, this.position.x, this.position.z, this.yaw)
+      ? footHeights(heightAt, this.position.x, this.position.z, this.yaw)
       : null;
     const smooth = 1 - Math.exp(-8 * Math.max(0, dt));
     this.tiltPitch += (tilt.pitch - this.tiltPitch) * smooth;
     this.tiltRoll += (tilt.roll - this.tiltRoll) * smooth;
     const footTarget = feet
-      ? feet.average - ground.heightAt(this.position.x, this.position.z)
+      ? feet.average - heightAt(this.position.x, this.position.z)
       : 0;
     this.footOffset += (clamp(footTarget, -0.35, 0.35) - this.footOffset) * smooth;
 
