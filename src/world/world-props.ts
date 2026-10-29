@@ -43,7 +43,7 @@ export interface WorldPropBudget {
 }
 
 const BUDGETS: Record<QualityLevel, WorldPropBudget> = {
-  minimal: { tree: 0, shrub: 0, distantTree: 0, rock: 0, sign: 0, house: 0, grass: 0 },
+  minimal: { tree: 3, shrub: 90, distantTree: 120, rock: 8, sign: 2, house: 0, grass: 50 },
   low: { tree: 8, shrub: 150, distantTree: 240, rock: 22, sign: 4, house: 0, grass: 110 },
   medium: { tree: 22, shrub: 320, distantTree: 620, rock: 55, sign: 7, house: 2, grass: 190 },
   high: { tree: 40, shrub: 560, distantTree: 1050, rock: 90, sign: 10, house: 4, grass: 300 },
@@ -395,7 +395,7 @@ export function buildWorldProps(
           scale: 0.9 + signRng() * 0.2,
           variant: Math.floor(signRng() * signs.length),
         });
-        obstacles.add(x, z, 0.45, 'sign');
+        obstacles.add(x, z, 0.45, 'world-sign');
       }
     }
   }

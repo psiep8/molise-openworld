@@ -7,11 +7,11 @@ export type QualityLevel = 'minimal' | 'low' | 'medium' | 'high' | 'ultra';
  * esiste. Un PC di dieci anni fa non deve disegnare 14.000 alberi, 80.000
  * ciuffi d'erba e 600 lampioni per poi renderli a 12 fps; con `minimal` il
  * mondo resta lo stesso posto (strade, case, rilievo veri) ma con pochi
- * oggetti, niente ombre, niente post-processing e senza i GLB pesanti del kit.
+ * oggetti, niente ombre e niente post-processing; la vegetazione di base resta.
  *
  * I campi si leggono così:
  * - `pixelRatio`, `renderScaleFloor`, `antialias`, `shadows`, `shadowMapSize`,
- *   `post`, `bloom`, `ssao`, `maxSatelliteZoom` = costo di rendering;
+ *   `post`, `bloom`, `ssao` = costo di rendering;
  * - `trees`, `shrubs`, `pedestrians`, `pointLights` = costo di scena;
  * - `weather`, `kit` = effetti e asset esterni che si possono saltare del tutto;
  * - `viewRadius` = quanti chunk di terreno si tengono in memoria.
@@ -44,8 +44,6 @@ export interface QualityPreset {
   bloom: number;
   /** occlusione ambientale (SSAO) nella pipeline di post */
   ssao: boolean;
-  /** zoom massimo delle texture satellite (16 lontano, 17 vicino, 18 dettaglio) */
-  maxSatelliteZoom: number;
   /** densità del tappeto d'erba, 0…1 */
   grassDensity: number;
   /** zolle GLB di terreno fotogrammetrico intorno al giocatore */
@@ -67,9 +65,9 @@ export interface QualityPreset {
   /** carica i GLB del city kit (arredo e materiali fotografici delle strade) */
   kit: boolean;
   /**
-   * GLB del world kit (vegetazione, sassi, cartelli, case di campagna). Sono nel
-   * repository e non richiedono download: si spengono solo su `minimal`, dove
-   * il mondo deve restare leggero a tutti i costi.
+   * GLB del world kit (vegetazione, sassi, cartelli, dettagli di campagna).
+   * Il kit resta disponibile anche su `minimal`: i budget ridotti limitano il
+   * numero di istanze senza lasciare il mondo privo di vegetazione.
    */
   worldProps: boolean;
   /**
@@ -129,9 +127,8 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     post: false,
     bloom: 0,
     ssao: false,
-    maxSatelliteZoom: 15,
     grassDensity: 0.4,
-    groundDetail: 0,
+    groundDetail: 2,
     cropDensity: 0,
     villageScenes: 0,
     trees: 6000,
@@ -140,13 +137,13 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     pointLights: 2,
     weather: 'light',
     kit: false,
-    worldProps: false,
+    worldProps: true,
     buildingDetail: 'simple',
     streamedWorld: false,
     drainage: false,
     guardrails: false,
-    roadside: 0,
-    bridges: 0,
+    roadside: 8,
+    bridges: 12,
     viewRadius: 1500,
     landcover: 'off',
     landcoverRadius: 0,
@@ -166,7 +163,6 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     post: false,
     bloom: 0,
     ssao: false,
-    maxSatelliteZoom: 16,
     grassDensity: 0.4,
     groundDetail: 8,
     cropDensity: 0.24,
@@ -182,8 +178,8 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     streamedWorld: false,
     drainage: false,
     guardrails: false,
-    roadside: 0,
-    bridges: 0,
+    roadside: 8,
+    bridges: 12,
     viewRadius: 2200,
     landcover: 'base',
     landcoverRadius: 0,
@@ -203,7 +199,6 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     post: false,
     bloom: 0,
     ssao: false,
-    maxSatelliteZoom: 17,
     grassDensity: 0.45,
     groundDetail: 22,
     cropDensity: 0.55,
@@ -240,7 +235,6 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     post: true,
     bloom: 0.012,
     ssao: true,
-    maxSatelliteZoom: 18,
     grassDensity: 0.72,
     groundDetail: 38,
     cropDensity: 0.85,
@@ -277,7 +271,6 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     post: true,
     bloom: 0.02,
     ssao: true,
-    maxSatelliteZoom: 18,
     grassDensity: 1,
     groundDetail: 54,
     cropDensity: 1,

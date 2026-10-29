@@ -168,10 +168,10 @@ async function main() {
     for (let i = 0; i < 160; i++) {
       await sleep(500);
       diag = await evalJs('window.__molise ? JSON.parse(JSON.stringify(window.__molise)) : null').catch(() => null);
-      if (diag?.ready && diag.textured > 2) break;
+      if (diag?.ready && diag.covered > 2) break;
     }
     if (!diag?.ready) throw new Error('il mondo non è diventato ready');
-    log(`ready: preset=${diag.quality} scala=${diag.renderScale} chunk=${diag.chunks} texture=${diag.textured}`);
+    log(`ready: preset=${diag.quality} scala=${diag.renderScale} chunk=${diag.chunks} coperti=${diag.covered}`);
 
     // ora fissa: il sole predefinito segue l'orologio reale, quindi senza questo
     // due catture a distanza di ore non sono confrontabili
@@ -181,12 +181,6 @@ async function main() {
       await evalJs(`window.moliseGame.setManualTime(true); window.moliseGame.setManualHour(${hour}); true`);
       await sleep(2500);
       log(`ora fissa ${hour.toFixed(1)}`);
-    }
-
-    // la CPU software impiega secondi a caricare le tile: aspetta che il vicino sia dettagliato
-    for (let i = 0; i < 40 && diag.detailed < 2; i++) {
-      await sleep(1000);
-      diag = await evalJs('JSON.parse(JSON.stringify(window.__molise))');
     }
 
     await evalJs("document.getElementById('hud').style.display='none'; const a=document.getElementById('attribution'); if(a) a.style.display='none';");

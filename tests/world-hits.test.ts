@@ -104,6 +104,14 @@ describe('WorldHitField', () => {
   it('non fa nulla a forza zero (urti a passo d’uomo)', () => {
     const hits = new WorldHitField();
     hits.register('sign', [spot(0, 0, 0, 0)], [part(0, 1)]);
-    expect(hits.hit({ x: 0, z: 0, dx: 0, dz: 1, strength: 0, tag: 'sign' })).toBeNull();
+    expect(hits.hit({ x: 0, z: 0, dx: 0, dz: 1, strength: 0, tag: 'world-sign' })).toBeNull();
+  });
+
+  it('associa gli urti dei cartelli GLB alla mesh corretta', () => {
+    const hits = new WorldHitField();
+    const signs = part(0, 1);
+    hits.register('sign', [spot(0, 0, 0, 0)], [signs]);
+    expect(hits.hit({ x: 0, z: 0, dx: 0, dz: 1, strength: 0.8, tag: 'world-sign' })).toBe('sign');
+    expect((signs.attribute.array as Float32Array)[1]).toBeCloseTo(0.8, 6);
   });
 });

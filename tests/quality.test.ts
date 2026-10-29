@@ -38,7 +38,7 @@ describe('preset grafici', () => {
     }
   });
 
-  it('il preset di compatibilità è quello che rinuncia a tutto', () => {
+  it('il preset di compatibilità riduce gli effetti ma conserva la vegetazione', () => {
     const minimal = QUALITY_PRESETS.minimal;
     expect(minimal.post).toBe(false);
     expect(minimal.shadows).toBe(false);
@@ -49,11 +49,12 @@ describe('preset grafici', () => {
     expect(minimal.weather).toBe('light');
     expect(minimal.buildingDetail).toBe('simple');
     expect(minimal.drainage).toBe(false);
-    expect(minimal.groundDetail).toBe(0);
+    expect(minimal.worldProps).toBe(true);
+    expect(minimal.groundDetail).toBeGreaterThan(0);
     expect(minimal.cropDensity).toBe(0);
     expect(minimal.villageScenes).toBe(0);
-    expect(minimal.roadside).toBe(0);
-    expect(minimal.bridges).toBe(0);
+    expect(minimal.roadside).toBeGreaterThan(0);
+    expect(minimal.bridges).toBeGreaterThan(0);
     expect(QUALITY_PRESETS.medium.roadside).toBeGreaterThan(0);
     expect(QUALITY_PRESETS.medium.bridges).toBeGreaterThan(0);
     expect(minimal.trees).toBeGreaterThan(1000);

@@ -66,7 +66,8 @@ const TILE = 256;
  * z17 ≈ 0,9 m/px: tetti, uliveti e muretti a secco (medio raggio).
  * z16 ≈ 1,8 m/px: fondo scala per i campi lontani.
  *
- * Il tetto reale lo impone il preset (`maxSatelliteZoom` in gfx/quality.ts).
+ * La minimappa può continuare a usare immagini aperte; il terreno 3D non le
+ * campiona e decide il proprio aspetto dai dati di copertura georeferenziati.
  */
 export function zoomForDistance(distance: number): number {
   if (distance <= 500) return 18;

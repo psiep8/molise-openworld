@@ -12,10 +12,10 @@ import {
   prepareRoadElevations,
   RoadIndex,
   widenUnmappedRuralRoads,
+  type Building,
   type OsmData,
 } from './geo/osm';
 import { ObstacleIndex } from './geo/obstacles';
-import { OPEN_WORLD_IMAGERY, ImageryStreamer } from './world/imagery';
 import { Terrain, setCloudShadow } from './world/terrain';
 import { Landcover, monthForGameDay } from './world/landcover';
 import { FarTerrain } from './world/far-terrain';
@@ -174,8 +174,7 @@ export interface Diagnostics {
   running: boolean;
   mode: Mode;
   chunks: number;
-  textured: number;
-  detailed: number;
+  covered: number;
   fps: number;
   x: number;
   z: number;
@@ -333,8 +332,7 @@ export interface BenchResult {
   bufferWidth: number;
   bufferHeight: number;
   chunks: number;
-  textured: number;
-  detailed: number;
+  covered: number;
   degraded: number;
   x: number;
   z: number;
@@ -464,8 +462,8 @@ export class Game {
    *
    * Il resolution scaling da solo non basta: su una iGPU vecchia scendere a
    * 0,6× non salva un frame che paga 14.000 alberi in ombra. Qui, dopo qualche
-   * secondo sotto i 26 fps con la scala già al minimo, si riducono le ombre,
-   * lo zoom satellite e il raggio di streaming, senza togliere erba o meteo.
+   * secondo sotto i 26 fps con la scala già al minimo, si riducono le ombre
+   * e il raggio di streaming, senza togliere erba o meteo.
    * È `sticky`: non torna indietro da sola, per non far ballare la grafica.
    */
   private degradeStep = 0;
@@ -491,6 +489,12 @@ export class Game {
     signs: number;
     houses: number;
   } | null = null;
+  private worldPropsGroup: THREE.Group | null = null;
+  private worldPropFootprints: Building[] = [];
+  private roadsideGroup: THREE.Group | null = null;
+  private bridgeGroup: THREE.Group | null = null;
+  private strawBalesGroup: THREE.Group | null = null;
+  private villageScenesGroup: THREE.Group | null = null;
   /** Moduli GLB di marciapiede/cordolo piazzati fuori dal costruito. */
   private roadsideStats: { sidewalks: number; curbs: number } | null = null;
   private bridgeStats: { bridges: number; modules: number; highway: number } | null = null;
@@ -676,8 +680,8 @@ export class Game {
           })
         : Promise.resolve(null);
 
-      // il world kit è **nel repository**: si carica sempre (tranne su
-      // `minimal`) e non dipende da script esterni o licenze da scaricare
+      // Il world kit è parte del mondo anche su Compatibilità: i budget di
+      // istanze limitano il costo senza eliminare vegetazione e dettagli GLB.
       const worldKitPromise = this.quality.worldProps
         ? loadWorldKit(
             `${import.meta.env.BASE_URL}worldkit/`,
@@ -814,6 +818,7 @@ export class Game {
       // Va fatto qui: dopo i casali ma prima di vegetazione ed erba, così le
       // nuove impronte sono già nell'indice e nessuno ci cresce dentro.
       if (this.worldKit) {
+        const existingBuildings = new Set(this.buildingIndex.all);
         const props = buildWorldProps(
           osm,
           heights,
@@ -825,6 +830,8 @@ export class Game {
           this.pavedAreas,
         );
         this.scene.add(props.group);
+        this.worldPropsGroup = props.group;
+        this.worldPropFootprints = this.buildingIndex.all.filter((building) => !existingBuildings.has(building));
         this.worldHits = props.hits;
         this.worldShrubs = props.shrubField;
         this.worldProps = {
@@ -848,6 +855,7 @@ export class Game {
           this.quality.roadside,
         );
         this.scene.add(roadside.group);
+        this.roadsideGroup = roadside.group;
         this.roadsideStats = { sidewalks: roadside.sidewalks, curbs: roadside.curbs };
       }
       // impalcati sui ponti OSM: la carreggiata procedurale resta quella con
@@ -855,6 +863,7 @@ export class Game {
       if (this.worldKit && this.quality.bridges > 0) {
         const bridge = buildBridgeKit(osm, this.worldKit, this.quality.bridges);
         this.scene.add(bridge.group);
+        this.bridgeGroup = bridge.group;
         this.bridgeStats = {
           bridges: bridge.bridges,
           modules: bridge.modules,
@@ -951,12 +960,8 @@ export class Game {
       this.routeBeacon = this.createRouteBeacon();
       this.scene.add(this.routeBeacon);
 
-      const imagery = new ImageryStreamer(OPEN_WORLD_IMAGERY, this.renderer.capabilities.getMaxAnisotropy(), () => {
-        this.tileErrors++;
-      });
-      // il tetto di zoom va passato **qui**: `applyQuality` gira nel costruttore,
-      // prima che il terreno esista, e senza questo argomento ogni preset
-      // scaricava comunque tile z18 (era il vero costo nascosto dei preset bassi)
+      // La superficie del mondo è ricostruita da copertura OSM, DEM e asset
+      // 3D del world kit: le immagini georeferenziate non colorano il paesaggio.
       this.hud.setLoading(0.74, 'Leggo la copertura del suolo…');
       this.landcover = new Landcover(
         this.renderer.capabilities.getMaxAnisotropy(),
@@ -974,18 +979,17 @@ export class Game {
           landcoverSurface,
         );
         this.scene.add(this.fieldDetail.group);
-        this.scene.add(
-          buildStrawBales(
-            this.worldKit,
-            this.osm,
-            heights,
-            this.roadIndex,
-            this.buildingIndex,
-            this.obstacles,
-            landcoverSurface,
-            this.quality.level === 'ultra' ? 46 : this.quality.level === 'high' ? 38 : 26,
-          ),
+        this.strawBalesGroup = buildStrawBales(
+          this.worldKit,
+          this.osm,
+          heights,
+          this.roadIndex,
+          this.buildingIndex,
+          this.obstacles,
+          landcoverSurface,
+          this.strawBaleBudget(this.qualityLevel),
         );
+        this.scene.add(this.strawBalesGroup);
       }
       // la fisica fuori strada usa la stessa classificazione del terreno:
       // un campo arato è terra, un prato è erba, la roccia è ghiaia. Le zolle
@@ -996,17 +1000,20 @@ export class Game {
       this.worldGrass?.setSurfaceProvider(landcoverSurface);
       this.terrain = new Terrain(
         heights,
-        imagery,
         this.renderer,
-        this.quality.maxSatelliteZoom,
         this.landcover,
         osm.roads.filter((road) => road.tunnel && !road.bridge),
+        osm.areas,
       );
       this.scene.add(this.terrain.group);
       if (this.worldKit) {
-        this.scene.add(
-          buildVillageScenes(this.worldKit, heights, this.roadIndex, this.quality.villageScenes),
+        this.villageScenesGroup = buildVillageScenes(
+          this.worldKit,
+          heights,
+          this.roadIndex,
+          this.quality.villageScenes,
         );
+        this.scene.add(this.villageScenesGroup);
       }
       const worldDataProvider = OPEN_WORLD_DATA_PROVIDER;
       if (worldDataProvider) {
@@ -1049,17 +1056,13 @@ export class Game {
       );
 
       this.map = new MapRenderer(osm);
-      const imageryAttribution =
-        OPEN_WORLD_IMAGERY.id === 'local-open-imagery'
-          ? OPEN_WORLD_IMAGERY.attribution
-          : `Sentinel-2 cloudless © EOX IT Services GmbH (CC BY 4.0) · ${OPEN_WORLD_IMAGERY.attribution}`;
       const attribution = document.getElementById('attribution');
       if (attribution) {
-        attribution.textContent = `© OpenStreetMap contributors · Immagini: ${imageryAttribution}`;
+        attribution.textContent = `© OpenStreetMap contributors · Paesaggio 3D da DEM, copertura del suolo e world kit`;
       }
       const startAttribution = document.getElementById('imagery-attribution');
       if (startAttribution) {
-        startAttribution.textContent = `Immagini satellite: ${imageryAttribution}`;
+        startAttribution.textContent = 'Paesaggio 3D georeferenziato · DEM, OSM e world kit';
       }
       // su `minimal` il radar parte vettoriale: niente tile satellitari da
       // scaricare e decodificare su una macchina che sta già a 20 fps
@@ -2673,6 +2676,105 @@ export class Game {
     }, 60);
   }
 
+  private clearWorldKitGroup(group: THREE.Group | null): void {
+    if (!group) return;
+    this.scene.remove(group);
+    group.traverse((object) => {
+      if (object instanceof THREE.InstancedMesh) object.dispose();
+    });
+  }
+
+  private strawBaleBudget(level: QualityLevel): number {
+    return level === 'ultra' ? 46 : level === 'high' ? 38 : level === 'medium' ? 26 : level === 'low' ? 16 : 12;
+  }
+
+  /** Ricostruisce le istanze statiche quando cambia il budget del preset. */
+  private rebuildWorldKitDetails(): void {
+    if (!this.worldKit || !this.osm || !this.heights || !this.roadIndex || !this.buildingIndex) return;
+
+    this.clearWorldKitGroup(this.worldPropsGroup);
+    this.worldPropsGroup = null;
+    this.buildingIndex.remove(this.worldPropFootprints);
+    this.worldPropFootprints = [];
+    for (const tag of ['world-tree', 'world-tree-far', 'world-rock', 'world-sign', 'world-house', 'straw-bale']) {
+      this.obstacles.removeTag(tag);
+    }
+
+    const existingBuildings = new Set(this.buildingIndex.all);
+    const props = buildWorldProps(
+      this.osm,
+      this.heights,
+      this.roadIndex,
+      this.buildingIndex,
+      this.obstacles,
+      this.worldKit,
+      this.qualityLevel,
+      this.pavedAreas,
+    );
+    this.worldPropsGroup = props.group;
+    this.scene.add(props.group);
+    this.worldPropFootprints = this.buildingIndex.all.filter((building) => !existingBuildings.has(building));
+    this.worldHits = props.hits;
+    this.worldShrubs = props.shrubField;
+    this.worldProps = {
+      trees: props.trees,
+      shrubs: props.shrubs,
+      distantTrees: props.distantTrees,
+      rocks: props.rocks,
+      signs: props.signs,
+      houses: props.houses,
+    };
+
+    this.clearWorldKitGroup(this.roadsideGroup);
+    this.roadsideGroup = null;
+    this.roadsideStats = null;
+    if (this.quality.roadside > 0) {
+      const roadside = buildRoadsideKit(this.osm, this.heights, this.roadIndex, this.worldKit, this.quality.roadside);
+      this.roadsideGroup = roadside.group;
+      this.scene.add(roadside.group);
+      this.roadsideStats = { sidewalks: roadside.sidewalks, curbs: roadside.curbs };
+    }
+
+    this.clearWorldKitGroup(this.bridgeGroup);
+    this.bridgeGroup = null;
+    this.bridgeStats = null;
+    if (this.quality.bridges > 0) {
+      const bridge = buildBridgeKit(this.osm, this.worldKit, this.quality.bridges);
+      this.bridgeGroup = bridge.group;
+      this.scene.add(bridge.group);
+      this.bridgeStats = {
+        bridges: bridge.bridges,
+        modules: bridge.modules,
+        highway: bridge.highwayModules,
+      };
+    }
+
+    this.clearWorldKitGroup(this.strawBalesGroup);
+    this.strawBalesGroup = null;
+    if (this.quality.worldProps) {
+      this.strawBalesGroup = buildStrawBales(
+        this.worldKit,
+        this.osm,
+        this.heights,
+        this.roadIndex,
+        this.buildingIndex,
+        this.obstacles,
+        (x, z) => this.landcover?.surfaceAt(x, z) ?? null,
+        this.strawBaleBudget(this.qualityLevel),
+      );
+      this.scene.add(this.strawBalesGroup);
+    }
+
+    this.clearWorldKitGroup(this.villageScenesGroup);
+    this.villageScenesGroup = buildVillageScenes(
+      this.worldKit,
+      this.heights,
+      this.roadIndex,
+      this.quality.villageScenes,
+    );
+    this.scene.add(this.villageScenesGroup);
+  }
+
   private applyQuality(level: QualityLevel, announce = true): void {
     const previous = this.quality;
     this.qualityLevel = level;
@@ -2695,7 +2797,6 @@ export class Game {
     this.setShadows(this.quality.shadows);
     this.applyRenderScale();
     this.sky?.setShadowMapSize(this.quality.shadowMapSize);
-    this.terrain?.setMaxZoom(this.quality.maxSatelliteZoom);
     this.terrain?.setLandcoverPreset(this.quality.landcover, this.quality.landcoverRadius);
     this.streamedWorld?.setEnabled(this.quality.streamedWorld);
     if (this.quality.post || this.quality.postAA) {
@@ -2727,7 +2828,7 @@ export class Game {
       // alberi e cespugli si ricostruiscono davvero a runtime: niente più
       // "al prossimo avvio"
       this.hud.toast(
-        `Grafica: ${this.quality.label}${fx} · satellite z${this.quality.maxSatelliteZoom}`,
+        `Grafica: ${this.quality.label}${fx} · paesaggio 3D georeferenziato`,
         3600,
       );
       if (previous.trees !== this.quality.trees || previous.shrubs !== this.quality.shrubs) {
@@ -2736,6 +2837,9 @@ export class Game {
     }
     if (previous.guardrails !== this.quality.guardrails) {
       this.rebuildGuardrails();
+    }
+    if (this.loaded && previous.level !== this.quality.level) {
+      this.rebuildWorldKitDetails();
     }
   }
 
@@ -3010,12 +3114,12 @@ export class Game {
   // -------------------------------------------------------------------------
   // stato di gioco
   // -------------------------------------------------------------------------
-  /** Diagnostica satellite: con ?imagery=debug mostra nel titolo quanti chunk hanno texture e quanti sono a z17+. */
+  /** Diagnostica del terreno: con ?imagery=debug mostra i chunk georeferenziati. */
   private startImageryDebug(): void {
     window.setInterval(() => {
       const t = this.terrain;
       if (!t) return;
-      document.title = `Molise · chunk ${t.loadedChunks} · texture ${t.texturedChunks} · z17+ ${t.detailedChunks}`;
+      document.title = `Molise · terreno georeferenziato ${t.coveredChunks}/${t.loadedChunks}`;
     }, 1000);
   }
 
@@ -3180,7 +3284,7 @@ export class Game {
    *
    * Prima si abbassa la risoluzione (pixel più grandi, nessun cambio di scena);
    * quando anche il minimo del preset non basta, si spengono gli effetti in
-   * ordine di costo percepito: ombre, erba, meteo, dettaglio satellite, raggio
+   * ordine di costo percepito: ombre, erba, meteo, dettaglio locale, raggio
    * del terreno. Così anche una macchina da 20 fps arriva a 30 senza toccare
    * il tasto `G`. La scala torna su quando c'è margine, la degradazione no:
    * evita che la grafica oscilli fra due livelli.
@@ -3230,7 +3334,6 @@ export class Game {
         this.hud.toast('Prestazioni: ombre disattivate per tenere il gioco fluido', 3600);
         break;
       case 2:
-        this.terrain?.setMaxZoom(15);
         break;
       case 3:
         this.viewRadius = Math.min(this.viewRadius, 1600);
@@ -3317,7 +3420,7 @@ export class Game {
       this.heights,
       this.roadIndex,
       this.buildingIndex,
-      this.quality.worldProps ? this.quality.grassDensity : 0,
+      this.quality.grassDensity,
       this.osm.areas,
     );
     this.fieldDetail?.update(
@@ -3327,8 +3430,8 @@ export class Game {
       this.roadIndex,
       this.buildingIndex,
       this.osm.areas,
-      this.quality.worldProps ? this.quality.groundDetail : 0,
-      this.quality.worldProps ? this.quality.cropDensity : 0,
+      this.quality.groundDetail,
+      this.quality.cropDensity,
     );
     this.applyManualAtmosphere(dt, focus);
     this.updateSky(focus);
@@ -3474,8 +3577,7 @@ export class Game {
       bufferWidth: size.x,
       bufferHeight: size.y,
       chunks: this.terrain?.loadedChunks ?? 0,
-      textured: this.terrain?.texturedChunks ?? 0,
-      detailed: this.terrain?.detailedChunks ?? 0,
+      covered: this.terrain?.coveredChunks ?? 0,
       degraded: this.degradeStep,
       x: view.x,
       z: view.z,
@@ -3599,7 +3701,7 @@ export class Game {
       const impact = this.car.consumeImpact();
       if (impact) {
         // il colpo si sente: metallo per i cartelli, legno/pietra per il resto
-        this.audio.impact(impact.strength, impact.tag === 'sign');
+        this.audio.impact(impact.strength, impact.tag === 'world-sign');
       }
       if (impact && this.worldHits) {
         this.worldHits.hit({
@@ -3680,7 +3782,7 @@ export class Game {
       this.heights,
       this.roadIndex,
       this.buildingIndex,
-      this.quality.worldProps ? this.quality.grassDensity : 0,
+      this.quality.grassDensity,
       this.osm.areas,
     );
     this.fieldDetail?.update(
@@ -3690,8 +3792,8 @@ export class Game {
       this.roadIndex,
       this.buildingIndex,
       this.osm.areas,
-      this.quality.worldProps ? this.quality.groundDetail : 0,
-      this.quality.worldProps ? this.quality.cropDensity : 0,
+      this.quality.groundDetail,
+      this.quality.cropDensity,
     );
     if (this.manualTime) this.applyManualAtmosphere(dt, focus);
     else if (this.realWeatherEnabled) this.applyWeatherVisuals(dt, focus);
@@ -4027,8 +4129,7 @@ export class Game {
       running: this.running,
       mode: this.mode,
       chunks: this.terrain?.loadedChunks ?? 0,
-      textured: this.terrain?.texturedChunks ?? 0,
-      detailed: this.terrain?.detailedChunks ?? 0,
+      covered: this.terrain?.coveredChunks ?? 0,
       fps: this.fps,
       x: focus.x,
       z: focus.z,

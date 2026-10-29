@@ -7,8 +7,8 @@ import { terrainMicroNormal } from '../gfx/detail-textures';
  *
  * I file in `public/geo/landcover/` non sono versionati: sono un'opera derivata
  * da ESA WorldCover (CC BY 4.0) e OpenStreetMap (ODbL 1.0). Si rigenerano con
- * `npm run landcover`. Se mancano, il terreno continua a usare il vecchio
- * shader erba/roccia: questa classe non lancia e `ready` resta `false`.
+ * `npm run landcover`. Se mancano, il terreno usa la classificazione OSM e
+ * questa classe non lancia; `ready` resta `false`.
  *
  * Formato dei dati (RGBA8, 0..255):
  *  - R = coltivo secco/stoppie, G = prato, B = sottobosco, A = roccia/terra;
@@ -16,8 +16,7 @@ import { terrainMicroNormal } from '../gfx/detail-textures';
  *  - i chunk sono 456×456 a 2 m/px.
  *
  * La copertura viene cotta in RGBA come pesi di classe (coltivo, prato,
- * bosco, suolo). Il terreno usa tinte piane; le texture ad alta frequenza non
- * vengono più campionate nello shader di colore.
+ * bosco, suolo). Il terreno usa tinte e dettagli procedurali, senza imagery.
  */
 
 const ROOT = `${import.meta.env.BASE_URL}geo/landcover`;

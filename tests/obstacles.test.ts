@@ -70,4 +70,13 @@ describe('ostacoli cilindrici', () => {
     expect(index.hitsCircle(2, 0, 0.4)).toBe(false);
     expect(index.hitsCircle(0, 2, 0.4)).toBe(true);
   });
+
+  it('mantiene i cartelli OSM quando rimuove i cartelli del world kit', () => {
+    const index = new ObstacleIndex();
+    index.add(2, 0, 0.45, 'world-sign');
+    index.add(0, 2, 0.45, 'sign');
+    index.removeTag('world-sign');
+    expect(index.nearest(2, 0, 1)).toBeNull();
+    expect(index.nearest(0, 2, 1)?.tag).toBe('sign');
+  });
 });

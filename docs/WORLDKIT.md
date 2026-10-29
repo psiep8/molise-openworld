@@ -17,20 +17,25 @@ git): quelli restano asset locali, il world kit è parte del progetto.
 | `tree` | 2 | alberi realistici ad alto dettaglio, dove il giocatore passa vicino |
 | `shrub` | 76 | sottobosco: felci, origano, camomilla, bambù, piante da 0,3–1,3 m |
 | `tree-distant` | 20 | sagome low-poly per riempire l'orizzonte a centinaia di metri |
-| `grass` | 9 | ciuffi d'erba fotografati nel raggio di 34 m dal giocatore |
+| `grass` / `grass-hero` | 11 | ciuffi d'erba nel raggio del giocatore, inclusi i modelli fotogrammetrici |
 | `rock` | 9 | sassi e affioramenti sui pendii |
-| `sign` | 5 | cartelli stradali su palo lungo le provinciali, con collisione |
+| `sign` | 13 | cartelli stradali su palo lungo le provinciali, con collisione |
 | `house` | 1 | casale di campagna con impronta solida nell'indice collisioni |
-| `spare` | 26 | terreni, cordoli, marciapiedi, guardrail, lampioni, chiesa, neve… |
+| `ground` / `field` | 11 | zolle di terreno e coltivi di prossimità |
+| `bale` / `village` | 4 | balle solide e scene rurali |
+| `sidewalk` / `curb` | 7 | moduli di marciapiede e cordolo |
+| `bridge` / `guardrail` | 5 | strutture di ponte e guardrail di dettaglio |
+| `streetlight` / `planter` / `pathlight` | 6 | lampioni, fioriere e luci da percorso |
+| `spare` | 16 | elementi ritirati o riserve, non piazzati nel mondo |
 
 Il pack di vegetazione è tutto **sottobosco** (0,2–1,3 m), non alberi: va piazzato
 alla sua scala, altrimenti diventa una liana alta dieci metri. Per questo il
 ruolo si chiama `shrub` e non `tree`.
 
-I `spare` sono nel repo e nel manifest ma **non vengono caricati**: sono riserve
-per i prossimi lavori (marciapiedi fotografati, guardrail a modello, lampioni,
-zolle d'erba ad alta densità). Non pesano sulla VRAM né sul tempo di avvio.
-La coda completa delle 26 riserve, con licenze e blocchi tecnici, è in
+Il manifest contiene 181 modelli: 165 piazzabili e 16 ritirati. I modelli
+ritirati sono nel repo ma **non vengono caricati**; hanno motivazioni esplicite
+nel manifest (per esempio scansioni non georeferenziabili o asset inadatti).
+La coda completa, con licenze e blocchi tecnici, è in
 [`docs/RESERVE-TODO.md`](RESERVE-TODO.md).
 
 I ruoli e le regole di piazzamento stanno in `src/world/world-props.ts`; il
@@ -42,16 +47,25 @@ caricamento in `src/world/worldkit.ts`.
   `Math.random()`. Lo stesso mondo a ogni avvio.
 - Rispetta strade, marciapiedi, piazze, edifici e pendenze; le **case** entrano
   nell'indice delle collisioni prima che vegetazione ed erba vengano costruite.
-- Budget per preset (`worldPropBudget`): da zero su *compatibilità* a 58 alberi
-  veri + 760 piante di sottobosco + 1.400 sagome lontane + 120 sassi + 12 cartelli
-  + 6 casali su *ultra*.
+- Budget per preset (`worldPropBudget`): anche *compatibilità* mantiene 3 alberi,
+  90 piante di sottobosco, 120 sagome lontane, 8 sassi, 2 cartelli e 50 ciuffi
+  fotografici; *ultra* arriva a 58 alberi + 760 piante + 1.400 sagome + 120 sassi
+  + 12 cartelli + 6 casali.
 - L'erba fotografata (`WorldGrass`) segue il giocatore e si ricostruisce ogni
   12 m, con al massimo 400 ciuffi: è un dettaglio da primo piano, non un tappeto.
 - I cartelli aggiungono un ostacolo cilindrico; i casali un'impronta rettangolare.
 
-I budget non cambiano a runtime quando si preme `G`: come per casali e arredo
-del city kit, il world kit viene costruito una volta all'avvio con il preset
-attivo.
+I budget statici del world kit vengono ricostruiti quando si cambia preset con
+`G` o dal pannello: si aggiornano alberi, cespugli, cartelli, casali, balle,
+moduli stradali, ponti e scene rurali senza duplicare collisioni o impronte.
+Erba e zolle di terreno seguono inoltre il budget corrente durante il gioco.
+
+Il terreno geografico continuo resta quello del DEM, aggiornabile con tile
+altimetrici. La copertura OSM/ESA georeferenziata decide l'aspetto delle
+campiture (prati, coltivi, boschi, arbusti e terreno nudo); le immagini
+satellitari non vengono disegnate sulla superficie 3D guidabile. I GLB di
+terreno restano dettagli locali: una scansione ampia non può sostituire colline
+e quote su tutta la mappa se non è registrata sul DEM.
 
 ## Meteo, guida e urti
 
@@ -143,7 +157,9 @@ generato dai metadati `asset.extras` dei GLB originali. La tabella è anche in
 byte dichiarati coincidano, che i ruoli siano noti, che le licenze permettano la
 ridistribuzione e che il totale resti sotto il budget di repository.
 `tests/world-props.test.ts` controlla che i budget crescano con il preset, che
-`minimal` sia davvero spento e che i cartelli ruotino la faccia contro il senso
-di marcia (la faccia leggibile è sul lato `-X` locale). `tests/world-hits.test.ts`
-verifica che un urto colpisca l'istanza giusta, nel verso giusto e con la forza
-giusta; `tests/obstacles.test.ts` che si sappia **quale** ostacolo è stato preso.
+`minimal` mantenga la vegetazione di base e che i cartelli ruotino la faccia
+contro il senso di marcia (la faccia leggibile è sul lato `-X` locale).
+`tests/world-hits.test.ts` verifica che un urto colpisca l'istanza giusta, nel
+verso giusto e con la forza giusta; `tests/obstacles.test.ts` che si sappia
+**quale** ostacolo è stato preso e che le ricostruzioni non rimuovano cartelli
+OSM.

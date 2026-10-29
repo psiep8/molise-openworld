@@ -3,14 +3,17 @@ import { QUALITY_ORDER } from '../src/gfx/quality';
 import { WorldShrubField, signYaw, worldPropBudget } from '../src/world/world-props';
 
 /**
- * Il budget del world kit decide quanto mondo esiste: se `minimal` non è a zero,
- * un PC che sceglie "Compatibilità" si carica comunque 58 alberi da 17k
- * triangoli; se i preset non crescono, `ultra` non si distingue da `media`.
+ * Il budget del world kit decide quanto mondo esiste: Compatibilità mantiene
+ * un minimo di vegetazione; i preset superiori aumentano progressivamente i dettagli.
  */
 describe('worldPropBudget', () => {
-  it('spegne tutto su minimal', () => {
+  it('mantiene una base di vegetazione e dettagli anche su minimal', () => {
     const budget = worldPropBudget('minimal');
-    for (const value of Object.values(budget)) expect(value).toBe(0);
+    expect(budget.tree).toBeGreaterThan(0);
+    expect(budget.shrub).toBeGreaterThan(0);
+    expect(budget.distantTree).toBeGreaterThan(0);
+    expect(budget.grass).toBeGreaterThan(0);
+    expect(budget.house).toBe(0);
   });
 
   it('cresce con il preset, campo per campo', () => {

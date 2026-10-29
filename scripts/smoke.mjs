@@ -22,8 +22,6 @@ const PORT = 9223;
 const BASE_URL = process.env.SMOKE_URL ?? 'http://127.0.0.1:4173';
 /** Preset forzato (`SMOKE_QUALITY=minimal`): serve a provare i PC deboli. */
 const QUALITY = process.env.SMOKE_QUALITY ?? '';
-/** Zoom satellite massimo per preset: sotto z17 non ci sono chunk "dettagliati". */
-const PRESET_ZOOM = { minimal: 15, low: 16, medium: 17, high: 18, ultra: 18 };
 const gameUrl = (params) =>
   `${BASE_URL}/?${params}${QUALITY ? `&quality=${QUALITY}` : ''}`;
 const CHROME =
@@ -192,12 +190,12 @@ async function main() {
     if (!diag.ready) throw new Error('il mondo non è diventato ready');
     if (diag.errors?.length) throw new Error(`errori runtime: ${diag.errors.join(' | ')}`);
 
-    // le tile z17/z18 sono grandi: lascia al provider il tempo di consegnarle
-    for (let i = 0; i < 24 && diag.textured < 1; i++) {
+    // ogni chunk deve avere la copertura georeferenziata già pronta
+    for (let i = 0; i < 24 && diag.covered < 1; i++) {
       await sleep(500);
       diag = await evalJs('JSON.parse(JSON.stringify(window.__molise))');
     }
-    log(`texture: ${diag.textured}/${diag.chunks} chunk (dettagliate z17+: ${diag.detailed})`);
+    log(`copertura 3D: ${diag.covered}/${diag.chunks} chunk`);
 
     // guida: tieni premuto W finché l'auto non ha davvero avanzato.
     // Con il rendering software (SwiftShader) il frame time supera i 50 ms e il
@@ -223,13 +221,7 @@ async function main() {
     log(`spostamento con W: ${moved.toFixed(2)} m — mode=${diag.mode}, fps=${diag.fps.toFixed(1)}`);
     if (diag.mode !== 'drive') throw new Error(`modalità attesa drive, trovata ${diag.mode}`);
     if (moved < 1) throw new Error('l’auto non si è mossa con W');
-    if (diag.textured < 1) throw new Error('nessun chunk con texture satellite caricata');
-    // il dettaglio z17+ esiste solo se il preset lo prevede: su `minimal` e
-    // `low` il tetto è z15/z16 e non c'è niente da pretendere
-    const presetZoom = PRESET_ZOOM[diag.quality] ?? 18;
-    if (presetZoom >= 17 && diag.detailed < 1) {
-      throw new Error(`nessun chunk in dettaglio z17+ vicino al giocatore (preset ${diag.quality})`);
-    }
+    if (diag.covered < 1) throw new Error('nessun chunk con copertura georeferenziata');
     if (consoleErrors.length) throw new Error(`errori console: ${consoleErrors.slice(0, 4).join(' | ')}`);
 
     // itinerario: apri la mappa grande e clicca al centro (≈ centro del mondo)

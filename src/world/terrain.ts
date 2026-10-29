@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { CHUNK_SIZE, TERRAIN_SEGMENTS, VIEW_RADIUS, WORLD } from '../config';
 import type { Heightfield } from '../geo/elevation';
-import type { Road } from '../geo/osm';
+import { pointInPolygon } from '../geo/geo';
+import type { Area, Road } from '../geo/osm';
 import { chunkCenter, chunkIndex, chunkKey, chunkOrigin } from './chunks';
-import { zoomForDistance, type ImageryStreamer } from './imagery';
 import type { Landcover, LandcoverMode } from './landcover';
 import { roadPolyline } from './roads';
 
@@ -25,11 +25,6 @@ interface Chunk {
   mesh: THREE.Mesh;
   material: THREE.MeshStandardMaterial;
   normalMap: THREE.Texture;
-  /** zoom attualmente applicato alla texture (0 = nessuna) */
-  textureZoom: number;
-  texture?: THREE.Texture;
-  loadingZoom?: number;
-  hasTexture: boolean;
   disposed: boolean;
   /** true se il chunk ha una texture di copertura locale da rilasciare */
   landcoverLocal: boolean;
@@ -105,8 +100,8 @@ function buildNormalMap(hf: Heightfield, cx: number, cz: number): THREE.CanvasTe
 }
 
 /**
- * Colore del terreno a grandi campiture: il satellite resta solo una lieve
- * modulazione di luminanza, mentre pendenza e copertura danno tinte morbide.
+ * Colore del terreno a grandi campiture, determinato da copertura OSM,
+ * pendenza e rumore procedurale, senza immagini satellitari.
  *
  * Nello stesso shader arrivano le ombre delle nuvole: un rumore largo che scorre
  * col vento e scurisce il suolo a chiazze, come succede davvero quando passano.
@@ -128,11 +123,11 @@ function applyTerrainDetail(material: THREE.MeshStandardMaterial, _renderer: THR
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
-        '#include <common>\nvarying vec3 vDetailWorld;\nvarying vec3 vDetailNormal;',
+        '#include <common>\nattribute vec4 aTerrainCover;\nvarying vec4 vTerrainCover;\nvarying vec3 vDetailWorld;\nvarying vec3 vDetailNormal;',
       )
       .replace(
         '#include <begin_vertex>',
-        '#include <begin_vertex>\nvDetailWorld = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;\nvDetailNormal = normalize( mat3( modelMatrix ) * objectNormal );',
+        '#include <begin_vertex>\nvTerrainCover = aTerrainCover;\nvDetailWorld = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;\nvDetailNormal = normalize( mat3( modelMatrix ) * objectNormal );',
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
@@ -140,6 +135,7 @@ function applyTerrainDetail(material: THREE.MeshStandardMaterial, _renderer: THR
         `#include <common>
 varying vec3 vDetailWorld;
 varying vec3 vDetailNormal;
+varying vec4 vTerrainCover;
 uniform float uCloudShadow;
 uniform vec2 uCloudDrift;
 
@@ -161,14 +157,22 @@ float cloudNoise( vec2 p ) {
         '#include <map_fragment>',
         `#include <map_fragment>
         float slope = smoothstep( 0.48, 0.78, 1.0 - clamp( normalize( vDetailNormal ).y, 0.0, 1.0 ) );
-        vec3 sage = vec3( 0.40, 0.48, 0.31 );
-        vec3 earth = vec3( 0.48, 0.40, 0.28 );
-        vec3 flatColor = mix( sage, earth, slope );
+        vec4 cover = clamp( vTerrainCover, 0.0, 1.0 );
+        float covered = clamp( dot( cover, vec4( 1.0 ) ), 0.0, 1.0 );
+        float meadow = 1.0 - covered;
+        vec3 meadowColor = vec3( 0.30, 0.39, 0.20 );
+        vec3 cropColor = vec3( 0.56, 0.43, 0.20 );
+        vec3 woodlandColor = vec3( 0.19, 0.29, 0.16 );
+        vec3 scrubColor = vec3( 0.38, 0.37, 0.22 );
+        vec3 bareColor = vec3( 0.43, 0.36, 0.27 );
+        vec3 classColor = meadowColor * meadow + cropColor * cover.r +
+          woodlandColor * cover.g + scrubColor * cover.b + bareColor * cover.a;
+        vec3 flatColor = mix( classColor, bareColor, slope * ( 1.0 - cover.g * 0.55 ) );
         float macro = cloudNoise( vDetailWorld.xz * 0.021 );
-        // niente fotografia: il colore nasce da pendenza e rumore procedurale.
-        // La vecchia miscela 0.82 lasciava intravedere i confini dei campi
-        // satellitari anche a un metro da terra.
-        diffuseColor.rgb = flatColor * ( 0.88 + ( macro - 0.5 ) * 0.16 );
+        float fine = cloudNoise( vDetailWorld.xz * 0.31 );
+        float rows = sin( dot( vDetailWorld.xz, normalize( vec2( 1.0, 0.36 ) ) ) * 0.33 + macro * 3.0 );
+        float furrow = 1.0 + rows * 0.055 * cover.r;
+        diffuseColor.rgb = flatColor * ( 0.76 + macro * 0.3 ) * ( 0.92 + fine * 0.12 ) * furrow;
         // ombre delle nuvole: due rumori sovrapposti che scorrono col vento
         if ( uCloudShadow > 0.01 ) {
           vec2 cp = vDetailWorld.xz * 0.0016 + uCloudDrift;
@@ -179,7 +183,71 @@ float cloudNoise( vec2 p ) {
       )
       .replace('#include <fog_fragment>', HEIGHT_FOG_FRAGMENT);
   };
-  material.customProgramCacheKey = () => 'terrain-pastel-procedural-v1';
+  material.customProgramCacheKey = () => 'terrain-geographic-cover-v2';
+}
+
+export type TerrainCoverWeights = readonly [crop: number, woodland: number, scrub: number, bare: number];
+
+const TERRAIN_COVER: Readonly<Record<string, { priority: number; weights: TerrainCoverWeights }>> = {
+  wood: { priority: 3, weights: [0, 1, 0, 0] },
+  forest: { priority: 3, weights: [0, 1, 0, 0] },
+  orchard: { priority: 3, weights: [0.42, 0.58, 0, 0] },
+  farmland: { priority: 2, weights: [1, 0, 0, 0] },
+  farm: { priority: 2, weights: [1, 0, 0, 0] },
+  vineyard: { priority: 2, weights: [1, 0, 0, 0] },
+  allotments: { priority: 2, weights: [1, 0, 0, 0] },
+  scrub: { priority: 1, weights: [0, 0, 1, 0] },
+  heath: { priority: 1, weights: [0, 0, 1, 0] },
+  quarry: { priority: 4, weights: [0, 0, 0, 1] },
+  farmyard: { priority: 4, weights: [0, 0, 0, 1] },
+  industrial: { priority: 4, weights: [0, 0, 0, 1] },
+  residential: { priority: 4, weights: [0, 0, 0, 1] },
+  water: { priority: 4, weights: [0, 0, 0, 1] },
+};
+
+/** Classifica il terreno usando le aree georeferenziate OSM, senza imagery. */
+export function terrainCoverWeightsAt(x: number, z: number, areas: readonly Area[]): TerrainCoverWeights {
+  let selected: { priority: number; weights: TerrainCoverWeights } | null = null;
+  for (const area of areas) {
+    const cover = TERRAIN_COVER[area.kind];
+    if (
+      !cover ||
+      cover.priority <= (selected?.priority ?? 0) ||
+      x < area.bounds.minX ||
+      x > area.bounds.maxX ||
+      z < area.bounds.minZ ||
+      z > area.bounds.maxZ ||
+      !pointInPolygon(x, z, area.points)
+    ) {
+      continue;
+    }
+    selected = cover;
+  }
+  return selected?.weights ?? [0, 0, 0, 0];
+}
+
+function applyTerrainCover(
+  geometry: THREE.BufferGeometry,
+  centerX: number,
+  centerZ: number,
+  areas: readonly Area[],
+): void {
+  const position = geometry.getAttribute('position');
+  const weights = new Float32Array(position.count * 4);
+  const half = CHUNK_SIZE * 0.5;
+  const candidates = areas.filter(
+    (area) =>
+      TERRAIN_COVER[area.kind] &&
+      area.bounds.maxX >= centerX - half &&
+      area.bounds.minX <= centerX + half &&
+      area.bounds.maxZ >= centerZ - half &&
+      area.bounds.minZ <= centerZ + half,
+  );
+  for (let i = 0; i < position.count; i++) {
+    const cover = terrainCoverWeightsAt(centerX + position.getX(i), centerZ + position.getZ(i), candidates);
+    weights.set(cover, i * 4);
+  }
+  geometry.setAttribute('aTerrainCover', new THREE.Float32BufferAttribute(weights, 4));
 }
 
 interface LandcoverUniformState {
@@ -199,12 +267,9 @@ interface LandcoverUniformState {
 }
 
 /**
- * Shader della Fase A: la copertura del suolo (coltivo/prato/bosco/roccia)
- * decide colore e grana, il satellite resta la base fotografica.
- *
- * I canali della copertura sono pesi di classe, non texture di materiale:
- * il satellite contribuisce solo con una luminanza attenuata e le tinte
- * restano uniformi anche a distanza ravvicinata.
+ * Shader della copertura ESA/OSM: le classi di terreno decidono colore e
+ * grana. Le immagini raster sono esclusivamente dati di classificazione,
+ * non fotografie satellitari campionate nel terreno.
  */
 function applyLandcoverDetail(
   material: THREE.MeshStandardMaterial,
@@ -294,9 +359,7 @@ float lcNoise( vec2 p ) {
         float lcMacro = lcNoise( vDetailWorld.xz * 0.07 );
         vec3 mappedColor = classColor * ( 0.9 + ( lcMacro - 0.5 ) * 0.16 ) * uSeasonGlobal;
 
-        // Grana fotografica per classe + solchi dei campi: è il livello che
-        // mancava sotto il satellite. Senza queste texture resterebbe il
-        // colore piatto, che a 380 m di minimappa sembrava 144p.
+        // Grana procedurale per classe e solchi dei campi, senza fotografia.
         vec4 lcDetail = texture2D( uLcDetail, vDetailWorld.xz * 0.22 );
         float lcDetailValue = dot( lcDetail, lc );
         vec4 lcField = texture2D( uLcFields, lcBaseUV );
@@ -336,10 +399,9 @@ float lcNoise( vec2 p ) {
 }
 
 /**
- * Streaming del terreno a chunk: geometria dal DEM, ritaglio del mosaico
- * Sentinel come base immediata per ogni chunk e tile raster configurate per il
- * dettaglio. Carica al massimo N chunk per frame, ordina per distanza e
- * libera quelli lontani.
+ * Streaming del terreno a chunk: geometria dal DEM e copertura georeferenziata
+ * OSM/ESA, senza mosaico satellitare. Carica al massimo N chunk per frame,
+ * ordina per distanza e libera quelli lontani.
  */
 export class Terrain {
   readonly group = new THREE.Group();
@@ -348,14 +410,10 @@ export class Terrain {
   /** chunk da re-materializzare dopo un cambio di copertura del suolo */
   private readonly remat: Chunk[] = [];
   private readonly heightfield: Heightfield;
-  private readonly imagery: ImageryStreamer;
   private readonly landcover: Landcover | null;
   private readonly tunnelSegments: TunnelSegment[];
+  private readonly areas: readonly Area[];
   private readonly maxBuildPerFrame = 2;
-  private readonly maxTextureLoads = 5;
-  private readonly inflight = new Set<string>();
-  /** tetto dello zoom satellite, abbassato dai preset grafici più leggeri */
-  private maxZoom = 18;
   private focusX = 0;
   private focusZ = 0;
   private lastCx = Number.NaN;
@@ -364,15 +422,14 @@ export class Terrain {
 
   constructor(
     heightfield: Heightfield,
-    imagery: ImageryStreamer,
     private readonly renderer: THREE.WebGLRenderer,
-    maxZoom = 18,
     landcover: Landcover | null = null,
     tunnels: readonly Road[] = [],
+    areas: readonly Area[] = [],
   ) {
     this.heightfield = heightfield;
-    this.imagery = imagery;
     this.landcover = landcover;
+    this.areas = areas;
     this.tunnelSegments = tunnels.flatMap((road) => {
       const line = roadPolyline(road);
       const radius = road.width * 0.5 + 1.1;
@@ -391,7 +448,6 @@ export class Terrain {
         };
       });
     });
-    this.maxZoom = Math.max(15, Math.min(18, maxZoom));
     this.group.name = 'terrain';
   }
 
@@ -414,12 +470,12 @@ export class Terrain {
     if (lc.effectiveMode === beforeMode && lc.radiusMeters === beforeRadius) return;
 
     // Un cambio di preset non deve distruggere il mondo: prima si liberavano
-    // TUTTI i chunk (e le loro texture) e la scena restava vuota per decine di
-    // secondi, proprio lo "switch grafico lentissimo". Ora:
+    // TUTTI i chunk (e le loro texture di copertura) e la scena restava vuota
+    // per decine di secondi. Ora:
     // - se cambia solo il raggio (media → alta → ultra) non si tocca niente:
     //   i chunk nuovi nascono col raggio nuovo, i vecchi restano;
     // - se cambia il modo si rifà solo il materiale, qualche chunk per frame,
-    //   riusando geometria e satellite. Nessun buco e nessun frame da 5 s.
+    //   riusando geometria e copertura. Nessun buco e nessun frame da 5 s.
     if (lc.effectiveMode === beforeMode) {
       // il raggio è cambiato: i chunk che stanno sul nuovo bordo devono
       // acquistare o restituire la texture locale, ma solo quelli. Senza
@@ -447,33 +503,23 @@ export class Terrain {
     this.landcover?.setSeason(month);
   }
 
-  /** Cambia il tetto di dettaglio a runtime (tasto G / preset qualità). */
-  setMaxZoom(zoom: number): void {
-    this.maxZoom = Math.max(15, Math.min(18, zoom));
-  }
-
   get loadedChunks(): number {
     return this.chunks.size;
   }
 
-  get texturedChunks(): number {
-    let n = 0;
-    for (const c of this.chunks.values()) if (c.hasTexture) n++;
-    return n;
-  }
-
-  /** Chunk con texture almeno z17 (per diagnostica e smoke test). */
-  get detailedChunks(): number {
-    let n = 0;
-    for (const c of this.chunks.values()) if (c.textureZoom >= 17) n++;
-    return n;
+  get coveredChunks(): number {
+    let covered = 0;
+    for (const chunk of this.chunks.values()) {
+      if (chunk.mesh.geometry.getAttribute('aTerrainCover')) covered++;
+    }
+    return covered;
   }
 
   /** Costruisce subito i chunk entro un raggio (usato dalla schermata di caricamento). */
   async preload(x: number, z: number, radius = 1600): Promise<void> {
     this.update(x, z, radius, true);
     const start = performance.now();
-    while ((this.queue.length > 0 || this.inflight.size > 0) && performance.now() - start < 4500) {
+    while (this.queue.length > 0 && performance.now() - start < 4500) {
       this.buildNext();
       this.tick();
       await new Promise((r) => setTimeout(r, 8));
@@ -548,7 +594,7 @@ export class Terrain {
     }
   }
 
-  /** Da chiamare ogni frame: costruisce qualche chunk e affina le texture vicine. */
+  /** Da chiamare ogni frame: costruisce qualche chunk e affina la copertura vicina. */
   tick(): void {
     for (let i = 0; i < this.maxBuildPerFrame && this.queue.length > 0; i++) {
       this.buildNext();
@@ -568,32 +614,6 @@ export class Terrain {
       }
     }
 
-    // il mosaico Sentinel è locale e sincrono: appena è decodificato dà una
-    // texture vera anche ai chunk costruiti prima che finisse il caricamento
-    if (this.imagery.hasBaseImage) {
-      for (const chunk of this.chunks.values()) {
-        if (chunk.disposed || chunk.texture) continue;
-        const base = this.imagery.baseChunkTexture(chunk.cx, chunk.cz);
-        if (base) this.applyBaseTexture(chunk, base);
-      }
-    }
-
-    if (this.inflight.size >= this.maxTextureLoads) return;
-    const upgrades: { chunk: Chunk; d: number; zoom: number }[] = [];
-    for (const chunk of this.chunks.values()) {
-      if (chunk.disposed || chunk.loadingZoom !== undefined) continue;
-      if (this.inflight.has(chunkKey(chunk.cx, chunk.cz))) continue;
-      const d = Math.hypot(chunkCenter(chunk.cx) - this.focusX, chunkCenter(chunk.cz) - this.focusZ);
-      const zoom = Math.min(this.maxZoom, zoomForDistance(d));
-      if (zoom > chunk.textureZoom) upgrades.push({ chunk, d, zoom });
-    }
-    upgrades.sort((a, b) => a.d - b.d);
-    let started = 0;
-    for (const u of upgrades) {
-      if (started >= 2 || this.inflight.size >= this.maxTextureLoads) break;
-      this.requestTexture(u.chunk, u.zoom);
-      started++;
-    }
   }
 
   private buildNext(): void {
@@ -601,60 +621,12 @@ export class Terrain {
     if (!next) return;
     const key = chunkKey(next.cx, next.cz);
     if (this.chunks.has(key)) return;
-    const chunk = this.buildChunk(next.cx, next.cz, next.d);
+    const chunk = this.buildChunk(next.cx, next.cz);
     this.chunks.set(key, chunk);
     this.group.add(chunk.mesh);
   }
 
-  /** Applica il ritaglio Sentinel come texture di partenza (zoom 0 = da affinare). */
-  private applyBaseTexture(chunk: Chunk, texture: THREE.Texture): void {
-    chunk.texture = texture;
-    chunk.textureZoom = 0;
-    chunk.material.map = texture;
-    chunk.material.color.set(0xffffff);
-    chunk.material.needsUpdate = true;
-    chunk.hasTexture = true;
-  }
-
-  private requestTexture(chunk: Chunk, zoom: number): void {
-    if (
-      this.imagery.provider.localOnly ||
-      chunk.disposed ||
-      chunk.loadingZoom !== undefined ||
-      chunk.textureZoom >= zoom
-    ) {
-      return;
-    }
-    const key = chunkKey(chunk.cx, chunk.cz);
-    if (this.inflight.has(key)) return;
-    this.inflight.add(key);
-    chunk.loadingZoom = zoom;
-
-    this.imagery
-      .loadChunkTexture(chunk.cx, chunk.cz, zoom)
-      .then((texture) => {
-        chunk.loadingZoom = undefined;
-        this.inflight.delete(key);
-        if (chunk.disposed || chunk.textureZoom >= zoom) {
-          texture.dispose();
-          return;
-        }
-        const previous = chunk.texture;
-        chunk.texture = texture;
-        chunk.textureZoom = zoom;
-        chunk.material.map = texture;
-        chunk.material.color.set(0xffffff);
-        chunk.material.needsUpdate = true;
-        chunk.hasTexture = true;
-        previous?.dispose();
-      })
-      .catch(() => {
-        chunk.loadingZoom = undefined;
-        this.inflight.delete(key);
-      });
-  }
-
-  private buildChunk(cx: number, cz: number, distance: number): Chunk {
+  private buildChunk(cx: number, cz: number): Chunk {
     const centerX = chunkCenter(cx);
     const centerZ = chunkCenter(cz);
 
@@ -709,6 +681,7 @@ export class Terrain {
     }
     geometry.computeVertexNormals();
     geometry.computeBoundingSphere();
+    applyTerrainCover(geometry, centerX, centerZ, this.areas);
 
     const normalMap = buildNormalMap(this.heightfield, cx, cz);
     const material = new THREE.MeshStandardMaterial({
@@ -740,8 +713,6 @@ export class Terrain {
       mesh,
       material,
       normalMap,
-      textureZoom: 0,
-      hasTexture: false,
       disposed: false,
       landcoverLocal: false,
     };
@@ -772,18 +743,12 @@ export class Terrain {
       }
     }
 
-    // prima il ritaglio Sentinel locale (immediato), poi l'eventuale dettaglio remoto
-    const base = this.imagery.baseChunkTexture(cx, cz);
-    if (base) this.applyBaseTexture(chunk, base);
-
-    this.requestTexture(chunk, Math.min(this.maxZoom, zoomForDistance(distance)));
     return chunk;
   }
 
   /**
    * Rifà solo il materiale di un chunk, senza ricostruire geometria e senza
-   * perdere la texture satellite: è la strada veloce per passare da `base` a
-   * `full` (o viceversa) in gioco.
+   * preservando la geometria e gli attributi di copertura georeferenziati.
    */
   private rematerialize(chunk: Chunk): void {
     const lc = this.landcover;
@@ -796,7 +761,6 @@ export class Terrain {
       normalMap: chunk.normalMap,
       normalScale: old.normalScale.clone(),
       envMapIntensity: old.envMapIntensity,
-      map: chunk.texture ?? old.map ?? null,
     });
     let uniforms: LandcoverUniformState | null = null;
     if (mode !== 'off' && lc) {
@@ -840,12 +804,10 @@ export class Terrain {
   private disposeChunk(chunk: Chunk, key: string): void {
     chunk.disposed = true;
     this.chunks.delete(key);
-    this.inflight.delete(key);
     this.group.remove(chunk.mesh);
     chunk.mesh.geometry.dispose();
     chunk.material.dispose();
     chunk.normalMap.dispose();
-    chunk.texture?.dispose();
     chunk.localTexture = undefined;
     if (chunk.landcoverLocal) this.landcover?.release(chunk.cx, chunk.cz);
   }

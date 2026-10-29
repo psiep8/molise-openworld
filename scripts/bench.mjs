@@ -269,23 +269,22 @@ async function main() {
       if (!info) throw new Error(`vista ${index} non disponibile`);
       log(`vista ${index}: ${info.label}`);
 
-      // assestamento: chunk caricati e texture arrivate. Aspettare solo il
-      // numero di chunk non basta: le texture satellite si decodificano dopo e
-      // facevano sembrare lenta la prima misura di ogni preset.
+      // assestamento: attendi che il set di chunk sia stabile e che i dati
+      // opzionali di copertura locale abbiano terminato la cottura.
       let prev = null;
       let stable = 0;
       for (let i = 0; i < 90; i++) {
         await sleep(500);
         const d = await evalJs('JSON.parse(JSON.stringify(window.__molise))');
         const lcPending = d.landcover?.pending ?? 0;
-        const ready = d.chunks > 0 && d.textured >= d.chunks && lcPending === 0 && d.detailed === (prev?.detailed ?? d.detailed);
+        const ready = d.chunks > 0 && d.covered >= d.chunks && lcPending === 0;
         if (ready && d.chunks === (prev?.chunks ?? -1)) stable++;
         else stable = 0;
         prev = d;
         if (stable >= 6) break;
       }
       log(
-        `assestato: ${prev?.chunks ?? 0} chunk, ${prev?.textured ?? 0} texture, ${prev?.detailed ?? 0} dettagliati, ` +
+        `assestato: ${prev?.chunks ?? 0} chunk georeferenziati (${prev?.covered ?? 0} coperti), ` +
           `copertura ${prev?.landcover?.mode ?? 'assente'} (${prev?.landcover?.local ?? 0} locali, ` +
           `${prev?.landcover?.pending ?? 0} in attesa, ${prev?.landcover?.bakes ?? 0} cotte in ` +
           `${prev?.landcover?.bakeMs ?? 0} ms)`,

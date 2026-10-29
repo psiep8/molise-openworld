@@ -34,7 +34,7 @@ export interface WorldHitEvent {
 /** Quali ostacoli hanno un modello che può piegarsi. */
 const HIT_ROLES: ReadonlyMap<string, WorldRole> = new Map([
   ['world-tree', 'tree'],
-  ['sign', 'sign'],
+  ['world-sign', 'sign'],
   // i cespugli non sono nell'indice delle collisioni: il gioco li tocca
   // direttamente quando l'auto entra nella macchia, per farli piegare
   ['world-shrub', 'shrub'],
