@@ -2,12 +2,36 @@ import * as THREE from 'three';
 import { surfaceMaterial, type SurfaceWeather } from '../sim/surfaces';
 
 const CHUNK_SIZE = 912;
-const INTERNAL_FIELDS = 9;
+const INTERNAL_FIELDS = 10;
 const EXTERNAL_FIELDS = 7;
+const STORAGE_VERSION = 2;
+const STORAGE_KEY = 'molise.skid-marks';
+/** Ogni quanto salvare su storage i chunk accumulati (secondi simulati). */
+const PERSIST_SECONDS = 4;
+
+/** Interfaccia minima di `localStorage`, iniettabile nei test. */
+export interface SkidStorage {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem?(key: string): void;
+}
 
 interface StoredChunk {
   data: Float32Array;
   savedAt: number;
+}
+
+interface PersistedSkidMarks {
+  version: number;
+  chunks: Record<string, number[]>;
+}
+
+function defaultStorage(): SkidStorage | null {
+  try {
+    return typeof window !== 'undefined' && window.localStorage ? window.localStorage : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -28,6 +52,8 @@ export class SkidMarks {
   private readonly widths = new Float32Array(this.max);
   private readonly depths = new Float32Array(this.max);
   private readonly strengths = new Float32Array(this.max);
+  /** Lunghezza del quad in metri: 0,9 è il punto singolo storico. */
+  private readonly lengths = new Float32Array(this.max);
   private readonly color = new THREE.Color();
   private readonly dummy = new THREE.Object3D();
   private readonly chunks = new Map<string, StoredChunk>();
@@ -37,8 +63,10 @@ export class SkidMarks {
   private active = 0;
   private budget = 3_000;
   private elapsed = 0;
+  private dirty = false;
+  private persistClock = 0;
 
-  constructor() {
+  constructor(private readonly storage: SkidStorage | null = defaultStorage()) {
     const geometry = new THREE.PlaneGeometry(0.28, 0.9);
     geometry.rotateX(-Math.PI / 2);
     const material = new THREE.MeshBasicMaterial({
@@ -68,6 +96,9 @@ export class SkidMarks {
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
     this.group.name = 'skid-marks-group';
     this.group.add(this.mesh);
+    // Le tracce salvate in una sessione precedente tornano quando l'auto passa
+    // di nuovo sul chunk: la memoria non vive più solo nella sessione.
+    this.load();
   }
 
   get renderedCount(): number {
@@ -127,6 +158,59 @@ export class SkidMarks {
     width = 0.28,
     depth = surfaceMaterial('dirt').skid.depth,
   ): void {
+    this.push(x, z, y, yaw, color, intensity, life, width, depth, 0.9);
+  }
+
+  /**
+   * Concatena il punto precedente al nuovo: il quad viene allungato e ruotato
+   * lungo la direzione di marcia, così le tracce sono nastri continui invece di
+   * una fila di impronte quadrate separate da buchi.
+   */
+  addRibbon(
+    fromX: number,
+    fromZ: number,
+    toX: number,
+    toZ: number,
+    y: number,
+    color = 0x3d2f20,
+    intensity = 1,
+    life = surfaceMaterial('dirt').skid.persistence,
+    width = 0.28,
+    depth = surfaceMaterial('dirt').skid.depth,
+  ): void {
+    const dx = toX - fromX;
+    const dz = toZ - fromZ;
+    const length = Math.hypot(dx, dz);
+    if (!(length > 1e-4)) {
+      this.add(toX, toZ, 0, y, color, intensity, life, width, depth);
+      return;
+    }
+    this.push(
+      (fromX + toX) / 2,
+      (fromZ + toZ) / 2,
+      y,
+      Math.atan2(dx, dz),
+      color,
+      intensity,
+      life,
+      width,
+      depth,
+      length,
+    );
+  }
+
+  private push(
+    x: number,
+    z: number,
+    y: number,
+    yaw: number,
+    color: number,
+    intensity: number,
+    life: number,
+    width: number,
+    depth: number,
+    length: number,
+  ): void {
     if (this.budget === 0) return;
     const i = this.cursor;
     this.cursor = (this.cursor + 1) % this.budget;
@@ -140,11 +224,13 @@ export class SkidMarks {
     this.strengths[i] = Math.max(0, Math.min(1, intensity));
     this.lives[i] = Math.max(1, life);
     this.initialLives[i] = this.lives[i]!;
+    this.lengths[i] = Math.max(0.05, Math.min(24, length));
     this.write(i);
     this.active = Math.min(this.budget, this.active + 1);
     this.mesh.count = this.active;
     this.mesh.instanceMatrix.needsUpdate = true;
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    this.dirty = true;
   }
 
   update(dt: number, weather: Partial<SurfaceWeather> = {}): void {
@@ -164,6 +250,11 @@ export class SkidMarks {
       this.mesh.instanceMatrix.needsUpdate = true;
       if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
     }
+    this.persistClock += elapsed;
+    if (this.persistClock >= PERSIST_SECONDS) {
+      this.persistClock = 0;
+      if (this.dirty) this.save();
+    }
   }
 
   clear(): void {
@@ -171,7 +262,13 @@ export class SkidMarks {
     this.visibleChunks.clear();
     this.centerChunk = '';
     this.elapsed = 0;
+    this.dirty = false;
     this.clearVisibleInstances();
+    try {
+      this.storage?.removeItem?.(STORAGE_KEY);
+    } catch {
+      // storage pieno o disabilitato: la memoria di sessione resta valida
+    }
   }
 
   /** Serializza le tracce di una zona per poterle ripristinare al rientro nel chunk. */
@@ -200,7 +297,7 @@ export class SkidMarks {
       if (chunkKeyAt(x, z) !== chunkKey) continue;
       records.push(
         x, y, z, data[i + 3]!, data[i + 4]!, data[i + 5]!, data[i + 6]!,
-        0.012, 0.8,
+        0.012, 0.8, 0.9,
       );
     }
     const packed = Float32Array.from(records);
@@ -209,6 +306,72 @@ export class SkidMarks {
     this.mesh.count = Math.min(this.active, this.budget);
     this.mesh.instanceMatrix.needsUpdate = true;
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+  }
+
+  /**
+   * Salva tutti i chunk conosciuti su storage (JSON compatto di numeri).
+   * Ritorna `false` se lo storage manca o è pieno: il gioco continua comunque.
+   */
+  save(storage: SkidStorage | null = this.storage): boolean {
+    if (!storage) return false;
+    this.saveVisibleChunks();
+    const chunks: Record<string, number[]> = {};
+    for (const [key, stored] of this.chunks) {
+      if (stored.data.length === 0) continue;
+      chunks[key] = Array.from(stored.data);
+    }
+    try {
+      const payload: PersistedSkidMarks = { version: STORAGE_VERSION, chunks };
+      storage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      this.dirty = false;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Carica i chunk salvati in una sessione precedente. Ritorna quanti ne ha letti. */
+  load(storage: SkidStorage | null = this.storage): number {
+    if (!storage) return 0;
+    try {
+      const raw = storage.getItem(STORAGE_KEY);
+      if (!raw) return 0;
+      const parsed = JSON.parse(raw) as Partial<PersistedSkidMarks>;
+      if (parsed.version !== STORAGE_VERSION || !parsed.chunks) return 0;
+      let loaded = 0;
+      for (const [key, values] of Object.entries(parsed.chunks)) {
+        if (!Array.isArray(values) || values.length < INTERNAL_FIELDS) continue;
+        const usable = values.length - (values.length % INTERNAL_FIELDS);
+        const data = Float32Array.from(values.slice(0, usable));
+        if (!data.every((value) => Number.isFinite(value))) continue;
+        this.chunks.set(key, { data, savedAt: this.elapsed });
+        loaded++;
+      }
+      return loaded;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * Segmenti attivi di un chunk, con la lunghezza reale del nastro. È il
+   * riscontro usato dai test e dalla diagnostica: `serializeChunk` resta il
+   * formato compatto a 7 campi per la persistenza.
+   */
+  chunkSegments(chunkKey: string): Array<{ x: number; z: number; yaw: number; length: number; width: number }> {
+    const segments: Array<{ x: number; z: number; yaw: number; length: number; width: number }> = [];
+    for (let i = 0; i < this.active; i++) {
+      if (this.lives[i]! <= 0) continue;
+      if (chunkKeyAt(this.x[i]!, this.z[i]!) !== chunkKey) continue;
+      segments.push({
+        x: this.x[i]!,
+        z: this.z[i]!,
+        yaw: this.yaw[i]!,
+        length: this.lengths[i]!,
+        width: this.widths[i]!,
+      });
+    }
+    return segments;
   }
 
   private saveVisibleChunks(): void {
@@ -244,6 +407,7 @@ export class SkidMarks {
     return [
       this.x[i]!, this.y[i]!, this.z[i]!, this.yaw[i]!, this.lives[i]!,
       this.colors[i]!, this.widths[i]!, this.depths[i]!, this.strengths[i]!,
+      this.lengths[i]!,
     ];
   }
 
@@ -275,6 +439,9 @@ export class SkidMarks {
       this.widths[id] = data[i + 6]!;
       this.depths[id] = data[i + 7]!;
       this.strengths[id] = data[i + 8]!;
+      // lunghezza del nastro: i salvataggi vecchi (versione 1) non la
+      // contengono, i nuovi devono ripristinare il segmento intero.
+      this.lengths[id] = Math.max(0.05, Number.isFinite(data[i + 9]) ? data[i + 9]! : 0.9);
       this.write(id);
       this.active = Math.min(this.budget, this.active + 1);
     }
@@ -295,7 +462,11 @@ export class SkidMarks {
     const life = Math.max(0, this.lives[i]! / Math.max(1, this.initialLives[i]!));
     this.dummy.position.set(this.x[i]!, this.y[i]!, this.z[i]!);
     this.dummy.rotation.set(0, this.yaw[i]!, 0);
-    this.dummy.scale.set(this.widths[i]! / 0.28, 1, life);
+    // Il nastro resta lungo quasi tutta la vita e si ritira solo alla fine:
+    // scalarlo subito aprirebbe dei buchi tra un segmento e il successivo.
+    const fade = Math.min(1, life * 6);
+    const lengthScale = Math.max(0.05, this.lengths[i]!) / 0.9;
+    this.dummy.scale.set(this.widths[i]! / 0.28, 1, lengthScale * fade);
     this.dummy.updateMatrix();
     this.mesh.setMatrixAt(i, this.dummy.matrix);
     this.mesh.setColorAt(i, this.color.setHex(this.colors[i]!)

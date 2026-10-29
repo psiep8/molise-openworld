@@ -236,6 +236,8 @@ export class Vehicle {
   /** Strisce di gomma sul fango/erba: gruppo separato, non figlio dell'auto. */
   readonly skidMarks = new SkidMarks();
   private skidClock = 0;
+  /** Ultimo punto di contatto per ruota: serve a concatenare i nastri. */
+  private readonly skidTrail = new Map<'fl' | 'fr' | 'rl' | 'rr', { x: number; z: number; surface: string }>();
   /** frecce: due materiali ambra, uno per lato */
   private readonly indicatorMats = {
     left: new THREE.MeshStandardMaterial({ color: 0x3a2a12, emissive: 0xff9a1e, emissiveIntensity: 0, roughness: 0.45 }),
@@ -1739,19 +1741,44 @@ export class Vehicle {
       const x = state.x + fx * wheel.along + rx * this.spec.track * 0.5 * wheel.side;
       const z = state.z + fz * wheel.along + rz * this.spec.track * 0.5 * wheel.side;
       const sample = ground.sampleAt(x, z);
-      if (!shouldSkid(slip, sample.surface, weather)) continue;
+      if (!shouldSkid(slip, sample.surface, weather)) {
+        // il nastro si interrompe quando la ruota smette di slittare o cambia
+        // superficie: non si collega un tratto d'asfalto a uno di fango
+        this.skidTrail.delete(wheel.id);
+        continue;
+      }
       const material = surfaceMaterial(sample.surface);
-      this.skidMarks.add(
-        x,
-        z,
-        state.yaw,
-        sample.y,
-        material.skid.color,
-        skidIntensity(slip),
-        material.skid.persistence,
-        0.18 + skidIntensity(slip) * 0.2,
-        material.skid.depth,
-      );
+      const intensity = skidIntensity(slip);
+      const width = 0.18 + intensity * 0.2;
+      const last = this.skidTrail.get(wheel.id);
+      const gap = last ? Math.hypot(x - last.x, z - last.z) : Infinity;
+      if (last && last.surface === sample.surface && gap > 0.02 && gap < 4) {
+        this.skidMarks.addRibbon(
+          last.x,
+          last.z,
+          x,
+          z,
+          sample.y,
+          material.skid.color,
+          intensity,
+          material.skid.persistence,
+          width,
+          material.skid.depth,
+        );
+      } else {
+        this.skidMarks.add(
+          x,
+          z,
+          state.yaw,
+          sample.y,
+          material.skid.color,
+          intensity,
+          material.skid.persistence,
+          width,
+          material.skid.depth,
+        );
+      }
+      this.skidTrail.set(wheel.id, { x, z, surface: sample.surface });
     }
   }
 

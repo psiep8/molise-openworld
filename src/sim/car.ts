@@ -628,9 +628,15 @@ export function speedKmh(speed: number): number {
  * Pura: la usano sia `stepCar` sia `Vehicle` per far sterzare i GLB con lo
  * stesso angolo della fisica (prima la grafica girava troppo e sembrava che
  * l'auto non seguisse le ruote).
+ *
+ * Sotto i ~25 km/h il volante conserva quasi tutto il lock: è la manovra di
+ * parcheggio, dove un'auto vera chiude in 5–6 m di raggio. Sopra, il lock cala
+ * in modo progressivo per non trasformare una curva in un testacoda.
  */
 export function steerLock(maxSteer: number, speed: number): number {
-  return maxSteer / (1 + Math.abs(speed) * 3.6 * STEER_LOCK_FALLOFF);
+  const kmh = Math.abs(speed) * 3.6;
+  const drop = Math.max(0, kmh - 24);
+  return maxSteer / (1 + drop * STEER_LOCK_FALLOFF);
 }
 
 /**
