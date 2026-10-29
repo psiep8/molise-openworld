@@ -1297,6 +1297,13 @@ export function tuningFor(spec: VehicleSpec): CarTuning {
     wheelbase: spec.wheelbase,
     track: spec.track,
     maxSteer: spec.maxSteer,
+    drive: spec.driven,
+    centerOfGravityHeight: spec.style === 'van' ? 0.9 :
+      spec.style === 'suv' || spec.style === 'crossover' ? 0.68 :
+        spec.style === 'motorcycle' || spec.style === 'trike' ? 0.6 : spec.style === 'race' ? 0.45 : 0.5,
+    yawInertiaScale: spec.style === 'van' ? 1.35 : spec.style === 'race' ? 1.1 : 1.2,
+    brakeBias: spec.style === 'motorcycle' ? 0.7 : 0.64,
+    abs: true,
   };
 }
 

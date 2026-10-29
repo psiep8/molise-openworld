@@ -28,4 +28,33 @@ describe('guida credibile', () => {
     expect(deg).toBeLessThan(50);
     expect(deg).toBeGreaterThan(8);
   });
+
+  it('il freno a mano libera il retrotreno e produce velocità laterale', () => {
+    const tuning = tuningFor(getVehicle('fiat-uno-1994'));
+    const start = { ...createCarState(0, 0, 0), speed: 60 / 3.6 };
+    let handbrake = start;
+    let normal = start;
+    for (let i = 0; i < 180; i++) {
+      handbrake = stepCar(handbrake, { ...gas, steer: 1, handbrake: true }, flat, 1 / 60, tuning);
+      normal = stepCar(normal, { ...gas, steer: 1, handbrake: false }, flat, 1 / 60, tuning);
+    }
+    expect(Math.abs(handbrake.yaw)).toBeGreaterThan(Math.PI / 2);
+    expect(Math.abs(handbrake.vy)).toBeGreaterThan(Math.abs(normal.vy));
+    expect(Math.abs(handbrake.vy)).toBeGreaterThan(1);
+  });
+
+  it.each([5, 30, 60, 144])('resta numericamente stabile a %s fps', (fps) => {
+    const tuning = tuningFor(getVehicle('fiat-uno-1994'));
+    let state = createCarState(0, 0, 0);
+    for (let i = 0; i < fps * 5; i++) {
+      state = stepCar(
+        state,
+        { throttle: 0.65, brake: 0, steer: Math.sin(i / 17) * 0.7, handbrake: false },
+        { ...flat, weather: { wetness: 0.35, standingWater: 0.1 } },
+        1 / fps,
+        tuning,
+      );
+      expect(Number.isFinite(state.x + state.z + state.yaw + state.vx + state.vy + state.yawRate)).toBe(true);
+    }
+  });
 });

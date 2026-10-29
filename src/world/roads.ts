@@ -6,6 +6,12 @@ import type { Heightfield } from '../geo/elevation';
 import { boundsOf, clamp, hashInt, mulberry32, wrapAngle, type Pt } from '../geo/geo';
 import { CURB_HEIGHT, roadLift, type BuildingIndex, type OsmData, type Road, type RoadIndex } from '../geo/osm';
 import type { CityKit } from './citykit';
+import {
+  createRoadProfile,
+  ROAD_PROFILE,
+  ruralProfilePoints,
+  sidewalkWidthForRoad,
+} from './road-profile';
 
 interface RibbonArrays {
   positions: number[];
@@ -415,8 +421,10 @@ function pushRuralVerge(
   blocked: (x: number, z: number) => boolean,
   allowed: (index: number) => boolean,
 ): void {
-  const start = width / 2 + 0.68;
-  const end = width / 2 + 3.4;
+  const profile = createRoadProfile({ width, paved: true });
+  const stations = ruralProfilePoints(profile, lift);
+  if (stations.length < 2) return;
+  const across = stations.length;
   for (const side of [-1, 1]) {
     const base = target.positions.length / 3;
     for (let i = 0; i < pts.length; i++) {
@@ -429,19 +437,25 @@ function pushRuralVerge(
       tz /= length;
       const px = -tz * side;
       const pz = tx * side;
-      const innerX = pts[i]!.x + px * start;
-      const innerZ = pts[i]!.z + pz * start;
-      const outerX = pts[i]!.x + px * end;
-      const outerZ = pts[i]!.z + pz * end;
-      const innerY = heights.heightAt(innerX, innerZ) + lift - 0.05;
-      const outerY = heights.heightAt(outerX, outerZ) + 0.025;
-      target.positions.push(innerX, innerY, innerZ, outerX, outerY, outerZ);
-      target.normals.push(px * 0.18, 0.98, pz * 0.18, px * 0.18, 0.98, pz * 0.18);
-      target.colors.push(color.r, color.g, color.b, color.r * 0.92, color.g * 0.94, color.b * 0.9);
-      target.uvs.push(0, i * 0.45, 1, i * 0.45);
+      for (let j = 0; j < across; j++) {
+        const station = stations[j]!;
+        const x = pts[i]!.x + px * station.distance;
+        const z = pts[i]!.z + pz * station.distance;
+        const y = heights.heightAt(x, z) + station.offset;
+        const tint = j === 1 ? 0.82 : j === 2 ? 0.93 : 1;
+        target.positions.push(x, y, z);
+        target.normals.push(px * 0.16, 0.98, pz * 0.16);
+        target.colors.push(color.r * tint, color.g * tint, color.b * tint);
+        target.uvs.push(j / (across - 1), i * 0.45);
+      }
       if (i === 0 || !allowed(i - 1) || !allowed(i) || blocked(pts[i]!.x, pts[i]!.z)) continue;
-      const a = base + (i - 1) * 2;
-      target.indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      const previousRow = base + (i - 1) * across;
+      const currentRow = base + i * across;
+      for (let j = 0; j < across - 1; j++) {
+        const a = previousRow + j;
+        const b = currentRow + j;
+        target.indices.push(a, a + 1, b, a + 1, b + 1, b);
+      }
     }
   }
 }
@@ -1204,7 +1218,7 @@ export function buildRoads(
     }
     // marciapiede stretto da centro storico: 1,45/1,15 m. A 1,8 m sembrava un
     // marciapiede americano e mangiava la carreggiata nelle vie del paese.
-    const walkWidth = road.width >= 6 ? 1.45 : 1.15;
+    const walkWidth = sidewalkWidthForRoad(road.width);
     // cordolo a 18 cm (altezza da marciapiede italiano): è lo scalino che si
     // sente sotto il piede e che stacca la pavimentazione dall'asfalto
     const curbTop = lift + CURB_HEIGHT;
@@ -1217,7 +1231,7 @@ export function buildRoads(
       roadIndex ? roadIndex.isOnRoad(x, z, walkWidth * 0.55 + 0.25, idx) : false;
     // il cordolo parte dal bordo dell'asfalto e occupa 22 cm; il marciapiede
     // inizia dove finisce il cordolo, così nessuno dei due copre l'altro
-    const curbWidth = 0.22;
+    const curbWidth = ROAD_PROFILE.curbWidth;
     // marciapiede e cordolo solo nel costruito: in campagna la provinciale
     // resta asfalto nudo con il suo ciglio di ghiaia. I punti sono ricampionati
     // e smussati, quindi la maschera (calcolata sui punti OSM) si riporta qui
@@ -1296,8 +1310,8 @@ export function buildRoads(
       for (const side of [-1, 1]) {
         pushRuns(
           shoulder,
-          offsetPolyline(pts, side * (road.width / 2 + 0.36)),
-          0.72,
+          offsetPolyline(pts, side * (road.width / 2 + ROAD_PROFILE.shoulderWidth / 2)),
+          ROAD_PROFILE.shoulderWidth,
           lift - 0.05,
           shoulderColor,
           heights,

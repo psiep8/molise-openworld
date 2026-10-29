@@ -29,6 +29,7 @@ Il mondo è diviso in chunk da 912 m (`CHUNK_SIZE`), circa 2 tile z16.
 - Dettaglio progressivo: quando il giocatore si avvicina, il chunk non viene ricostruito; `Terrain.tick` richiede la texture a zoom più alto e la sostituisce, liberando la precedente. Al massimo 5 caricamenti texture sono in volo insieme.
 - Normal map: `buildNormalMap` campiona il DEM 128×128 per chunk e scrive una normal map in spazio tangente. Il rilievo fine (crinali, fossi, muretti) resta visibile anche se la mesh ha un passo di ~9.5 m.
 - Streaming: `Terrain.update` calcola i chunk nel raggio di 3.1 km ordinati per distanza, ne costruisce 2 per frame e libera quelli fuori raggio.
+- `WorldFieldDetail` istanzia GLB `ground-*` su una griglia deterministica ordinata per distanza dal giocatore. La classe OSM/landcover, la pendenza DEM e la distanza stradale scelgono la variante; un orientamento tangente al gradiente DEM riduce i distacchi su piani locali. Il budget per preset limita il raggio effettivo. Queste mesh sono solo visive: `WorldGround` continua a campionare il `Heightfield` per la quota fuori strada.
 
 Le texture e le normal map sono possedute dal chunk: quando il chunk esce, viene fatto `dispose()`. Il browser HTTP cache evita riscarichi se si torna indietro.
 
@@ -42,6 +43,14 @@ Tutte le strade finite in un'unica `BufferGeometry` per superficie (asfalto/ster
 - capire se l'auto è su asfalto (più aderenza e velocità);
 - evitare di piantare alberi in mezzo alla carreggiata;
 - trovare un punto strada per lo spawn e il tasto `R`.
+
+`src/world/road-profile.ts` è la sezione trasversale pura condivisa dal
+rendering e da `RoadIndex`: nelle strade urbane comprende cordolo e marciapiede;
+in campagna raccorda carreggiata e banchina a una cunetta trapezoidale profonda
+30 cm e alla quota DEM entro 3,4 m dal ciglio. `buildRoads` genera la mesh di
+banchina/cunetta/scarpata dagli stessi nodi del profilo che
+`RoadIndex.sampleSurface` usa per `WorldGround`. Ponti e gallerie non ricevono
+una sezione rurale sovrapposta al deck.
 
 ## 5. Edifici
 

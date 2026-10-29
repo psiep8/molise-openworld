@@ -12,6 +12,13 @@
  * yaw positivo = sterzata a sinistra.
  */
 
+import {
+  surfaceConditions,
+  surfaceMaterial,
+  type SurfaceWeather,
+  type WheelSlip,
+} from './surfaces';
+
 export interface CarState {
   x: number;
   z: number;
@@ -28,6 +35,17 @@ export interface CarState {
   shiftTimer: number;
   /** true se la coppia richiesta supera l'aderenza: le ruote pattinano */
   wheelspin: boolean;
+  /** velocità longitudinale nel sistema auto; `speed` resta l'alias retrocompatibile */
+  vx: number;
+  /** velocità laterale nel sistema auto, positiva verso sinistra, m/s */
+  vy: number;
+  /** velocità di imbardata, rad/s */
+  yawRate: number;
+  wheelSlip: { fl: WheelSlip; fr: WheelSlip; rl: WheelSlip; rr: WheelSlip };
+  /** 0..1: quota di pneumatici oltre il picco di aderenza */
+  sliding: number;
+  /** true quando l'ABS riduce la pressione su almeno una ruota */
+  absActive?: boolean;
 }
 
 export interface CarInput {
@@ -52,8 +70,12 @@ export interface CarEnv {
   groundHeight: (x: number, z: number) => number;
   /** grip ambientale da pioggia/neve; 1 = asciutto, valori minori = scivoloso */
   gripScale?: number;
+  /** condizioni atmosferiche; gripScale è mantenuto per i vecchi chiamanti */
+  weather?: Partial<SurfaceWeather>;
   /** materiale restituito dal campionatore del terreno */
   surface?: string;
+  /** materiale misurato sotto ciascuna ruota, quando disponibile */
+  wheelSurfaces?: Partial<Record<'fl' | 'fr' | 'rl' | 'rr', string>>;
   /**
    * Attrito della vegetazione attraversata (0 = niente, 1 = macchia fitta).
    * Non è una collisione: l'auto passa, ma perde velocità e allunga la frenata.
@@ -65,49 +87,27 @@ interface SurfacePhysics {
   speed: number;
   grip: number;
   rolling: number;
+  sink: number;
 }
 
-function surfacePhysics(env: CarEnv, tuning: CarTuning): SurfacePhysics {
+function surfacePhysics(env: CarEnv, tuning: CarTuning, speed: number): SurfacePhysics {
   const surface = env.surface?.toLowerCase();
-  switch (surface) {
-    case 'gravel':
-    case 'fine_gravel':
-    case 'pebblestone':
-      return { speed: 0.78, grip: 0.72, rolling: 1.7 };
-    case 'dirt':
-    case 'ground':
-    case 'compacted':
-    case 'earth':
-      // terra battuta: le gomme mordono meno dell'asfalto e il posteriore
-      // scivola, ma si può ancora accelerare; è il terreno da traverso.
-      return { speed: 0.7, grip: 0.58, rolling: 2 };
-    case 'rock':
-      return { speed: 0.74, grip: 0.66, rolling: 1.8 };
-    case 'mud':
-    case 'sand':
-    case 'salt':
-      return { speed: 0.52, grip: 0.42, rolling: 2.4 };
-    case 'grass':
-      // prato alto: molta resistenza al rotolamento e poca aderenza laterale
-      return { speed: 0.5, grip: 0.46, rolling: 2.8 };
-    case 'woodland':
-    case 'forest':
-      return { speed: 0.48, grip: 0.44, rolling: 3 };
-    case 'terrain':
-      return { speed: tuning.offroadSpeedFactor, grip: tuning.offroadGrip, rolling: 2 };
-    case 'cobblestone':
-    case 'sett':
-      return { speed: 1, grip: 0.82, rolling: 1.15 };
-    case 'asphalt':
-    case 'concrete':
-    case 'paving_stones':
-    case 'paved':
-      return { speed: 1, grip: 1, rolling: 1 };
-    default:
-      return env.onRoad
-        ? { speed: 1, grip: 1, rolling: 1 }
-        : { speed: tuning.offroadSpeedFactor, grip: tuning.offroadGrip, rolling: 2 };
-  }
+  const normalized = surface ?? (env.onRoad ? 'asphalt' : 'terrain');
+  const material = surfaceMaterial(normalized);
+  const isPaved = ['asphalt', 'concrete', 'paving_stones', 'paved', 'cobblestone', 'sett'].includes(normalized);
+  const conditions = surfaceConditions(normalized, env.weather, speed);
+  const speedFactor = material.id === 'gravel' ? 0.78 :
+    material.id === 'dirt' ? (surface === 'terrain' ? tuning.offroadSpeedFactor : 0.7) :
+      material.id === 'rock' ? 0.74 : material.id === 'mud' || material.id === 'sand' ? 0.52 :
+        material.id === 'grass' ? 0.5 : material.id === 'woodland' ? 0.48 : isPaved ? 1 :
+            surface === undefined && !env.onRoad ? tuning.offroadSpeedFactor :
+            tuning.offroadSpeedFactor;
+  return {
+    speed: speedFactor,
+    grip: Math.max(0.04, conditions.muPeak),
+    rolling: conditions.rolling,
+    sink: conditions.sink,
+  };
 }
 
 export interface CarTuning {
@@ -147,6 +147,12 @@ export interface CarTuning {
   track: number;
   maxSteer: number;
   gravity: number;
+  /** schema di trazione e taratura del corpo rigido */
+  drive?: 'fwd' | 'rwd' | 'awd';
+  centerOfGravityHeight?: number;
+  yawInertiaScale?: number;
+  brakeBias?: number;
+  abs?: boolean;
 }
 
 /** Parametri di riferimento: una berlina media. Ogni veicolo può sovrascriverli. */
@@ -176,6 +182,11 @@ export const CAR: CarTuning = {
   track: 1.68,
   maxSteer: 0.56,
   gravity: 9.81,
+  drive: 'rwd',
+  centerOfGravityHeight: 0.5,
+  yawInertiaScale: 1.2,
+  brakeBias: 0.64,
+  abs: true,
 };
 
 const AIR_DENSITY = 1.2;
@@ -195,7 +206,12 @@ const MAX_YAW_RATE = 2.7;
 const clamp = (v: number, a: number, b: number): number => (v < a ? a : v > b ? b : v);
 
 export function createCarState(x: number, z: number, yaw = 0): CarState {
-  return { x, z, yaw, speed: 0, steer: 0, gear: 1, rpm: 0, shiftTimer: 0, wheelspin: false };
+  const slip = (): WheelSlip => ({ long: 0, lat: 0, load: 0.25, locked: false });
+  return {
+    x, z, yaw, speed: 0, vx: 0, vy: 0, yawRate: 0,
+    wheelSlip: { fl: slip(), fr: slip(), rl: slip(), rr: slip() },
+    sliding: 0, steer: 0, gear: 1, rpm: 0, shiftTimer: 0, wheelspin: false,
+  };
 }
 
 /** Rapporto in uso: la retromarcia usa la prima, un filo più lunga. */
@@ -242,8 +258,21 @@ export function stepCar(
   tuning: CarTuning = CAR,
 ): CarState {
   const next: CarState = { ...state };
+  // Alcuni salvataggi e chiamanti legacy impostano `speed` direttamente.
+  // In tal caso la velocità storica resta la fonte autorevole.
+  if (state.speed !== state.vx) next.vx = state.speed;
+  next.vy ??= 0;
+  next.yawRate ??= 0;
+  next.wheelSlip ??= {
+    fl: { long: 0, lat: 0, load: 0.25, locked: false },
+    fr: { long: 0, lat: 0, load: 0.25, locked: false },
+    rl: { long: 0, lat: 0, load: 0.25, locked: false },
+    rr: { long: 0, lat: 0, load: 0.25, locked: false },
+  };
+  next.sliding ??= 0;
+  next.speed = next.vx;
   const gearCount = tuning.gearRatios.length;
-  const surface = surfacePhysics(env, tuning);
+  const surface = surfacePhysics(env, tuning, next.speed);
   const vegetationDrag = clamp(env.vegetationDrag ?? 0, 0, 1);
   // la spinta allunga anche il rapporto finale: +25% di velocità massima
   const maxSpeed =
@@ -290,27 +319,49 @@ export function stepCar(
   const driveSign = forward ? 1 : -1;
   const shiftCut = next.shiftTimer > 0 ? 0 : 1;
   const demand = gearForce * driveInput * driveSign * shiftCut * (input.boost ? 1.25 : 1);
-  const force = clamp(demand, -tractionLimit, tractionLimit);
+  const topMaterial = surfaceConditions(
+    env.surface ?? (env.onRoad ? 'asphalt' : 'terrain'),
+    env.weather,
+    speedAbs,
+  );
+  const slidingTractionLimit = tractionLimit * topMaterial.muSlide /
+    Math.max(0.04, topMaterial.muPeak);
+  const force = Math.sign(demand) * Math.min(
+    Math.abs(demand),
+    Math.abs(demand) > tractionLimit ? slidingTractionLimit : tractionLimit,
+  );
   next.wheelspin = Math.abs(demand) > tractionLimit * 1.05 && driveInput > 0.25;
 
   // --- resistenze ----------------------------------------------------------
   const dir = Math.sign(next.speed);
   const rolling = tuning.rollingResistance * surface.rolling * normalLoad * dir;
+  const sink = surface.sink * (0.25 + speedAbs * 0.08) * tuning.mass * dir;
   const aero = 0.5 * AIR_DENSITY * tuning.dragArea * next.speed * speedAbs;
   const engineBrake = driveInput < 0.02 ? gearForce * 0.05 * dir : 0;
 
   let brakeForce = 0;
   if (forward && input.brake > 0 && speedAbs > 0.2) {
-    brakeForce =
-      tuning.brakeDecel *
-      input.brake *
-      tuning.mass *
-      surface.grip *
-      gripScale *
-      dir;
+    const brakeConditions = surfaceConditions(
+      env.surface ?? (env.onRoad ? 'asphalt' : 'terrain'),
+      env.weather,
+      speedAbs,
+    );
+    const brakePeak = tuning.grip * brakeConditions.muPeak * gripScale * tuning.gravity;
+    const brakeSlide = tuning.grip * brakeConditions.muSlide * gripScale * tuning.gravity;
+    const requestedBrake = tuning.brakeDecel * input.brake;
+    const deceleration = tuning.abs === false && requestedBrake > brakePeak
+      ? brakeSlide
+      : Math.min(requestedBrake, brakePeak);
+    brakeForce = deceleration * tuning.mass * dir;
   }
   // freno a mano: blocca il posteriore, decelera e fa scivolare il retrotreno
-  if (input.handbrake && speedAbs > 0.2) brakeForce += 3.4 * tuning.mass * gripScale * dir;
+  if (input.handbrake && speedAbs > 0.2) {
+    const handbrakeDecel = Math.min(
+      3.4,
+      tuning.grip * topMaterial.muSlide * gripScale * tuning.gravity,
+    );
+    brakeForce += handbrakeDecel * tuning.mass * dir;
+  }
   // cespugli e sottobosco non sono muri: si attraversano, ma ogni metro costa
   // velocità. La forza è proporzionale alla massa così resta ~2,4 m/s² pieni.
   const vegetation = vegetationDrag * 2.4 * tuning.mass * dir;
@@ -324,7 +375,7 @@ export function stepCar(
   const slopeAccel = -tuning.gravity * Math.sin(pitch) * 0.85;
 
   const accel =
-    (force - rolling - aero - engineBrake - brakeForce - vegetation) / tuning.mass + slopeAccel;
+    (force - rolling - sink - aero - engineBrake - brakeForce - vegetation) / tuning.mass + slopeAccel;
   let speed = next.speed + accel * dt;
 
   // i freni fermano l'auto, non la fanno ripartire all'indietro
@@ -361,39 +412,175 @@ export function stepCar(
   }
 
   next.speed = speed;
+  next.vx = speed;
   const displayRatio = gearRatio(tuning, next.gear);
   const rollingRpm = speedAbs < 0.3
     ? tuning.idleRpm + driveInput * 900
     : rpmAt(Math.abs(speed), displayRatio, tuning);
   next.rpm = clamp(rollingRpm, tuning.idleRpm, tuning.redlineRpm);
 
-  // --- sterzo (bicycle model) ---------------------------------------------
-  // La tastiera dà tutto lo sterzo in un colpo: la risposta va addolcita e il
-  // lock va ridotto con la velocità. Il tetto di accelerazione laterale è
-  // quello di un'auto sportiva stradale (~1,25 g), non di una berlina da
-  // autostrada: è il compromesso che usano anche i giochi di guida, dove la
-  // macchina deve girare senza diventare un tram. A 30 km/h il raggio utile è
-  // ~8 m, a 50 km/h ~15 m, a 100 km/h ~60 m.
+  // --- pneumatici e corpo rigido planare ----------------------------------
+  // Forze di pneumatico stabili a passi fissi; lo slip regolarizzato e la
+  // zona quasi-statica evitano singolarità quando l'auto è quasi ferma.
   const steerTarget = clamp(input.steer, -1, 1);
   const steerLerp = 1 - Math.exp(-10 * dt);
   next.steer += (steerTarget - next.steer) * steerLerp;
-
   const lock = steerLock(tuning.maxSteer, next.speed);
-  const requested = (next.speed / tuning.wheelbase) * Math.tan(next.steer * lock);
-  // il tetto si applica al modulo: in retromarcia l'imbardata cambia segno da
-  // sola perché `speed` è negativa, come nella realtà
-  const yawCap = Math.abs(next.speed) > 0.5
-    ? Math.min(MAX_YAW_RATE, (LATERAL_GRIP * surface.grip * gripScale) / Math.abs(next.speed))
-    : MAX_YAW_RATE;
-  let yawRate = clamp(requested, -yawCap, yawCap);
-  if (input.handbrake) yawRate *= 1.9;
-  next.yaw += yawRate * dt;
+  const delta = next.steer * lock;
+  const inertia = tuning.mass *
+    (tuning.wheelbase * tuning.wheelbase + tuning.track ** 2) / 12 *
+    (tuning.yawInertiaScale ?? 1.2);
+  const frontAxle = tuning.wheelbase * 0.42;
+  const rearAxle = tuning.wheelbase - frontAxle;
+  const cgHeight = tuning.centerOfGravityHeight ?? 0.5;
+  const axleFrontShare = 0.56;
+  const drive = tuning.drive ?? 'rwd';
+  const drivenWheelCount = drive === 'awd' ? 4 : 2;
+  const driveWheelShare = 1 / drivenWheelCount;
+  const brakeBias = clamp(tuning.brakeBias ?? 0.64, 0.5, 0.8);
+  const currentWeather = env.weather ?? {};
+  const substeps = Math.max(1, Math.ceil(Math.max(0, dt) * 120));
+  const h = substeps > 0 ? dt / substeps : 0;
+  let lateralAcceleration = 0;
+  let slidingSum = 0;
+  let slipState = next.wheelSlip;
+  let absActive = false;
+  const wheelIds = ['fl', 'fr', 'rl', 'rr'] as const;
 
-  // --- integrazione --------------------------------------------------------
-  const ndx = -Math.sin(next.yaw);
-  const ndz = -Math.cos(next.yaw);
-  next.x += ndx * next.speed * dt;
-  next.z += ndz * next.speed * dt;
+  for (let step = 0; step < substeps; step++) {
+    const longitudinalAcceleration = dt > 0 ? (speed - state.speed) / dt : 0;
+    const fzFront = tuning.mass * tuning.gravity * axleFrontShare -
+      tuning.mass * longitudinalAcceleration * cgHeight / tuning.wheelbase;
+    const fzRear = tuning.mass * tuning.gravity * (1 - axleFrontShare) +
+      tuning.mass * longitudinalAcceleration * cgHeight / tuning.wheelbase;
+    const sideTransfer = tuning.mass * lateralAcceleration * cgHeight / tuning.track;
+    const loads = [
+      Math.max(0.04, (fzFront * 0.5 - sideTransfer * axleFrontShare * 0.5) /
+        (tuning.mass * tuning.gravity)),
+      Math.max(0.04, (fzFront * 0.5 + sideTransfer * axleFrontShare * 0.5) /
+        (tuning.mass * tuning.gravity)),
+      Math.max(0.04, (fzRear * 0.5 - sideTransfer * (1 - axleFrontShare) * 0.5) /
+        (tuning.mass * tuning.gravity)),
+      Math.max(0.04, (fzRear * 0.5 + sideTransfer * (1 - axleFrontShare) * 0.5) /
+        (tuning.mass * tuning.gravity)),
+    ];
+    const positions = [
+      { axle: frontAxle, side: -0.5, front: true },
+      { axle: frontAxle, side: 0.5, front: true },
+      { axle: -rearAxle, side: -0.5, front: false },
+      { axle: -rearAxle, side: 0.5, front: false },
+    ];
+    let totalLateral = 0;
+    let yawMoment = 0;
+    let overLimit = 0;
+    const updated = {} as CarState['wheelSlip'];
+    for (let i = 0; i < wheelIds.length; i++) {
+      const id = wheelIds[i]!;
+      const position = positions[i]!;
+      const localSurface = env.wheelSurfaces?.[id] ?? env.surface;
+      const localConditions = surfaceConditions(
+        localSurface,
+        currentWeather,
+        Math.abs(next.vx),
+      );
+      const mu = Math.max(0.04, tuning.grip * localConditions.muPeak * gripScale);
+      const muSlide = Math.max(0.035, tuning.grip * localConditions.muSlide * gripScale);
+      const load = loads[i]! * tuning.mass * tuning.gravity;
+      const capacity = mu * load;
+      const slidingCapacity = muSlide * load;
+      const isDriven = drive === 'awd' || (drive === 'fwd' && position.front) ||
+        (drive === 'rwd' && !position.front);
+      const wheelLongDemand = isDriven ? Math.abs(force) * driveWheelShare : 0;
+      const wheelBrakeDemand = input.brake * tuning.brakeDecel * tuning.mass *
+        (position.front ? brakeBias / 2 : (1 - brakeBias) / 2);
+      absActive ||= !!tuning.abs && input.brake > 0.15 && wheelBrakeDemand > capacity * 0.78;
+      const handbrakeLocked = input.handbrake && !position.front && Math.abs(next.speed) > 0.8;
+      const brakeLocked = !tuning.abs && wheelBrakeDemand > capacity * 0.92;
+      const locked = handbrakeLocked || brakeLocked;
+      const longitudinalUse = locked ? 1 : clamp(
+        (wheelLongDemand + wheelBrakeDemand) / Math.max(1, capacity), 0, 0.96,
+      );
+      const longitudinalSlip = handbrakeLocked
+        ? -Math.sign(next.speed || 1)
+        : brakeLocked ? -Math.sign(next.speed || 1) * 0.85
+          : isDriven && wheelLongDemand > capacity * 0.75
+            ? clamp((wheelLongDemand / Math.max(1, capacity) - 0.7) * 0.5, 0, 1)
+            : (input.brake > 0.05 ? -input.brake * 0.08 : 0);
+
+      const axleVy = next.vy + next.yawRate * position.axle;
+      const wheelVx = Math.max(0.01, Math.abs(next.vx) - next.yawRate * position.side * (tuning.track ?? 1.68) * 0.5);
+      const slipAngle = Math.atan2(axleVy, wheelVx) - (position.front ? delta : 0);
+      const slipMagnitude = Math.abs(slipAngle);
+      const peakSlipAngle = 0.12;
+      const slidingRatio = slidingCapacity / Math.max(1, capacity);
+      const tireCurve = slipMagnitude <= peakSlipAngle
+        ? slipMagnitude / peakSlipAngle
+        : slidingRatio + (1 - slidingRatio) *
+          Math.exp(-(slipMagnitude - peakSlipAngle) * 6);
+      const rawLateral = -Math.sign(slipAngle) * capacity * tireCurve;
+      const remainingGrip = Math.sqrt(Math.max(0, 1 - longitudinalUse * longitudinalUse));
+      const lateralForce = clamp(rawLateral, -capacity * remainingGrip, capacity * remainingGrip);
+      const lateralRatio = Math.abs(slipAngle) / peakSlipAngle;
+      const sliding = clamp(Math.max(
+        (lateralRatio - 1) / 2,
+        Math.abs(longitudinalSlip) * 0.8,
+      ), 0, 1);
+      updated[id] = {
+        long: clamp(longitudinalSlip, -1, 1),
+        lat: clamp(slipAngle, -1.5, 1.5),
+        load: clamp(load / (tuning.mass * tuning.gravity / 4), 0.15, 2.5),
+        locked,
+      };
+      totalLateral += lateralForce;
+      yawMoment += lateralForce * position.axle;
+      overLimit += sliding;
+    }
+
+    // La pendenza laterale usa la stessa quota campionata del terreno; se
+    // l'aderenza è bassa l'auto scivola gradualmente verso valle.
+    const slopeLeft = (env.groundHeight(next.x - Math.cos(next.yaw) * 1.5, next.z + Math.sin(next.yaw) * 1.5) -
+      env.groundHeight(next.x + Math.cos(next.yaw) * 1.5, next.z - Math.sin(next.yaw) * 1.5)) / 3;
+    const sideSlopeAccel = clamp(slopeLeft, -0.5, 0.5) * tuning.gravity;
+    const lateralAccel = totalLateral / tuning.mass + sideSlopeAccel * (1 - surface.grip);
+    lateralAcceleration = lateralAccel;
+    const yawAccel = yawMoment / Math.max(1, inertia);
+    next.yawRate += yawAccel * h;
+    next.yawRate *= Math.exp(-0.9 * h);
+
+    if (Math.abs(next.vx) < 1.5) {
+      // Quasi-statico: conserva il raggio di sterzata atteso a passo d'uomo,
+      // ma lascia che il freno a mano liberi il retrotreno quando si muove.
+      const requested = (next.vx / tuning.wheelbase) * Math.tan(delta);
+      const target = requested * surface.grip;
+      next.yawRate += (target - next.yawRate) * (1 - Math.exp(-8 * h));
+      next.vy *= Math.exp(-4 * h);
+      if (Math.abs(next.vx) < 0.2 && !input.handbrake) next.yawRate = 0;
+    } else {
+      next.vy += (lateralAccel - next.yawRate * next.vx) * h;
+      next.vy *= Math.exp(-0.04 * h);
+    }
+
+    const yawCap = Math.min(MAX_YAW_RATE, LATERAL_GRIP * surface.grip /
+      Math.max(1.5, Math.abs(next.vx)));
+    next.yawRate = clamp(next.yawRate, -yawCap, yawCap);
+    next.yaw += next.yawRate * h;
+    const forwardX = -Math.sin(next.yaw);
+    const forwardZ = -Math.cos(next.yaw);
+    const leftX = -Math.cos(next.yaw);
+    const leftZ = Math.sin(next.yaw);
+    next.x += (forwardX * next.vx + leftX * next.vy) * h;
+    next.z += (forwardZ * next.vx + leftZ * next.vy) * h;
+    slipState = updated;
+    slidingSum = overLimit / wheelIds.length;
+  }
+
+  next.wheelSlip = slipState;
+  next.sliding = clamp(slidingSum, 0, 1);
+  next.absActive = absActive;
+  next.speed = next.vx;
+  // Fattore di carico laterale limitato alla capacità complessiva: usato dai
+  // feedback visivi senza duplicare il modello dei pneumatici.
+  void lateralAcceleration;
 
   return next;
 }

@@ -109,6 +109,10 @@ export interface QualityPreset {
   landcover: 'full' | 'base' | 'off';
   /** raggio (m) dei chunk di copertura a 2 m/px; 0 con `base`/`off` */
   landcoverRadius: number;
+  /** budget massimo di segmenti di traccia persistenti */
+  skidSegments: number;
+  /** luci dinamiche del veicolo; le riflessioni a decal restano abilitate */
+  vehicleLights: 'none' | 'headlights' | 'all';
 }
 
 export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
@@ -147,6 +151,8 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     viewRadius: 1500,
     landcover: 'off',
     landcoverRadius: 0,
+    skidSegments: 0,
+    vehicleLights: 'none',
   },
   low: {
     level: 'low',
@@ -183,6 +189,8 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     viewRadius: 2200,
     landcover: 'base',
     landcoverRadius: 0,
+    skidSegments: 400,
+    vehicleLights: 'none',
   },
   medium: {
     level: 'medium',
@@ -219,6 +227,8 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     viewRadius: 2600,
     landcover: 'full',
     landcoverRadius: 1400,
+    skidSegments: 3000,
+    vehicleLights: 'headlights',
   },
   high: {
     level: 'high',
@@ -255,6 +265,8 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     viewRadius: 3100,
     landcover: 'full',
     landcoverRadius: 1900,
+    skidSegments: 10000,
+    vehicleLights: 'all',
   },
   ultra: {
     level: 'ultra',
@@ -291,6 +303,8 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     viewRadius: 3100,
     landcover: 'full',
     landcoverRadius: 2300,
+    skidSegments: 25000,
+    vehicleLights: 'all',
   },
 };
 

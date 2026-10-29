@@ -1,6 +1,13 @@
 import { latLonToWorld } from '../config';
 import type { Heightfield } from './elevation';
 import { boundsOf, distanceToSegment2, pointInPolygon, type Bounds, type Pt } from './geo';
+import {
+  createRoadProfile,
+  ROAD_PROFILE,
+  roadProfileReach,
+  sampleRoadProfile,
+  sidewalkWidthForRoad,
+} from '../world/road-profile';
 
 /**
  * Quote dei piani stradali sopra il DEM, condivise da chi disegna le strade e
@@ -8,9 +15,11 @@ import { boundsOf, distanceToSegment2, pointInPolygon, type Bounds, type Pt } fr
  */
 export const ROAD_LIFT = 0.2;
 export const DIRT_LIFT = 0.12;
-export const CURB_HEIGHT = 0.18;
+export const CURB_HEIGHT = ROAD_PROFILE.curbHeight;
 /** Fascia di ghiaia ai bordi delle strade di campagna (m). */
-export const SHOULDER_WIDTH = 0.72;
+export const SHOULDER_WIDTH = ROAD_PROFILE.shoulderWidth;
+/** Larghezza della fascia fisica del cordolo, parte del marciapiede rialzato. */
+export const CURB_WIDTH = ROAD_PROFILE.curbWidth;
 
 /** Micro-offset per strada: evita lo z-fighting dei nastri negli incroci. */
 export function roadLift(index: number, paved: boolean): number {
@@ -518,6 +527,7 @@ export class RoadIndex {
   private readonly cell = 140;
   private readonly grid = new Map<number, RoadSegment[]>();
   private readonly roads: Road[];
+  private readonly heights?: Heightfield;
 
   constructor(
     roads: Road[],
@@ -525,6 +535,7 @@ export class RoadIndex {
     geometryForRoad: (road: Road) => Pt[] = (road) => road.points,
   ) {
     this.roads = roads;
+    this.heights = heights;
     let nextId = 0;
     for (const [index, road] of roads.entries()) {
       const half = road.width / 2;
@@ -532,7 +543,7 @@ export class RoadIndex {
       // Stessa larghezza del nastro in `roads.ts`: 1,45 m sulle strade larghe
       // e 1,15 m nei vicoli. Se qui restasse 1,8/1,45 il giocatore camminerebbe
       // 35 cm fuori dal marciapiede visibile.
-      const walkWidth = road.paved ? (road.width >= 6 ? 1.45 : 1.15) : 0;
+      const walkWidth = road.paved ? sidewalkWidthForRoad(road.width) : 0;
       const points = geometryForRoad(road);
       if (points.length < 2 || road.points.length < 2) continue;
       const sourceAt = (point: Pt, startIndex: number): { index: number; t: number } => {
@@ -786,65 +797,8 @@ export class RoadIndex {
    * sotto il manto stradale e sembrava di affondare nella sabbia.
    */
   surfaceOffset(x: number, z: number): number {
-    const cx = Math.floor(x / this.cell);
-    const cz = Math.floor(z / this.cell);
-    let asphalt = -1;
-    let walk = -1;
-    let walkRoad = -1;
-    // spalla in ghiaia delle provinciali: 5 cm sotto il manto, 80 cm larga
-    let shoulder = -1;
-    for (let ix = cx - 1; ix <= cx + 1; ix++) {
-      for (let iz = cz - 1; iz <= cz + 1; iz++) {
-        const list = this.grid.get(this.key(ix, iz));
-        if (!list) continue;
-        for (const s of list) {
-          // la spalla esiste anche dove non c'è marciapiede (`s.walk` vale 0)
-          const reach = Math.max(s.walk, SHOULDER_WIDTH);
-          if (
-            x < s.minX - reach ||
-            x > s.maxX + reach ||
-            z < s.minZ - reach ||
-            z > s.maxZ + reach
-          ) {
-            continue;
-          }
-          const d = distanceToSegment2(x, z, s.ax, s.az, s.bx, s.bz);
-          if (d <= s.w) {
-            if (s.lift > asphalt) asphalt = s.lift;
-          } else if (s.paved && s.walk > 0 && d <= s.w + s.walk) {
-            const top = s.lift + CURB_HEIGHT;
-            if (top > walk) {
-              walk = top;
-              walkRoad = s.road;
-            }
-          } else if (s.paved && s.walk === 0 && d <= s.w + SHOULDER_WIDTH) {
-            // fuori dal paese niente marciapiede, ma la spalla in ghiaia
-            // esiste anche per le ruote: senza, l'auto affondava di 15 cm
-            // appena usciva dall'asfalto
-            const top = s.lift - 0.05;
-            if (top > shoulder) shoulder = top;
-          }
-        }
-      }
-    }
-    // l'asfalto vince sul marciapiede: ai bordi degli incroci i due nastri si
-    // sovrappongono e il manto stradale è quello che si vede
-    if (asphalt >= 0) return asphalt;
-    if (walk < 0) return shoulder >= 0 ? shoulder : 0;
-    // il marciapiede si interrompe agli incroci: entro 40 cm dall'asfalto di
-    // un'altra strada non c'è pavimentazione, si cammina sul terreno
-    for (let ix = cx - 1; ix <= cx + 1; ix++) {
-      for (let iz = cz - 1; iz <= cz + 1; iz++) {
-        const list = this.grid.get(this.key(ix, iz));
-        if (!list) continue;
-        for (const s of list) {
-          if (s.road === walkRoad) continue;
-          if (x < s.minX - 0.4 || x > s.maxX + 0.4 || z < s.minZ - 0.4 || z > s.maxZ + 0.4) continue;
-          if (distanceToSegment2(x, z, s.ax, s.az, s.bx, s.bz) <= s.w + 0.4) return 0;
-        }
-      }
-    }
-    return walk;
+    const terrain = this.heights?.heightAt(x, z) ?? 0;
+    return this.sampleSurface(x, z, terrain)?.lift ?? 0;
   }
 
   /**
@@ -876,12 +830,19 @@ export class RoadIndex {
         const list = this.grid.get(this.key(ix, iz));
         if (!list) continue;
         for (const s of list) {
-          const maxReach = Math.max(s.walk, SHOULDER_WIDTH);
+          const profile = createRoadProfile({
+            width: s.w * 2,
+            paved: s.paved,
+            sidewalkWidth: s.walk,
+            bridge: s.bridge,
+            tunnel: s.tunnel,
+          });
+          const maxReach = roadProfileReach(profile) - s.w;
           if (
-            x < s.minX - maxReach ||
-            x > s.maxX + maxReach ||
-            z < s.minZ - maxReach ||
-            z > s.maxZ + maxReach
+            x < s.minX - maxReach - 0.02 ||
+            x > s.maxX + maxReach + 0.02 ||
+            z < s.minZ - maxReach - 0.02 ||
+            z > s.maxZ + maxReach + 0.02
           ) {
             continue;
           }
@@ -892,53 +853,42 @@ export class RoadIndex {
           const qx = s.ax + dx * t;
           const qz = s.az + dz * t;
           const d = Math.hypot(x - qx, z - qz);
-          if (d > s.w + maxReach) continue;
-
-          if (d <= s.w) {
-            const deck =
-              s.elevA !== undefined && s.elevB !== undefined
-                ? s.elevA + (s.elevB - s.elevA) * t + s.lift
-                : terrain + s.lift;
-            consider(
-              {
-                y: deck,
-                lift: deck - terrain,
-                kind: s.bridge ? 'bridge' : s.tunnel ? 'tunnel' : 'road',
-                road: s.road,
-                paved: s.paved,
-                surface: s.surface,
-              },
-              s.bridge ? 5 : s.tunnel ? 4 : 3,
-            );
-            continue;
-          }
-          if (s.paved && s.walk > 0 && d <= s.w + s.walk) {
-            consider(
-              {
-                y: terrain + s.lift + CURB_HEIGHT,
-                lift: s.lift + CURB_HEIGHT,
-                kind: 'sidewalk',
-                road: s.road,
-                paved: true,
-                surface: s.surface,
-              },
-              2,
-            );
-            continue;
-          }
-          if (s.paved && s.walk === 0 && d <= s.w + SHOULDER_WIDTH) {
-            consider(
-              {
-                y: terrain + s.lift - 0.05,
-                lift: s.lift - 0.05,
-                kind: 'shoulder',
-                road: s.road,
-                paved: true,
-                surface: s.surface,
-              },
-              1,
-            );
-          }
+          if (d > s.w + maxReach + 0.02) continue;
+          const section = sampleRoadProfile(d, profile, s.lift);
+          if (!section) continue;
+          const deck =
+            section.kind === 'road' && s.elevA !== undefined && s.elevB !== undefined
+              ? s.elevA + (s.elevB - s.elevA) * t + s.lift
+              : terrain + section.offset;
+          const kind =
+            section.kind === 'road'
+              ? s.bridge
+                ? 'bridge'
+                : s.tunnel
+                  ? 'tunnel'
+                  : 'road'
+              : section.kind;
+          const rank =
+            kind === 'bridge'
+              ? 5
+              : kind === 'tunnel'
+                ? 4
+                : kind === 'road'
+                  ? 3
+                  : kind === 'sidewalk'
+                    ? 2
+                    : 1;
+          consider(
+            {
+              y: deck,
+              lift: deck - terrain,
+              kind,
+              road: s.road,
+              paved: s.paved,
+              surface: s.surface,
+            },
+            rank,
+          );
         }
       }
     }

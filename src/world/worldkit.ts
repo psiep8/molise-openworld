@@ -94,6 +94,9 @@ export interface WorldSpot {
   z: number;
   /** rotazione su Y; il modello guarda +Z quando yaw = 0 */
   yaw: number;
+  /** Gradiente DEM locale: consente alle zolle visive di seguire il piano medio. */
+  slopeX?: number;
+  slopeZ?: number;
   /** moltiplicatore sull'altezza dichiarata (0,8 = modello all'80%) */
   scale?: number;
   /** scala indipendente sull'asse X (ponti: lunghezza del modulo) */
@@ -498,6 +501,10 @@ export class WorldKit {
     if (assets.length === 0 || spots.length === 0) return group;
 
     const dummy = new THREE.Object3D();
+    const up = new THREE.Vector3(0, 1, 0);
+    const normal = new THREE.Vector3();
+    const tilt = new THREE.Quaternion();
+    const yaw = new THREE.Quaternion();
     for (let variant = 0; variant < assets.length; variant++) {
       const asset = assets[variant];
       const own =
@@ -523,7 +530,14 @@ export class WorldKit {
           const spot = own[i]!;
           const scale = spot.scale ?? 1;
           dummy.position.set(spot.x, spot.y, spot.z);
-          dummy.rotation.set(0, spot.yaw, 0);
+          if (spot.slopeX !== undefined || spot.slopeZ !== undefined) {
+            normal.set(-(spot.slopeX ?? 0), 1, -(spot.slopeZ ?? 0)).normalize();
+            tilt.setFromUnitVectors(up, normal);
+            yaw.setFromAxisAngle(up, spot.yaw);
+            dummy.quaternion.copy(tilt).multiply(yaw);
+          } else {
+            dummy.rotation.set(0, spot.yaw, 0);
+          }
           // i ponti hanno bisogno di allungare il modulo lungo la campata e
           // allargarlo alla carreggiata senza schiacciarne l'altezza
           dummy.scale.set(spot.scaleX ?? scale, scale, spot.scaleZ ?? scale);
@@ -638,4 +652,3 @@ export async function loadWorldKit(
   const assets = loaded.flat();
   return assets.length > 0 ? new WorldKit(assets) : null;
 }
-

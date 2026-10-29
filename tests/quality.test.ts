@@ -28,6 +28,7 @@ describe('preset grafici', () => {
       expect(big.pixelRatio).toBeGreaterThanOrEqual(small.pixelRatio);
       expect(big.shadowMapSize).toBeGreaterThanOrEqual(small.shadowMapSize);
       expect(big.pointLights).toBeGreaterThanOrEqual(small.pointLights);
+      expect(big.skidSegments).toBeGreaterThanOrEqual(small.skidSegments);
       expect(big.groundDetail).toBeGreaterThanOrEqual(small.groundDetail);
       expect(big.cropDensity).toBeGreaterThanOrEqual(small.cropDensity);
       expect(big.villageScenes).toBeGreaterThanOrEqual(small.villageScenes);
@@ -70,6 +71,18 @@ describe('preset grafici', () => {
     for (const level of ['medium', 'high', 'ultra'] as const) {
       expect(QUALITY_PRESETS[level].streamedWorld).toBe(true);
     }
+  });
+
+  it('limita le tracce e le luci dinamiche in base al preset', () => {
+    expect(QUALITY_PRESETS.minimal.skidSegments).toBe(0);
+    expect(QUALITY_PRESETS.low.skidSegments).toBe(400);
+    expect(QUALITY_PRESETS.medium.skidSegments).toBe(3000);
+    expect(QUALITY_PRESETS.high.skidSegments).toBe(10000);
+    expect(QUALITY_PRESETS.ultra.skidSegments).toBe(25000);
+    expect(QUALITY_PRESETS.minimal.vehicleLights).toBe('none');
+    expect(QUALITY_PRESETS.low.vehicleLights).toBe('none');
+    expect(QUALITY_PRESETS.medium.vehicleLights).toBe('headlights');
+    expect(QUALITY_PRESETS.high.vehicleLights).toBe('all');
   });
 
   it('accende la copertura del suolo solo dove c’è margine', () => {

@@ -631,6 +631,22 @@ Note e limiti:
 - Le 6 gallerie sono per ora trattate come strade in superficie: manca ancora il foro/portale nel terreno, quindi la quota resta quella del DEM.
 - 81 way OSM escono dal bbox perché Overpass restituisce la geometria intera della way che interseca il riquadro; il terreno fuori bordo viene clampato.
 
+### 29 ottobre 2026 — Task B: ground kit e sezione stradale
+
+| Voce | Stato | Note |
+| --- | --- | --- |
+| Rivestimento locale GLB | parziale, testato | `WorldFieldDetail` sceglie `ground-*` da copertura, superficie, pendenza e distanza dalla strada; posa le istanze più vicine per prime e orienta il piano medio sul gradiente DEM. La quota fisica resta `Heightfield`/`WorldGround`. |
+| Copertura a 60 m | incompleta | Il raggio è vincolato dal budget del preset e dalle aree libere; non è garantito che ogni cella L0 sia coperta, né esiste ancora L1/L2 o un coverage overlay. |
+| Banchina, cunetta e scarpata | fatto per la rete asfaltata fuori paese | `road-profile.ts` definisce un profilo puro; la mesh e `RoadIndex.sampleSurface` condividono sezione e quote, e il bordo esterno rientra sul DEM. |
+| Marciapiedi e guardrail GLB | preesistenti, limitati | I guardrail GLB restano gestiti da `buildGuardrails`; `buildRoadsideKit` continua a piazzare moduli sidewalk/curb selettivi. La rete urbana è ancora prevalentemente procedurale, non una sostituzione completa con moduli GLB. |
+| Fango dinamico | incompleto | `ground-mud` dipende dalla superficie `dirt`, non da un campionamento diretto di bagnato/meteo. |
+
+Verifica Task B:
+
+- Test mirati `road-profile`, `ground-kit-rules`, `ground`, `osm`, `roads`: **45 test** attesi dopo il fix di tolleranza al bordo; build `tsc --noEmit && vite build` eseguita.
+- Nessun banco `medium/high` né screenshot Task B: `npm run smoke` rimuove `smoke/profile` (già presente) e `npm run bench` pulisce un profilo browser esterno; per preservare gli artefatti esistenti non sono stati lanciati.
+- Restano coverage check in 5 località, streaming sotto soglia, budget triangoli/draw call, profilo campionato su DEM reale, integrazione GLB urbana continua e verifica visiva a piedi/auto.
+
 ### 28 ottobre 2026 — le 30 auto di serie: orientamento, ruote, materiali
 
 Diagnosi fatta leggendo i GLB (gerarchia dei nodi, posizione dei fari, ingombri
@@ -662,3 +678,18 @@ Verifiche di questa sessione:
 - **Non verificato a schermo**: il verso delle ruote in movimento e l'aspetto dei
   materiali recuperati dal plugin, che hanno bisogno di una guardata in gioco su
   GPU vera. I valori qui sono misure sulla gerarchia dei GLB, non fotogrammi.
+
+### 29 ottobre 2026 — Fase A: dinamica e superfici (verifica in sospeso)
+
+- La dinamica laterale usa carichi per ruota, trasferimento di carico laterale,
+  combinazione di grip longitudinale/laterale e perdita di forza oltre il picco
+  di slittamento; i passi della parte dinamica sono suddivisi a 1/120 s.
+- Il grip considera pioggia, neve, ghiaccio e aquaplaning dipendente dalla
+  velocità. Terra ed erba umide si avvicinano al comportamento del fango; il
+  relativo `sink` applica resistenza longitudinale.
+- `SkidMarks` conserva le tracce per chunk durante la sessione, le ricarica
+  quando il veicolo rientra nel raggio attivo e ne accelera il decadimento con
+  pioggia/neve. Non è ancora un salvataggio persistente tra riavvii.
+- Frenata quantitativa, comportamento per trazione e ABS, stabilità ai frame
+  richiesti e verifiche visive restano da eseguire; questa implementazione non
+  è ancora considerata convalidata.

@@ -12,6 +12,16 @@ const state = (over: Partial<CarState> = {}): CarState => ({
   rpm: 900,
   shiftTimer: 0,
   wheelspin: false,
+  vx: 0,
+  vy: 0,
+  yawRate: 0,
+  wheelSlip: {
+    fl: { long: 0, lat: 0, load: 0.25, locked: false },
+    fr: { long: 0, lat: 0, load: 0.25, locked: false },
+    rl: { long: 0, lat: 0, load: 0.25, locked: false },
+    rr: { long: 0, lat: 0, load: 0.25, locked: false },
+  },
+  sliding: 0,
   ...over,
 });
 

@@ -49,7 +49,7 @@ Stack: TypeScript + Vite + Three.js (WebGL2), Vitest, nessun framework UI.
 | Post-processing | ✅ aggiornato | bloom con soglia 3,2 (non investe più il cielo) + SSAO + SMAA + OutputPass, disattivabile |
 | Qualità | ✅ aggiornato | **5 preset** (compatibilità→ultra) con budget di mondo, auto-detect dalla GPU e **degradazione automatica a gradini** per i PC molto lenti |
 | Audio | ✅ nuovo | WebAudio procedurale: motore per modello (cilindri/regimi reali), rotolamento, vento, passi, uccelli |
-| Fisica auto | ✅ | modello bicycle puro, testato |
+| Fisica auto | 🟡 in aggiornamento | modello planare a 4 ruote, superfici e tracce persistenti; verifiche del nuovo comportamento ancora da eseguire |
 | Catalogo veicoli | ✅ aggiornato | **30 modelli, tutti da GLB**: i 30 file di `cars.zip` in `public/cars/`, con crediti e licenze in `ATTRIBUTION.md`. Le vecchie sagome procedurali sono state **eliminate**; più le auto importate dal garage |
 | Economia virtuale | ✅ nuovo | SOLO EURO DI GIOCO: contanti + conto virtuale, acquisti atomici, storico, ATM simulato (`src/sim/economy.ts`) |
 | Luoghi di Palata | ✅ nuovo | catalogo data-driven, stato di verifica esplicito, **nessuno `verified`** (`src/sim/venue-catalog.ts`) |
@@ -1525,6 +1525,23 @@ ciuffo e per chioma, gradiente di colore per le foglie (auto-ombreggiatura) e
 interruzione del manto agli incroci. Scattering con LOD e generazione di ponti
 restano nella lista.
 
+## 29/10/2026 — Fase A: guida e superfici (implementazione in corso)
+
+- `src/sim/car.ts`: trasferimento di carico anche laterale, curva di pneumatico
+  con picco e regime di scorrimento, integrazione laterale a passi da 1/120 s,
+  frenata senza ABS limitata al grip di scorrimento e resistenza di affondamento.
+- `src/sim/surfaces.ts`: grip dipendente da velocità e acqua stagnante
+  (aquaplaning oltre 80 km/h); terra ed erba umide interpolano gradualmente
+  verso il fango, aumentando resistenza e affondamento.
+- `src/entities/skid-marks.ts`: tracce per chunk in coordinate mondo, ricaricate
+  tornando nella zona; persistenza di minuti, accelerata da pioggia/neve e
+  budget invariato per preset.
+- Le tracce si salvano e si ricaricano nella sessione di gioco; non vengono
+  ancora persistite tra riavvii dell'applicazione.
+- **Test, build e verifica visiva non eseguiti su queste modifiche**: restano
+  da controllare frenata, stabilità ai diversi dt, ritorno tra chunk e resa
+  effettiva delle tracce/superfici in gioco.
+
 ### Verifiche
 
 - `npx tsc --noEmit` ✅
@@ -2053,3 +2070,16 @@ sul riquadro vero (`vitest` sui dati reali, sonde a 3/5/8 m e pendenza del DEM):
 - 66,6 km sono barriere anche per il giocatore: `obstacles` registra i cerchi
   `guardrail`, quindi sui pendii non si esce più di strada dove c'è la barriera.
 - Restano fuori: gallerie (6, ancora strade in superficie) e calanchi.
+
+### Task B — ground kit e sezione stradale (29 ottobre 2026)
+
+- `WorldFieldDetail` ora seleziona e ordina per distanza le zolle GLB del world
+  kit usando copertura OSM/landcover, pendenza DEM e distanza stradale; le
+  istanze seguono il piano tangente DEM. Restano visuali: DEM/`WorldGround`
+  conserva la verità fisica.
+- `src/world/road-profile.ts` è condiviso da `buildRoads` e `RoadIndex`: la
+  sezione rurale include banchina, cunetta e rientro al DEM; il marciapiede
+  urbano include cordolo. La mesh e la quota fisica usano lo stesso profilo.
+- Limiti non chiusi: copertura GLB non continua a 60 m né LOD L1/L2; moduli
+  sidewalk/curb restano selettivi e l'integrazione urbana è prevalentemente
+  procedurale; `ground-mud` non è ancora collegato direttamente al meteo.

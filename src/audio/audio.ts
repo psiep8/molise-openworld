@@ -22,6 +22,12 @@ export interface AudioState {
   onRoad?: boolean;
   /** 0..1: freno premuto */
   braking?: number;
+  /** 0..1: frazione di pneumatici oltre il picco di aderenza */
+  sliding?: number;
+  /** superficie in contatto con le ruote */
+  surface?: string;
+  /** ABS in intervento, per un pulsare appena udibile nel rumore ruota */
+  abs?: boolean;
 }
 
 /**
@@ -467,6 +473,8 @@ export class GameAudio {
     const driving = state.mode === 'drive';
     const onRoad = state.onRoad ?? true;
     const brake = Math.max(0, Math.min(1, state.braking ?? 0));
+    const sliding = Math.max(0, Math.min(1, state.sliding ?? 0));
+    const loose = /gravel|dirt|earth|ground|grass|mud|sand|terrain|woodland|rock/i.test(state.surface ?? '');
 
     if (this.engine) {
       const {
@@ -539,17 +547,17 @@ export class GameAudio {
       // asfalto: fruscio alto e regolare. Sterrato/erba: banda più bassa,
       // più larga e più forte, con il "graniglia" che si sente sotto.
       this.roadFilter.frequency.setTargetAtTime(
-        onRoad ? 780 + speed * 7 : 320 + speed * 2.4,
+        onRoad ? 780 + speed * 7 + sliding * 1600 : 320 + speed * 2.4 + sliding * 700,
         t,
         0.2,
       );
       this.roadFilter.Q.setTargetAtTime(onRoad ? 0.85 : 0.5, t, 0.2);
       this.roadGain.gain.setTargetAtTime(
-        driving
+        (driving
           ? onRoad
-            ? Math.min(0.06, rolling * 0.065)
-            : Math.min(0.1, 0.012 + rolling * 0.1)
-          : 0,
+            ? Math.min(0.12, rolling * 0.065 + sliding * (loose ? 0.02 : 0.085))
+            : Math.min(0.14, 0.012 + rolling * 0.1 + sliding * (loose ? 0.055 : 0.035))
+          : 0) * (state.abs ? 0.86 + Math.sin(t * 48) * 0.14 : 1),
         t,
         0.2,
       );

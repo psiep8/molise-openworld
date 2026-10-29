@@ -107,6 +107,24 @@ describe('groundAt condivisa', () => {
     expect(shoulder.kind).toBe('terrain');
   });
 
+  it('la quota fisica segue la cunetta visibile e rientra sul DEM senza gradino', () => {
+    const heights = flatHeights();
+    const rural = road({ walkSpans: [false, false, false] });
+    const ground = new WorldGround(heights, new RoadIndex([rural], heights));
+    const shoulder = ground.sampleAt(0, 3.5);
+    const ditchBottom = ground.sampleAt(0, 3 + 0.72 + 1.4 * 0.65);
+    const outerEdge = ground.sampleAt(0, 6.4);
+    const beyond = ground.sampleAt(0, 6.43);
+    expect(shoulder.kind).toBe('shoulder');
+    expect(shoulder.y).toBeCloseTo(100 + ROAD_LIFT - 0.05, 5);
+    expect(ditchBottom.kind).toBe('shoulder');
+    expect(ditchBottom.y).toBeCloseTo(100 - 0.3, 5);
+    expect(outerEdge.kind).toBe('shoulder');
+    expect(outerEdge.y).toBeCloseTo(100, 5);
+    expect(beyond.kind).toBe('terrain');
+    expect(Math.abs(beyond.y - outerEdge.y)).toBeLessThanOrEqual(0.02);
+  });
+
   it('con più indici stradali vince la superficie a priorità più alta', () => {
     const heights = flatHeights(100);
     const asphalt = road();

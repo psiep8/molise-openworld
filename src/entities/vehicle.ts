@@ -12,6 +12,8 @@ import {
   type CarState,
 } from '../sim/car';
 import { resolveBody } from '../sim/collision';
+import { shouldSkid, skidIntensity, surfaceMaterial, type SurfaceWeather } from '../sim/surfaces';
+import { QUALITY_PRESETS, type QualityLevel } from '../gfx/quality';
 import {
   VEHICLES,
   getVehicle,
@@ -49,6 +51,54 @@ interface ExternalWheel {
 }
 
 const WHEEL_SPRAY_COUNT = 128;
+let lightReflectionMap: THREE.DataTexture | null = null;
+let headlightPattern: THREE.DataTexture | null = null;
+
+function headlightCookie(): THREE.DataTexture {
+  if (headlightPattern) return headlightPattern;
+  const size = 64;
+  const data = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const vertical = y / (size - 1);
+      const center = 0.5 + (vertical - 0.5) * 0.16;
+      const edge = Math.max(0, 1 - Math.abs(x / (size - 1) - center) * 2.2);
+      // Taglio orizzontale asimmetrico: più luce a lato strada, meno in alto.
+      const cutoff = 1 - smoothstep(0.66, 0.86, vertical);
+      const value = Math.round(Math.max(0, edge * cutoff) * 255);
+      const i = (y * size + x) * 4;
+      data[i] = data[i + 1] = data[i + 2] = value;
+      data[i + 3] = 255;
+    }
+  }
+  headlightPattern = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+  headlightPattern.needsUpdate = true;
+  return headlightPattern;
+}
+
+function smoothstep(edge0: number, edge1: number, value: number): number {
+  const t = Math.max(0, Math.min(1, (value - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
+function reflectionTexture(): THREE.DataTexture {
+  if (lightReflectionMap) return lightReflectionMap;
+  const size = 64;
+  const data = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = (x + 0.5 - size / 2) / (size / 2);
+      const dy = (y + 0.5 - size / 2) / (size / 2);
+      const a = Math.max(0, 1 - dx * dx - dy * dy) ** 2;
+      const i = (y * size + x) * 4;
+      data[i] = data[i + 1] = data[i + 2] = 255;
+      data[i + 3] = Math.round(a * 255);
+    }
+  }
+  lightReflectionMap = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+  lightReflectionMap.needsUpdate = true;
+  return lightReflectionMap;
+}
 
 /** Urto contro un ostacolo vero (albero, cartello, sasso, casa). */
 export interface CarImpact {
@@ -159,6 +209,10 @@ export class Vehicle {
   private readonly wheels: THREE.Object3D[] = [];
   private readonly frontPivots: THREE.Object3D[] = [];
   private readonly headlights: THREE.SpotLight[] = [];
+  private readonly rearLights: THREE.PointLight[] = [];
+  private readonly reverseLights: THREE.PointLight[] = [];
+  private readonly lightReflections: THREE.Mesh[] = [];
+  private readonly reflectionMaterials: THREE.MeshBasicMaterial[] = [];
   private readonly geometries = new Set<THREE.BufferGeometry>();
   private readonly materials = new Set<THREE.Material>();
   private lampMat = new THREE.MeshStandardMaterial();
@@ -211,6 +265,11 @@ export class Vehicle {
   private wheelSpin = 0;
   /** 0 = giorno, 1 = notte piena: serve a non azzerare il freno quando cambia la luce */
   private nightLevel = 0;
+  private dynamicLights: 'none' | 'headlights' | 'all' = 'headlights';
+  private roadWetness = 0;
+  private highBeam = false;
+  private throttleInput = 0;
+  private brakeInput = 0;
   /** Quanto i nastri stradali stanno sopra il terreno (m). */
   private surfaceLift = 0;
   /** Quota del piano calpestabile all'ultimo frame, per sentire lo scalino. */
@@ -229,6 +288,7 @@ export class Vehicle {
   private curbCooldown = 0;
   /** Urto in attesa di essere letto dal gioco (una volta sola). */
   private pendingImpact: CarImpact | null = null;
+  private pendingCurbNoise = 0;
 
   constructor(spec: VehicleSpec = VEHICLES[0]) {
     this.group = new THREE.Group();
@@ -238,6 +298,7 @@ export class Vehicle {
     this.group.add(this.bodyGroup);
     this.spec = spec;
     this.build();
+    this.buildLightReflections();
     this.sprayMesh = this.createWheelSpray();
     this.group.add(this.sprayMesh);
   }
@@ -266,6 +327,7 @@ export class Vehicle {
           gl_PointSize = aSize * (240.0 / max(1.0, -mvPosition.z));
           gl_Position = projectionMatrix * mvPosition;
         }
+
       `,
       fragmentShader: `
         uniform float uOpacity;
@@ -287,6 +349,34 @@ export class Vehicle {
     mesh.name = 'rear-wheel-spray';
     mesh.frustumCulled = false;
     return mesh;
+  }
+
+  private buildLightReflections(): void {
+    const geometry = new THREE.PlaneGeometry(1, 1);
+    geometry.rotateX(-Math.PI / 2);
+    for (const [color, front] of [[0xffedc4, true], [0xff2118, false]] as const) {
+      const material = new THREE.MeshBasicMaterial({
+        map: reflectionTexture(),
+        color,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        toneMapped: false,
+      });
+      this.materials.add(material);
+      const patch = new THREE.Mesh(geometry, material);
+      patch.name = front ? 'headlight-wet-reflection' : 'taillight-wet-reflection';
+      patch.renderOrder = 2;
+      patch.frustumCulled = false;
+      patch.scale.set(front ? 2.4 : 1.8, 1, front ? 11 : 5);
+      patch.position.set(0, 0.025, front ? -this.spec.length * 0.5 - 4.5 : this.spec.length * 0.5 + 2.2);
+      this.group.add(patch);
+      this.lightReflections.push(patch);
+      this.reflectionMaterials.push(material);
+    }
+    this.geometries.add(geometry);
   }
 
   /** Il kit si carica in parallelo alla mappa: arriva dopo il primo build. */
@@ -674,7 +764,8 @@ export class Vehicle {
 
     // fari veri (due spot, niente ombre)
     for (const side of [-1, 1]) {
-      const beam = new THREE.SpotLight(0xfff0cf, 0, HEADLIGHT_DISTANCE, HEADLIGHT_ANGLE, 0.65, 1.0);
+      const beam = new THREE.SpotLight(0xfff0cf, 0, HEADLIGHT_DISTANCE, HEADLIGHT_ANGLE, 0.78, 1.0);
+      beam.map = headlightCookie();
       beam.position.set(side * halfWidth * 0.62, bodyY + 0.06, -halfLength + 0.05);
       beam.castShadow = false;
       this.group.add(beam);
@@ -684,6 +775,21 @@ export class Vehicle {
       this.group.add(beam.target);
       beam.userData.gain = 1;
       this.headlights.push(beam);
+    }
+
+    // I fanali dinamici sono sempre presenti e cambiano solo intensità: il
+    // numero di luci della scena resta costante e non forza ricompilazioni.
+    for (const side of [-1, 1]) {
+      const rear = new THREE.PointLight(0xff2518, 0, 8, 2);
+      rear.position.set(side * halfWidth * 0.62, bodyY * 0.8, halfLength * 0.46);
+      rear.castShadow = false;
+      this.group.add(rear);
+      this.rearLights.push(rear);
+      const reverse = new THREE.PointLight(0xfff1d0, 0, 5, 2);
+      reverse.position.set(side * halfWidth * 0.42, bodyY * 0.72, halfLength * 0.46);
+      reverse.castShadow = false;
+      this.group.add(reverse);
+      this.reverseLights.push(reverse);
     }
 
     // riempimento centrale: due fari separati lasciano una V scura davanti al
@@ -1181,12 +1287,36 @@ export class Vehicle {
     const on = this.headlightOverride
       ? Math.max(0.55, this.nightLevel)
       : this.nightLevel;
+    const headlightsOn = this.dynamicLights !== 'none';
+    const high = this.highBeam ? 1.4 : 1;
     for (const beam of this.headlights) {
-      beam.intensity = HEADLIGHT_INTENSITY * on * (beam.userData.gain ?? 1);
+      beam.intensity = headlightsOn ? HEADLIGHT_INTENSITY * on * high * (beam.userData.gain ?? 1) : 0;
+      beam.angle = HEADLIGHT_ANGLE * (this.highBeam ? 1.16 : 1);
+      beam.penumbra = this.highBeam ? 0.62 : 0.82;
     }
     this.lampMat.emissiveIntensity = 0.5 + 2.6 * on;
     this.tailMat.emissiveIntensity = 0.3 + 1.2 * on;
     this.applyLenses(on);
+    this.updateLampLights();
+  }
+
+  setQuality(level: QualityLevel): void {
+    this.dynamicLights = QUALITY_PRESETS[level].vehicleLights;
+    this.skidMarks.setBudget(QUALITY_PRESETS[level].skidSegments);
+    this.setLights(this.nightLevel);
+  }
+
+  private updateLampLights(): void {
+    const canLightRear = this.dynamicLights === 'all';
+    const slip = this.state.wheelSlip;
+    const stop = Math.max(this.braking, slip?.rl.locked || slip?.rr.locked ? 1 : 0);
+    const level = canLightRear ? this.nightLevel : 0;
+    for (const light of this.rearLights) {
+      light.intensity = level * (2.5 + 7 * stop);
+    }
+    for (const light of this.reverseLights) {
+      light.intensity = canLightRear && this.state.gear < 0 ? 2 : 0;
+    }
   }
 
   /**
@@ -1232,6 +1362,13 @@ export class Vehicle {
     return this.headlightOverride;
   }
 
+  /** Commuta anabbaglianti/abbaglianti senza alterare l'automatismo giorno/notte. */
+  toggleBeamMode(): boolean {
+    this.highBeam = !this.highBeam;
+    this.setLights(this.nightLevel);
+    return this.highBeam;
+  }
+
   /**
    * Frecce disegnate come quattro pannelli emissivi agli angoli.
    *
@@ -1270,6 +1407,12 @@ export class Vehicle {
     return impact;
   }
 
+  consumeCurbImpact(): number {
+    const strength = this.pendingCurbNoise;
+    this.pendingCurbNoise = 0;
+    return strength;
+  }
+
   reset(x: number, z: number, yaw: number, ground: GroundSampler): void {
     this.pendingImpact = null;
     this.state = createCarState(x, z, yaw);
@@ -1285,7 +1428,6 @@ export class Vehicle {
     this.sprayPositions.fill(0);
     this.sprayMesh.geometry.getAttribute('position').needsUpdate = true;
     this.sprayMesh.geometry.getAttribute('aLife').needsUpdate = true;
-    this.skidMarks.clear();
     for (const lamp of this.indicatorLamps) lamp.visible = false;
     this.indicatorMats.left.emissiveIntensity = 0;
     this.indicatorMats.right.emissiveIntensity = 0;
@@ -1297,7 +1439,7 @@ export class Vehicle {
     ground: GroundSampler,
     buildings: BuildingIndex,
     obstacles?: ObstacleIndex,
-    gripScale = 1,
+    weatherOrGrip: Partial<SurfaceWeather> | number = {},
     sprayIntensity = 0,
     vegetationDrag = 0,
   ): void {
@@ -1307,15 +1449,39 @@ export class Vehicle {
 
     const here = ground.sampleAt(this.state.x, this.state.z);
     const onRoad = here.onRoad;
+    const weather = typeof weatherOrGrip === 'number' ? undefined : weatherOrGrip;
+    const gripScale = typeof weatherOrGrip === 'number' ? weatherOrGrip : undefined;
+    this.roadWetness = weather?.wetness ?? 0;
+    const smoothedInput = { ...input };
+    const throttleRate = input.throttle > this.throttleInput ? 2.8 : 4.5;
+    const brakeRate = input.brake > this.brakeInput ? 7 : 5;
+    this.throttleInput += (clamp(input.throttle, 0, 1) - this.throttleInput) * (1 - Math.exp(-throttleRate * dt));
+    this.brakeInput += (clamp(input.brake, 0, 1) - this.brakeInput) * (1 - Math.exp(-brakeRate * dt));
+    smoothedInput.throttle = this.throttleInput;
+    smoothedInput.brake = this.brakeInput;
+    const wheelFx = -Math.sin(this.state.yaw);
+    const wheelFz = -Math.cos(this.state.yaw);
+    const wheelRx = Math.cos(this.state.yaw);
+    const wheelRz = -Math.sin(this.state.yaw);
+    const frontDistance = spec.wheelbase * 0.5;
+    const rearDistance = -frontDistance;
+    const wheelSurfaces = {
+      fl: ground.sampleAt(this.state.x + wheelFx * frontDistance - wheelRx * halfTrack, this.state.z + wheelFz * frontDistance - wheelRz * halfTrack).surface,
+      fr: ground.sampleAt(this.state.x + wheelFx * frontDistance + wheelRx * halfTrack, this.state.z + wheelFz * frontDistance + wheelRz * halfTrack).surface,
+      rl: ground.sampleAt(this.state.x + wheelFx * rearDistance - wheelRx * halfTrack, this.state.z + wheelFz * rearDistance - wheelRz * halfTrack).surface,
+      rr: ground.sampleAt(this.state.x + wheelFx * rearDistance + wheelRx * halfTrack, this.state.z + wheelFz * rearDistance + wheelRz * halfTrack).surface,
+    };
     // il piano di appoggio include asfalto, marciapiede e ponte: la fisica
     // della pendenza deve sentire la stessa quota che si vede
     const next = stepCar(
       this.state,
-      input,
+      smoothedInput,
       {
         onRoad,
         surface: here.surface,
+        wheelSurfaces,
         groundHeight: (x, z) => ground.heightAt(x, z),
+        weather,
         gripScale,
         vegetationDrag,
       },
@@ -1338,6 +1504,7 @@ export class Vehicle {
     next.x = body.x;
     next.z = body.z;
     next.speed = body.speed;
+    next.vx = body.speed;
 
     // cosa si è preso: l'indice spinge fuori ma non dice contro cosa. Si cerca
     // l'ostacolo davanti al muso, dove la collisione è appena avvenuta, così il
@@ -1377,7 +1544,9 @@ export class Vehicle {
     this.curbCooldown = Math.max(0, this.curbCooldown - dt);
     if (impact.bump > 0 && this.curbCooldown === 0 && Math.abs(next.speed) > 0.8) {
       next.speed *= impact.speedFactor;
+      next.vx = next.speed;
       this.bump = Math.max(this.bump, impact.bump);
+      this.pendingCurbNoise = Math.max(this.pendingCurbNoise, clamp(impact.bump / 0.055, 0.15, 1));
       this.curbCooldown = 0.35;
     }
     this.bump *= Math.exp(-9 * dt);
@@ -1423,11 +1592,12 @@ export class Vehicle {
 
     this.group.position.set(next.x, groundY + this.surfaceLift + this.bump, next.z);
     this.group.rotation.set(this.tiltPitch + this.leanPitch, next.yaw, this.tiltRoll + this.leanRoll);
-    const loose = isLooseSurface(contact.surface);
-    const skidding = loose && (next.wheelspin || (input.handbrake && Math.abs(next.speed) > 3));
+    const skidding = next.sliding > 0.2 || next.wheelspin ||
+      (input.handbrake && Math.abs(next.speed) > 3);
     this.updateWheelSpray(dt, sprayIntensity, Math.abs(next.speed), contact.surface, input.throttle, skidding);
-    this.updateSkidMarks(dt, next, groundY, contact.surface, skidding);
-    this.skidMarks.update(dt);
+    this.skidMarks.streamAround(next.x, next.z);
+    this.updateSkidMarks(dt, next, ground, weather);
+    this.skidMarks.update(dt, weather);
 
     // le ruote anteriori girano dello stesso angolo calcolato dalla fisica:
     // prima la grafica usava il lock massimo e a 100 km/h le gomme restavano
@@ -1455,7 +1625,7 @@ export class Vehicle {
     }
 
     // fanalini: si accendono in frenata e diventano bianchi in retromarcia
-    const braking = clamp(input.brake, 0, 1);
+    const braking = Math.max(clamp(smoothedInput.brake, 0, 1), input.handbrake ? 1 : 0);
     const reversing = next.gear < 0;
     this.tailMat.emissive.setHex(reversing ? 0xfff3dd : 0x5a0d0a);
     this.tailMat.emissiveIntensity = 0.3 + 1.1 * this.nightLevel + (reversing ? 1.4 : 0) + 2.6 * braking;
@@ -1464,6 +1634,15 @@ export class Vehicle {
     this.braking = braking;
     const lightLevel = this.headlightOverride ? Math.max(0.55, this.nightLevel) : this.nightLevel;
     this.applyLenses(lightLevel);
+    this.updateLampLights();
+    this.lightReflections[0]!.position.y = -this.surfaceLift - this.bump + 0.025;
+    this.lightReflections[1]!.position.y = -this.surfaceLift - this.bump + 0.025;
+    this.reflectionMaterials[0]!.opacity = clamp(this.roadWetness * lightLevel * 0.7, 0, 0.7);
+    this.reflectionMaterials[1]!.opacity = clamp(
+      this.roadWetness * (this.nightLevel * 0.5 + braking * 0.7) * 0.72,
+      0,
+      0.8,
+    );
 
     // frecce: lampeggio a 1,4 Hz, il lato scelto resta acceso finché non si
     // preme di nuovo lo stesso tasto
@@ -1537,25 +1716,42 @@ export class Vehicle {
   private updateSkidMarks(
     dt: number,
     state: CarState,
-    groundY: number,
-    surface: string,
-    skidding: boolean,
+    ground: GroundSampler,
+    weather?: Partial<SurfaceWeather>,
   ): void {
     this.skidClock = Math.max(0, this.skidClock - dt);
-    if (!skidding || this.skidClock > 0) return;
-    // 16 Hz: a 100 km/h le strisce restano continue anche sul terreno smosso
+    if (this.skidClock > 0) return;
+    // Frequenza adattata alla velocità: le bande restano continue senza creare
+    // un punto per ogni frame.
     this.skidClock = 0.06;
     const fx = -Math.sin(state.yaw);
     const fz = -Math.cos(state.yaw);
     const rx = Math.cos(state.yaw);
     const rz = -Math.sin(state.yaw);
-    const halfTrack = this.spec.track * 0.5;
-    const back = this.spec.wheelbase * 0.48;
-    const color = surface === 'grass' ? 0x4f5531 : surface === 'mud' ? 0x2f2419 : 0x4a3826;
-    for (const side of [-1, 1]) {
-      const x = state.x - fx * back + rx * halfTrack * side;
-      const z = state.z - fz * back + rz * halfTrack * side;
-      this.skidMarks.add(x, z, state.yaw, groundY, color);
+    const positions = [
+      { id: 'fl' as const, along: this.spec.wheelbase * 0.5, side: -1 },
+      { id: 'fr' as const, along: this.spec.wheelbase * 0.5, side: 1 },
+      { id: 'rl' as const, along: -this.spec.wheelbase * 0.5, side: -1 },
+      { id: 'rr' as const, along: -this.spec.wheelbase * 0.5, side: 1 },
+    ];
+    for (const wheel of positions) {
+      const slip = state.wheelSlip[wheel.id];
+      const x = state.x + fx * wheel.along + rx * this.spec.track * 0.5 * wheel.side;
+      const z = state.z + fz * wheel.along + rz * this.spec.track * 0.5 * wheel.side;
+      const sample = ground.sampleAt(x, z);
+      if (!shouldSkid(slip, sample.surface, weather)) continue;
+      const material = surfaceMaterial(sample.surface);
+      this.skidMarks.add(
+        x,
+        z,
+        state.yaw,
+        sample.y,
+        material.skid.color,
+        skidIntensity(slip),
+        material.skid.persistence,
+        0.18 + skidIntensity(slip) * 0.2,
+        material.skid.depth,
+      );
     }
   }
 

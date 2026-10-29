@@ -61,11 +61,20 @@ moduli stradali, ponti e scene rurali senza duplicare collisioni o impronte.
 Erba e zolle di terreno seguono inoltre il budget corrente durante il gioco.
 
 Il terreno geografico continuo resta quello del DEM, aggiornabile con tile
-altimetrici. La copertura OSM/ESA georeferenziata decide l'aspetto delle
-campiture (prati, coltivi, boschi, arbusti e terreno nudo); le immagini
-satellitari non vengono disegnate sulla superficie 3D guidabile. I GLB di
-terreno restano dettagli locali: una scansione ampia non può sostituire colline
-e quote su tutta la mappa se non è registrata sul DEM.
+altimetrici e autorità unica per la fisica. `WorldFieldDetail` usa invece gli
+asset `ground-*` come rivestimento visivo locale: la classe OSM/landcover, la
+pendenza DEM e la distanza dalle strade determinano se usare prato, coltivo,
+roccia o terra; il gradiente DEM orienta il piano medio di ogni istanza. La
+griglia è deterministica e viene riempita dal giocatore verso l'esterno entro
+il budget del preset. Le fotogrammetrie piccole restano accenti limitati perché
+superano 6.000 triangoli ciascuna. Le immagini satellitari non vengono
+disegnate sulla superficie 3D guidabile e nessuna zolla modifica `WorldGround`.
+
+La copertura GLB è **di prossimità e budget-bounded**, non una copertura
+continua garantita a 60 m: superfici bloccate (edifici, strada/profilo stradale,
+pendii incompatibili) restano visibili dal DEM. Il `ground-mud` è selezionato
+solo quando la classificazione della superficie è `dirt`; non è ancora
+collegato direttamente all'intensità della pioggia.
 
 ## Meteo, guida e urti
 

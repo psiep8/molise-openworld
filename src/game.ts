@@ -47,6 +47,7 @@ import { WorldFieldDetail, buildStrawBales, buildVillageScenes } from './world/f
 import { buildRoadsideKit } from './world/roadside-kit';
 import { buildBridgeKit } from './world/bridge-kit';
 import { CarLibrary } from './world/car-library';
+import type { SurfaceWeather } from './sim/surfaces';
 import { DEFAULT_LIGHTING, DEFAULT_SKY, DEFAULT_SUN, createSky, type SkyRig } from './world/sky';
 import { CloudLayer } from './world/clouds';
 import { Precipitation } from './world/precipitation';
@@ -547,7 +548,13 @@ export class Game {
   private lastWetness = -1;
   private roadWetness = 0;
   private snowPack = 0;
-  private surfaceGripScale = 1;
+  private drivingWeather: SurfaceWeather = {
+    wetness: 0,
+    standingWater: 0,
+    snowPack: 0,
+    iceRisk: 0,
+    temperature: 18,
+  };
   private wheelSprayIntensity = 0;
   private realWeatherEnabled = false;
   private settingsVisible = false;
@@ -2566,10 +2573,13 @@ export class Game {
     const targetSnow = snowing ? clamp(0.28 + w.snowfall * 0.22, 0.35, 0.9) : 0;
     const snowRate = targetSnow > this.snowPack ? 0.08 : w.temperature > 1 ? 0.003 : 0.0004;
     this.snowPack += (targetSnow - this.snowPack) * (1 - Math.exp(-snowRate * dt));
-    const wetGrip = 1 - this.roadWetness * 0.42;
-    const snowGrip = 1 - this.snowPack * 0.78;
-    const blackIce = w.temperature < 0 && this.roadWetness > 0.28 ? 0.72 : 1;
-    this.surfaceGripScale = clamp(wetGrip * snowGrip * blackIce, 0.16, 1);
+    this.drivingWeather = {
+      wetness: this.roadWetness,
+      standingWater: rain > 0 ? clamp(this.roadWetness * (0.25 + rain * 0.8), 0, 1) : this.roadWetness * 0.25,
+      snowPack: this.snowPack,
+      iceRisk: w.temperature < 0 ? clamp((this.roadWetness + this.snowPack) * 0.85, 0, 1) : 0,
+      temperature: w.temperature,
+    };
     this.wheelSprayIntensity = rain;
     this.applyWetness(Math.max(this.roadWetness, this.snowPack * 0.5));
     // la neve non è solo trazione: si posa anche sui modelli importati
@@ -2793,6 +2803,7 @@ export class Game {
     this.degradeStep = 0;
     this.slowChecks = 0;
     this.viewRadius = this.quality.viewRadius;
+    this.car.setQuality(level);
     this.syncWeatherEffects();
     this.setShadows(this.quality.shadows);
     this.applyRenderScale();
@@ -3007,6 +3018,12 @@ export class Game {
         this.hud.toast(
           this.car.toggleHeadlights() ? 'Fari accesi anche di giorno' : 'Fari in automatico (notte)',
           2200,
+        );
+        break;
+      case 'KeyU':
+        this.hud.toast(
+          this.car.toggleBeamMode() ? 'Abbaglianti' : 'Anabbaglianti',
+          1600,
         );
         break;
       case 'KeyO':
@@ -3693,7 +3710,7 @@ export class Game {
         this.ground,
         this.buildingIndex,
         this.obstacles,
-        this.surfaceGripScale,
+        this.drivingWeather,
         this.wheelSprayIntensity,
         vegetationDrag,
       );
@@ -3703,6 +3720,8 @@ export class Game {
         // il colpo si sente: metallo per i cartelli, legno/pietra per il resto
         this.audio.impact(impact.strength, impact.tag === 'world-sign');
       }
+      const curbImpact = this.car.consumeCurbImpact();
+      if (curbImpact > 0) this.audio.impact(curbImpact * 0.55);
       if (impact && this.worldHits) {
         this.worldHits.hit({
           x: impact.x,
@@ -3812,6 +3831,11 @@ export class Game {
       gear: this.mode === 'drive' ? this.car.state.gear : undefined,
       shiftTimer: this.mode === 'drive' ? this.car.state.shiftTimer : undefined,
       braking: this.mode === 'drive' ? this.driveInput?.brake : undefined,
+      sliding: this.mode === 'drive' ? this.car.state.sliding : undefined,
+      abs: this.mode === 'drive' ? this.car.state.absActive : undefined,
+      surface: this.mode === 'drive'
+        ? this.ground.sampleAt(this.car.state.x, this.car.state.z).surface
+        : undefined,
       onRoad:
         this.mode === 'drive'
           ? this.roadIndex.isOnRoad(this.car.state.x, this.car.state.z, 0.4) ||
@@ -3879,12 +3903,18 @@ export class Game {
   }
 
   private readCarInput(move: MoveInput): CarInput {
+    const pad = typeof navigator === 'undefined'
+      ? undefined
+      : Array.from(navigator.getGamepads?.() ?? []).find((gamepad) => gamepad?.connected);
+    const gasPad = Math.max(pad?.buttons[7]?.value ?? 0, pad?.buttons[7]?.pressed ? 1 : 0);
+    const brakePad = Math.max(pad?.buttons[6]?.value ?? 0, pad?.buttons[6]?.pressed ? 1 : 0);
+    const steerPad = pad?.axes[0] ?? 0;
     return {
-      throttle: move.forward > 0 ? 1 : 0,
-      brake: move.forward < 0 ? 1 : 0,
-      steer: -move.strafe,
-      handbrake: move.jump,
-      boost: move.sprint,
+      throttle: Math.max(move.forward > 0 ? 1 : 0, gasPad),
+      brake: Math.max(move.forward < 0 ? 1 : 0, brakePad),
+      steer: Math.abs(steerPad) > 0.12 ? -steerPad : -move.strafe,
+      handbrake: move.jump || (pad?.buttons[1]?.pressed ?? false),
+      boost: move.sprint || (pad?.buttons[5]?.pressed ?? false),
     };
   }
 
