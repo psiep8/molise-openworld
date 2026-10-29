@@ -138,5 +138,11 @@ visive in gioco restano indicate esplicitamente quando non eseguite.
 - `npx tsc --noEmit` ✅
 - `npx vitest run` **461/461** ✅ in 53 file
 - `npm run build` ✅
-- Verifiche visive in browser/GPU: **non eseguite** (nessuno screenshot o test
-  manuale di guida, ingresso auto o copertura del terreno).
+- Controllo runtime sul build servito da `vite preview`: modalità a piedi e a
+  guida avviate, uscita dall'auto → camminata → rientro in auto senza errori in
+  console (`errorCount: 0`), a 24,7 fps su GPU software.
+- `npm run smoke` completo: la prima scheda ha guidato e reso l'immagine, ma il
+  rerun con la scheda `autostart=walk` è andato in timeout sotto SwiftShader e
+  non viene contato come prova superata.
+- Verifica visiva (screenshot e giudizio su marciapiedi, posa seduta e
+  copertura): **non eseguita**.
