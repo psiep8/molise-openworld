@@ -213,10 +213,11 @@ export class HumanBody {
   private readonly seatRig: Array<{
     bone: THREE.Object3D;
     rest: THREE.Quaternion;
-    role: 'hip' | 'knee' | 'arm' | 'torso';
+    role: 'hip' | 'knee' | 'arm' | 'elbow' | 'torso';
+    /** asse di flessione locale: cambia fra gambe (X) e braccia (Y/Z) */
+    axis: THREE.Vector3;
   }> = [];
   private readonly seatOffset = new THREE.Quaternion();
-  private readonly seatAxis = new THREE.Vector3(1, 0, 0);
   private seatProgress = 0;
   private groundPitch = 0;
   private groundRoll = 0;
@@ -230,21 +231,36 @@ export class HumanBody {
     // La riga Ready Player Me/Mixamo non ha una clip "seduto": si piegano le
     // ossa di coscia, polpaccio e braccio con la funzione pura `seatPose`.
     const bones = indexBones(model);
-    const bindSeat = (keys: string[], role: 'hip' | 'knee' | 'arm' | 'torso'): void => {
+    // L'asse di flessione non è lo stesso per tutte le ossa: nelle gambe la
+    // rotazione X porta il ginocchio in avanti, nei bracci del rig Mixamo l'osso
+    // sta lungo X e ruotare su X lo avvita soltanto. Per portare le mani al
+    // volante serve Y sulla spalla e Z sul gomito.
+    const bindSeat = (
+      keys: string[],
+      role: 'hip' | 'knee' | 'arm' | 'elbow' | 'torso',
+      axis: THREE.Vector3,
+    ): void => {
       for (const key of keys) {
         const bone = bones.get(key);
         if (!bone) continue;
-        this.seatRig.push({ bone, rest: bone.quaternion.clone(), role });
+        this.seatRig.push({ bone, rest: bone.quaternion.clone(), role, axis });
         return;
       }
     };
-    bindSeat(['leftupleg', 'leftthigh'], 'hip');
-    bindSeat(['rightupleg', 'rightthigh'], 'hip');
-    bindSeat(['leftleg', 'leftshin', 'leftcalf'], 'knee');
-    bindSeat(['rightleg', 'rightshin', 'rightcalf'], 'knee');
-    bindSeat(['leftarm', 'leftshoulder'], 'arm');
-    bindSeat(['rightarm', 'rightshoulder'], 'arm');
-    bindSeat(['spine1', 'spine', 'chest'], 'torso');
+    const AXIS_X = new THREE.Vector3(1, 0, 0);
+    // asse obliquo della spalla, misurato sul rig: porta la mano in avanti e
+    // verso il centro del volante invece di avvitare il braccio
+    const AXIS_ARM_LEFT = new THREE.Vector3(-0.5, 0, 0.8660254);
+    const AXIS_ARM_RIGHT = new THREE.Vector3(-0.5, 0, -0.8660254);
+    bindSeat(['leftupleg', 'leftthigh'], 'hip', AXIS_X);
+    bindSeat(['rightupleg', 'rightthigh'], 'hip', AXIS_X);
+    bindSeat(['leftleg', 'leftshin', 'leftcalf'], 'knee', AXIS_X);
+    bindSeat(['rightleg', 'rightshin', 'rightcalf'], 'knee', AXIS_X);
+    bindSeat(['leftarm', 'leftshoulder'], 'arm', AXIS_ARM_LEFT);
+    bindSeat(['rightarm', 'rightshoulder'], 'arm', AXIS_ARM_RIGHT);
+    bindSeat(['leftforearm', 'leftlowerarm', 'leftelbow'], 'elbow', AXIS_X);
+    bindSeat(['rightforearm', 'rightlowerarm', 'rightelbow'], 'elbow', AXIS_X);
+    bindSeat(['spine1', 'spine', 'chest'], 'torso', AXIS_X);
 
     // scala del corpo: altezza scelta dall'utente, larghezza dalla corporatura
     const girth = BUILD_GIRTH[appearance.build];
@@ -347,7 +363,7 @@ export class HumanBody {
       for (const entry of this.seatRig) {
         const angle = pose[entry.role];
         if (Math.abs(angle) < 1e-5) continue;
-        this.seatOffset.setFromAxisAngle(this.seatAxis, angle);
+        this.seatOffset.setFromAxisAngle(entry.axis, angle);
         entry.bone.quaternion.multiply(this.seatOffset);
       }
     }

@@ -35,6 +35,30 @@ function defaultStorage(): SkidStorage | null {
 }
 
 /**
+ * Tassello di raccordo fra due tratti del nastro.
+ *
+ * Due quad rettilinei accostati lasciano un cuneo vuoto sul lato esterno della
+ * curva e si compenetrano su quello interno: qui si decide se serve un quad
+ * corto orientato sulla bisettrice, che chiude il cuneo. `null` quando la curva
+ * è dolce e i due tratti si sovrappongono già da soli.
+ */
+export function ribbonJoint(
+  previousYaw: number,
+  nextYaw: number,
+  width: number,
+  threshold = 0.2,
+): { yaw: number; length: number } | null {
+  if (!Number.isFinite(previousYaw) || !Number.isFinite(nextYaw) || !(width > 0)) return null;
+  const turn = ((nextYaw - previousYaw + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+  if (Math.abs(turn) <= threshold) return null;
+  const safeWidth = Math.min(1.2, width);
+  return {
+    yaw: previousYaw + turn / 2,
+    length: Math.max(safeWidth * 1.6, safeWidth * (1 + Math.abs(turn))),
+  };
+}
+
+/**
  * Tracce in coordinate mondo. I chunk fuori dal raggio attivo vengono salvati
  * in forma compatta e ricaricati quando il veicolo torna nella zona.
  */
@@ -197,6 +221,25 @@ export class SkidMarks {
       depth,
       length,
     );
+  }
+
+  /**
+   * Tassello corto alla giunzione di due tratti, orientato sulla bisettrice:
+   * chiude il cuneo che si apre all'esterno delle curve strette.
+   */
+  addJoint(
+    x: number,
+    z: number,
+    y: number,
+    yaw: number,
+    length: number,
+    color = 0x3d2f20,
+    intensity = 1,
+    life = surfaceMaterial('dirt').skid.persistence,
+    width = 0.28,
+    depth = surfaceMaterial('dirt').skid.depth,
+  ): void {
+    this.push(x, z, y, yaw, color, intensity, life, width, depth, length);
   }
 
   private push(

@@ -148,7 +148,7 @@ describe('transizioni e posa seduta', () => {
   });
 
   it('piega il corpo in modo monotono e limitato', () => {
-    expect(seatPose(0)).toEqual({ hip: 0, knee: 0, arm: 0, torso: 0 });
+    expect(seatPose(0)).toEqual({ hip: 0, knee: 0, arm: 0, elbow: 0, torso: 0 });
     expect(seatPose(-2)).toEqual(seatPose(0));
     expect(seatPose(2)).toEqual(seatPose(1));
     expect(seatPose(Number.NaN)).toEqual(seatPose(0));
@@ -158,10 +158,14 @@ describe('transizioni e posa seduta', () => {
       expect(pose.hip).toBeGreaterThanOrEqual(previous.hip - 1e-9);
       expect(pose.knee).toBeLessThanOrEqual(previous.knee + 1e-9);
       expect(pose.arm).toBeGreaterThanOrEqual(previous.arm - 1e-9);
+      expect(pose.elbow).toBeLessThanOrEqual(previous.elbow + 1e-9);
       expect(pose.torso).toBeGreaterThanOrEqual(previous.torso - 1e-9);
       previous = pose;
     }
     expect(seatPose(1).hip).toBeCloseTo(1.1, 8);
     expect(seatPose(1).knee).toBeCloseTo(-1.4, 8);
+    // le mani devono arrivare davanti al busto, non restare lungo i fianchi
+    expect(seatPose(1).arm).toBeGreaterThan(0.2);
+    expect(seatPose(1).elbow).toBeLessThan(-1.5);
   });
 });

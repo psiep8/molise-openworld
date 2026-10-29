@@ -42,8 +42,9 @@ Il piano di prova passo-passo usato per la verifica manuale è in
 ### Limiti
 
 - Il nastro è ancora fatto di segmenti rettilinei accostati, non di una mesh
-  continua con UV: a curve molto strette i segmenti si compenetrano invece di
-  piegarsi.
+  continua con UV. Sulle curve strette (oltre ~11°) un tassello corto orientato
+  sulla bisettrice chiude il cuneo che si apriva all'esterno, quindi il nastro
+  resta continuo; i segmenti restano rettilinei, non si piegano ad arco.
 - Lo storage è locale al browser, non al profilo di gioco: cancellando i dati del
   sito le tracce spariscono.
 - La conferma a schermo di ABS, acquaplano e usura delle tracce resta da fare su
@@ -86,9 +87,19 @@ Il piano di prova passo-passo usato per la verifica manuale è in
 
 ### Limiti
 
-- La generazione non usa un Web Worker: il piano è puro e limitato (decine di
-  celle) e viene eseguito sul thread principale; `planMs` misura il costo, ma non
-  c'è ancora un trasferimento asincrono.
+- La generazione non usa un Web Worker, ma non serve: misurato in gioco, il
+  piano delle zolle costa **1,9–2,6 ms**, la costruzione della maschera 11–14 ms,
+  le istanze 0,4 ms. Il costo vero era il grano (35,6 ms), ora diviso in fette da
+  4 ms; portare 2 ms su un worker non avrebbe cambiato nulla. Il collo di
+  bottiglia residuo è `GroundMask.build`, che resta sincrona (vedi sotto).
+- Il grano è seminato a fette (`stepWheat`, budget 4 ms per frame): conserva
+  indici e stato del generatore, quindi la sequenza di spighe è identica a quella
+  del ciclo unico, ma distribuita su ~9 frame invece di un blocco da 35 ms. La
+  griglia si ricalcola ogni `rebuildDistance()` metri, che ora segue il raggio di
+  copertura del preset (15–26 m).
+- `GroundMask.build` (quote, pendenza, strade, piazzale, poligoni di copertura,
+  edifici) è ancora sincrona per intero: ~11–14 ms in campagna e ~32 ms in paese.
+  È il prossimo pezzo da spezzare se si vuole azzerare lo scatto residuo.
 - Non c'è un overlay grafico di copertura: le metriche sono disponibili via
   `coverageStats()` e nei test, non disegnate in mappa.
 - Oltre 60 m il suolo resta DEM + landcover + satellite: riempirlo tutto con GLB
@@ -129,12 +140,17 @@ Il piano di prova passo-passo usato per la verifica manuale è in
 
 - Non ci sono rag-doll, nuove clip di motion capture né cambi anatomici: restano
   fasi successive.
+- Le mani arrivano al volante solo quando il corpo è visibile: mentre si guida
+  l'avatar è nascosto, quindi la posa si vede durante ingresso e uscita dall'auto
+  (0,6 / 0,65 s) e non in terza persona dall'abitacolo.
 - L'adattamento al terreno è inclinazione del corpo + quota media dei piedi, non
   IK a due ossa: su scalini netti il piede può ancora attraversare il bordo.
 - Il rig procedurale di fallback non ha la posa seduta (solo il corpo GLB).
-- La posa seduta è verificata a schermo solo sull'avatar in piedi/seduto
-  dell'harness: in auto il busto resta nella posizione della clip di riposo e le
-  mani non raggiungono il volante.
+- Il busto resta nella posizione della clip di riposo (solo spalle e gomiti si
+  muovono): con le mani sul volante va bene, con il sedile reclinato no.
+- Gli assi di flessione sono misurati sul rig Ready Player Me/Mixamo: gambe su X,
+  spalla su un asse obliquo, gomito su X. Un rig diverso richiederebbe di
+  rimisurarli.
 
 ## Verifiche di questa sessione
 
@@ -157,6 +173,17 @@ Il piano di prova passo-passo usato per la verifica manuale è in
   (`/harness.html`, `setSeatProgress(1)` sui tre avatar, vista frontale e di
   profilo): cosce in avanti, ginocchia che si piegano indietro, piedi a terra,
   nessuna rotazione invertita. Restano fuori le mani sul volante (non previste).
+- Ricostruzione del dettaglio misurata con tempi per sezione sul dev server
+  (`?bench=1`, `high`): **50,3 ms** totali (maschera 11,7 · piano 2,6 · istanze
+  0,4 · **grano 35,6**), poi **19,9 ms** con il grano a fette; in paese a `medium`
+  31,9 ms, dove pesa la maschera. Il grano completo in 9 fette da 4 ms. Il piano
+  resta identico: 24/30 celle, fill 0,8, 397.396 triangoli, raggio 46,2 m.
+- Mani sul volante: assi di flessione misurati osso per osso sul rig (una
+  rotazione su X avvitava il braccio invece di portarlo avanti). Posa finale:
+  spalla su asse obliquo 0,3 rad, gomito −1,9 rad → mani a ±0,12 m, +0,16 sopra
+  la spina e +0,33 avanti. Verificata in harness da dietro e di profilo.
+- Giunti del nastro: 4 test nuovi sul raccordo in curva (dritto → nessun
+  tassello, bisettrice, salto di ±π, lunghezza scritta). Suite a 465 test.
 - Fase 0 del piano di test: tutti e sette i controlli trovano le modifiche
   (`wheelSlip`/`vy` in `car.ts`, `molise.skid-marks`, `locomotion` in
   `human-model.ts`/`player.ts`/`pedestrians.ts`, `surfaces` in `vehicle.ts`,

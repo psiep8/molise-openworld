@@ -35,7 +35,7 @@ import type { BuildingIndex } from '../geo/osm';
 import type { CityKit } from '../world/citykit';
 import type { CarLibrary } from '../world/car-library';
 import { preciseBox, splitCarWheels } from './car-wheels';
-import { SkidMarks } from './skid-marks';
+import { ribbonJoint, SkidMarks } from './skid-marks';
 import { HumanBody, type HumanAssets } from './human-model';
 import type { Appearance } from './appearance';
 import { clamp } from '../geo/geo';
@@ -237,7 +237,10 @@ export class Vehicle {
   readonly skidMarks = new SkidMarks();
   private skidClock = 0;
   /** Ultimo punto di contatto per ruota: serve a concatenare i nastri. */
-  private readonly skidTrail = new Map<'fl' | 'fr' | 'rl' | 'rr', { x: number; z: number; surface: string }>();
+  private readonly skidTrail = new Map<
+    'fl' | 'fr' | 'rl' | 'rr',
+    { x: number; z: number; surface: string; heading: number }
+  >();
   /** frecce: due materiali ambra, uno per lato */
   private readonly indicatorMats = {
     left: new THREE.MeshStandardMaterial({ color: 0x3a2a12, emissive: 0xff9a1e, emissiveIntensity: 0, roughness: 0.45 }),
@@ -1753,6 +1756,24 @@ export class Vehicle {
       const last = this.skidTrail.get(wheel.id);
       const gap = last ? Math.hypot(x - last.x, z - last.z) : Infinity;
       if (last && last.surface === sample.surface && gap > 0.02 && gap < 4) {
+        const heading = Math.atan2(x - last.x, z - last.z);
+        // nelle curve strette i due quad rettilinei aprono un cuneo all'esterno:
+        // un tassello corto sulla bisettrice lo chiude prima di allungare il nastro
+        const joint = ribbonJoint(last.heading, heading, width);
+        if (joint) {
+          this.skidMarks.addJoint(
+            last.x,
+            last.z,
+            sample.y,
+            joint.yaw,
+            joint.length,
+            material.skid.color,
+            intensity,
+            material.skid.persistence,
+            width,
+            material.skid.depth,
+          );
+        }
         this.skidMarks.addRibbon(
           last.x,
           last.z,
@@ -1778,7 +1799,8 @@ export class Vehicle {
           material.skid.depth,
         );
       }
-      this.skidTrail.set(wheel.id, { x, z, surface: sample.surface });
+      const heading = last ? Math.atan2(x - last.x, z - last.z) : state.yaw;
+      this.skidTrail.set(wheel.id, { x, z, surface: sample.surface, heading });
     }
   }
 

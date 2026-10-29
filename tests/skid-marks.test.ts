@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SkidMarks } from '../src/entities/skid-marks';
+import { ribbonJoint, SkidMarks } from '../src/entities/skid-marks';
 
 describe('tracce di pneumatico persistenti', () => {
   it('mantiene i segmenti nel mondo e li esporta per chunk', () => {
@@ -84,6 +84,41 @@ describe('nastri dopo un riavvio', () => {
     expect(segments[0]!.length).toBeCloseTo(3, 6);
     expect(segments[1]!.length).toBeCloseTo(3, 6);
     expect(segments[0]!.yaw).toBeCloseTo(Math.PI / 2, 6);
+  });
+});
+
+describe('giunti del nastro nelle curve strette', () => {
+  it('non aggiunge tasselli se il nastro è dritto o quasi', () => {
+    expect(ribbonJoint(0.4, 0.4, 0.3)).toBeNull();
+    expect(ribbonJoint(0.4, 0.55, 0.3)).toBeNull();
+  });
+
+  it('mette il tassello sulla bisettrice e lo allarga con la curva', () => {
+    const gentle = ribbonJoint(0, 0.6, 0.3)!;
+    const sharp = ribbonJoint(0, Math.PI / 2, 0.3)!;
+    expect(gentle.yaw).toBeCloseTo(0.3, 6);
+    expect(sharp.yaw).toBeCloseTo(Math.PI / 4, 6);
+    expect(sharp.length).toBeGreaterThan(gentle.length);
+    expect(gentle.length).toBeGreaterThanOrEqual(0.3 * 1.6 - 1e-9);
+  });
+
+  it('gestisce il salto di ±π senza invertire la bisettrice', () => {
+    const joint = ribbonJoint(3.0, -3.0, 0.3)!;
+    // il verso breve è +0,28 rad: la bisettrice sta sopra π, non a 0
+    expect(Math.abs(joint.yaw)).toBeGreaterThan(Math.PI / 2);
+  });
+
+  it('scrive il tassello come segmento corto nello stesso chunk', () => {
+    const marks = new SkidMarks();
+    marks.setBudget(10);
+    marks.addRibbon(0, 0, 2, 0, 0.1);
+    marks.addJoint(2, 0, 0.1, Math.PI / 4, 0.72);
+    marks.addRibbon(2, 0, 2, 2, 0.1);
+    const segments = marks.chunkSegments('0:0');
+    expect(segments).toHaveLength(3);
+    expect(segments[1]!.x).toBeCloseTo(2, 6);
+    expect(segments[1]!.length).toBeCloseTo(0.72, 6);
+    expect(segments[1]!.yaw).toBeCloseTo(Math.PI / 4, 6);
   });
 });
 

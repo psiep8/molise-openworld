@@ -32,6 +32,8 @@ import { detailRadiusFor, planGroundCover, type GroundCoverChoice, type GroundCo
 const DETAIL_RADIUS = 72;
 const REBUILD_DISTANCE = 15;
 const MAX_WHEAT = 22000;
+/** Quanto tempo per frame può prendersi la semina di un campo (ms). */
+const WHEAT_STEP_MS = 4;
 const WHEAT_HEIGHT = 1.15;
 /** Il grano lontano non si distingue dall'erba: oltre questa distanza è zavorra. */
 const WHEAT_RADIUS = 68;
@@ -162,6 +164,19 @@ export class WorldFieldDetail {
   private detailPlan: GroundCoverPlan | null = null;
   /** durata dell'ultima ricostruzione: misura il rischio di hitch. */
   private planMs = 0;
+  /** semina in corso, divisa su più frame per non bloccare il gioco. */
+  private wheatJob: {
+    x: number;
+    z: number;
+    heights: Heightfield;
+    wanted: number;
+    rng: () => number;
+    i: number;
+    j: number;
+    used: number;
+    /** spighe ancora valide del campo precedente, per non svuotare il campo */
+    carry: number;
+  } | null = null;
 
   constructor(
     private readonly kit: WorldKit,
@@ -251,10 +266,15 @@ export class WorldFieldDetail {
       return;
     }
     this.setVisible(true);
+    // La semina del frame precedente va avanti anche quando non c'è una nuova
+    // ricostruzione da fare: è l'unica operazione pesante divisa a fette, e se
+    // avanzasse solo dopo un rebuild il campo resterebbe a metà finché non ci
+    // si allontana di 15 m.
+    this.stepWheat();
     if (
       this.active &&
       Number.isFinite(this.originX) &&
-      Math.hypot(x - this.originX, z - this.originZ) < REBUILD_DISTANCE &&
+      Math.hypot(x - this.originX, z - this.originZ) < this.rebuildDistance() &&
       Math.abs(budget - this.budget) < 1 &&
       Math.abs(crop - this.density) < 0.05 &&
       // il fango dipende dalla pioggia: un acquazzone deve rifare il piano,
@@ -484,54 +504,122 @@ export class WorldFieldDetail {
     }
   }
 
+  /**
+   * Distanza oltre la quale rifare il piano.
+   *
+   * Il raggio di copertura nasce dal budget (`plan.radius`), quindi la soglia lo
+   * segue: un preset basso copre ~22 m e non può permettersi di aspettare 26 m,
+   * uno alto arriva a ~46 m e può saltare qualche metro in più. A 120 km/h ogni
+   * metro in più è un hitch in meno.
+   */
+  private rebuildDistance(): number {
+    const radius = this.plan?.radius ?? 0;
+    return clamp(radius * 0.45, REBUILD_DISTANCE, 26);
+  }
+
+  /**
+   * Avvia la semina di un campo. Il lavoro vero è in `stepWheat`: una griglia
+   * piena di campioni di superficie e quota costa ~35 ms, che su un frame da 16
+   * è uno scatto visibile. Qui si azzera soltanto lo stato del lavoro.
+   */
   private rebuildWheat(x: number, z: number, heights: Heightfield): void {
     const wanted = Math.round(MAX_WHEAT * this.cropBudget);
     if (wanted < 32) {
+      this.wheatJob = null;
       this.wheat.count = 0;
       return;
     }
+    this.wheatJob = {
+      x,
+      z,
+      heights,
+      wanted,
+      rng: mulberry32(Math.round(x * 7 + z * 11) | 1),
+      i: 0,
+      j: 0,
+      used: 0,
+      // le istanze oltre `used` sono ancora quelle del campo precedente, in
+      // posizioni vere: meglio vederle che vedere il campo svuotarsi e riempirsi
+      carry: this.wheat.count,
+    };
+    this.stepWheat(WHEAT_STEP_MS);
+  }
+
+  /**
+   * Un passo di semina entro un budget di tempo. Conserva indici e stato del
+   * generatore, quindi la sequenza di istanze è identica a quella del ciclo
+   * unico: cambia solo in quanti frame viene distribuita.
+   *
+   * Ritorna `true` quando il campo è completo.
+   */
+  private stepWheat(budgetMs = WHEAT_STEP_MS): boolean {
+    const job = this.wheatJob;
+    if (!job) return true;
+    const clock = typeof performance !== 'undefined' ? () => performance.now() : () => 0;
+    const started = clock();
     const cell = this.mask.cellSize;
-    const rng = mulberry32(Math.round(x * 7 + z * 11) | 1);
-    let used = 0;
-    for (let j = 0; j < this.mask.n && used < wanted; j += 1) {
+    const rng = job.rng;
+    const heights = job.heights;
+    while (job.used < job.wanted && job.j < this.mask.n) {
+      if (job.i >= this.mask.n) {
+        job.j += 1;
+        job.i = 0;
+        continue;
+      }
+      const i = job.i;
+      const j = job.j;
+      job.i += 1;
+      if (this.mask.isBlocked(i, j)) continue;
+      const cover = this.mask.coverAt(i, j);
+      if (cover === COVER_WOOD) continue;
       const pz = this.mask.originZ + (j + 0.5) * cell;
-      for (let i = 0; i < this.mask.n && used < wanted; i += 1) {
-        if (this.mask.isBlocked(i, j)) continue;
-        const cover = this.mask.coverAt(i, j);
-        if (cover === COVER_WOOD) continue;
-        const px = this.mask.originX + (i + rng()) * cell;
-        const pzJitter = pz + (rng() - 0.5) * cell;
-        const surface = this.surfaceAt?.(px, pzJitter) ?? null;
-        if (cover === COVER_MEADOW && surface !== 'dirt') continue;
-        if (Math.hypot(px - x, pzJitter - z) > WHEAT_RADIUS) continue;
-        if (rng() > 0.58 + this.cropBudget * 0.38) continue;
-        const slope = heights.slopeAt(px, pzJitter);
-        if (slope > 16) continue;
-        const heightScale = 0.74 + rng() * 0.52;
-        const spread = 0.82 + rng() * 0.34;
-        this.dummy.position.set(px, this.mask.heightAt(px, pzJitter) - 0.02, pzJitter);
-        this.dummy.rotation.set(0, rng() * Math.PI * 2, 0);
-        this.dummy.scale.set(spread, heightScale, spread);
-        this.dummy.updateMatrix();
-        this.wheat.setMatrixAt(used, this.dummy.matrix);
-        const dry = cover === COVER_DRY || rng() > 0.3;
-        this.wheatColor.setHSL(
-          dry ? 0.13 + rng() * 0.025 : 0.2 + rng() * 0.03,
-          dry ? 0.48 : 0.38,
-          dry ? 0.48 + rng() * 0.1 : 0.42 + rng() * 0.09,
-        );
-        this.wheat.setColorAt(used, this.wheatColor);
-        used++;
+      const px = this.mask.originX + (i + rng()) * cell;
+      const pzJitter = pz + (rng() - 0.5) * cell;
+      const surface = this.surfaceAt?.(px, pzJitter) ?? null;
+      if (cover === COVER_MEADOW && surface !== 'dirt') continue;
+      if (Math.hypot(px - job.x, pzJitter - job.z) > WHEAT_RADIUS) continue;
+      if (rng() > 0.58 + this.cropBudget * 0.38) continue;
+      const slope = heights.slopeAt(px, pzJitter);
+      if (slope > 16) continue;
+      const heightScale = 0.74 + rng() * 0.52;
+      const spread = 0.82 + rng() * 0.34;
+      this.dummy.position.set(px, this.mask.heightAt(px, pzJitter) - 0.02, pzJitter);
+      this.dummy.rotation.set(0, rng() * Math.PI * 2, 0);
+      this.dummy.scale.set(spread, heightScale, spread);
+      this.dummy.updateMatrix();
+      const used = job.used;
+      this.wheat.setMatrixAt(used, this.dummy.matrix);
+      const dry = cover === COVER_DRY || rng() > 0.3;
+      this.wheatColor.setHSL(
+        dry ? 0.13 + rng() * 0.025 : 0.2 + rng() * 0.03,
+        dry ? 0.48 : 0.38,
+        dry ? 0.48 + rng() * 0.1 : 0.42 + rng() * 0.09,
+      );
+      this.wheat.setColorAt(used, this.wheatColor);
+      job.used = used + 1;
+      if (clock() - started >= budgetMs) {
+
+        // le istanze già seminate si vedono: il campo cresce invece di apparire
+        // tutto insieme dopo mezzo secondo
+        this.wheat.count = Math.max(job.used, Math.min(job.carry, MAX_WHEAT));
+        this.wheat.instanceMatrix.needsUpdate = true;
+        if (this.wheat.instanceColor) this.wheat.instanceColor.needsUpdate = true;
+        return false;
       }
     }
-    this.wheat.count = used;
+    this.wheat.count = job.used;
     this.wheat.instanceMatrix.needsUpdate = true;
     if (this.wheat.instanceColor) this.wheat.instanceColor.needsUpdate = true;
+    this.wheatJob = null;
+    return true;
   }
 
   private setVisible(visible: boolean): void {
     this.group.visible = visible;
-    if (!visible) this.wheat.count = 0;
+    if (!visible) {
+      this.wheat.count = 0;
+      this.wheatJob = null;
+    }
   }
 
   dispose(): void {
@@ -541,6 +629,7 @@ export class WorldFieldDetail {
       });
     }
     this.meshes = [];
+    this.wheatJob = null;
     this.wheat.geometry.dispose();
     (this.wheat.material as THREE.Material).dispose();
   }

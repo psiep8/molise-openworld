@@ -23,6 +23,8 @@ export interface SeatPose {
   knee: number;
   /** rotazione X del braccio: positiva in avanti */
   arm: number;
+  /** rotazione X dell'avambraccio: negativa, il gomito si chiude verso il volante */
+  elbow: number;
   /** rotazione X del busto: positiva in avanti */
   torso: number;
 }
@@ -193,7 +195,11 @@ export function seatPose(progress: number): SeatPose {
   return {
     hip: 1.1 * smooth,
     knee: smooth > 0 ? -1.4 * smooth : 0,
-    arm: 0.6 * smooth,
+    // La spalla ruota poco su un asse obliquo, il gomito si chiude molto: le
+    // mani finiscono ~30 cm avanti e 15 sopra la spina, all'altezza del volante,
+    // invece di restare appese lungo i fianchi.
+    arm: 0.3 * smooth,
+    elbow: smooth > 0 ? -1.9 * smooth : 0,
     torso: 0.15 * smooth,
   };
 }
