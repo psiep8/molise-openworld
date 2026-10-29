@@ -693,3 +693,18 @@ Verifiche di questa sessione:
 - Frenata quantitativa, comportamento per trazione e ABS, stabilità ai frame
   richiesti e verifiche visive restano da eseguire; questa implementazione non
   è ancora considerata convalidata.
+
+### 29 ottobre 2026 — Task B e C: copertura continua, infrastruttura e locomozione
+
+- `WorldFieldDetail` usa il pianificatore puro `ground-cover.ts`: griglia
+  contigua con sovrapposizione dell'8%, LOD 1/2, raggio dal budget del preset
+  (fino a 60 m), metriche di copertura e durata della ricostruzione. Il fango
+  GLB dipende dal bagnato e la fisica legge `mud`, non `dirt` travestito.
+- `roadside-kit.ts` accosta marciapiedi e cordoli lungo i `walkSpans` urbani,
+  alla quota del profilo stradale, invece di spargerli a caso fuori dal paese.
+- `locomotion.ts` separa pesi, falcata, inclinazione del terreno e posa seduta;
+  `HumanBody`, `Player` e `Pedestrians` li usano. Ingresso e uscita dall'auto
+  sono transizioni a tempo (0,6/0,65 s) con input bloccato.
+- Verifiche: typecheck, 461 test e build verdi. Restano da guardare in gioco le
+  direzioni della posa seduta, la continuità dei marciapiedi sul DEM e il costo
+  reale della copertura a 60 m.

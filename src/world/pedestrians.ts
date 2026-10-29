@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Appearance } from '../entities/appearance';
 import { HumanBody, type HumanAssets } from '../entities/human-model';
+import { footHeights, terrainTilt } from '../entities/locomotion';
 import type { Pt } from '../geo/geo';
 import type { GroundSampler } from '../geo/ground';
 import type { OsmData } from '../geo/osm';
@@ -187,11 +188,20 @@ export class Pedestrians {
         continue;
       }
 
-      walker.body.group.position.set(pos.x, y, pos.z);
       // il modello guarda verso +z: l'angolo va calcolato sulla direzione di marcia
-      walker.body.group.rotation.y = Math.atan2(pos.dx * walker.dir, pos.dz * walker.dir);
+      const yaw = Math.atan2(pos.dx * walker.dir, pos.dz * walker.dir);
+      const heightAt = (px: number, pz: number): number => this.ground.heightAt(px, pz);
+      // i due piedi stanno sul marciapiede vero, non sulla quota del centro:
+      // sul cordolo e sulle pendenze il corpo non deve galleggiare né affondare
+      const feet = dist < ANIM_RADIUS ? footHeights(heightAt, pos.x, pos.z, yaw) : null;
+      walker.body.group.position.set(pos.x, feet?.average ?? y, pos.z);
+      walker.body.group.rotation.y = yaw;
       walker.body.group.visible = dist < VISIBLE_RADIUS;
-      if (dist < ANIM_RADIUS) walker.body.update(dt, walker.wait > 0 ? 0 : walker.speed);
+      if (dist < ANIM_RADIUS) {
+        const tilt = terrainTilt(heightAt, pos.x, pos.z, yaw);
+        walker.body.setGroundTilt(tilt.pitch, tilt.roll);
+        walker.body.update(dt, walker.wait > 0 ? 0 : walker.speed);
+      }
     }
   }
 

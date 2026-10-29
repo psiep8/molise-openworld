@@ -32,6 +32,30 @@ describe('regole georeferenziate del ground kit', () => {
     expect(groundKitSlugAt({ ...context, surface: 'dirt', seed: 0.2 })).toBe('ground-meadow-tile');
   });
 
+  it('con la pioggia il fango aumenta e copre anche le praterie basse', () => {
+    // la stessa cella di terra: asciutta resta campo, bagnata diventa fango
+    expect(groundKitSlugAt({ ...context, surface: 'dirt', seed: 0.45, wetness: 0 })).toBe(
+      'ground-meadow-tile',
+    );
+    expect(groundKitSlugAt({ ...context, surface: 'dirt', seed: 0.45, wetness: 0.9 })).toBe(
+      'ground-mud',
+    );
+    expect(groundKitSlugAt({ ...context, cover: COVER_MEADOW, seed: 0.95, wetness: 0.9 })).toBe(
+      'ground-mud',
+    );
+    expect(groundKitSlugAt({ ...context, cover: COVER_MEADOW, seed: 0.95, wetness: 0.2 })).toBe(
+      'ground-meadow-tile',
+    );
+    expect(groundKitSlugAt({ ...context, cover: COVER_WOOD, seed: 0.5, wetness: 1 })).toBe(
+      'ground-meadow-tile',
+    );
+  });
+
+  it('rifiuta un bagnato fuori scala invece di scegliere una zolla a caso', () => {
+    expect(() => groundKitSlugAt({ ...context, wetness: 1.4 })).toThrow(RangeError);
+    expect(() => groundKitSlugAt({ ...context, wetness: Number.NaN })).toThrow(RangeError);
+  });
+
   it('allinea il piano medio della zolla al gradiente DEM', () => {
     const slope = terrainSlopeAt((x, z) => 0.2 * x + 0.1 * z, 17, -4, 2);
     expect(slope.x).toBeCloseTo(0.2, 8);

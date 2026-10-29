@@ -1,8 +1,8 @@
 # Molise 3 — stato upgrade A/B/C
 
-Aggiornato il 29 ottobre 2026. Questo riepilogo descrive le modifiche locali
-incluse nel branch `upgrade/molise-3-task-a-b`; non sostituisce le verifiche
-in gioco.
+Aggiornato il 29 ottobre 2026. Descrive ciò che è stato implementato e
+verificato su `upgrade/molise-3-task-a-b` e sul ramo del Task C. Le verifiche
+visive in gioco restano indicate esplicitamente quando non eseguite.
 
 ## Task A — guida, superfici e tracce
 
@@ -17,60 +17,126 @@ in gioco.
   verso il comportamento del fango.
 - Contatto superficie campionato alle quattro ruote, input di sterzo/gas/freno
   addolciti e supporto al freno a mano/ABS nel modello di aderenza.
-- Tracce localizzate in coordinate mondo, limitate dal budget qualità,
-  memorizzate per chunk durante la sessione e ricaricate quando l'auto torna
-  nell'area; pioggia e neve ne accelerano il decadimento.
+- Sterzo calibrato: sotto ~24 km/h resta quasi tutto il lock (manovra di
+  parcheggio), sopra cala in modo progressivo.
+- Tracce in coordinate mondo, budget per preset, memoria per chunk durante la
+  sessione **e su `localStorage`** (`molise.skid-marks`, versione 2). Ogni ruota
+  concatena i punti in un nastro continuo; il salvataggio conserva posizione,
+  direzione, lunghezza e forza, quindi dopo un riavvio il nastro non torna una
+  fila di quad.
 - Riflessi decal di fari/stop, luci posteriori e feedback di slittamento audio/HUD.
 
-### Da completare o verificare
+### Verificato
 
-- Calibrare e misurare frenate, raggi di sterzata e accelerazione per veicolo,
-  confronto ABS/no-ABS, FWD/RWD/AWD e stabilità ai frame rate richiesti.
-- Le tracce sono ancora quad indipendenti, non nastri continui; la memoria per
-  chunk vive solo nella sessione e non viene salvata tra riavvii.
-- Verificare in gioco grip, affondamento, aquaplaning, luci e tracce su
-  superfici/meteo diversi. Gli effetti di `sink` sono una resistenza
-  longitudinale approssimata, non deformazione visiva del terreno.
+- `tests/task-a-verification.test.ts`: ABS sì/no (lo slittamento senza ABS è
+  maggiore), frenata sul bagnato più lunga, distanza di arresto per tutti i
+  veicoli nella forchetta della decelerazione dichiarata, confronto FWD/RWD/AWD,
+  raggio di sterzo a 30 km/h e stabilità a 30/60/144 fps con input funzione del
+  tempo.
+- `tests/skid-marks.test.ts`: geometria del nastro senza buchi e round-trip su
+  storage con lunghezza e direzione.
+
+### Limiti
+
+- Il nastro è ancora fatto di segmenti rettilinei accostati, non di una mesh
+  continua con UV: a curve molto strette i segmenti si compenetrano invece di
+  piegarsi.
+- Lo storage è locale al browser, non al profilo di gioco: cancellando i dati del
+  sito le tracce spariscono.
+- La conferma a schermo di ABS, acquaplano e usura delle tracce resta da fare su
+  GPU reale.
 
 ## Task B — terreno GLB e infrastruttura stradale
 
-### Implementato in forma parziale
+### Implementato
 
-- Selezione deterministica di zolle GLB locali da copertura, superficie,
-  pendenza e distanza dalla strada; orientamento al gradiente DEM e priorità
-  alle istanze più vicine al giocatore. DEM e `WorldGround` restano l'autorità
-  fisica.
-- Sezione stradale pura condivisa dal rendering e da `RoadIndex`: banchina,
-  cunetta/scarpata rurale e cordolo/marciapiede urbano, con raccordo esterno al
-  DEM. Ponti e gallerie non ricevono il profilo rurale.
+- Nuovo pianificatore puro `src/world/ground-cover.ts`: griglia contigua,
+  nessuna estrazione casuale, scala calcolata per sovrapporre le zolle dell'8%
+  (niente fessure), orientamento al gradiente DEM e quota dal `GroundMask`.
+- Copertura su due livelli: `lod 1` entro ~1,9 passi (zolle scelte da copertura,
+  superficie, pendenza e distanza strada), `lod 2` oltre (solo copertura). Il
+  raggio nasce dal budget del preset (`groundDetail` 8/22/38/54) e arriva a 60 m.
+  Con 22 zolle il preset medio copre ~40 m, con 54 arriva al tetto.
+- Fotogrammetrie piccole (5 m) solo entro ~24 m e solo se il budget lo consente:
+  riempiono i buchi dove si guarda da vicino.
+- Fango collegato al meteo: `groundKitSlugAt` accetta `wetness`; la terra smossa
+  diventa `ground-mud` con probabilità crescente sotto la pioggia, e con bagnato
+  > 0,7 compaiono chiazze anche nelle praterie basse. La superficie restituita
+  alla fisica è `mud` (grip 0,35, affondamento 0,65), non più `dirt` camuffato.
+- Il piano viene rifatto solo se il giocatore si sposta di 15 m o se bagnato,
+  budget o densità cambiano oltre la soglia: niente ricostruzione a ogni frame.
+  `WorldFieldDetail.coverageStats()` espone copertura, riempimento, celle
+  bloccate, conteggio LOD, triangoli stimati e durata dell'ultima ricostruzione.
+- Arredo urbano GLB continuo (`src/world/roadside-kit.ts`): moduli accostati lungo
+  la tangente su entrambi i lati dei tratti con `walkSpans`, alla quota del
+  profilo stradale (18 cm sopra l'asfalto), con sovrapposizione del 2%; prima
+  erano lastre sparse ogni 18–44 m anche fuori dal paese.
 
-### Da completare o verificare
+### Verificato
 
-- Non sono implementati copertura continua a 60 m, LOD L1/L2, overlay di
-  copertura, generazione in worker né misure di hitch e budget.
-- L'infrastruttura GLB urbana resta selettiva/procedurale, non una sostituzione
-  continua di marciapiedi e cordoli. Il fango del ground kit non è collegato
-  direttamente all'intensità meteo.
-- Verificare i profili sul DEM reale e la continuità in gioco, oltre a coverage,
-  triangoli/draw call, streaming e memoria.
+- `tests/ground-cover.test.ts`: nessun buco fra celle adiacenti, rispetto del
+  budget, celle bloccate escluse ma contate, separazione LOD 1/2, stima
+  triangoli, inclinazione su piano noto.
+- `tests/ground-kit-rules.test.ts`: fango asciutto/bagnato, prateria bagnata,
+  bosco escluso, `wetness` fuori scala rifiutato.
+- `npx tsc --noEmit`, suite completa e build passano.
+
+### Limiti
+
+- La generazione non usa un Web Worker: il piano è puro e limitato (decine di
+  celle) e viene eseguito sul thread principale; `planMs` misura il costo, ma non
+  c'è ancora un trasferimento asincrono.
+- Non c'è un overlay grafico di copertura: le metriche sono disponibili via
+  `coverageStats()` e nei test, non disegnate in mappa.
+- Oltre 60 m il suolo resta DEM + landcover + satellite: riempirlo tutto con GLB
+  richiederebbe streaming di zolle su tutta la mappa, non implementato.
+- Marciapiedi e cordoli procedurali restano l'autorità fisica; i moduli GLB li
+  rivestono. La continuità e la quota vanno confermate a schermo sul DEM reale.
 
 ## Task C — animazione umana
 
-**Non implementato.** Avvio suggerito, dopo le verifiche A/B:
+### Implementato
 
-1. Inventariare `human-model.ts`, `player.ts`, `pedestrians.ts` e i clip/rig
-   disponibili; mantenere le animazioni e gli asset esistenti come fallback.
-2. Separare una macchina a stati pura per locomozione e blend, con test di pesi,
-   transizioni e stride matching prima di cambiare il rendering.
-3. Integrare gradualmente adattamento dei piedi al terreno e sequenze di
-   ingresso/uscita dall'auto; limitare IK e aggiornamenti animazione secondo i
-   preset qualità.
-4. Verificare reset/interruzioni, pedoni e transizioni in gioco. Rag-doll,
-   nuove clip e cambi anatomici restano fasi successive, non prerequisiti per
-   il primo incremento.
+- Nuovo modulo puro `src/entities/locomotion.ts`: pesi idle/camminata/corsa
+  normalizzati, blend esponenziale indipendente dal frame rate, stato dominante,
+  velocità delle clip, sincronizzazione della falcata, inclinazione dal DEM sotto
+  i due piedi, quote dei piedi, avanzamento delle transizioni e posa seduta
+  additiva.
+- `HumanBody` usa il blend puro; trova le ossa di coscia, polpaccio, braccio e
+  busto e applica la posa seduta solo durante la transizione, ripristinando la
+  posa di riposo prima del mixer per non accumulare offset.
+- `Player` usa gli stessi pesi per il rig procedurale, inclina il corpo sul
+  pendio e appoggia l'avatar sulla media dei due piedi invece della quota del
+  centro. `Pedestrians` fa lo stesso per i pedoni entro 90 m.
+- Ingresso/uscita auto a tempo: 0,6 s per salire (il personaggio cammina fino
+  alla portiera, si siede e solo alla fine l'auto prende il controllo) e 0,65 s
+  per scendere (si alza e fa un passo fuori). L'input è bloccato durante la
+  transizione e un secondo `F` non la interrompe.
 
-## Verifiche
+### Verificato
 
-Questa preparazione non ha lanciato test, build, smoke test, benchmark o
-verifiche visive. Eseguire i comandi e i controlli descritti nel brief prima di
-considerare A o B chiusi. Non sono state eseguite verifiche per Task C.
+- `tests/locomotion.test.ts`: normalizzazione, monotonia del passaggio
+  camminata→corsa, convergenza e indipendenza dal frame rate del blend, stato
+  dominante, clamps delle clip, fase di falcata, segni dell'inclinazione su un
+  piano noto, saturazione delle transizioni, posa seduta monotona, quote dei
+  piedi.
+- Suite completa, typecheck e build passano.
+
+### Limiti
+
+- Non ci sono rag-doll, nuove clip di motion capture né cambi anatomici: restano
+  fasi successive.
+- L'adattamento al terreno è inclinazione del corpo + quota media dei piedi, non
+  IK a due ossa: su scalini netti il piede può ancora attraversare il bordo.
+- Il rig procedurale di fallback non ha la posa seduta (solo il corpo GLB).
+- La direzione delle rotazioni della posa seduta sulle ossa Mixamo non è stata
+  verificata a schermo: i valori sono additivi e limitati, ma vanno guardati in
+  gioco.
+
+## Verifiche di questa sessione
+
+- `npx tsc --noEmit` ✅
+- `npx vitest run` **461/461** ✅ in 53 file
+- `npm run build` ✅
+- Verifiche visive in browser/GPU: **non eseguite** (nessuno screenshot o test
+  manuale di guida, ingresso auto o copertura del terreno).

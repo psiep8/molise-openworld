@@ -40,6 +40,8 @@ export interface GroundKitContext {
   slopeDegrees: number;
   distanceToRoad: number;
   surface: string | null;
+  /** Bagnato 0…1 dal meteo: decide la presenza di fango. */
+  wetness?: number;
   /** Stable value in [0, 1); callers seed it from the world cell. */
   seed: number;
 }
@@ -60,13 +62,17 @@ export function groundAreaBlocksKit(x: number, z: number, areas: readonly Ground
 /** Classifies one deterministic ground-kit placement from georeferenced data. */
 export function groundKitSlugAt(context: GroundKitContext): GroundKitSlug | null {
   const { cover, slopeDegrees, distanceToRoad, surface, seed } = context;
+  const wetness = context.wetness ?? 0;
   if (
     !Number.isFinite(slopeDegrees) ||
     Number.isNaN(distanceToRoad) ||
     distanceToRoad === Number.NEGATIVE_INFINITY ||
     !Number.isFinite(seed) ||
     seed < 0 ||
-    seed >= 1
+    seed >= 1 ||
+    !Number.isFinite(wetness) ||
+    wetness < 0 ||
+    wetness > 1
   ) {
     throw new RangeError('Dati non validi per la scelta della zolla');
   }
@@ -76,7 +82,13 @@ export function groundKitSlugAt(context: GroundKitContext): GroundKitSlug | null
   if (surface === 'rock' || distanceToRoad <= 3.4 || slopeDegrees >= 14) {
     return 'ground-bank-tile';
   }
-  if (surface === 'dirt' && seed > 0.72) return 'ground-mud';
+  // Il fango non è una tinta: con la pioggia la terra smossa diventa una pozza
+  // di fango GLB, e nelle praterie basse compaiono chiazze solo con bagnato alto.
+  if (surface === 'dirt') {
+    const mudChance = 0.25 + wetness * 0.65;
+    if (seed > 1 - mudChance) return 'ground-mud';
+  }
+  if (wetness > 0.7 && cover !== COVER_WOOD && seed > 0.93) return 'ground-mud';
   if (cover === COVER_CROP || cover === COVER_DRY) return 'ground-field-tile';
   if (cover === COVER_WOOD) return seed > 0.86 ? 'ground-bank-tile' : 'ground-meadow-tile';
   if (cover === COVER_MEADOW) return 'ground-meadow-tile';

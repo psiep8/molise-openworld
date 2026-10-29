@@ -96,6 +96,7 @@ import {
   type LoadedCar,
 } from './garage';
 import { Player, type MoveInput } from './entities/player';
+import { transitionProgress } from './entities/locomotion';
 import { loadHumanAssets, type HumanAssets } from './entities/human-model';
 import { Pedestrians } from './world/pedestrians';
 import {
@@ -200,6 +201,18 @@ export interface Diagnostics {
     radius: number;
     month: number;
     chunks: number;
+  } | null;
+  /** copertura GLB del suolo: metriche dell'ultimo piano (null senza dettaglio) */
+  groundCover?: {
+    coverage: number;
+    fill: number;
+    cells: number;
+    blocked: number;
+    near: number;
+    far: number;
+    radius: number;
+    triangles: number;
+    milliseconds: number;
   } | null;
   route: { distance: number; label: string } | null;
   /** strade ed edifici arrivati dai bundle XYZ (null se l'endpoint non è configurato) */
@@ -416,6 +429,22 @@ export class Game {
   private venuePanelVisible = false;
 
   private mode: Mode = 'walk';
+  /**
+   * Transizione a tempo fra guida e cammino: prima il modo cambiava nello
+   * stesso frame e il personaggio spariva/teletrasportava. Ora cammina fino
+   * alla portiera, si siede e solo alla fine l'auto prende il controllo.
+   */
+  private carTransition: {
+    kind: 'enter' | 'exit';
+    elapsed: number;
+    duration: number;
+    fromX: number;
+    fromZ: number;
+    toX: number;
+    toZ: number;
+    fromYaw: number;
+    toYaw: number;
+  } | null = null;
   /** Ultimo input di guida: lo usano fisica, audio e HUD nello stesso frame. */
   private driveInput: CarInput | null = null;
   private loaded = false;
@@ -3178,15 +3207,43 @@ export class Game {
   }
 
   private enterCar(): void {
-    if (this.mode !== 'walk') return;
+    if (this.mode !== 'walk' || this.carTransition) return;
     const d = distance2(this.player.position.x, this.player.position.z, this.car.state.x, this.car.state.z);
     if (d > GAME.interactionRange) {
       this.hud.toast("Avvicinati all'auto per guidarla");
       return;
     }
-    this.mode = 'drive';
+    // Portiera sinistra: il punto di appoggio sta fuori dalla carrozzeria e
+    // viene corretto sui muri, come già faceva la discesa.
+    const rx = Math.cos(this.car.state.yaw);
+    const rz = -Math.sin(this.car.state.yaw);
+    let toX = this.car.state.x + rx * 2.2;
+    let toZ = this.car.state.z + rz * 2.2;
+    const fixed = this.buildingIndex.resolveCircle(toX, toZ, 0.5);
+    toX = fixed.x;
+    toZ = fixed.z;
     this.car.state.speed = 0;
     this.car.state.steer = 0;
+    this.carTransition = {
+      kind: 'enter',
+      elapsed: 0,
+      duration: 0.6,
+      fromX: this.player.position.x,
+      fromZ: this.player.position.z,
+      toX,
+      toZ,
+      fromYaw: this.player.yaw,
+      toYaw: Math.atan2(-(this.car.state.x - toX), -(this.car.state.z - toZ)),
+    };
+    this.player.setSeatProgress(0);
+    this.hud.toast("Salgo in auto…", 900);
+  }
+
+  /** Chiude la transizione: il modo cambia solo quando l'animazione è finita. */
+  private finishEnterCar(): void {
+    this.mode = 'drive';
+    this.carTransition = null;
+    this.player.setSeatProgress(0);
     this.player.avatar.visible = false;
     this.camYawOffset = 0;
     this.camPitch = 0;
@@ -3198,7 +3255,7 @@ export class Game {
   }
 
   private exitCar(): void {
-    if (this.mode !== 'drive') return;
+    if (this.mode !== 'drive' || this.carTransition) return;
     this.mode = 'walk';
     const rx = Math.cos(this.car.state.yaw);
     const rz = -Math.sin(this.car.state.yaw);
@@ -3208,12 +3265,68 @@ export class Game {
     x = fixed.x;
     z = fixed.z;
     this.player.spawn(x, z, this.car.state.yaw, this.ground);
+    this.player.setSeatProgress(1);
     this.player.avatar.visible = this.thirdPerson;
+    // Un passo fuori dalla portiera, così non si compenetra con la carrozzeria.
+    this.carTransition = {
+      kind: 'exit',
+      elapsed: 0,
+      duration: 0.65,
+      fromX: x,
+      fromZ: z,
+      toX: x + rx * 0.9,
+      toZ: z + rz * 0.9,
+      fromYaw: this.player.yaw,
+      toYaw: this.player.yaw,
+    };
     this.camera.fov = 68;
     this.camera.updateProjectionMatrix();
     this.snapWalkCamera();
     this.hud.setMode('walk');
     if (this.routeDestination) this.recomputeRoute();
+  }
+
+  /**
+   * Avanza ingresso/uscita: il corpo cammina fino alla portiera e si siede (o
+   * si alza e fa un passo); l'input resta bloccato per tutta la durata.
+   */
+  private updateCarTransition(dt: number): void {
+    const transition = this.carTransition;
+    if (!transition) return;
+    transition.elapsed += dt;
+    const t = Math.max(0, Math.min(1, transition.elapsed / transition.duration));
+    const progress = transitionProgress(transition.elapsed, transition.duration);
+    const seat =
+      transition.kind === 'enter'
+        ? Math.max(0, Math.min(1, (progress - 0.55) / 0.45))
+        : 1 - Math.max(0, Math.min(1, progress / 0.55));
+
+    this.player.velocity.set(0, 0, 0);
+    this.player.update(
+      dt,
+      { forward: 0, strafe: 0, sprint: false, jump: false },
+      this.ground,
+      this.buildingIndex,
+      this.obstacles,
+      1,
+    );
+    this.player.position.x = transition.fromX + (transition.toX - transition.fromX) * progress;
+    this.player.position.z = transition.fromZ + (transition.toZ - transition.fromZ) * progress;
+    this.player.yaw = this.lerpAngle(transition.fromYaw, transition.toYaw, progress);
+    this.player.setSeatProgress(seat);
+    this.player.syncMesh();
+
+    if (t >= 1) {
+      if (transition.kind === 'enter') this.finishEnterCar();
+      else this.carTransition = null;
+    }
+  }
+
+  /** Interpolazione dell'angolo più breve, per non girare di 350° sul posto. */
+  private lerpAngle(from: number, to: number, t: number): number {
+    const full = Math.PI * 2;
+    const delta = ((((to - from + Math.PI) % full) + full) % full) - Math.PI;
+    return from + delta * t;
   }
 
   private respawnOnRoad(): void {
@@ -3449,6 +3562,7 @@ export class Game {
       this.osm.areas,
       this.quality.groundDetail,
       this.quality.cropDensity,
+      { wetness: this.roadWetness },
     );
     this.applyManualAtmosphere(dt, focus);
     this.updateSky(focus);
@@ -3680,7 +3794,12 @@ export class Game {
     }
 
     this.car.setRiderVisible(this.mode === 'drive');
-    if (this.mode === 'walk') {
+    if (this.mode === 'walk' && this.carTransition) {
+      // Ingresso/uscita in corso: niente input, il personaggio è guidato dalla
+      // transizione fino alla portiera (o al primo passo fuori).
+      this.updateCarTransition(dt);
+      this.updateWalkCamera(dt);
+    } else if (this.mode === 'walk') {
       const onRoad = this.ground.sampleAt(this.player.position.x, this.player.position.z).onRoad;
       const vegetationFactor = onRoad
         ? 1
@@ -3813,6 +3932,7 @@ export class Game {
       this.osm.areas,
       this.quality.groundDetail,
       this.quality.cropDensity,
+      { wetness: this.roadWetness },
     );
     if (this.manualTime) this.applyManualAtmosphere(dt, focus);
     else if (this.realWeatherEnabled) this.applyWeatherVisuals(dt, focus);
@@ -4173,6 +4293,22 @@ export class Game {
       triangles: this.renderer.info.render.triangles,
       degraded: this.degradeStep,
       landcover: this.terrain?.landcoverStats ?? this.landcover?.stats() ?? null,
+      groundCover: (() => {
+        const stats = this.fieldDetail?.coverageStats();
+        const ground = stats?.ground;
+        if (!stats || !ground) return null;
+        return {
+          coverage: ground.coverage,
+          fill: ground.fill,
+          cells: ground.cells,
+          blocked: ground.blocked,
+          near: ground.near + (stats.detail?.spots.length ?? 0),
+          far: ground.far,
+          radius: ground.radius,
+          triangles: ground.triangles + (stats.detail?.triangles ?? 0),
+          milliseconds: stats.milliseconds,
+        };
+      })(),
       route: this.route ? { distance: Math.round(this.route.distance), label: this.routeLabel } : null,
       streamed: this.streamedWorld && OPEN_WORLD_DATA_PROVIDER
         ? { ...this.streamedWorld.stats, provider: OPEN_WORLD_DATA_PROVIDER.id }

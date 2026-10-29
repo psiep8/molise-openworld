@@ -104,6 +104,8 @@ export interface WorldSpot {
   /** scala indipendente sull'asse Z (ponti: larghezza della carreggiata) */
   scaleZ?: number;
   variant?: number;
+  /** livello di dettaglio: 1 vicino, 2 oltre la soglia (solo diagnostica) */
+  lod?: 1 | 2;
 }
 
 export interface WorldPart {

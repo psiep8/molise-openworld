@@ -9,12 +9,8 @@ import { COVER_CROP, COVER_DRY, COVER_MEADOW, COVER_WOOD, GroundMask, type Cover
 import type { PavedArea } from './paved';
 import type { ObstacleIndex } from '../geo/obstacles';
 import type { WorldKit, WorldSpot } from './worldkit';
-import {
-  groundAreaBlocksKit,
-  groundGridCells,
-  groundKitSlugAt,
-  terrainSlopeAt,
-} from './ground-kit-rules';
+import { groundAreaBlocksKit, groundKitSlugAt } from './ground-kit-rules';
+import { detailRadiusFor, planGroundCover, type GroundCoverChoice, type GroundCoverPlan, type GroundCoverVariant } from './ground-cover';
 
 /**
  * Dettaglio di prossimità di campi e terreno.
@@ -33,7 +29,7 @@ import {
  * `ObstacleIndex`; il fango cambia la superficie letta dalla fisica.
  */
 
-const DETAIL_RADIUS = 92;
+const DETAIL_RADIUS = 72;
 const REBUILD_DISTANCE = 15;
 const MAX_WHEAT = 22000;
 const WHEAT_HEIGHT = 1.15;
@@ -52,15 +48,6 @@ function variantEntries(kit: WorldKit, role: 'ground' | 'field' | 'bale' | 'vill
 function pick<T>(items: readonly T[], seed: number): T | null {
   if (items.length === 0) return null;
   return items[Math.floor(seed * items.length) % items.length] ?? null;
-}
-
-function coverChance(cover: CoverClass, surface: string | null): number {
-  if (surface === 'dirt') return 0.98;
-  if (cover === COVER_CROP) return 0.97;
-  if (cover === COVER_DRY) return 0.92;
-  if (cover === COVER_WOOD) return 0.72;
-  if (cover === COVER_MEADOW) return 0.9;
-  return 0.88;
 }
 
 function makeWheatTexture(): THREE.CanvasTexture {
@@ -167,7 +154,14 @@ export class WorldFieldDetail {
   private budget = 0;
   private cropBudget = 0;
   private active = false;
+  /** bagnato 0…1: decide quante zolle di fango entrano nel piano. */
+  private wetness = 0;
   private mud: { x: number; z: number; radius: number }[] = [];
+  /** metriche dell'ultimo piano: copertura, buchi, LOD e triangoli stimati. */
+  private plan: GroundCoverPlan | null = null;
+  private detailPlan: GroundCoverPlan | null = null;
+  /** durata dell'ultima ricostruzione: misura il rischio di hitch. */
+  private planMs = 0;
 
   constructor(
     private readonly kit: WorldKit,
@@ -200,14 +194,29 @@ export class WorldFieldDetail {
     this.group.add(this.wheat);
   }
 
-  /** Il fango è fisica: la superficie sotto le ruote diventa terra bagnata. */
+  /**
+   * Il fango è fisica, non solo un decal: sotto le ruote la superficie diventa
+   * `mud` (aderenza 0,35, affondamento 0,65) solo quando la pioggia ha davvero
+   * formato la pozza. Con il terreno asciutto le stesse celle sono terra.
+   */
   surfaceOverride(x: number, z: number): string | null {
     for (const spot of this.mud) {
       const dx = x - spot.x;
       const dz = z - spot.z;
-      if (dx * dx + dz * dz <= spot.radius * spot.radius) return 'dirt';
+      if (dx * dx + dz * dz <= spot.radius * spot.radius) {
+        return this.wetness > 0.25 ? 'mud' : 'dirt';
+      }
     }
     return null;
+  }
+
+  /** Copertura dell'ultimo piano: diagnostica e test, non rendering. */
+  coverageStats(): {
+    ground: GroundCoverPlan | null;
+    detail: GroundCoverPlan | null;
+    milliseconds: number;
+  } {
+    return { ground: this.plan, detail: this.detailPlan, milliseconds: this.planMs };
   }
 
   /** Fattore di velocità dentro il grano (1 = campo aperto). */
@@ -232,9 +241,11 @@ export class WorldFieldDetail {
     areas: readonly Area[],
     groundBudget: number,
     cropDensity: number,
+    weather: { wetness?: number } = {},
   ): void {
     const budget = Math.max(0, Math.round(groundBudget));
     const crop = clamp(cropDensity, 0, 1);
+    const wetness = clamp(weather.wetness ?? 0, 0, 1);
     if (budget <= 0 && crop <= 0.01) {
       this.setVisible(false);
       return;
@@ -245,10 +256,14 @@ export class WorldFieldDetail {
       Number.isFinite(this.originX) &&
       Math.hypot(x - this.originX, z - this.originZ) < REBUILD_DISTANCE &&
       Math.abs(budget - this.budget) < 1 &&
-      Math.abs(crop - this.density) < 0.05
+      Math.abs(crop - this.density) < 0.05 &&
+      // il fango dipende dalla pioggia: un acquazzone deve rifare il piano,
+      // una variazione di 2% no (altrimenti si ricostruisce a ogni frame)
+      Math.abs(wetness - this.wetness) < 0.08
     ) {
       return;
     }
+    this.wetness = wetness;
     this.originX = x;
     this.originZ = z;
     this.budget = budget;
@@ -258,6 +273,7 @@ export class WorldFieldDetail {
     this.density = crop;
     this.active = true;
     this.mud = [];
+    const startedAt = typeof performance !== 'undefined' ? performance.now() : 0;
 
     // Keep the entire visual/physical road cross-section clear of loose GLB
     // ground tiles; shoulders and ditches are built from the same road profile.
@@ -274,88 +290,96 @@ export class WorldFieldDetail {
     );
     const smallCap = Math.ceil(budget * 0.18);
     const largeCap = budget - smallCap;
-    let smallUsed = 0;
-    let largeUsed = 0;
 
     // Varianti ampie in un anello di qualità scalabile: la griglia è ordinata
     // dal giocatore verso l'esterno, così il tetto per preset non lascia il
     // terreno vicino scoperto solo perché l'iterazione partiva da nord-ovest.
+    // Griglia contigua, non più estrazioni casuali: ogni cella libera riceve
+    // una zolla e le scale si sovrappongono dell'8%. Il raggio nasce dal budget
+    // (`groundDetail`: 8/22/38/54) e arriva al massimo a 60 m.
+    const largeVariants = this.groundVariantMeta(this.largeGround);
     const minimumLargeFootprint = this.largeGround.reduce(
       (size, entry) => Math.min(size, entry.asset.size.x, entry.asset.size.z),
       18,
     );
-    const largeStep = Math.max(14, Math.min(18, minimumLargeFootprint * 0.92));
-    const groundRadius = Math.min(60, largeStep * Math.sqrt(Math.max(largeCap, 1) / Math.PI));
-    for (const cell of groundGridCells(x, z, groundRadius, largeStep)) {
-      if (largeUsed >= largeCap) break;
-      const { x: px, z: pz } = cell;
-      if (groundAreaBlocksKit(px, pz, groundAreas)) continue;
-      const i = Math.floor((px - this.mask.originX) / this.mask.cellSize);
-      const j = Math.floor((pz - this.mask.originZ) / this.mask.cellSize);
-      if (i < 0 || j < 0 || i >= this.mask.n || j >= this.mask.n || this.mask.isBlocked(i, j)) continue;
-      const seed = hash2(px, pz);
-      const cover = this.mask.coverAt(i, j);
-      const surface = this.surfaceAt?.(px, pz) ?? null;
-      const roadDistance = roads.distanceFromRoad(px, pz);
-      const slope = terrainSlopeAt((sx, sz) => heights.heightAt(sx, sz), px, pz);
-      if (seed > coverChance(cover, surface)) continue;
-      const chosen = this.pickGround(cover, surface, slope.degrees, roadDistance, seed);
-      if (!chosen) continue;
-      const scale = 1;
-      const yaw = hash2(px - 4, pz - 8) < 0.5 ? 0 : Math.PI / 2;
-      groundSpots.push({
-        x: px,
-        y: this.mask.heightAt(px, pz) + 0.035,
-        z: pz,
-        yaw,
-        slopeX: slope.x,
-        slopeZ: slope.z,
-        scale,
-        variant: chosen.index,
-      });
-      if (chosen.asset.slug === 'ground-mud') {
-        this.mud.push({ x: px, z: pz, radius: Math.max(3, chosen.asset.size.x * 0.44) });
-      }
-      largeUsed++;
-    }
+    const largeStep = Math.max(13, Math.min(18, minimumLargeFootprint * 0.92));
+    this.plan = planGroundCover({
+      x,
+      z,
+      budget: largeCap,
+      spacing: largeStep,
+      maxRadius: 60,
+      heightAt: (sx, sz) => this.mask.heightAt(sx, sz),
+      variantAt: (px, pz, seed, slopeDegrees) => {
+        if (groundAreaBlocksKit(px, pz, groundAreas)) return null;
+        const i = Math.floor((px - this.mask.originX) / this.mask.cellSize);
+        const j = Math.floor((pz - this.mask.originZ) / this.mask.cellSize);
+        if (i < 0 || j < 0 || i >= this.mask.n || j >= this.mask.n) return null;
+        if (this.mask.isBlocked(i, j)) return null;
+        const cover = this.mask.coverAt(i, j);
+        const surface = this.surfaceAt?.(px, pz) ?? null;
+        const roadDistance = roads.distanceFromRoad(px, pz);
+        const chosen = this.pickGround(cover, surface, slopeDegrees, roadDistance, seed, wetness);
+        if (!chosen) return null;
+        const asset = largeVariants.get(chosen.index);
+        if (!asset) return null;
+        if (chosen.asset.slug === 'ground-mud') {
+          this.mud.push({ x: px, z: pz, radius: Math.max(3, chosen.asset.size.x * 0.44) });
+        }
+        return { asset } satisfies GroundCoverChoice;
+      },
+    });
+    groundSpots.push(...this.plan.spots);
 
-    // Fotogrammetrie piccola solo come dettaglio vicino ai piedi; il kit è
-    // costoso in triangoli, quindi il budget resta separato dalle zolle grandi.
+    // Fotogrammetrie piccole solo come dettaglio vicino ai piedi, anch'esse su
+    // griglia contigua: riempiono i buchi fra le zolle grandi dove si guarda
+    // da vicino, senza spendere triangoli a 60 m.
     const smallStep = Math.max(
       4,
-      Math.min(5, (this.smallGround[0]?.asset.size.x ?? 5) * 0.82),
+      Math.min(5, (this.smallGround[0]?.asset.size.x ?? 5) * 0.92),
     );
-    const smallRadius = Math.min(24, smallStep * Math.sqrt(Math.max(smallCap, 1) / Math.PI));
-    for (const cell of groundGridCells(x, z, smallRadius, smallStep)) {
-      if (smallUsed >= smallCap) break;
-      const { x: px, z: pz } = cell;
-      if (groundAreaBlocksKit(px, pz, groundAreas)) continue;
-      const i = Math.floor((px - this.mask.originX) / this.mask.cellSize);
-      const j = Math.floor((pz - this.mask.originZ) / this.mask.cellSize);
-      if (i < 0 || j < 0 || i >= this.mask.n || j >= this.mask.n || this.mask.isBlocked(i, j)) continue;
-      const seed = hash2(px + 2.7, pz - 4.1);
-      const cover = this.mask.coverAt(i, j);
-      const surface = this.surfaceAt?.(px, pz) ?? null;
-      const roadDistance = roads.distanceFromRoad(px, pz);
-      const slope = terrainSlopeAt((sx, sz) => heights.heightAt(sx, sz), px, pz);
-      if (seed > coverChance(cover, surface) * 0.42) continue;
-      if (!groundKitSlugAt({ cover, slopeDegrees: slope.degrees, distanceToRoad: roadDistance, surface, seed })) {
-        continue;
-      }
-      const small = this.smallGround[Math.floor(hash2(px - 1, pz + 2) * this.smallGround.length)];
-      if (!small) continue;
-      groundSpots.push({
-        x: px,
-        y: this.mask.heightAt(px, pz) + 0.028,
-        z: pz,
-        yaw: hash2(px + 7, pz - 2) * Math.PI * 2,
-        slopeX: slope.x,
-        slopeZ: slope.z,
-        scale: 0.9 + hash2(px - 9, pz + 6) * 0.2,
-        variant: small.index,
-      });
-      smallUsed++;
-    }
+    const smallRadius = detailRadiusFor(smallCap, smallStep);
+    const smallVariants = this.groundVariantMeta(this.smallGround);
+    this.detailPlan = planGroundCover({
+      x,
+      z,
+      budget: smallCap,
+      spacing: smallStep,
+      maxRadius: smallRadius,
+      heightAt: (sx, sz) => this.mask.heightAt(sx, sz),
+      lift: 0.042,
+      variantAt: (px, pz, seed, slopeDegrees) => {
+        if (groundAreaBlocksKit(px, pz, groundAreas)) return null;
+        const i = Math.floor((px - this.mask.originX) / this.mask.cellSize);
+        const j = Math.floor((pz - this.mask.originZ) / this.mask.cellSize);
+        if (i < 0 || j < 0 || i >= this.mask.n || j >= this.mask.n) return null;
+        if (this.mask.isBlocked(i, j)) return null;
+        const cover = this.mask.coverAt(i, j);
+        const surface = this.surfaceAt?.(px, pz) ?? null;
+        const roadDistance = roads.distanceFromRoad(px, pz);
+        if (
+          !groundKitSlugAt({
+            cover,
+            slopeDegrees,
+            distanceToRoad: roadDistance,
+            surface,
+            seed,
+          })
+        ) {
+          return null;
+        }
+        const list = this.smallGround;
+        const entry = list[Math.floor(hash2(px - 1, pz + 2) * list.length)];
+        const asset = entry ? smallVariants.get(entry.index) : undefined;
+        if (!asset) return null;
+        return {
+          asset,
+          scale: 0.9 + hash2(px - 9, pz + 6) * 0.2,
+          yaw: hash2(px + 7, pz - 2) * Math.PI * 2,
+        } satisfies GroundCoverChoice;
+      },
+    });
+    groundSpots.push(...this.detailPlan.spots);
 
     // accenti di campo: i GLB di coltivo/stoppie danno scala e materia dove il
     // grano procedurale non arriva (bordi, capezzagne, campi riposati)
@@ -398,6 +422,7 @@ export class WorldFieldDetail {
 
     this.rebuildMeshes(groundSpots, fieldSpots);
     this.rebuildWheat(x, z, heights);
+    if (typeof performance !== 'undefined') this.planMs = performance.now() - startedAt;
   }
 
   private pickField(seed: number, used: number) {
@@ -407,14 +432,31 @@ export class WorldFieldDetail {
     return pick(ordinary.length ? ordinary : this.fieldVariants, seed);
   }
 
+  /** Metadati delle varianti per il pianificatore puro della copertura. */
+  private groundVariantMeta(
+    entries: ReturnType<typeof variantEntries>,
+  ): Map<number, GroundCoverVariant> {
+    const out = new Map<number, GroundCoverVariant>();
+    for (const { asset, index } of entries) {
+      out.set(index, {
+        slug: asset.slug,
+        footprint: Math.min(asset.size.x, asset.size.z),
+        variant: index,
+        triangles: asset.triangles,
+      });
+    }
+    return out;
+  }
+
   private pickGround(
     cover: CoverClass,
     surface: string | null,
     slopeDegrees: number,
     distanceToRoad: number,
     seed: number,
+    wetness: number,
   ) {
-    const slug = groundKitSlugAt({ cover, surface, slopeDegrees, distanceToRoad, seed });
+    const slug = groundKitSlugAt({ cover, surface, slopeDegrees, distanceToRoad, seed, wetness });
     if (!slug) return null;
     const selected = this.largeGround.find(({ asset }) => asset.slug === slug);
     return selected ?? pick(this.largeGround, seed);

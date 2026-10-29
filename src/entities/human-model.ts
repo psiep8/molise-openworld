@@ -3,6 +3,15 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { GAME } from '../config';
 import { BUILD_GIRTH, type Appearance } from './appearance';
+import {
+  blendLocomotion,
+  locomotionWeights,
+  seatPose,
+  strideTimeScale,
+  syncStridePhase,
+} from './locomotion';
+
+export { syncStridePhase } from './locomotion';
 
 /**
  * Personaggi umani veri.
@@ -193,15 +202,6 @@ export interface HumanBodyOptions {
  * Funzione pura: tempi e durate in secondi, ritorna il nuovo tempo della clip
  * da allineare (`null` se non c'è niente da fare).
  */
-export function syncStridePhase(
-  duration: number,
-  sourceTime: number,
-  sourceDuration: number,
-): number | null {
-  if (!(duration > 0) || !(sourceDuration > 0) || !Number.isFinite(sourceTime)) return null;
-  const phase = (((sourceTime % sourceDuration) + sourceDuration) % sourceDuration) / sourceDuration;
-  return phase * duration;
-}
 
 export class HumanBody {
   readonly group = new THREE.Group();
@@ -209,12 +209,42 @@ export class HumanBody {
   private readonly actions: Record<'idle' | 'walk' | 'run', THREE.AnimationAction>;
   private readonly ownMaterials: THREE.Material[] = [];
   private readonly model: THREE.Object3D;
+  /** Ossa della posa seduta, con la rotazione di riposo da ripristinare. */
+  private readonly seatRig: Array<{
+    bone: THREE.Object3D;
+    rest: THREE.Quaternion;
+    role: 'hip' | 'knee' | 'arm' | 'torso';
+  }> = [];
+  private readonly seatOffset = new THREE.Quaternion();
+  private readonly seatAxis = new THREE.Vector3(1, 0, 0);
+  private seatProgress = 0;
+  private groundPitch = 0;
+  private groundRoll = 0;
 
   constructor(assets: HumanAssets, appearance: Appearance, options: HumanBodyOptions = {}) {
     const female = appearance.sex === 'donna';
     const proto = female ? assets.female : assets.male;
     const model = cloneSkeleton(proto) as THREE.Object3D;
     this.model = model;
+
+    // La riga Ready Player Me/Mixamo non ha una clip "seduto": si piegano le
+    // ossa di coscia, polpaccio e braccio con la funzione pura `seatPose`.
+    const bones = indexBones(model);
+    const bindSeat = (keys: string[], role: 'hip' | 'knee' | 'arm' | 'torso'): void => {
+      for (const key of keys) {
+        const bone = bones.get(key);
+        if (!bone) continue;
+        this.seatRig.push({ bone, rest: bone.quaternion.clone(), role });
+        return;
+      }
+    };
+    bindSeat(['leftupleg', 'leftthigh'], 'hip');
+    bindSeat(['rightupleg', 'rightthigh'], 'hip');
+    bindSeat(['leftleg', 'leftshin', 'leftcalf'], 'knee');
+    bindSeat(['rightleg', 'rightshin', 'rightcalf'], 'knee');
+    bindSeat(['leftarm', 'leftshoulder'], 'arm');
+    bindSeat(['rightarm', 'rightshoulder'], 'arm');
+    bindSeat(['spine1', 'spine', 'chest'], 'torso');
 
     // scala del corpo: altezza scelta dall'utente, larghezza dalla corporatura
     const girth = BUILD_GIRTH[appearance.build];
@@ -275,30 +305,18 @@ export class HumanBody {
    * la posa di riposo traspare e il corpo sembra afflosciarsi.
    */
   update(dt: number, speed: number): void {
-    const walkIn = THREE.MathUtils.smoothstep(speed, 0.2, 1.1);
-    const runIn = THREE.MathUtils.smoothstep(speed, GAME.walkSpeed * 1.12, GAME.runSpeed * 0.92);
-    const idleWant = 1 - walkIn;
-    const runWant = runIn;
-    const walkWant = Math.max(0, 1 - idleWant - runWant);
-
-    const blend = 1 - Math.exp(-10 * dt);
-    const weights = {
+    const target = locomotionWeights(speed, GAME.walkSpeed, GAME.runSpeed);
+    const current = {
       idle: this.actions.idle.getEffectiveWeight(),
       walk: this.actions.walk.getEffectiveWeight(),
       run: this.actions.run.getEffectiveWeight(),
     };
-    weights.idle += (idleWant - weights.idle) * blend;
-    weights.walk += (walkWant - weights.walk) * blend;
-    weights.run += (runWant - weights.run) * blend;
-    const sum = weights.idle + weights.walk + weights.run;
-    const norm = sum > 1e-4 ? 1 / sum : 1;
-
-    this.actions.idle.setEffectiveWeight(weights.idle * norm);
-    this.actions.walk.setEffectiveWeight(weights.walk * norm);
-    this.actions.run.setEffectiveWeight(weights.run * norm);
-
-    this.actions.walk.timeScale = Math.min(1.6, Math.max(0.65, speed / GAME.walkSpeed));
-    this.actions.run.timeScale = Math.min(1.3, Math.max(0.8, speed / GAME.runSpeed));
+    const weights = blendLocomotion(current, target, dt);
+    this.actions.idle.setEffectiveWeight(weights.idle);
+    this.actions.walk.setEffectiveWeight(weights.walk);
+    this.actions.run.setEffectiveWeight(weights.run);
+    this.actions.walk.timeScale = strideTimeScale('walk', speed, GAME.walkSpeed, GAME.runSpeed);
+    this.actions.run.timeScale = strideTimeScale('run', speed, GAME.walkSpeed, GAME.runSpeed);
 
     // passo sincronizzato: quando camminata e corsa si sovrappongono, la clip
     // che pesa meno segue la fase di quella che pesa di più (altrimenti durante
@@ -319,7 +337,37 @@ export class HumanBody {
       }
     }
 
+    // Ripristina la posa di riposo prima del mixer: le ossa non animate dalla
+    // clip in uso resterebbero altrimenti con l'offset del frame precedente.
+    for (const entry of this.seatRig) entry.bone.quaternion.copy(entry.rest);
     this.mixer.update(dt);
+
+    if (this.seatProgress > 0.001 && this.seatRig.length > 0) {
+      const pose = seatPose(this.seatProgress);
+      for (const entry of this.seatRig) {
+        const angle = pose[entry.role];
+        if (Math.abs(angle) < 1e-5) continue;
+        this.seatOffset.setFromAxisAngle(this.seatAxis, angle);
+        entry.bone.quaternion.multiply(this.seatOffset);
+      }
+    }
+
+    // Inclinazione del corpo sul pendio: piccola e smorzata, altrimenti il
+    // personaggio sembra appoggiato di lato su un muro.
+    const k = 1 - Math.exp(-8 * Math.max(0, dt));
+    this.group.rotation.x += (-this.groundPitch * 0.45 - this.group.rotation.x) * k;
+    this.group.rotation.z += (this.groundRoll * 0.45 - this.group.rotation.z) * k;
+  }
+
+  /** 0 = in piedi, 1 = seduto: blend additivo usato da ingresso/uscita auto. */
+  setSeatProgress(progress: number): void {
+    this.seatProgress = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
+  }
+
+  /** Pendenza sotto i piedi, in radianti (vedi `terrainTilt`). */
+  setGroundTilt(pitch: number, roll: number): void {
+    this.groundPitch = Number.isFinite(pitch) ? pitch : 0;
+    this.groundRoll = Number.isFinite(roll) ? roll : 0;
   }
 
   get root(): THREE.Object3D {

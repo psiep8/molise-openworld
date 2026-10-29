@@ -1,8 +1,11 @@
 import * as THREE from 'three';
 import { START } from '../config';
 import type { Heightfield } from '../geo/elevation';
-import { mulberry32 } from '../geo/geo';
 import type { OsmData, Road, RoadIndex } from '../geo/osm';
+import {
+  ROAD_PROFILE,
+  sidewalkWidthForRoad,
+} from './road-profile';
 import { roadPolyline } from './roads';
 import type { WorldAsset, WorldKit, WorldSpot } from './worldkit';
 
@@ -11,23 +14,30 @@ import type { WorldAsset, WorldKit, WorldSpot } from './worldkit';
  *
  * Il manto d'asfalto, il marciapiede e il cordolo del paese restano quelli
  * procedurali di `world/roads.ts`: sono l'unica superficie con quota, fisica e
- * collisioni coerenti. Questi moduli fotogrammetrici si aggiungono **fuori dal
- * costruito**, dove il nastro procedurale non arriva, e danno al ciglio della
- * provinciale la materia che il terreno da solo non ha.
+ * collisioni coerenti. Questi moduli fotogrammetrici **rivestono** quel nastro
+ * nei tratti urbani, modulo dopo modulo senza buchi, alla stessa quota del
+ * marciapiede procedurale (18 cm sopra la carreggiata).
  *
- * Regole:
- *  - solo strade asfaltate larghe almeno 4 m e fuori dai tratti con marciapiede
- *    procedurale (`walkSpans`), per non sovrapporre due superfici;
- *  - il modulo segue la tangente della spline, quindi in curva resta accostato;
- *  - niente collisione: un cordolo alto 15 cm non deve fermare l'auto, e il
- *    marciapiede è già calpestabile;
- *  - tetto per preset (`quality.roadside`), metà moduli per ruolo.
+ * Prima erano piazzati a caso ogni 18–44 m anche fuori dal paese: sembravano
+ * lastre cadute in mezzo al campo. Ora:
+ *  - solo strade asfaltate con `walkSpans` (marciapiede OSM) e fuori da ponti;
+ *  - moduli accostati lungo tangente, su entrambi i lati, con sovrapposizione
+ *    del 2% per non lasciare fessure in curva;
+ *  - quota dal profilo stradale condiviso, non dal DEM nudo;
+ *  - tetto per preset (`quality.roadside`), prima le strade più vicine al via.
  */
 
 export interface RoadsideResult {
   group: THREE.Group;
   sidewalks: number;
   curbs: number;
+}
+
+interface PolylineSampler {
+  points: { x: number; z: number }[];
+  cumulative: number[];
+  length: number;
+  at(s: number): { x: number; z: number; tx: number; tz: number };
 }
 
 /** Asse lungo del modulo: i pack mescolano pezzi lunghi su X e su Z. */
@@ -44,8 +54,41 @@ function moduleLength(asset: WorldAsset): number {
   return Math.max(0.5, Math.max(asset.size.x, asset.size.z));
 }
 
-function moduleWidth(asset: WorldAsset): number {
-  return Math.max(0.1, Math.min(asset.size.x, asset.size.z));
+function makeSampler(points: readonly { x: number; z: number }[]): PolylineSampler | null {
+  if (points.length < 2) return null;
+  const cumulative = [0];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1]!;
+    const b = points[i]!;
+    cumulative.push(cumulative[i - 1]! + Math.hypot(b.x - a.x, b.z - a.z));
+  }
+  const length = cumulative[cumulative.length - 1]!;
+  if (!(length > 1)) return null;
+  return {
+    points: points.map((p) => ({ x: p.x, z: p.z })),
+    cumulative,
+    length,
+    at(s: number) {
+      const distance = Math.max(0, Math.min(length, s));
+      let lo = 0;
+      let hi = cumulative.length - 1;
+      while (lo < hi - 1) {
+        const mid = (lo + hi) >> 1;
+        if (cumulative[mid]! <= distance) lo = mid;
+        else hi = mid;
+      }
+      const a = points[lo]!;
+      const b = points[hi]!;
+      const seg = cumulative[hi]! - cumulative[lo]! || 1;
+      const t = Math.max(0, Math.min(1, (distance - cumulative[lo]!) / seg));
+      return {
+        x: a.x + (b.x - a.x) * t,
+        z: a.z + (b.z - a.z) * t,
+        tx: (b.x - a.x) / seg,
+        tz: (b.z - a.z) / seg,
+      };
+    },
+  };
 }
 
 /**
@@ -68,6 +111,16 @@ function inTown(road: Road, x: number, z: number): boolean {
   return spans[index] === true;
 }
 
+function roadPriority(road: Road): number {
+  const points = roadPolyline(road);
+  if (points.length === 0) return Infinity;
+  let best = Infinity;
+  for (const point of points) {
+    best = Math.min(best, Math.hypot(point.x - START.x, point.z - START.z));
+  }
+  return best;
+}
+
 export function buildRoadsideKit(
   osm: OsmData,
   heights: Heightfield,
@@ -78,85 +131,99 @@ export function buildRoadsideKit(
   const group = new THREE.Group();
   group.name = 'roadside-kit';
   const total = Math.max(0, Math.round(budget));
-  const sidewalkAssets = kit.variants('sidewalk');
-  const curbAssets = kit.variants('curb');
+  const sidewalkAssets = kit
+    .variants('sidewalk')
+    .filter((asset) => moduleLength(asset) >= 4);
+  const curbAssets = kit
+    .variants('curb')
+    .filter((asset) => moduleLength(asset) >= 2);
   if (total === 0 || (sidewalkAssets.length === 0 && curbAssets.length === 0)) {
     return { group, sidewalks: 0, curbs: 0 };
   }
 
   const sidewalkSpots: WorldSpot[] = [];
   const curbSpots: WorldSpot[] = [];
-  const sidewalkCap = sidewalkAssets.length > 0 ? Math.ceil(total * 0.5) : 0;
-  const curbCap = curbAssets.length > 0 ? total - sidewalkCap : 0;
-  const rng = mulberry32(0x5d31);
-  const fromHome = (x: number, z: number): number => Math.hypot(x - START.x, z - START.z);
+  // I cordoli sono economici e fanno la continuità; i marciapiedi fotogrammetrici
+  // costano 11k triangoli l'uno, quindi si prendono circa un terzo del budget.
+  const curbCap = curbAssets.length > 0 ? Math.ceil(total * 0.68) : 0;
+  const sidewalkCap = sidewalkAssets.length > 0 ? total - curbCap : 0;
+
+  // Prima le strade urbane più vicine al punto di partenza: con un budget basso
+  // il paese resta completo invece di avere moduli sparsi a 2 km.
+  const ordered = osm.roads
+    .map((road, index) => ({ road, index, priority: roadPriority(road) }))
+    .filter(
+      ({ road }) =>
+        road.paved &&
+        road.width >= 4 &&
+        road.points.length >= 2 &&
+        !road.bridge &&
+        !road.tunnel &&
+        road.walkSpans?.some(Boolean) === true,
+    )
+    .sort((a, b) => a.priority - b.priority);
 
   /**
-   * Cammina lungo una strada e piazza un modulo ogni `gap` metri. `side` si
-   * alterna per non creare un muro continuo da un lato solo.
+   * Accosta moduli lungo un lato del marciapiede procedurale. Il passo è la
+   * lunghezza del modulo meno il 2%: in curva due moduli rettilinei devono
+   * compenetrarsi, non aprire un cuneo.
    */
-  const lay = (
+  const laySide = (
     road: Road,
     index: number,
+    sampler: PolylineSampler,
+    side: 1 | -1,
     assets: readonly WorldAsset[],
     spots: WorldSpot[],
     cap: number,
     role: 'sidewalk' | 'curb',
   ): void => {
     if (assets.length === 0 || spots.length >= cap) return;
-    const pts = roadPolyline(road);
-    if (pts.length < 2) return;
-    // parte dopo i primi metri: un modulo che spunta da un incrocio sembra un
-    // pezzo caduto, non un marciapiede
-    let since = 18 + rng() * 26;
-    for (let i = 1; i < pts.length && spots.length < cap; i++) {
-      const a = pts[i - 1]!;
-      const b = pts[i]!;
-      const seg = Math.hypot(b.x - a.x, b.z - a.z);
-      if (seg < 1e-3) continue;
-      since += seg;
-      if (since < 18) continue;
-      const asset = assets[Math.floor(rng() * assets.length)]!;
+    const walkWidth = role === 'sidewalk' ? sidewalkWidthForRoad(road.width) : 0;
+    const offset =
+      role === 'sidewalk'
+        ? road.width / 2 + ROAD_PROFILE.curbWidth + walkWidth / 2
+        : road.width / 2 + ROAD_PROFILE.curbWidth / 2;
+    let s = Math.max(2, moduleLength(assets[0]!) * 0.5);
+    // Il ciclo avanza sempre di almeno un modulo: niente rischio di stallo.
+    while (s < sampler.length && spots.length < cap) {
+      const asset = assets[spots.length % assets.length]!;
       const length = moduleLength(asset);
-      if (since < length) continue;
-      since = 0;
-
-      const tx = (b.x - a.x) / seg;
-      const tz = (b.z - a.z) / seg;
-      // un modulo ogni tanto, non un cordolo continuo: due lati alternati
-      const side = rng() < 0.5 ? 1 : -1;
-      const offset =
-        role === 'sidewalk'
-          ? road.width / 2 + 0.45 + moduleWidth(asset) / 2
-          : road.width / 2 + 0.12 + moduleWidth(asset) / 2;
-      const x = b.x - tz * side * offset;
-      const z = b.z + tx * side * offset;
-
-      if (inTown(road, x, z)) continue;
-      const distance = fromHome(x, z);
-      if (distance < 140 || distance > 1900) continue;
-      // non finire dentro un'altra strada (incrocio, svincolo)
-      if (roads.isOnRoad(x, z, 1.1, index)) continue;
-      if (heights.slopeAt(x, z) > 16) continue;
-
-      spots.push({
-        x,
-        y: heights.heightAt(x, z) + (role === 'sidewalk' ? 0.035 : 0.015),
-        z,
-        yaw: yawFor(asset, tx, tz),
-        scale: 1,
-        variant: assets.indexOf(asset),
-      });
+      const point = sampler.at(s);
+      const x = point.x - point.tz * side * offset;
+      const z = point.z + point.tx * side * offset;
+      if (inTown(road, point.x, point.z) && !roads.isOnRoad(x, z, 0.35, index)) {
+        const slope = heights.slopeAt(x, z);
+        if (slope <= 12) {
+          // La base del modulo va interrata quanto basta perché la sua
+          // superficie cada a 18 cm dall'asfalto, la stessa quota che legge la
+          // fisica (`sampleRoadProfile`): niente marciapiedi sospesi.
+          spots.push({
+            x,
+            y:
+              heights.heightAt(x, z) +
+              ROAD_PROFILE.curbHeight -
+              asset.size.y +
+              0.004,
+            z,
+            yaw: yawFor(asset, point.tx, point.tz),
+            scale: 1,
+            variant: assets.indexOf(asset),
+          });
+        }
+      }
+      s += Math.max(0.5, length * 0.98);
     }
   };
 
-  for (let index = 0; index < osm.roads.length; index++) {
+  for (const { road, index } of ordered) {
     if (sidewalkSpots.length >= sidewalkCap && curbSpots.length >= curbCap) break;
-    const road = osm.roads[index]!;
-    if (!road.paved || road.width < 4 || road.points.length < 2 || road.bridge || road.tunnel) continue;
-    // un lato per volta: il lato opposto lo copre il modulo successivo
-    lay(road, index, sidewalkAssets, sidewalkSpots, sidewalkCap, 'sidewalk');
-    lay(road, index, curbAssets, curbSpots, curbCap, 'curb');
+    const sampler = makeSampler(roadPolyline(road));
+    if (!sampler) continue;
+    for (const side of [1, -1] as const) {
+      laySide(road, index, sampler, side, sidewalkAssets, sidewalkSpots, sidewalkCap, 'sidewalk');
+      laySide(road, index, sampler, side, curbAssets, curbSpots, curbCap, 'curb');
+    }
   }
 
   if (sidewalkSpots.length) group.add(kit.instances('sidewalk', sidewalkSpots, { castShadow: true }));

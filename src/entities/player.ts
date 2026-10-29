@@ -7,6 +7,14 @@ import { clamp } from '../geo/geo';
 import { fabricNormal, skinNormal } from '../gfx/detail-textures';
 import { HumanBody, type HumanAssets } from './human-model';
 import {
+  blendLocomotion,
+  footHeights,
+  locomotionWeights,
+  strideTimeScale,
+  terrainTilt,
+  type LocomotionWeights,
+} from './locomotion';
+import {
   BUILD_GIRTH,
   loadAppearance,
   outfitColors,
@@ -70,11 +78,21 @@ export class Player {
   private proceduralBuilt = false;
   private walkPhase = 0;
   private bob = 0;
+  /** pesi del blend idle/camminata/corsa, calcolati dalla funzione pura */
+  private weights: LocomotionWeights = { idle: 1, walk: 0, run: 0 };
+  private tiltPitch = 0;
+  private tiltRoll = 0;
+  /** quanto la media dei due piedi sta sotto/sopra la quota al centro */
+  private footOffset = 0;
+  private seat = 0;
 
   constructor(appearance: Appearance = loadAppearance()) {
     this.appearance = { ...appearance };
     this.avatar = new THREE.Group();
     this.avatar.name = 'player-avatar';
+    // yaw, poi beccheggio/rollio: con l'ordine predefinito XYZ l'inclinazione
+    // ruoterebbe anche la direzione di marcia.
+    this.avatar.rotation.order = 'YXZ';
     this.rebuild();
   }
 
@@ -666,6 +684,11 @@ export class Player {
     this.grounded = true;
     this.walkPhase = 0;
     this.bob = 0;
+    this.tiltPitch = 0;
+    this.tiltRoll = 0;
+    this.footOffset = 0;
+    this.weights = { idle: 1, walk: 0, run: 0 };
+    this.setSeatProgress(0);
     this.mixer?.setTime(0);
     this.syncMesh();
   }
@@ -737,30 +760,68 @@ export class Player {
     }
 
     const horizontalSpeed = Math.hypot(this.velocity.x, this.velocity.z);
-    this.updateAnimation(dt, horizontalSpeed);
+    this.updateAnimation(dt, horizontalSpeed, ground);
     this.syncMesh();
   }
 
-  private updateAnimation(dt: number, horizontalSpeed: number): void {
+  /** Posa seduta per la transizione in auto: 0 in piedi, 1 seduto. */
+  setSeatProgress(progress: number): void {
+    this.seat = Number.isFinite(progress) ? clamp(progress, 0, 1) : 0;
+    this.body?.setSeatProgress(this.seat);
+  }
+
+  get seatProgress(): number {
+    return this.seat;
+  }
+
+  private updateAnimation(dt: number, horizontalSpeed: number, ground: GroundSampler): void {
     this.walkPhase += dt * (2.4 + horizontalSpeed * 0.9);
     this.bob = this.grounded ? Math.abs(Math.sin(this.walkPhase)) * 0.022 * clamp(horizontalSpeed / GAME.runSpeed, 0, 1) : 0;
 
+    // Adattamento al terreno: inclinazione misurata sui due piedi e quota media
+    // usata per appoggiare il corpo, non per farlo sprofondare a metà pendio.
+    const tilt = this.grounded
+      ? terrainTilt(ground.heightAt, this.position.x, this.position.z, this.yaw)
+      : { pitch: 0, roll: 0 };
+    const feet = this.grounded
+      ? footHeights(ground.heightAt, this.position.x, this.position.z, this.yaw)
+      : null;
+    const smooth = 1 - Math.exp(-8 * Math.max(0, dt));
+    this.tiltPitch += (tilt.pitch - this.tiltPitch) * smooth;
+    this.tiltRoll += (tilt.roll - this.tiltRoll) * smooth;
+    const footTarget = feet
+      ? feet.average - ground.heightAt(this.position.x, this.position.z)
+      : 0;
+    this.footOffset += (clamp(footTarget, -0.35, 0.35) - this.footOffset) * smooth;
+
+    this.weights = blendLocomotion(
+      this.weights,
+      locomotionWeights(horizontalSpeed, GAME.walkSpeed, GAME.runSpeed),
+      dt,
+    );
+
     if (this.body) {
+      this.body.setGroundTilt(this.tiltPitch, this.tiltRoll);
+      this.body.setSeatProgress(this.seat);
       this.body.update(dt, horizontalSpeed);
       return;
     }
 
-    const target: Locomotion =
-      horizontalSpeed < 0.35 ? 'idle' : horizontalSpeed > GAME.walkSpeed + 0.7 ? 'run' : 'walk';
-    const blend = 1 - Math.exp(-9 * dt);
     for (const key of ['idle', 'walk', 'run'] as const) {
-      const action = this.actions[key];
-      const want = key === target ? 1 : 0;
-      const now = action.getEffectiveWeight();
-      action.setEffectiveWeight(now + (want - now) * blend);
+      this.actions[key].setEffectiveWeight(this.weights[key]);
     }
-    this.actions.walk.timeScale = clamp(horizontalSpeed / GAME.walkSpeed, 0.65, 1.6);
-    this.actions.run.timeScale = clamp(horizontalSpeed / GAME.runSpeed, 0.8, 1.3);
+    this.actions.walk.timeScale = strideTimeScale(
+      'walk',
+      horizontalSpeed,
+      GAME.walkSpeed,
+      GAME.runSpeed,
+    );
+    this.actions.run.timeScale = strideTimeScale(
+      'run',
+      horizontalSpeed,
+      GAME.walkSpeed,
+      GAME.runSpeed,
+    );
 
     // clip additive sopra la camminata
     const rising = !this.grounded && this.velocity.y > 0.4;
@@ -772,8 +833,12 @@ export class Player {
   }
 
   syncMesh(): void {
-    this.avatar.position.set(this.position.x, this.position.y + this.bob, this.position.z);
-    this.avatar.rotation.y = this.yaw;
+    this.avatar.position.set(
+      this.position.x,
+      this.position.y + this.bob + this.footOffset,
+      this.position.z,
+    );
+    this.avatar.rotation.set(-this.tiltPitch * 0.4, this.yaw, this.tiltRoll * 0.4);
   }
 
   eyePosition(out = new THREE.Vector3()): THREE.Vector3 {
