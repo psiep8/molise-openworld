@@ -41,12 +41,23 @@ export class WorldGround implements GroundSampler {
    * terreno né il giocatore.
    */
   readonly roads: readonly RoadIndex[];
+  /**
+   * Classificazione del terreno fuori strada (terra, erba, roccia). Il
+   * landcover viene caricato dopo il terreno, quindi si collega a posteriori:
+   * finché manca il campionatore resta il vecchio `terrain`.
+   */
+  private surfaceAt: ((x: number, z: number) => string | null) | null = null;
 
   constructor(
     readonly heights: Heightfield,
     roads: RoadIndex | readonly RoadIndex[],
   ) {
     this.roads = Array.isArray(roads) ? roads : [roads as RoadIndex];
+  }
+
+  /** Collega la mappa di copertura del suolo alla fisica fuori strada. */
+  setSurfaceProvider(provider: ((x: number, z: number) => string | null) | null): void {
+    this.surfaceAt = provider;
   }
 
   sampleAt(x: number, z: number): GroundSample {
@@ -74,7 +85,14 @@ export class WorldGround implements GroundSampler {
         surface: best.surface,
       };
     }
-    return { y: terrain, lift: 0, kind: 'terrain', onRoad: false, paved: false, surface: 'terrain' };
+    return {
+      y: terrain,
+      lift: 0,
+      kind: 'terrain',
+      onRoad: false,
+      paved: false,
+      surface: this.surfaceAt?.(x, z) ?? 'terrain',
+    };
   }
 
   heightAt(x: number, z: number): number {

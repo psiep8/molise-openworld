@@ -60,6 +60,29 @@ describe('auto arcade', () => {
     expect(dirt.speed).toBeLessThan(gravel.speed);
   });
 
+  it('l’erba frena più della terra e la terra permette di scivolare', () => {
+    const dirt = run(60 * 45, 1 / 60, { ...flat, surface: 'dirt' });
+    const grass = run(60 * 45, 1 / 60, { ...flat, surface: 'grass' });
+    expect(grass.speed).toBeLessThan(dirt.speed * 0.85);
+    // a pari sterzata la terra gira meno dell'asfalto, ma più dell'erba
+    const start = { ...createCarState(0, 0, 0), speed: 15 };
+    const steer = { ...idle, steer: 1 };
+    const asphalt = run(60, 1 / 60, { ...flat, surface: 'asphalt' }, start, steer);
+    const onDirt = run(60, 1 / 60, { ...flat, surface: 'dirt' }, start, steer);
+    const onGrass = run(60, 1 / 60, { ...flat, surface: 'grass' }, start, steer);
+    expect(onDirt.yaw).toBeLessThan(asphalt.yaw);
+    expect(onGrass.yaw).toBeLessThan(onDirt.yaw);
+  });
+
+  it('attraversare un cespuglio rallenta senza fermare l’auto', () => {
+    const start = { ...createCarState(0, 0, 0), speed: 18 };
+    const clear = run(120, 1 / 60, { ...flat, surface: 'grass' }, start, idle);
+    const bush = run(120, 1 / 60, { ...flat, surface: 'grass', vegetationDrag: 0.5 }, start, idle);
+    expect(bush.speed).toBeLessThan(clear.speed);
+    expect(bush.speed).toBeGreaterThan(0);
+    expect(Math.abs(bush.z)).toBeLessThan(Math.abs(clear.z));
+  });
+
   it('la minore aderenza della ghiaia riduce la risposta laterale', () => {
     const start = { ...createCarState(0, 0, 0), speed: 15 };
     const steer = { ...idle, steer: 1 };

@@ -92,6 +92,15 @@ describe('WorldHitField', () => {
     expect(hits.count).toBe(0);
   });
 
+  it('fa piegare anche il cespuglio attraversato, pur senza collisione', () => {
+    const hits = new WorldHitField();
+    const shrubs = part(0, 2);
+    hits.register('shrub', [spot(0, 0, 0, 0), spot(6, 0, 0, 0)], [shrubs]);
+    const role = hits.hit({ x: 0.4, z: 0.2, dx: 0, dz: 1, strength: 0.6, tag: 'world-shrub' });
+    expect(role).toBe('shrub');
+    expect((shrubs.attribute.array as Float32Array)[1]).toBeCloseTo(0.6, 6);
+  });
+
   it('non fa nulla a forza zero (urti a passo d’uomo)', () => {
     const hits = new WorldHitField();
     hits.register('sign', [spot(0, 0, 0, 0)], [part(0, 1)]);

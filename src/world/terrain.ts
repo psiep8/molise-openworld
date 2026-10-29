@@ -190,6 +190,10 @@ interface LandcoverUniformState {
   uLocalScale: { value: number };
   uWorldHalfBounds: { value: THREE.Vector2 };
   uSeasonGlobal: { value: THREE.Vector3 };
+  /** grana fotografica 0,8 m per classe (coltivo, prato, bosco, roccia) */
+  uLcDetail: { value: THREE.Texture };
+  /** direzione dei solchi (RG) e forza dell'aratura (B) */
+  uLcFields: { value: THREE.Texture };
 }
 
 /**
@@ -219,6 +223,8 @@ function applyLandcoverDetail(
     uLocalScale: { value: 1 / CHUNK_SIZE },
     uWorldHalfBounds: { value: new THREE.Vector2(WORLD.halfWidth, WORLD.halfHeight) },
     uSeasonGlobal: { value: landcover.seasonGlobalUniform },
+    uLcDetail: { value: landcover.detailTexture ?? base },
+    uLcFields: { value: landcover.fieldsTexture ?? base },
   };
   material.userData.lc = uniforms;
   material.onBeforeCompile = (shader) => {
@@ -250,6 +256,8 @@ uniform vec2 uLocalOrigin;
 uniform float uLocalScale;
 uniform vec2 uWorldHalfBounds;
 uniform vec3 uSeasonGlobal;
+uniform sampler2D uLcDetail;
+uniform sampler2D uLcFields;
 uniform float uCloudShadow;
 uniform vec2 uCloudDrift;
 
@@ -285,6 +293,21 @@ float lcNoise( vec2 p ) {
         float lowFrequencyLum = clamp( 0.9 + ( aerialLum - 0.5 ) * 0.24, 0.78, 1.08 );
         vec3 mappedColor = classColor * lowFrequencyLum * uSeasonGlobal;
 
+        // Grana fotografica per classe + solchi dei campi: è il livello che
+        // mancava sotto il satellite. Senza queste texture resterebbe il
+        // colore piatto, che a 380 m di minimappa sembrava 144p.
+        vec4 lcDetail = texture2D( uLcDetail, vDetailWorld.xz * 0.22 );
+        float lcDetailValue = dot( lcDetail, lc );
+        vec4 lcField = texture2D( uLcFields, lcBaseUV );
+        vec2 lcFieldDir = lcField.rg * 2.0 - 1.0;
+        float lcFurrow = sin( dot( vDetailWorld.xz, lcFieldDir ) * 1.7 + lcNoise( vDetailWorld.xz * 0.08 ) * 2.0 );
+        float lcMacro = lcNoise( vDetailWorld.xz * 0.07 );
+        mappedColor *= ( 0.84 + 0.32 * lcDetailValue ) * ( 0.92 + 0.16 * lcMacro );
+        mappedColor *= 1.0 + lcFurrow * 0.028 * lcField.b;
+        // un filo di colore satellite: la classificazione resta la base, ma i
+        // campi veri non sono mai di un verde unico
+        mappedColor = mix( mappedColor, diffuseColor.rgb * uSeasonGlobal, 0.18 );
+
         bool outsideGeo = abs( vDetailWorld.x ) > uWorldHalfBounds.x || abs( vDetailWorld.z ) > uWorldHalfBounds.y;
         if ( outsideGeo ) {
           vec2 fieldCell = floor( vDetailWorld.xz / 280.0 );
@@ -308,7 +331,7 @@ float lcNoise( vec2 p ) {
       )
       .replace('#include <fog_fragment>', HEIGHT_FOG_FRAGMENT);
   };
-  material.customProgramCacheKey = () => 'terrain-pastel-landcover-v4';
+  material.customProgramCacheKey = () => 'terrain-pastel-landcover-v5';
   return uniforms;
 }
 

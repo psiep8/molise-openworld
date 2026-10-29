@@ -20,13 +20,15 @@ import path from 'node:path';
 // stessi limiti di src/config.ts (BBOX)
 const BBOX = { latMin: 41.815, latMax: 41.925, lonMin: 14.69, lonMax: 14.86 };
 // il mondo è più largo che alto: circa 14,1 km per 12,2 km
-const WIDTH = 2048;
 const METERS_PER_DEG_LAT = 111070.7307022502;
 const METERS_PER_DEG_LON = 83019.14918391156;
+const HD = process.argv.includes('--hd');
+const WIDTH = HD ? 4096 : 2048;
 const HEIGHT = Math.round(
   (WIDTH * (BBOX.latMax - BBOX.latMin) * METERS_PER_DEG_LAT) /
     ((BBOX.lonMax - BBOX.lonMin) * METERS_PER_DEG_LON),
 );
+const NAME = HD ? 'world-imagery-hd' : 'world-imagery';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const OUT_DIR = path.join(ROOT, 'public', 'geo');
@@ -47,9 +49,9 @@ if (buf.length < 20_000) throw new Error(`immagine troppo piccola (${buf.length}
 if (buf[0] !== 0xff || buf[1] !== 0xd8) throw new Error('la risposta non è un JPEG');
 
 await mkdir(OUT_DIR, { recursive: true });
-await writeFile(path.join(OUT_DIR, 'world-imagery.jpg'), buf);
+await writeFile(path.join(OUT_DIR, `${NAME}.jpg`), buf);
 await writeFile(
-  path.join(OUT_DIR, 'world-imagery.json'),
+  path.join(OUT_DIR, `${NAME}.json`),
   JSON.stringify(
     {
       width: WIDTH,
@@ -63,4 +65,4 @@ await writeFile(
     2,
   ),
 );
-console.log(`[geo] world-imagery.jpg: ${(buf.length / 1024).toFixed(0)} KB`);
+console.log(`[geo] ${NAME}.jpg: ${(buf.length / 1024).toFixed(0)} KB`);

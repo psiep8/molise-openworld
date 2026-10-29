@@ -9,6 +9,7 @@ sotto.
 | `osm.json` | [OpenStreetMap](https://www.openstreetmap.org/) — strade, edifici, aree, toponimi | © OpenStreetMap contributors, **ODbL 1.0**. È un'opera derivata: resta ODbL. |
 | `heights.bin`, `heights.json` | [AWS Terrain Tiles (Terrarium)](https://registry.opendata.aws/terrain-tiles/) — DEM SRTM/Copernicus/NASADEM | dati aperti, attribution secondo il registry |
 | `world-imagery.jpg`, `world-imagery.json` | [Sentinel-2 cloudless 2025](https://s2maps.eu) — © EOX IT Services GmbH | **CC BY 4.0**; contiene dati Copernicus Sentinel modificati |
+| `world-imagery-hd.jpg`, `world-imagery-hd.json` | [Sentinel-2 cloudless 2025](https://s2maps.eu) — © EOX IT Services GmbH | **CC BY 4.0**; stessa fonte, mosaico 4096 px per la minimappa |
 
 ## Copertura del suolo (non nel repo)
 
@@ -37,6 +38,7 @@ attribuzione (`VITE_OPEN_IMAGERY_TILE_URL` e `VITE_OPEN_IMAGERY_ATTRIBUTION`).
 
 ```bash
 npm run geo          # OSM + DEM
-npm run geo:imagery  # mosaico Sentinel-2 dell'intero bbox
+npm run geo:imagery     # mosaico Sentinel-2 dell'intero bbox (2048 px)
+npm run geo:imagery:hd  # variante 4096 px per la minimappa
 npm run landcover    # copertura del suolo per il terreno (Fase A)
 ```

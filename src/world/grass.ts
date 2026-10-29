@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Heightfield } from '../geo/elevation';
 import { mulberry32 } from '../geo/geo';
 import type { Area, BuildingIndex, RoadIndex } from '../geo/osm';
-import { windUniforms } from '../gfx/wind';
+import { vehiclePassSnippet, vehiclePassUniforms, windUniforms } from '../gfx/wind';
 import { COVER_CROP, COVER_DRY, COVER_WOOD, GroundMask } from './ground-mask';
 import type { PavedArea } from './paved';
 
@@ -131,6 +131,7 @@ export class GrassField {
     this.flowerGeometry = GrassField.buildFlowerGeometry();
     this.flowerTexture = GrassField.buildFlowerTexture();
     const { uTime, uWind } = windUniforms();
+    const passUniforms = vehiclePassUniforms();
     this.material = new THREE.MeshStandardMaterial({
       map: this.bladeTexture,
       alphaTest: 0.45,
@@ -149,8 +150,12 @@ export class GrassField {
     this.material.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = uTime;
       shader.uniforms.uWind = uWind;
+      Object.assign(shader.uniforms, passUniforms);
       shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nuniform float uTime;\nuniform vec2 uWind;')
+        .replace(
+          '#include <common>',
+          '#include <common>\nuniform float uTime;\nuniform vec2 uWind;\nuniform vec2 uCarPos;\nuniform float uCarSpeed;',
+        )
         .replace(
           '#include <begin_vertex>',
           `#include <begin_vertex>
@@ -164,7 +169,7 @@ export class GrassField {
           float tuftSway = sin( uTime * 1.9 + tuftPhase ) * 0.085 + sin( uTime * 3.4 + tuftPhase * 1.7 ) * 0.03;
           float tuftScaleY = min( 10.0, length( instanceMatrix[ 1 ].xyz ) );
           transformed.x += tuftSway * tuftScaleY * 0.28 * tuftBend * tuftBend * uWind.x;
-          transformed.z += tuftSway * tuftScaleY * 0.28 * tuftBend * tuftBend * uWind.y;`,
+          transformed.z += tuftSway * tuftScaleY * 0.28 * tuftBend * tuftBend * uWind.y;${vehiclePassSnippet('tuftPos', 'tuftBend', 'tuftScaleY * 0.17')}`,
         );
     };
     this.material.customProgramCacheKey = () => 'grass-wind-v2';
@@ -184,8 +189,12 @@ export class GrassField {
     this.flowerMaterial.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = uTime;
       shader.uniforms.uWind = uWind;
+      Object.assign(shader.uniforms, passUniforms);
       shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nuniform float uTime;\nuniform vec2 uWind;')
+        .replace(
+          '#include <common>',
+          '#include <common>\nuniform float uTime;\nuniform vec2 uWind;\nuniform vec2 uCarPos;\nuniform float uCarSpeed;',
+        )
         .replace(
           '#include <begin_vertex>',
           `#include <begin_vertex>
@@ -197,8 +206,9 @@ export class GrassField {
           float flowerBend = clamp( position.y / ${FLOWER_HEIGHT.toFixed(2)}, 0.0, 1.0 );
           float flowerPhase = flowerPos.x * 0.42 + flowerPos.z * 0.31;
           float flowerSway = sin( uTime * 1.9 + flowerPhase ) * 0.05 + sin( uTime * 3.4 + flowerPhase * 1.7 ) * 0.018;
+          float flowerScaleY = min( 10.0, length( instanceMatrix[ 1 ].xyz ) );
           transformed.x += flowerSway * flowerBend * flowerBend * uWind.x;
-          transformed.z += flowerSway * flowerBend * flowerBend * uWind.y;`,
+          transformed.z += flowerSway * flowerBend * flowerBend * uWind.y;${vehiclePassSnippet('flowerPos', 'flowerBend', 'flowerScaleY * 0.32')}`,
         );
     };
     this.flowerMaterial.customProgramCacheKey = () => 'grass-flower-wind-v1';

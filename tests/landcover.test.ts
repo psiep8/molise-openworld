@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { monthForGameDay, seasonTints } from '../src/world/landcover';
+import { landcoverSurface, monthForGameDay, seasonTints } from '../src/world/landcover';
 
 describe('stagioni della copertura del suolo', () => {
   it('parte a ottobre: stoppie gialle e boschi che virano al ruggine', () => {
@@ -38,5 +38,17 @@ describe('stagioni della copertura del suolo', () => {
     expect(monthForGameDay(61)).toBe(12);
     expect(monthForGameDay(91)).toBe(1);
     expect(monthForGameDay(361)).toBe(10);
+  });
+
+  it('traduce i pesi landcover in superfici di guida', () => {
+    // R = stoppie/coltivo secco, G = prato, B = bosco, A = terra nuda
+    expect(landcoverSurface(1, 0.05, 0.02, 0.02)).toBe('dirt');
+    expect(landcoverSurface(0.03, 0.9, 0.04, 0.03)).toBe('grass');
+    expect(landcoverSurface(0.02, 0.12, 0.8, 0.06)).toBe('grass');
+    expect(landcoverSurface(0.02, 0.04, 0.05, 0.89)).toBe('rock');
+    // il prato vince anche di poco sul coltivo, ma non il contrario
+    expect(landcoverSurface(0.33, 0.34, 0.2, 0.13)).toBe('grass');
+    expect(landcoverSurface(0.34, 0.33, 0.2, 0.13)).toBe('dirt');
+    expect(landcoverSurface(0, 0, 0, 0)).toBe('grass');
   });
 });

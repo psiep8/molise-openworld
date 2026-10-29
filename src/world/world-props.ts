@@ -5,7 +5,7 @@ import { boundsOf, mulberry32, pointInPolygon, type Pt } from '../geo/geo';
 import type { Building, BuildingIndex, OsmData, RoadIndex } from '../geo/osm';
 import type { ObstacleIndex } from '../geo/obstacles';
 import type { QualityLevel } from '../gfx/quality';
-import { GroundMask } from './ground-mask';
+import { COVER_CROP, COVER_MEADOW, COVER_WOOD, GroundMask } from './ground-mask';
 import { insidePaved, type PavedArea } from './paved';
 import { WorldHitField } from './world-hits';
 import type { WorldAsset, WorldHitMesh, WorldKit, WorldRole, WorldSpot } from './worldkit';
@@ -448,12 +448,14 @@ export function buildWorldProps(
   // ---------------------------------------------------------------------------
   // 6. Istanze
   // ---------------------------------------------------------------------------
-  // alberi e cartelli tengono un attributo di urto per istanza: l'auto che li
-  // prende li fa piegare (vedi `world/world-hits.ts`)
+  // alberi, cespugli e cartelli tengono un attributo di urto per istanza:
+  // l'auto che li prende li fa piegare (vedi `world/world-hits.ts`). Per i
+  // cespugli non c'è collisione, solo l'onda visiva del passaggio.
   const treeHits: WorldHitMesh[] = [];
+  const shrubHits: WorldHitMesh[] = [];
   const signHits: WorldHitMesh[] = [];
   if (treeSpots.length) group.add(kit.instances('tree', treeSpots, { castShadow: true, hits: treeHits }));
-  if (shrubSpots.length) group.add(kit.instances('shrub', shrubSpots, { castShadow: false }));
+  if (shrubSpots.length) group.add(kit.instances('shrub', shrubSpots, { castShadow: false, hits: shrubHits }));
   if (distantSpots.length) group.add(kit.instances('tree-distant', distantSpots, { castShadow: false }));
   if (rockSpots.length) group.add(kit.instances('rock', rockSpots, { castShadow: true }));
   if (signSpots.length) group.add(kit.instances('sign', signSpots, { castShadow: true, hits: signHits }));
@@ -461,6 +463,7 @@ export function buildWorldProps(
 
   const hits = new WorldHitField();
   hits.register('tree', treeSpots, treeHits);
+  hits.register('shrub', shrubSpots, shrubHits);
   hits.register('sign', signSpots, signHits);
 
   return {
@@ -545,6 +548,8 @@ export class WorldGrass {
   private originZ = Number.NaN;
   private density = -1;
   private readonly variants: WorldAsset[];
+  /** Superficie landcover: evita ciuffi verdi sopra un campo arato. */
+  private surfaceAt: ((x: number, z: number) => string | null) | null = null;
 
   constructor(
     private readonly kit: WorldKit,
@@ -557,6 +562,11 @@ export class WorldGrass {
       .sort((a, b) => a.triangles - b.triangles)
       .slice(0, 7);
     this.group.name = 'world-grass';
+  }
+
+  /** Collega la classificazione landcover alla distribuzione dei ciuffi. */
+  setSurfaceProvider(provider: ((x: number, z: number) => string | null) | null): void {
+    this.surfaceAt = provider;
   }
 
   update(
@@ -608,6 +618,17 @@ export class WorldGrass {
       const pz = this.mask.originZ + (j + rng()) * cell;
       const distance = Math.hypot(px - x, pz - z);
       if (distance > GRASS_RADIUS) continue;
+      // niente ciuffi veri su un campo arato o sulla macchia secca: l'erba
+      // fotografata segue la copertura reale del suolo, non un disco uniforme
+      const cover = this.mask.coverAt(i, j);
+      const coverChance =
+        cover === COVER_MEADOW ? 1 : cover === COVER_WOOD ? 0.62 : cover === COVER_CROP ? 0.16 : 0.06;
+      if (rng() > coverChance) continue;
+      // il landcover è più preciso delle aree OSM: su terra nuda o roccia
+      // restano solo poche erbacce, non un prato completo
+      const surface = this.surfaceAt?.(px, pz);
+      if (surface === 'dirt' && rng() > 0.04) continue;
+      if (surface === 'rock' && rng() > 0.02) continue;
       // vicino ai piedi i ciuffi contano; sul bordo del raggio sarebbero
       // puntini sparsi: densità decrescente come nel tappeto procedurale
       if (distance > GRASS_RADIUS * 0.55 && rng() > 0.55) continue;

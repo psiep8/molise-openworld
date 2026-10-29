@@ -26,6 +26,42 @@ const rollers: Roller[] = [];
 const wind: THREE.IUniform<THREE.Vector2> = { value: new THREE.Vector2(0, 0) };
 let elapsed = 0;
 
+/** Passaggio dell'auto: l'erba e i cespugli si piegano senza collisioni. */
+const carPos: THREE.IUniform<THREE.Vector2> = { value: new THREE.Vector2(1e6, 1e6) };
+const carVelocity: THREE.IUniform<THREE.Vector2> = { value: new THREE.Vector2() };
+const carSpeed: THREE.IUniform<number> = { value: 0 };
+
+export function vehiclePassUniforms(): {
+  uCarPos: THREE.IUniform<THREE.Vector2>;
+  uCarVel: THREE.IUniform<THREE.Vector2>;
+  uCarSpeed: THREE.IUniform<number>;
+} {
+  return { uCarPos: carPos, uCarVel: carVelocity, uCarSpeed: carSpeed };
+}
+
+/** Aggiornato una volta per frame dal gioco, prima dei campi di vegetazione. */
+export function setVehiclePass(x: number, z: number, vx: number, vz: number, speed: number): void {
+  carPos.value.set(x, z);
+  carVelocity.value.set(vx, vz);
+  carSpeed.value = Math.max(0, speed);
+}
+
+/**
+ * Pezzo di vertex shader condiviso: allontana i vertici dalla sagoma dell'auto.
+ * `origin` è la posizione dell'istanza, `bend` il peso 0…1 sulla punta,
+ * `height` l'altezza in metri della pianta.
+ */
+export function vehiclePassSnippet(origin: string, bend: string, height: string): string {
+  return `
+        vec2 vpDelta = ${origin}.xz - uCarPos;
+        float vpDistance = length( vpDelta );
+        float vpInfluence = smoothstep( 2.6, 0.0, vpDistance ) * clamp( uCarSpeed / 7.0, 0.0, 1.0 );
+        vec2 vpDirection = vpDelta / max( 0.001, vpDistance );
+        float vpAmplitude = vpInfluence * 0.20 * ${height} * ( 0.2 + 0.8 * ${bend} );
+        transformed.x += vpDirection.x * vpAmplitude;
+        transformed.z += vpDirection.y * vpAmplitude;`;
+}
+
 /** Uniform condivisi da assegnare agli shader delle piante mosse dal vento. */
 export function windUniforms(): { uTime: THREE.IUniform<number>; uWind: THREE.IUniform<THREE.Vector2> } {
   const uTime: THREE.IUniform<number> = { value: 0 };

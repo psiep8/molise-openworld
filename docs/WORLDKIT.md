@@ -30,6 +30,8 @@ ruolo si chiama `shrub` e non `tree`.
 I `spare` sono nel repo e nel manifest ma **non vengono caricati**: sono riserve
 per i prossimi lavori (marciapiedi fotografati, guardrail a modello, lampioni,
 zolle d'erba ad alta densità). Non pesano sulla VRAM né sul tempo di avvio.
+La coda completa delle 26 riserve, con licenze e blocchi tecnici, è in
+[`docs/RESERVE-TODO.md`](RESERVE-TODO.md).
 
 I ruoli e le regole di piazzamento stanno in `src/world/world-props.ts`; il
 caricamento in `src/world/worldkit.ts`.

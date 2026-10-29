@@ -275,6 +275,31 @@ async function buildDetailData(): Promise<Uint8Array> {
   return data;
 }
 
+/**
+ * Superficie calpestabile dedotta dai pesi della mappa landcover.
+ *
+ * I quattro canali sono coltivo secco/stoppie (R), prato (G), sottobosco (B)
+ * e roccia/terra nuda (A). Per l'auto conta il comportamento del suolo, non
+ * il nome della classe: un campo arato è terra che scivola, un prato è erba
+ * che frena, il sottobosco è un tappeto morbido ma lento.
+ */
+export type LandcoverSurface = 'dirt' | 'grass' | 'rock';
+
+export function landcoverSurface(r: number, g: number, b: number, a: number): LandcoverSurface {
+  const total = r + g + b + a;
+  if (!(total > 0.001)) return 'grass';
+  const rw = r / total;
+  const gw = g / total;
+  const bw = b / total;
+  const aw = a / total;
+  // La classe dominante decide; la terra nuda vince solo se è davvero il peso
+  // maggiore, così i bordi dei campi non diventano tutti "sterrato".
+  if (aw > 0.3 && aw >= rw && aw >= gw && aw >= bw) return 'rock';
+  if (rw >= gw && rw >= bw && rw >= aw) return 'dirt';
+  // prato e sottobosco si guidano allo stesso modo: suolo morbido e lento
+  return 'grass';
+}
+
 function normalizeWeights(pixels: Uint8ClampedArray, i: number): number[] {
   const k = i * 4;
   // A è il flag di validità del PNG (vedi `fetch-landcover.mjs`): con alfa=0
@@ -351,6 +376,10 @@ export class Landcover {
   private loading: Promise<void> | null = null;
   private month = 10;
   private detailData: Uint8Array | null = null;
+  /** pixel della mappa globale: servono alla fisica, non solo alla GPU */
+  private basePixels: Uint8ClampedArray | null = null;
+  private baseWidth = 0;
+  private baseHeight = 0;
   private bakes = 0;
   private bakeMs = 0;
   private maxBakeMs = 0;
@@ -373,6 +402,25 @@ export class Landcover {
 
   get radiusMeters(): number {
     return this.radius;
+  }
+
+  /**
+   * Superficie landcover nel punto di mondo, alla risoluzione globale di 12 m.
+   * `null` finché `base.png` non è caricato: in quel caso il chiamante resta
+   * sul vecchio comportamento (`terrain`), senza inventare un materiale.
+   */
+  surfaceAt(x: number, z: number): LandcoverSurface | null {
+    const meta = this.meta;
+    const pixels = this.basePixels;
+    if (!meta || !pixels || this.baseWidth <= 0 || this.baseHeight <= 0) return null;
+    const u = (x + meta.world.halfWidth) / meta.world.width;
+    const v = (z + meta.world.halfHeight) / meta.world.height;
+    if (!(u >= 0 && u <= 1 && v >= 0 && v <= 1)) return null;
+    const px = Math.min(this.baseWidth - 1, Math.max(0, Math.floor(u * this.baseWidth)));
+    const py = Math.min(this.baseHeight - 1, Math.max(0, Math.floor(v * this.baseHeight)));
+    const weights = normalizeWeights(pixels, py * this.baseWidth + px);
+    if (weights[0]! + weights[1]! + weights[2]! + weights[3]! < 0.001) return null;
+    return landcoverSurface(weights[0]!, weights[1]!, weights[2]!, weights[3]!);
   }
 
   get fieldsReady(): boolean {
@@ -420,6 +468,9 @@ export class Landcover {
       if (basePixels) {
         const width = basePixels.width;
         const height = basePixels.height;
+        this.basePixels = basePixels.data;
+        this.baseWidth = width;
+        this.baseHeight = height;
         this.baseTexture = bakeOverlay(
           basePixels.data,
           width,
@@ -552,6 +603,9 @@ export class Landcover {
     this.fieldsTexture = null;
     this.detailTexture = null;
     this.detailData = null;
+    this.basePixels = null;
+    this.baseWidth = 0;
+    this.baseHeight = 0;
     this.ready = false;
   }
 

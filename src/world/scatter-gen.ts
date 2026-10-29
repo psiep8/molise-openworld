@@ -20,8 +20,10 @@ export interface ScatterInstance {
 }
 
 export function scatterCollisionRadius(kind: ScatterKind, scale: number): number | null {
+  // I cespugli non hanno collider: l'auto ci passa in mezzo e li piega, mentre
+  // un albero resta un ostacolo solido. Prima un cespuglio da 0,62 m fermava
+  // l'auto come un muro invisibile, che è il contrario di un sottobosco.
   const radius =
-    kind === 'shrub' ? 0.62 :
     kind === 'broadleaf' ? 0.29 :
     kind === 'olive' ? 0.34 :
     kind === 'cypress' ? 0.2 :

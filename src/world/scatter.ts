@@ -5,7 +5,7 @@ import type { Heightfield } from '../geo/elevation';
 import type { ObstacleIndex } from '../geo/obstacles';
 import type { BuildingIndex, OsmData, RoadIndex } from '../geo/osm';
 import { foliageSet } from '../gfx/textures';
-import { windUniforms } from '../gfx/wind';
+import { vehiclePassSnippet, vehiclePassUniforms, windUniforms } from '../gfx/wind';
 import type { PavedArea } from './paved';
 import {
   SCATTER_CELL_SIZE,
@@ -504,13 +504,17 @@ function mergeAndDispose(pieces: THREE.BufferGeometry[]): THREE.BufferGeometry {
 
 function applyWind(material: THREE.MeshStandardMaterial, strength: number, shrub = false): void {
   const { uTime, uWind } = windUniforms();
+  const passUniforms = vehiclePassUniforms();
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uScatterWindTime = uTime;
     shader.uniforms.uScatterWind = uWind;
+    if (shrub) Object.assign(shader.uniforms, passUniforms);
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
-        '#include <common>\nuniform float uScatterWindTime;\nuniform vec2 uScatterWind;',
+        `#include <common>\nuniform float uScatterWindTime;\nuniform vec2 uScatterWind;${
+          shrub ? '\nuniform vec2 uCarPos;\nuniform float uCarSpeed;' : ''
+        }`,
       )
       .replace(
         '#include <begin_vertex>',
@@ -523,10 +527,12 @@ function applyWind(material: THREE.MeshStandardMaterial, strength: number, shrub
         float scatterWindHeight = ${shrub ? 'smoothstep( 0.35, 0.9, position.y )' : 'smoothstep( 1.8, 7.2, position.y )'};
         float scatterWind = sin( uScatterWindTime * 1.35 + scatterOrigin.x * 0.031 + scatterOrigin.z * 0.027 );
         transformed.x += scatterWind * scatterWindHeight * ${strength.toFixed(2)} * 0.16 * uScatterWind.x;
-        transformed.z += scatterWind * scatterWindHeight * ${strength.toFixed(2)} * 0.16 * uScatterWind.y;`,
+        transformed.z += scatterWind * scatterWindHeight * ${strength.toFixed(2)} * 0.16 * uScatterWind.y;${
+          shrub ? vehiclePassSnippet('scatterOrigin', 'scatterWindHeight', 'length( instanceMatrix[ 1 ].xyz )') : ''
+        }`,
       );
   };
-  material.customProgramCacheKey = () => `scatter-wind-${strength.toFixed(2)}-${shrub ? 'shrub' : 'tree'}-v2`;
+  material.customProgramCacheKey = () => `scatter-wind-${strength.toFixed(2)}-${shrub ? 'shrub' : 'tree'}-v3`;
 }
 
 function applyBillboardShader(material: THREE.MeshStandardMaterial): void {

@@ -50,14 +50,22 @@ export class SatelliteTiles {
     private readonly onUpdate?: () => void,
   ) {
     if (provider.localOnly) {
-      const image = new Image();
-      image.decoding = 'async';
-      image.onload = () => {
-        this.localImage = image;
-        this.onUpdate?.();
+      const root = `${import.meta.env.BASE_URL}geo/`;
+      const load = (url: string, allowFallback: boolean): void => {
+        const image = new Image();
+        image.decoding = 'async';
+        image.onload = () => {
+          this.localImage = image;
+          this.onUpdate?.();
+        };
+        image.onerror = () => {
+          // La versione HD è un di più: se manca si torna al mosaico 2048.
+          if (allowFallback) load(`${root}world-imagery.jpg`, false);
+          else this.onUpdate?.();
+        };
+        image.src = url;
       };
-      image.onerror = () => this.onUpdate?.();
-      image.src = `${import.meta.env.BASE_URL}geo/world-imagery.jpg`;
+      load(`${root}world-imagery-hd.jpg`, true);
     }
   }
 
@@ -99,14 +107,36 @@ export class SatelliteTiles {
     const cy = size / 2;
 
     if (this.provider.localOnly) {
-      if (!this.localImage) return;
+      const image = this.localImage;
+      if (!image) return;
+      // Disegnare l'intero mosaico (14 km) dentro 640 px costringe il browser
+      // a ricampionare 2048/4096 px in un colpo solo; qui si ritaglia solo la
+      // finestra visibile, con smoothing alto: la minimappa resta più nitida
+      // e il costo per frame non dipende dalla dimensione del file.
+      const sourceWidth = image.naturalWidth || image.width;
+      const sourceHeight = image.naturalHeight || image.height;
+      const pxPerMeterX = sourceWidth / WORLD.width;
+      const pxPerMeterY = sourceHeight / WORLD.height;
+      const left = view.x - viewMeters / 2;
+      const top = view.z - viewMeters / 2;
+      ctx.save();
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      // il satellite è un po' piatto a 380 m: un contrasto leggero lo rende
+      // leggibile senza inventare dettaglio che non c'è
+      ctx.filter = 'contrast(1.08) saturate(1.06)';
       ctx.drawImage(
-        this.localImage,
-        cx + (-WORLD.halfWidth - view.x) * k,
-        cy + (-WORLD.halfHeight - view.z) * k,
-        WORLD.width * k,
-        WORLD.height * k,
+        image,
+        (left + WORLD.halfWidth) * pxPerMeterX,
+        (top + WORLD.halfHeight) * pxPerMeterY,
+        viewMeters * pxPerMeterX,
+        viewMeters * pxPerMeterY,
+        0,
+        0,
+        size,
+        size,
       );
+      ctx.restore();
       return;
     }
 
@@ -158,26 +188,35 @@ export class SatelliteBasemap {
     if (this.ctx) {
       this.ctx.fillStyle = '#2b3628';
       this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-      // Prima il mosaico Sentinel locale: la mappa è pronta subito e anche
-      // offline. Se il file manca, si usano le tile aperte configurate.
-      const img = new Image();
-      img.decoding = 'async';
-      img.onload = () => {
-        this.ctx?.drawImage(img, 0, 0, this.canvas.width, this.canvas.height);
-        this.total = 1;
-        this.drawn = 1;
-        this.finished = true;
-        this.onUpdate?.();
-      };
-      img.onerror = () => {
-        if (this.provider.localOnly) {
+      // Prima il mosaico Sentinel locale (HD se disponibile): la mappa è
+      // pronta subito e anche offline. Se il file manca, si usano le tile
+      // aperte configurate.
+      const root = `${import.meta.env.BASE_URL}geo/`;
+      const loadMosaic = (url: string, allowFallback: boolean): void => {
+        const img = new Image();
+        img.decoding = 'async';
+        img.onload = () => {
+          this.ctx?.drawImage(img, 0, 0, this.canvas.width, this.canvas.height);
+          this.total = 1;
+          this.drawn = 1;
           this.finished = true;
           this.onUpdate?.();
-          return;
-        }
-        this.load(p0, p1);
+        };
+        img.onerror = () => {
+          if (allowFallback) {
+            loadMosaic(`${root}world-imagery.jpg`, false);
+            return;
+          }
+          if (this.provider.localOnly) {
+            this.finished = true;
+            this.onUpdate?.();
+            return;
+          }
+          this.load(p0, p1);
+        };
+        img.src = url;
       };
-      img.src = `${import.meta.env.BASE_URL}geo/world-imagery.jpg`;
+      loadMosaic(`${root}world-imagery-hd.jpg`, true);
     }
   }
 

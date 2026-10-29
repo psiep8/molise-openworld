@@ -33,6 +33,7 @@ import type { BuildingIndex } from '../geo/osm';
 import type { CityKit } from '../world/citykit';
 import type { CarLibrary } from '../world/car-library';
 import { preciseBox, splitCarWheels } from './car-wheels';
+import { SkidMarks } from './skid-marks';
 import { HumanBody, type HumanAssets } from './human-model';
 import type { Appearance } from './appearance';
 import { clamp } from '../geo/geo';
@@ -178,6 +179,9 @@ export class Vehicle {
   private readonly sprayVelocities = new Float32Array(WHEEL_SPRAY_COUNT * 3);
   private readonly sprayMesh: THREE.Points;
   private sprayClock = 0;
+  /** Strisce di gomma sul fango/erba: gruppo separato, non figlio dell'auto. */
+  readonly skidMarks = new SkidMarks();
+  private skidClock = 0;
   /** frecce: due materiali ambra, uno per lato */
   private readonly indicatorMats = {
     left: new THREE.MeshStandardMaterial({ color: 0x3a2a12, emissive: 0xff9a1e, emissiveIntensity: 0, roughness: 0.45 }),
@@ -244,7 +248,7 @@ export class Vehicle {
     geometry.setAttribute('aLife', new THREE.BufferAttribute(this.sprayLives, 1));
     const sizes = Float32Array.from(
       { length: WHEEL_SPRAY_COUNT },
-      (_, i) => 2.2 + ((i * 37) % 17) / 10,
+      (_, i) => 2.8 + ((i * 37) % 17) / 10,
     );
     geometry.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
     const material = new THREE.ShaderMaterial({
@@ -1281,6 +1285,7 @@ export class Vehicle {
     this.sprayPositions.fill(0);
     this.sprayMesh.geometry.getAttribute('position').needsUpdate = true;
     this.sprayMesh.geometry.getAttribute('aLife').needsUpdate = true;
+    this.skidMarks.clear();
     for (const lamp of this.indicatorLamps) lamp.visible = false;
     this.indicatorMats.left.emissiveIntensity = 0;
     this.indicatorMats.right.emissiveIntensity = 0;
@@ -1294,6 +1299,7 @@ export class Vehicle {
     obstacles?: ObstacleIndex,
     gripScale = 1,
     sprayIntensity = 0,
+    vegetationDrag = 0,
   ): void {
     const spec = this.spec;
     const halfTrack = spec.track / 2;
@@ -1306,7 +1312,13 @@ export class Vehicle {
     const next = stepCar(
       this.state,
       input,
-      { onRoad, surface: here.surface, groundHeight: (x, z) => ground.heightAt(x, z), gripScale },
+      {
+        onRoad,
+        surface: here.surface,
+        groundHeight: (x, z) => ground.heightAt(x, z),
+        gripScale,
+        vegetationDrag,
+      },
       dt,
       tuningFor(spec),
     );
@@ -1411,7 +1423,11 @@ export class Vehicle {
 
     this.group.position.set(next.x, groundY + this.surfaceLift + this.bump, next.z);
     this.group.rotation.set(this.tiltPitch + this.leanPitch, next.yaw, this.tiltRoll + this.leanRoll);
-    this.updateWheelSpray(dt, sprayIntensity, Math.abs(next.speed), contact.surface, input.throttle);
+    const loose = isLooseSurface(contact.surface);
+    const skidding = loose && (next.wheelspin || (input.handbrake && Math.abs(next.speed) > 3));
+    this.updateWheelSpray(dt, sprayIntensity, Math.abs(next.speed), contact.surface, input.throttle, skidding);
+    this.updateSkidMarks(dt, next, groundY, contact.surface, skidding);
+    this.skidMarks.update(dt);
 
     // le ruote anteriori girano dello stesso angolo calcolato dalla fisica:
     // prima la grafica usava il lock massimo e a 100 km/h le gomme restavano
@@ -1457,18 +1473,27 @@ export class Vehicle {
     }
   }
 
-  private updateWheelSpray(dt: number, intensity: number, speed: number, surface: string, throttle: number): void {
+  private updateWheelSpray(
+    dt: number,
+    intensity: number,
+    speed: number,
+    surface: string,
+    throttle: number,
+    skidding = false,
+  ): void {
     this.sprayClock += dt;
     const material = this.sprayMesh.material as THREE.ShaderMaterial;
     const wetSurface = surface === 'asphalt' || surface === 'concrete' || surface === 'paved';
-    const looseSurface = ['dirt', 'ground', 'compacted', 'earth', 'gravel', 'fine_gravel', 'mud', 'sand', 'grass', 'terrain'].includes(surface);
+    const looseSurface = isLooseSurface(surface);
     const wetEmission = wetSurface ? clamp(intensity, 0, 1) * clamp((speed - 4) / 14, 0, 1) : 0;
     const dustEmission = looseSurface
-      ? clamp((speed - 2) / 10, 0, 1) * (0.25 + 0.55 * clamp(throttle, 0, 1))
+      ? clamp((speed - 2) / 8, 0, 1) *
+        (0.3 + 0.6 * clamp(throttle, 0, 1) + (skidding ? 0.45 : 0))
       : 0;
     const emission = Math.max(wetEmission, dustEmission);
-    material.uniforms.uColor.value.setHex(wetEmission >= dustEmission ? 0xc8d7dc : 0xb69b70);
-    material.uniforms.uOpacity.value = emission * (wetEmission >= dustEmission ? 0.58 : 0.42);
+    const dust = dustColor(surface);
+    material.uniforms.uColor.value.setHex(wetEmission >= dustEmission ? 0xc8d7dc : dust);
+    material.uniforms.uOpacity.value = emission * (wetEmission >= dustEmission ? 0.58 : 0.56);
     const positionAttribute = this.sprayMesh.geometry.getAttribute('position') as THREE.BufferAttribute;
     const lifeAttribute = this.sprayMesh.geometry.getAttribute('aLife') as THREE.BufferAttribute;
     const step = Math.min(dt, 0.05);
@@ -1504,9 +1529,76 @@ export class Vehicle {
     this.sprayMesh.visible = emission > 0.02;
   }
 
+  /**
+   * Due strisce dietro le ruote posteriori, solo su superfici che si segnano.
+   * L'emissione è a tempo (10 Hz) così non si accumulano centinaia di quad
+   * sovrapposti quando il pattinamento dura mezzo secondo.
+   */
+  private updateSkidMarks(
+    dt: number,
+    state: CarState,
+    groundY: number,
+    surface: string,
+    skidding: boolean,
+  ): void {
+    this.skidClock = Math.max(0, this.skidClock - dt);
+    if (!skidding || this.skidClock > 0) return;
+    // 16 Hz: a 100 km/h le strisce restano continue anche sul terreno smosso
+    this.skidClock = 0.06;
+    const fx = -Math.sin(state.yaw);
+    const fz = -Math.cos(state.yaw);
+    const rx = Math.cos(state.yaw);
+    const rz = -Math.sin(state.yaw);
+    const halfTrack = this.spec.track * 0.5;
+    const back = this.spec.wheelbase * 0.48;
+    const color = surface === 'grass' ? 0x4f5531 : surface === 'mud' ? 0x2f2419 : 0x4a3826;
+    for (const side of [-1, 1]) {
+      const x = state.x - fx * back + rx * halfTrack * side;
+      const z = state.z - fz * back + rz * halfTrack * side;
+      this.skidMarks.add(x, z, state.yaw, groundY, color);
+    }
+  }
+
   /** Seleziona un modello per id (usato dal garage). */
   setVehicleById(id: string): void {
     this.setSpec(getVehicle(id));
+  }
+}
+
+/** Superfici che sollevano polvere e si segnano con le gomme. */
+function isLooseSurface(surface: string): boolean {
+  return [
+    'dirt',
+    'ground',
+    'compacted',
+    'earth',
+    'gravel',
+    'fine_gravel',
+    'mud',
+    'sand',
+    'grass',
+    'rock',
+    'terrain',
+  ].includes(surface);
+}
+
+/** Colore della polvere: terra calda, erba verde, fango scuro, sabbia chiara. */
+function dustColor(surface: string): number {
+  switch (surface) {
+    case 'grass':
+      return 0x7c8150;
+    case 'mud':
+      return 0x5b4832;
+    case 'sand':
+      return 0xc2a26b;
+    case 'gravel':
+    case 'fine_gravel':
+    case 'rock':
+      return 0x9a9488;
+    case 'terrain':
+      return 0x8d8159;
+    default:
+      return 0xa47a4e;
   }
 }
 

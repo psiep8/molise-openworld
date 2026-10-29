@@ -125,6 +125,18 @@ describe('groundAt condivisa', () => {
     expect(sample.y).toBeCloseTo(100 + BRIDGE_CLEARANCE + ROAD_LIFT, 4);
   });
 
+  it('fuori strada espone la superficie del landcover quando è collegato', () => {
+    const heights = flatHeights();
+    const asphalt = road();
+    const ground = new WorldGround(heights, new RoadIndex([asphalt], heights));
+    expect(ground.sampleAt(0, 40).surface).toBe('terrain');
+    ground.setSurfaceProvider((x) => (x < 0 ? 'dirt' : 'grass'));
+    expect(ground.sampleAt(-10, 40).surface).toBe('dirt');
+    expect(ground.sampleAt(10, 40).surface).toBe('grass');
+    // il landcover non deve sovrascrivere l'asfalto
+    expect(ground.sampleAt(0, 0).surface).not.toBe('grass');
+  });
+
   it('accetta un array vivo: aggiungere un indice cambia subito la quota', () => {
     const heights = flatHeights(100);
     const asphalt = road();

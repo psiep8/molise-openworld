@@ -114,9 +114,9 @@ function generator(options: {
 }
 
 describe('cell-based vegetation scatter', () => {
-  it('assegna collisioni anche agli arbusti visibili, ma non alle rocce decorative', () => {
-    expect(scatterCollisionRadius('shrub', 1)).toBeCloseTo(0.62);
-    expect(scatterCollisionRadius('shrub', 0.5)).toBeCloseTo(0.31);
+  it('gli arbusti sono attraversabili: niente collider, solo gli alberi fermano', () => {
+    expect(scatterCollisionRadius('shrub', 1)).toBeNull();
+    expect(scatterCollisionRadius('shrub', 0.5)).toBeNull();
     expect(scatterCollisionRadius('broadleaf', 1)).toBeCloseTo(0.29);
     expect(scatterCollisionRadius('rock', 1)).toBeNull();
   });

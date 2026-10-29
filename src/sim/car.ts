@@ -54,6 +54,11 @@ export interface CarEnv {
   gripScale?: number;
   /** materiale restituito dal campionatore del terreno */
   surface?: string;
+  /**
+   * Attrito della vegetazione attraversata (0 = niente, 1 = macchia fitta).
+   * Non è una collisione: l'auto passa, ma perde velocità e allunga la frenata.
+   */
+  vegetationDrag?: number;
 }
 
 interface SurfacePhysics {
@@ -73,12 +78,21 @@ function surfacePhysics(env: CarEnv, tuning: CarTuning): SurfacePhysics {
     case 'ground':
     case 'compacted':
     case 'earth':
-      return { speed: 0.72, grip: 0.62, rolling: 1.9 };
+      // terra battuta: le gomme mordono meno dell'asfalto e il posteriore
+      // scivola, ma si può ancora accelerare; è il terreno da traverso.
+      return { speed: 0.7, grip: 0.58, rolling: 2 };
+    case 'rock':
+      return { speed: 0.74, grip: 0.66, rolling: 1.8 };
     case 'mud':
     case 'sand':
     case 'salt':
       return { speed: 0.52, grip: 0.42, rolling: 2.4 };
     case 'grass':
+      // prato alto: molta resistenza al rotolamento e poca aderenza laterale
+      return { speed: 0.5, grip: 0.46, rolling: 2.8 };
+    case 'woodland':
+    case 'forest':
+      return { speed: 0.48, grip: 0.44, rolling: 3 };
     case 'terrain':
       return { speed: tuning.offroadSpeedFactor, grip: tuning.offroadGrip, rolling: 2 };
     case 'cobblestone':
@@ -230,9 +244,11 @@ export function stepCar(
   const next: CarState = { ...state };
   const gearCount = tuning.gearRatios.length;
   const surface = surfacePhysics(env, tuning);
+  const vegetationDrag = clamp(env.vegetationDrag ?? 0, 0, 1);
   // la spinta allunga anche il rapporto finale: +25% di velocità massima
-  const maxSpeed = tuning.maxSpeed * surface.speed * (input.boost ? 1.25 : 1);
-  const reverseMax = tuning.reverseSpeed * surface.speed;
+  const maxSpeed =
+    tuning.maxSpeed * surface.speed * (input.boost ? 1.25 : 1) * (1 - 0.28 * vegetationDrag);
+  const reverseMax = tuning.reverseSpeed * surface.speed * (1 - 0.28 * vegetationDrag);
 
   if (next.shiftTimer > 0) next.shiftTimer = Math.max(0, next.shiftTimer - dt);
 
@@ -295,6 +311,9 @@ export function stepCar(
   }
   // freno a mano: blocca il posteriore, decelera e fa scivolare il retrotreno
   if (input.handbrake && speedAbs > 0.2) brakeForce += 3.4 * tuning.mass * gripScale * dir;
+  // cespugli e sottobosco non sono muri: si attraversano, ma ogni metro costa
+  // velocità. La forza è proporzionale alla massa così resta ~2,4 m/s² pieni.
+  const vegetation = vegetationDrag * 2.4 * tuning.mass * dir;
 
   // --- pendenza ------------------------------------------------------------
   const fx = -Math.sin(next.yaw);
@@ -304,7 +323,8 @@ export function stepCar(
   const pitch = Math.atan2(front - back, tuning.wheelbase);
   const slopeAccel = -tuning.gravity * Math.sin(pitch) * 0.85;
 
-  const accel = (force - rolling - aero - engineBrake - brakeForce) / tuning.mass + slopeAccel;
+  const accel =
+    (force - rolling - aero - engineBrake - brakeForce - vegetation) / tuning.mass + slopeAccel;
   let speed = next.speed + accel * dt;
 
   // i freni fermano l'auto, non la fanno ripartire all'indietro

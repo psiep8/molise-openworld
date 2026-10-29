@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { windUniforms } from '../gfx/wind';
+import { vehiclePassSnippet, vehiclePassUniforms, windUniforms } from '../gfx/wind';
 
 /**
  * World kit: i GLB di vegetazione, case e arredo consegnati dal proprietario.
@@ -161,6 +161,7 @@ function applySurface(material: THREE.MeshStandardMaterial, role: WorldRole, hei
           ? 0.05
           : 0.4;
   const hit = HIT_ROLES.has(role);
+  const pass = role === 'grass' || role === 'shrub';
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = uTime;
     shader.uniforms.uWind = uWind;
@@ -168,6 +169,7 @@ function applySurface(material: THREE.MeshStandardMaterial, role: WorldRole, hei
     shader.uniforms.uKitSway = { value: sway };
     shader.uniforms.uKitWet = wet;
     shader.uniforms.uKitSnow = snow;
+    if (pass) Object.assign(shader.uniforms, vehiclePassUniforms());
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
@@ -175,7 +177,7 @@ function applySurface(material: THREE.MeshStandardMaterial, role: WorldRole, hei
         uniform float uTime;
         uniform vec2 uWind;
         uniform float uKitHeight;
-        uniform float uKitSway;${hit ? '\n        attribute vec4 aHit;' : ''}`,
+        uniform float uKitSway;${hit ? '\n        attribute vec4 aHit;' : ''}${pass ? '\n        uniform vec2 uCarPos;\n        uniform float uCarSpeed;' : ''}`,
       )
       .replace(
         '#include <begin_vertex>',
@@ -200,7 +202,7 @@ function applySurface(material: THREE.MeshStandardMaterial, role: WorldRole, hei
           transformed.z += aHit.w * kitHitWave * kitHitAmp;
         }`
             : ''
-        }`,
+        }${pass ? vehiclePassSnippet('kitPos', 'kitBend', 'uKitHeight') : ''}`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\nuniform float uKitWet;\nuniform float uKitSnow;')

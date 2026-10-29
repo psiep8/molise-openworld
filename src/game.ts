@@ -146,7 +146,7 @@ import { autopilotInput, followTarget } from './sim/autopilot';
 import { buildRoadGraph, planRoute, type RoadGraph, type RouteResult } from './sim/routing';
 import { PostPipeline } from './gfx/post';
 import { loadPaintSaturation, setPaintSaturation } from './gfx/car-paint';
-import { setWind, updateWind } from './gfx/wind';
+import { setVehiclePass, setWind, updateWind } from './gfx/wind';
 import {
   QUALITY_PRESETS,
   isQualityLevel,
@@ -487,6 +487,8 @@ export class Game {
   private worldHits: WorldHitField | null = null;
   /** Sottobosco del world kit: rallenta il passo quando ci si cammina dentro. */
   private worldShrubs: WorldShrubField | null = null;
+  /** Ogni quanto far reagire i cespugli attraversati dall'auto (s). */
+  private shrubTouchClock = 0;
   /** Auto di serie su GLB (`public/cars/`). */
   private carLibrary: CarLibrary | null = null;
   /** Manifest delle auto GLB: va atteso prima di chiedere un modello. */
@@ -606,6 +608,8 @@ export class Game {
 
     this.scene.add(this.player.avatar);
     this.scene.add(this.car.group);
+    // le tracce di gomma restano nel mondo, non seguono l'auto
+    this.scene.add(this.car.skidMarks.group);
     this.player.avatar.visible = false;
 
     this.realWeather.onChange = () => this.updateWeatherStatus();
@@ -922,6 +926,10 @@ export class Game {
       // senza i file la promessa si risolve lo stesso e resta il vecchio shader
       await this.landcover.load();
       this.landcover.setSeason(monthForGameDay(this.gameDay));
+      // la fisica fuori strada usa la stessa classificazione del terreno:
+      // un campo arato è terra, un prato è erba, la roccia è ghiaia
+      this.ground.setSurfaceProvider((x, z) => this.landcover?.surfaceAt(x, z) ?? null);
+      this.worldGrass?.setSurfaceProvider((x, z) => this.landcover?.surfaceAt(x, z) ?? null);
       this.terrain = new Terrain(
         heights,
         imagery,
@@ -3483,6 +3491,14 @@ export class Game {
       // lo stesso input serve alla fisica e al suono: così il motore risponde
       // al gas vero, non solo ai giri
       this.driveInput = this.autopilot ? this.autoDriveInput() : this.readCarInput(move);
+      const carGround = this.ground.sampleAt(this.car.state.x, this.car.state.z);
+      // dentro un cespuglio l'auto passa, ma non alla stessa velocità del prato:
+      // `0.9` è il fattore del campo aperto, `0.55` la macchia fitta del kit
+      const looseFactor = this.vegetation?.movementFactorAt(this.car.state.x, this.car.state.z) ?? 0.9;
+      const shrubFactor = this.worldShrubs?.factorAt(this.car.state.x, this.car.state.z) ?? 1;
+      const vegetationDrag = carGround.onRoad
+        ? 0
+        : clamp(Math.max(1 - shrubFactor, (0.9 - looseFactor) / 0.9), 0, 0.55);
       this.car.update(
         dt,
         this.driveInput,
@@ -3491,6 +3507,7 @@ export class Game {
         this.obstacles,
         this.surfaceGripScale,
         this.wheelSprayIntensity,
+        vegetationDrag,
       );
       // urto contro alberi e cartelli: il modello colpito si piega e torna su
       const impact = this.car.consumeImpact();
@@ -3508,8 +3525,38 @@ export class Game {
           tag: impact.tag,
         });
       }
+      // i cespugli non fermano l'auto: si piegano al passaggio, con lo stesso
+      // shader degli alberi. Si ricorda il punto per non riattivare l'onda a
+      // ogni frame mentre si attraversa la stessa macchia.
+      this.shrubTouchClock = Math.max(0, this.shrubTouchClock - dt);
+      const touchedShrub = this.worldShrubs?.factorAt(this.car.state.x, this.car.state.z) ?? 1;
+      const carSpeed = Math.abs(this.car.state.speed);
+      if (this.worldHits && touchedShrub < 0.99 && carSpeed > 2.2 && this.shrubTouchClock === 0) {
+        const yaw = this.car.state.yaw;
+        this.worldHits.hit({
+          x: this.car.state.x,
+          z: this.car.state.z,
+          dx: -Math.sin(yaw),
+          dz: -Math.cos(yaw),
+          strength: clamp(carSpeed / 14, 0.22, 1),
+          tag: 'world-shrub',
+        });
+        this.shrubTouchClock = 0.16;
+      }
       this.updateDriveCamera(dt);
     }
+
+    // l'erba e i cespugli si spostano al passaggio dell'auto: un solo uniform
+    // condiviso, aggiornato prima dei campi che lo leggono
+    const movingSpeed = this.mode === 'drive' ? this.car.state.speed : 0;
+    const movingYaw = this.mode === 'drive' ? this.car.state.yaw : 0;
+    setVehiclePass(
+      this.car.state.x,
+      this.car.state.z,
+      -Math.sin(movingYaw) * movingSpeed,
+      -Math.cos(movingYaw) * movingSpeed,
+      Math.abs(movingSpeed),
+    );
 
     const focus = this.mode === 'walk' ? this.player.position : this.car.position;
     const location = worldToLatLon(focus.x, focus.z);

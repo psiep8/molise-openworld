@@ -35,10 +35,13 @@ export interface WorldHitEvent {
 const HIT_ROLES: ReadonlyMap<string, WorldRole> = new Map([
   ['world-tree', 'tree'],
   ['sign', 'sign'],
+  // i cespugli non sono nell'indice delle collisioni: il gioco li tocca
+  // direttamente quando l'auto entra nella macchia, per farli piegare
+  ['world-shrub', 'shrub'],
 ]);
 
 /** Oltre questa distanza il modello colpito non è quello che si è urtato. */
-const REACH: Record<'tree' | 'sign', number> = { tree: 5, sign: 2.5 };
+const REACH: Partial<Record<WorldRole, number>> = { tree: 5, sign: 2.5, shrub: 3.2 };
 
 /**
  * Direzione dell'urto nello spazio locale dell'istanza.
@@ -92,9 +95,11 @@ export class WorldHitField {
     if (!role) return null;
     const registration = this.roles.get(role);
     if (!registration) return null;
+    const reach = REACH[role] ?? 0;
+    if (reach <= 0) return null;
 
     let best = -1;
-    let bestDistance = REACH[role as 'tree' | 'sign'];
+    let bestDistance = reach;
     for (let i = 0; i < registration.spots.length; i++) {
       const spot = registration.spots[i]!;
       const distance = Math.hypot(spot.x - event.x, spot.z - event.z);
