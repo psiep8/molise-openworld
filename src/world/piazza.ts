@@ -4,6 +4,7 @@ import { pointInPolygon } from '../geo/geo';
 import type { Building, BuildingIndex, RoadIndex } from '../geo/osm';
 import type { CityKit } from './citykit';
 import type { PavedArea } from './paved';
+import type { WorldKit } from './worldkit';
 
 /**
  * Sagrato/piazza davanti alla chiesa.
@@ -43,6 +44,7 @@ export function buildChurchPiazza(
   roads: RoadIndex,
   buildings: BuildingIndex,
   kit: CityKit,
+  worldKit: WorldKit | null = null,
 ): Piazza | null {
   const paving = kit.material('plaza', 'paving', { repeat: [1, 1] });
   if (!paving) return null;
@@ -187,6 +189,35 @@ export function buildChurchPiazza(
   }
 
   const center = toWorld(0, Z_START + depth / 2);
+  // arredo minuto del world kit: due fioriere davanti e due lampioni da
+  // sentiero sul fondo. Sono riserve piccole che qui hanno un posto vero,
+  // senza aggiungere nuovi sistemi di piazzamento.
+  if (worldKit) {
+    if (worldKit.has('planter')) {
+      const planters = [-1, 1].map((side) => {
+        const p = toWorld(side * (halfW - 1), Z_START + 1.2);
+        return {
+          x: p.x,
+          y: heights.heightAt(p.x, p.z) + 0.05,
+          z: p.z,
+          yaw,
+        };
+      });
+      group.add(worldKit.instances('planter', planters, { castShadow: true }));
+    }
+    if (worldKit.has('pathlight')) {
+      const lights = [-1, 1].map((side) => {
+        const p = toWorld(side * (halfW - 1.1), Z_START + depth - 1.1);
+        return {
+          x: p.x,
+          y: heights.heightAt(p.x, p.z) + 0.05,
+          z: p.z,
+          yaw,
+        };
+      });
+      group.add(worldKit.instances('pathlight', lights, { castShadow: true }));
+    }
+  }
   return {
     group,
     area: { x: center.x, z: center.z, yaw, halfW: halfW + 0.4, halfD: halfD + 0.2 },

@@ -16,7 +16,7 @@
       "scaleTo": 20,
       "triangles": 592,
       "bytes": 1350120,
-      "usage": "reserve",
+      "usage": "placed",
       "nonCommercial": true,
       "credits": {
         "title": "Highway Bridge, Chinese style",
@@ -30,15 +30,17 @@
       "name": "Ponte modulare",
       "role": "bridge",
       "file": "models/bridge-modular.glb",
-      "nodes": [],
-      "height": 1.11,
-      "width": 18,
-      "depth": 14.36,
+      "nodes": [
+        "Plane.001_1"
+      ],
+      "height": 2.48,
+      "width": 20,
+      "depth": 4.69,
       "normalize": "footprint",
-      "scaleTo": 18,
-      "triangles": 36633,
+      "scaleTo": 20,
+      "triangles": 7085,
       "bytes": 982772,
-      "usage": "reserve",
+      "usage": "placed",
       "nonCommercial": false,
       "credits": {
         "title": "Modular Bridge ( low Poly ) Game Ready.",
@@ -58,7 +60,7 @@
       "depth": 961.7,
       "triangles": 84,
       "bytes": 164036,
-      "usage": "reserve",
+      "usage": "retired",
       "normalize": "height",
       "nonCommercial": false,
       "credits": {
@@ -66,7 +68,8 @@
         "author": "VRA (https://sketchfab.com/architect47)",
         "license": "CC-BY-4.0",
         "source": "https://sketchfab.com/3d-models/rain-drops-circles-download-like-please-50b52de9b9a94ac09afbbaf28f102081"
-      }
+      },
+      "retiredReason": "VFX mesh superata da Precipitation: una mesh da 963 m non è pioggia."
     },
     {
       "slug": "chiesa-venezia",
@@ -79,7 +82,7 @@
       "depth": 15.69,
       "triangles": 28798,
       "bytes": 377932,
-      "usage": "reserve",
+      "usage": "retired",
       "normalize": "height",
       "nonCommercial": false,
       "credits": {
@@ -87,12 +90,13 @@
         "author": "rmass (https://sketchfab.com/rickymassaro)",
         "license": "CC-BY-4.0",
         "source": "https://sketchfab.com/3d-models/santa-maria-del-rosario-venice-italy-0f5f058efd2d4f36b5cafc30425492a9"
-      }
+      },
+      "retiredReason": "Landmark di Venezia fuori dal contesto molisano; le chiese del mondo sono procedurali."
     },
     {
       "slug": "clover-planter",
       "name": "Fioriera di trifoglio",
-      "role": "spare",
+      "role": "planter",
       "file": "models/clover-planter.glb",
       "nodes": [],
       "height": 0.5,
@@ -101,7 +105,7 @@
       "normalize": "height",
       "triangles": 8160,
       "bytes": 149536,
-      "usage": "reserve",
+      "usage": "placed",
       "nonCommercial": false,
       "credits": {
         "title": "Clover Spring",
@@ -1315,7 +1319,7 @@
       "depth": 2875.62,
       "triangles": 105769,
       "bytes": 2722460,
-      "usage": "reserve",
+      "usage": "retired",
       "normalize": "height",
       "nonCommercial": false,
       "credits": {
@@ -1323,12 +1327,13 @@
         "author": "PropShop™ (https://sketchfab.com/syedabbas0815)",
         "license": "CC-BY-4.0",
         "source": "https://sketchfab.com/3d-models/city-infrastructure-map-3-1c6262eb26b94ec0b7565211268fb577"
-      }
+      },
+      "retiredReason": "Mappa urbana di 2,6 x 2,9 km: non è un prop e non entra nel mondo giocabile."
     },
     {
       "slug": "lampione-da-sentiero",
       "name": "Lampione da sentiero",
-      "role": "spare",
+      "role": "pathlight",
       "file": "models/lampione-da-sentiero.glb",
       "nodes": [],
       "height": 4,
@@ -1336,7 +1341,7 @@
       "depth": 2.83,
       "triangles": 840,
       "bytes": 56980,
-      "usage": "reserve",
+      "usage": "placed",
       "normalize": "height",
       "nonCommercial": false,
       "credits": {
@@ -1357,7 +1362,7 @@
       "depth": 15.15,
       "triangles": 1800,
       "bytes": 1015400,
-      "usage": "reserve",
+      "usage": "retired",
       "normalize": "height",
       "nonCommercial": false,
       "credits": {
@@ -1365,7 +1370,8 @@
         "author": "Elin (https://sketchfab.com/ElinHohler)",
         "license": "CC-BY-4.0",
         "source": "https://sketchfab.com/3d-models/falling-snow-loop-a19b97d7e64548b998eaeb4d8477c24c"
-      }
+      },
+      "retiredReason": "VFX mesh superata da Precipitation, che fa neve particellare."
     },
     {
       "slug": "palo-elettrico",
@@ -1378,7 +1384,7 @@
       "depth": 867.39,
       "triangles": 7861,
       "bytes": 66076,
-      "usage": "reserve",
+      "usage": "retired",
       "normalize": "height",
       "nonCommercial": false,
       "credits": {
@@ -1386,7 +1392,8 @@
         "author": "Cau Hi (https://sketchfab.com/nt.chitam)",
         "license": "CC-BY-4.0",
         "source": "https://sketchfab.com/3d-models/electric-light-pole-16a9290be6ec48c685b537ce3730ff2b"
-      }
+      },
+      "retiredReason": "Bounds 98 x 867 m: contiene più pali e linee, non un palo piazzabile."
     },
     {
       "slug": "passerella",
@@ -1399,7 +1406,7 @@
       "depth": 47.14,
       "triangles": 11517,
       "bytes": 193368,
-      "usage": "reserve",
+      "usage": "retired",
       "normalize": "height",
       "nonCommercial": false,
       "credits": {
@@ -1407,7 +1414,8 @@
         "author": "OrbArts (https://sketchfab.com/orbarts)",
         "license": "CC-BY-SA-4.0",
         "source": "https://sketchfab.com/3d-models/realistic-walkway-8050b15ec2d44b14b843831b41fcb3ba"
-      }
+      },
+      "retiredReason": "CC BY-SA e passerella di 47 m: share-alike e nessun attraversamento pedonale dedicato."
     },
     {
       "slug": "rock-outcrop",
@@ -1462,7 +1470,7 @@
       "depth": 53.77,
       "triangles": 43317,
       "bytes": 1712592,
-      "usage": "reserve",
+      "usage": "retired",
       "normalize": "height",
       "nonCommercial": false,
       "credits": {
@@ -1470,7 +1478,8 @@
         "author": "Nicholas-3D (https://sketchfab.com/Nicholas01)",
         "license": "CC-BY-4.0",
         "source": "https://sketchfab.com/3d-models/low-poly-tree-scene-free-89daa5e21f0d4f08a59dba0d566e88bd"
-      }
+      },
+      "retiredReason": "Scena di 87 x 54 m con alberi propri: sostituita dagli alberi istanziati del kit."
     },
     {
       "slug": "sidewalk-8m",
@@ -1844,7 +1853,7 @@
       "depth": 29.11,
       "triangles": 576662,
       "bytes": 10396772,
-      "usage": "reserve",
+      "usage": "retired",
       "normalize": "height",
       "nonCommercial": false,
       "credits": {
@@ -1852,7 +1861,8 @@
         "author": "Vlad (https://sketchfab.com/ssh4)",
         "license": "CC-BY-SA-4.0",
         "source": "https://sketchfab.com/3d-models/snow-road-raw-scan-freebie-d6f6fb4341f64ee1abe0974d350b0d32"
-      }
+      },
+      "retiredReason": "CC BY-SA e 577k triangoli: servirebbe un evento neve con LOD dedicato, non disponibile."
     },
     {
       "slug": "straw-bale",
@@ -1970,7 +1980,7 @@
       "depth": 198.63,
       "triangles": 9097,
       "bytes": 74936,
-      "usage": "reserve",
+      "usage": "retired",
       "normalize": "height",
       "nonCommercial": false,
       "credits": {
@@ -1978,7 +1988,8 @@
         "author": "ROY (https://sketchfab.com/roy.gearloft.in)",
         "license": "CC-BY-4.0",
         "source": "https://sketchfab.com/3d-models/road-highway-ffd36f67b0c8476eac5788244158394c"
-      }
+      },
+      "retiredReason": "Svincolo di 199 m fuori scala e fuori contesto: nessun incrocio del mondo ha questa geometria."
     },
     {
       "slug": "terreno",
@@ -1991,7 +2002,7 @@
       "depth": 78636.59,
       "triangles": 23038,
       "bytes": 570448,
-      "usage": "reserve",
+      "usage": "retired",
       "normalize": "height",
       "nonCommercial": false,
       "credits": {
@@ -1999,7 +2010,8 @@
         "author": "DJMaesen (https://sketchfab.com/bumstrum)",
         "license": "CC-BY-4.0",
         "source": "https://sketchfab.com/3d-models/terrain-7f40b2e189234d8cb9ccaadf8e92b844"
-      }
+      },
+      "retiredReason": "Scan di 78 km: non riproiettabile sul DEM; il terreno giocabile usa heightfield e field-detail."
     },
     {
       "slug": "terreno-di-strada",
@@ -2012,7 +2024,7 @@
       "depth": 6962.28,
       "triangles": 5936,
       "bytes": 224604,
-      "usage": "reserve",
+      "usage": "retired",
       "normalize": "height",
       "nonCommercial": false,
       "credits": {
@@ -2020,7 +2032,8 @@
         "author": "jimbogies (https://sketchfab.com/jimbogies)",
         "license": "CC-BY-4.0",
         "source": "https://sketchfab.com/3d-models/road-terrain-7b4c7d514da54c0ca821e158f99761e3"
-      }
+      },
+      "retiredReason": "Striscia di 12 km pensata come fondale: non è una zolla giocabile."
     },
     {
       "slug": "terreno-fng",
@@ -2033,7 +2046,7 @@
       "depth": 4,
       "triangles": 28782,
       "bytes": 367728,
-      "usage": "reserve",
+      "usage": "retired",
       "normalize": "height",
       "nonCommercial": false,
       "credits": {
@@ -2041,7 +2054,8 @@
         "author": "FNG (https://sketchfab.com/FirstNG)",
         "license": "CC-BY-4.0",
         "source": "https://sketchfab.com/3d-models/terrain-826c41844d4243599649c07caac5112f"
-      }
+      },
+      "retiredReason": "Zolla di 4 m con 28k triangoli: più pesante delle zolle ground già usate e non decimabile."
     },
     {
       "slug": "terreno-grande",
@@ -2054,7 +2068,7 @@
       "depth": 2000,
       "triangles": 28791,
       "bytes": 3703008,
-      "usage": "reserve",
+      "usage": "retired",
       "normalize": "height",
       "nonCommercial": false,
       "credits": {
@@ -2062,7 +2076,8 @@
         "author": "Dogus ß ô â (https://sketchfab.com/Dogus.Berk.Bayram)",
         "license": "CC-BY-4.0",
         "source": "https://sketchfab.com/3d-models/big-terrain-50338f06da754fd29481b0bdf86b7f29"
-      }
+      },
+      "retiredReason": "Mesh unica da 2,5 x 2 km: senza reprojection e LOD non si aggancia al DEM."
     },
     {
       "slug": "tracce-nel-fango",
@@ -2075,7 +2090,7 @@
       "depth": 4.92,
       "triangles": 32709,
       "bytes": 689552,
-      "usage": "reserve",
+      "usage": "retired",
       "normalize": "height",
       "nonCommercial": false,
       "credits": {
@@ -2083,7 +2098,8 @@
         "author": "SPLEEN VISION (https://sketchfab.com/spleen.vision)",
         "license": "CC-BY-4.0",
         "source": "https://sketchfab.com/3d-models/hq-tracks-in-wet-sand-and-mud-bdde6dad0f1f4069b8cf3ed2453b9097"
-      }
+      },
+      "retiredReason": "32k triangoli per 4,5 m di impronte: il fango procedurale costa una frazione."
     },
     {
       "slug": "tree-real-a",
@@ -2138,7 +2154,7 @@
       "depth": 59.72,
       "triangles": 964,
       "bytes": 189356,
-      "usage": "reserve",
+      "usage": "retired",
       "normalize": "height",
       "nonCommercial": false,
       "credits": {
@@ -2146,7 +2162,8 @@
         "author": "iagoArt3D (https://sketchfab.com/iagoDev)",
         "license": "CC-BY-4.0",
         "source": "https://sketchfab.com/3d-models/old-street-pack-a633537bfc7c4d99a3a618662513cbf9"
-      }
+      },
+      "retiredReason": "Pack di più edifici in una mesh: non separabile in props singoli senza reimport."
     },
     {
       "slug": "veg-01",
@@ -3755,7 +3772,7 @@
       "depth": 13.23,
       "triangles": 32329,
       "bytes": 647096,
-      "usage": "reserve",
+      "usage": "retired",
       "normalize": "height",
       "nonCommercial": true,
       "credits": {
@@ -3763,7 +3780,8 @@
         "author": "Andrea Spognetta (Spogna) (https://sketchfab.com/spogna)",
         "license": "CC-BY-NC-4.0",
         "source": "https://sketchfab.com/3d-models/via-s-gemini-viterbo-italy-608f8339c95f410ea42f2849dd272ce2"
-      }
+      },
+      "retiredReason": "CC BY-NC e scan di una via di Viterbo: non commerciale e fuori contesto."
     },
     {
       "slug": "village-canal",

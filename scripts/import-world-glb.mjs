@@ -202,12 +202,12 @@ const SOURCES = [
   },
   {
     // il modello "hero" del trifoglio è una fioriera da esposizione, con il
-    // vaso: in mezzo a un prato non c'entra. Resta in riserva per un giardino
+    // vaso: sta nella piazza della chiesa (`world/piazza.ts`), non nel prato
     file: 'clover_spring.glb',
-    usage: 'reserve',
+    usage: 'placed',
     pack: { total: 30000, texture: 512 },
     assets: [
-      { slug: 'clover-planter', name: 'Fioriera di trifoglio', role: 'spare', height: 0.5, budget: 'spare', nodes: ['clover_spring_hero'] },
+      { slug: 'clover-planter', name: 'Fioriera di trifoglio', role: 'planter', height: 0.5, budget: 'spare', nodes: ['clover_spring_hero'] },
     ],
   },
   {
@@ -653,20 +653,22 @@ const SOURCES = [
   },
   {
     file: 'modular_bridge__low_poly__game_ready.glb',
-    usage: 'reserve',
+    usage: 'placed',
     assets: [
       {
         slug: 'bridge-modular',
         name: 'Ponte modulare',
         role: 'bridge',
-        footprint: 18,
+        // un solo concio da 20 m: gli altri quattro nodi del pack restano fuori
+        nodes: ['Plane.001_1'],
+        footprint: 20,
         budget: 'bridge',
       },
     ],
   },
   {
     file: 'highway_bridge_chinese_style.glb',
-    usage: 'reserve',
+    usage: 'placed',
     assets: [
       {
         slug: 'bridge-highway',
@@ -679,24 +681,24 @@ const SOURCES = [
     ],
   },
 
-  // --- altre riserve: nel repo, non caricate all'avvio ----------------------
-  { file: 'big_terrain.glb', usage: 'reserve', pack: { total: 30000, texture: 512, role: 'spare', height: 12, name: 'Terreno grande' } },
-  { file: 'terrain.glb', usage: 'reserve', pack: { total: 24000, texture: 512, role: 'spare', height: 8, name: 'Terreno' } },
-  { file: 'terrain (1).glb', usage: 'reserve', pack: { total: 30000, texture: 512, role: 'spare', height: 8, name: 'Terreno (FNG)' } },
-  { file: 'road_terrain.glb', usage: 'reserve', pack: { total: 6000, texture: 512, role: 'spare', height: 3, name: 'Terreno di strada' } },
-  { file: 'snow_road_raw_scan_freebie.glb', usage: 'reserve', pack: { total: 30000, texture: 512, role: 'spare', height: 4, name: 'Strada innevata' } },
-  { file: 'hq_tracks_in_wet_sand_and_mud.glb', usage: 'reserve', pack: { total: 30000, texture: 512, role: 'spare', height: 3, name: 'Tracce nel fango' } },
-  { file: 'realistic_walkway.glb', usage: 'reserve', pack: { total: 12000, texture: 512, role: 'spare', height: 1, name: 'Passerella' } },
-  { file: 'electric_light_pole.glb', usage: 'reserve', pack: { total: 8000, texture: 512, role: 'spare', height: 9, name: 'Palo elettrico' } },
-  { file: 'sci-fi_path_light_pole_low_poly.glb', usage: 'reserve', pack: { total: 900, texture: 512, role: 'spare', height: 4, name: 'Lampione da sentiero' } },
-  { file: 'rain_drops_circles__download__like_please.glb', usage: 'reserve', pack: { total: 100, texture: 256, role: 'spare', height: 0.5, name: 'Cerchi di pioggia' } },
-  { file: 'falling_snow_loop.glb', usage: 'reserve', pack: { total: 1800, texture: 256, role: 'spare', height: 3, name: 'Neve che cade' } },
-  { file: 'santa_maria_del_rosario_venice_italy.glb', usage: 'reserve', pack: { total: 30000, texture: 512, role: 'spare', height: 18, name: 'Chiesa (Venezia)' } },
-  { file: 'via_s._gemini_viterbo_-_italy.glb', usage: 'reserve', pack: { total: 30000, texture: 512, role: 'spare', height: 8, name: 'Via S. Gemini' } },
-  { file: 'low_poly_tree_scene_free.glb', usage: 'reserve', pack: { total: 40000, texture: 512, role: 'spare', height: 15, name: 'Scena di bosco' } },
-  { file: 'old_street_pack.glb', usage: 'reserve', pack: { total: 9000, texture: 512, role: 'spare', height: 7, name: 'Vecchio quartiere' } },
-  { file: 'road__highway.glb', usage: 'reserve', pack: { total: 9000, texture: 512, role: 'spare', height: 6, name: 'Svincolo autostradale' } },
-  { file: 'city_infrastructure_map_3.glb', usage: 'reserve', pack: { total: 30000, texture: 1024, role: 'spare', height: 16.5, name: 'Infrastruttura urbana' } },
+  // --- ritirati: archiviati nel repo, mai caricati -------------------------
+  { file: 'big_terrain.glb', usage: 'retired', retiredReason: 'Mesh unica da 2,5 x 2 km: senza reprojection e LOD non si aggancia al DEM.', pack: { total: 30000, texture: 512, role: 'spare', height: 12, name: 'Terreno grande' } },
+  { file: 'terrain.glb', usage: 'retired', retiredReason: 'Scan di 78 km: non riproiettabile sul DEM; il terreno giocabile usa heightfield e field-detail.', pack: { total: 24000, texture: 512, role: 'spare', height: 8, name: 'Terreno' } },
+  { file: 'terrain (1).glb', usage: 'retired', retiredReason: 'Zolla di 4 m con 28k triangoli: più pesante delle zolle ground già usate e non decimabile.', pack: { total: 30000, texture: 512, role: 'spare', height: 8, name: 'Terreno (FNG)' } },
+  { file: 'road_terrain.glb', usage: 'retired', retiredReason: 'Striscia di 12 km pensata come fondale: non è una zolla giocabile.', pack: { total: 6000, texture: 512, role: 'spare', height: 3, name: 'Terreno di strada' } },
+  { file: 'snow_road_raw_scan_freebie.glb', usage: 'retired', retiredReason: 'CC BY-SA e 577k triangoli: servirebbe un evento neve con LOD dedicato, non disponibile.', pack: { total: 30000, texture: 512, role: 'spare', height: 4, name: 'Strada innevata' } },
+  { file: 'hq_tracks_in_wet_sand_and_mud.glb', usage: 'retired', retiredReason: '32k triangoli per 4,5 m di impronte: il fango procedurale costa una frazione.', pack: { total: 30000, texture: 512, role: 'spare', height: 3, name: 'Tracce nel fango' } },
+  { file: 'realistic_walkway.glb', usage: 'retired', retiredReason: 'CC BY-SA e passerella di 47 m: share-alike e nessun attraversamento pedonale dedicato.', pack: { total: 12000, texture: 512, role: 'spare', height: 1, name: 'Passerella' } },
+  { file: 'electric_light_pole.glb', usage: 'retired', retiredReason: 'Bounds 98 x 867 m: contiene più pali e linee, non un palo piazzabile.', pack: { total: 8000, texture: 512, role: 'spare', height: 9, name: 'Palo elettrico' } },
+  { file: 'sci-fi_path_light_pole_low_poly.glb', usage: 'placed', pack: { total: 900, texture: 512, role: 'pathlight', height: 4, name: 'Lampione da sentiero' } },
+  { file: 'rain_drops_circles__download__like_please.glb', usage: 'retired', retiredReason: 'VFX mesh superata da Precipitation: una mesh da 963 m non è pioggia.', pack: { total: 100, texture: 256, role: 'spare', height: 0.5, name: 'Cerchi di pioggia' } },
+  { file: 'falling_snow_loop.glb', usage: 'retired', retiredReason: 'VFX mesh superata da Precipitation, che fa neve particellare.', pack: { total: 1800, texture: 256, role: 'spare', height: 3, name: 'Neve che cade' } },
+  { file: 'santa_maria_del_rosario_venice_italy.glb', usage: 'retired', retiredReason: 'Landmark di Venezia fuori dal contesto molisano; le chiese del mondo sono procedurali.', pack: { total: 30000, texture: 512, role: 'spare', height: 18, name: 'Chiesa (Venezia)' } },
+  { file: 'via_s._gemini_viterbo_-_italy.glb', usage: 'retired', retiredReason: 'CC BY-NC e scan di una via di Viterbo: non commerciale e fuori contesto.', pack: { total: 30000, texture: 512, role: 'spare', height: 8, name: 'Via S. Gemini' } },
+  { file: 'low_poly_tree_scene_free.glb', usage: 'retired', retiredReason: 'Scena di 87 x 54 m con alberi propri: sostituita dagli alberi istanziati del kit.', pack: { total: 40000, texture: 512, role: 'spare', height: 15, name: 'Scena di bosco' } },
+  { file: 'old_street_pack.glb', usage: 'retired', retiredReason: 'Pack di più edifici in una mesh: non separabile in props singoli senza reimport.', pack: { total: 9000, texture: 512, role: 'spare', height: 7, name: 'Vecchio quartiere' } },
+  { file: 'road__highway.glb', usage: 'retired', retiredReason: 'Svincolo di 199 m fuori scala e fuori contesto: nessun incrocio del mondo ha questa geometria.', pack: { total: 9000, texture: 512, role: 'spare', height: 6, name: 'Svincolo autostradale' } },
+  { file: 'city_infrastructure_map_3.glb', usage: 'retired', retiredReason: 'Mappa urbana di 2,6 x 2,9 km: non è un prop e non entra nel mondo giocabile.', pack: { total: 30000, texture: 1024, role: 'spare', height: 16.5, name: 'Infrastruttura urbana' } },
 ];
 
 /** Licenze che permettono di versionare il file nel repository. */
@@ -1069,6 +1071,7 @@ async function main() {
           triangles: tris,
           bytes: bytes.byteLength,
           usage: definition.usage,
+          ...(definition.retiredReason ? { retiredReason: definition.retiredReason } : {}),
           normalize: 'height',
           nonCommercial,
           credits: meta,
@@ -1142,6 +1145,7 @@ async function main() {
           })(),
           bytes: bytes.byteLength,
           usage: definition.usage,
+          ...(definition.retiredReason ? { retiredReason: definition.retiredReason } : {}),
           normalize: 'height',
           nonCommercial: /-NC/i.test(license),
           credits: meta,
@@ -1192,6 +1196,9 @@ async function main() {
         triangles: tris,
         bytes: bytes.byteLength,
         usage: definition.usage,
+        ...((entry.retiredReason ?? definition.retiredReason)
+          ? { retiredReason: entry.retiredReason ?? definition.retiredReason }
+          : {}),
         nonCommercial: Boolean(entry.nonCommercial || /-NC/i.test(license)),
         credits: meta,
       });

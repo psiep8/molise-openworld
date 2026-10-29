@@ -44,6 +44,8 @@ export type WorldRole =
   | 'guardrail'
   | 'streetlight'
   | 'bridge'
+  | 'planter'
+  | 'pathlight'
   | 'spare';
 
 export interface WorldCredit {
@@ -64,7 +66,13 @@ export interface WorldModelEntry {
   depth: number;
   triangles: number;
   bytes: number;
-  usage: 'placed' | 'reserve';
+  /**
+   * `placed` entra nei preset, `retired` resta archiviato nel repository ma
+   * non viene mai caricato (scansioni enormi, VFX superati, licenze NC/SA).
+   */
+  usage: 'placed' | 'retired';
+  /** motivo esplicito della dismissione, obbligatorio per `usage: "retired"` */
+  retiredReason?: string;
   /**
    * Come normalizzare il modello: `height` per alberi e case, `footprint` per
    * le fotogrammetrie di terreno quasi piatte. Senza questo un piano da 602 m
@@ -88,6 +96,10 @@ export interface WorldSpot {
   yaw: number;
   /** moltiplicatore sull'altezza dichiarata (0,8 = modello all'80%) */
   scale?: number;
+  /** scala indipendente sull'asse X (ponti: lunghezza del modulo) */
+  scaleX?: number;
+  /** scala indipendente sull'asse Z (ponti: larghezza della carreggiata) */
+  scaleZ?: number;
   variant?: number;
 }
 
@@ -119,6 +131,7 @@ const WIND_ROLES: ReadonlySet<WorldRole> = new Set([
   'grass-hero',
   'field',
   'sign',
+  'planter',
 ]);
 /** Ruoli che si piegano quando l'auto li prende: il sasso, la terra e la casa no. */
 const HIT_ROLES: ReadonlySet<WorldRole> = new Set(['tree', 'shrub', 'field', 'sign']);
@@ -194,7 +207,9 @@ function applySurface(material: THREE.MeshStandardMaterial, role: WorldRole, hei
           ? 0.7
           : role === 'sign'
             ? 0.05
-            : 0.4;
+            : role === 'planter'
+              ? 0.08
+              : 0.4;
   const hit = HIT_ROLES.has(role);
   const pass = role === 'grass' || role === 'grass-hero' || role === 'shrub' || role === 'field';
   // le zolle di terra devono stare sopra il triangolo del DEM senza
@@ -312,6 +327,15 @@ function collectMeshes(node: THREE.Object3D): THREE.Mesh[] {
 }
 
 /**
+ * Nome del nodo come lo vede three: `GLTFLoader` passa i nomi in
+ * `PropertyBinding.sanitizeNodeName`, che toglie `[] . : /`. Nel manifest
+ * teniamo il nome originale (leggibile) ma la ricerca deve provare entrambi.
+ */
+function sanitizedNodeName(name: string): string {
+  return name.replace(/[[\].:/]/g, '');
+}
+
+/**
  * Costruisce le parti di un asset: geometria cotta in spazio locale normalizzato
  * (base a terra, centro in x/z, altezza reale) e materiale proprio, così il vento
  * di un albero non tocca il cespuglio che condivide la texture.
@@ -323,7 +347,8 @@ function buildAsset(
 ): WorldAsset | null {
   const roots: THREE.Object3D[] = [];
   for (const name of entry.nodes) {
-    const found = scene.getObjectByName(name);
+    const found =
+      scene.getObjectByName(name) ?? scene.getObjectByName(sanitizedNodeName(name));
     if (!found) {
       console.warn(`worldkit: nodo "${name}" mancante in ${entry.file}`);
       continue;
@@ -496,9 +521,12 @@ export class WorldKit {
         mesh.receiveShadow = opts.receiveShadow ?? true;
         for (let i = 0; i < own.length; i++) {
           const spot = own[i]!;
+          const scale = spot.scale ?? 1;
           dummy.position.set(spot.x, spot.y, spot.z);
           dummy.rotation.set(0, spot.yaw, 0);
-          dummy.scale.setScalar(spot.scale ?? 1);
+          // i ponti hanno bisogno di allungare il modulo lungo la campata e
+          // allargarlo alla carreggiata senza schiacciarne l'altezza
+          dummy.scale.set(spot.scaleX ?? scale, scale, spot.scaleZ ?? scale);
           dummy.updateMatrix();
           mesh.setMatrixAt(i, dummy.matrix);
         }
@@ -553,6 +581,9 @@ export async function loadWorldKit(
     'curb',
     'guardrail',
     'streetlight',
+    'bridge',
+    'planter',
+    'pathlight',
   ],
 ): Promise<WorldKit | null> {
   let manifest: Manifest;
@@ -570,9 +601,9 @@ export async function loadWorldKit(
       entry.role &&
       entry.slug &&
       wanted.has(entry.role) &&
-      // le riserve restano nel manifest ma non si scaricano: un ponte da 36k
-      // triangoli non deve pesare su un preset che non lo piazza.
-      entry.usage !== 'reserve' &&
+      // solo gli asset piazzati entrano in scena: `retired` resta archiviato
+      // nel repository ma non pesa su VRAM, memoria o tempo di avvio.
+      entry.usage === 'placed' &&
       !(commercial && entry.nonCommercial),
   );
   if (entries.length === 0) return null;

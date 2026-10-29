@@ -21,6 +21,8 @@ const manifest = JSON.parse(readFileSync(`${ROOT}/manifest.json`, 'utf8')) as {
     triangles: number;
     bytes: number;
     usage: string;
+    /** motivo della dismissione per `usage: "retired"` */
+    retiredReason?: string;
     normalize?: 'height' | 'footprint';
     scaleTo?: number;
     nonCommercial?: boolean;
@@ -47,6 +49,8 @@ const ROLES = new Set([
   'guardrail',
   'streetlight',
   'bridge',
+  'planter',
+  'pathlight',
   'spare',
 ]);
 
@@ -72,6 +76,9 @@ describe('worldkit manifest', () => {
       'curb',
       'guardrail',
       'streetlight',
+      'bridge',
+      'planter',
+      'pathlight',
     ]) {
       expect(roles.has(role), `ruolo mancante: ${role}`).toBe(true);
     }
@@ -110,8 +117,16 @@ describe('worldkit manifest', () => {
       // scena, quindi il budget è più alto ma resta sotto i 500k.
       const placedLimit = model.hero ? 500_000 : 100_000;
       expect(model.triangles).toBeLessThan(model.usage === 'placed' ? placedLimit : 700_000);
-      expect(['placed', 'reserve']).toContain(model.usage);
+      expect(['placed', 'retired']).toContain(model.usage);
+      // una riserva senza motivo esplicito tornerebbe un "lasciato lì" opaco
+      if (model.usage === 'retired') {
+        expect(model.retiredReason?.length ?? 0, `motivo mancante per ${model.slug}`).toBeGreaterThan(10);
+      }
     }
+  });
+
+  it('non lascia riserve ambigue: ogni modello è piazzato o ritirato con motivo', () => {
+    expect(manifest.models.some((model) => model.usage === 'reserve')).toBe(false);
   });
 
   it('normalizza le fotogrammetrie di terreno sull\'impronta, non sull\'altezza', () => {

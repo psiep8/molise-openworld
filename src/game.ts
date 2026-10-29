@@ -45,6 +45,7 @@ import type { WorldHitField } from './world/world-hits';
 import { WorldGrass, WorldShrubField, buildWorldProps } from './world/world-props';
 import { WorldFieldDetail, buildStrawBales, buildVillageScenes } from './world/field-detail';
 import { buildRoadsideKit } from './world/roadside-kit';
+import { buildBridgeKit } from './world/bridge-kit';
 import { CarLibrary } from './world/car-library';
 import { DEFAULT_LIGHTING, DEFAULT_SKY, DEFAULT_SUN, createSky, type SkyRig } from './world/sky';
 import { CloudLayer } from './world/clouds';
@@ -239,6 +240,8 @@ export interface Diagnostics {
     hitCount: number;
     /** moduli GLB di marciapiede e cordolo piazzati fuori dal paese */
     roadside: { sidewalks: number; curbs: number };
+    /** impalcati GLB sui ponti OSM */
+    bridge: { bridges: number; modules: number; highway: number };
     /** zolle fotogrammetriche `grass-hero` attorno al giocatore */
     heroGrass: number;
   } | null;
@@ -490,6 +493,7 @@ export class Game {
   } | null = null;
   /** Moduli GLB di marciapiede/cordolo piazzati fuori dal costruito. */
   private roadsideStats: { sidewalks: number; curbs: number } | null = null;
+  private bridgeStats: { bridges: number; modules: number; highway: number } | null = null;
   private worldGrass?: WorldGrass;
   /** Zolle, campi, grano e fango di prossimità. */
   private fieldDetail: WorldFieldDetail | null = null;
@@ -782,7 +786,7 @@ export class Game {
         // il sagrato si costruisce prima di registrare l'impronta della chiesa:
         // così il controllo «non sopra un edificio» non trova la chiesa stessa
         if (this.kit) {
-          const piazza = buildChurchPiazza(church, heights, this.roadIndex, this.buildingIndex, this.kit);
+          const piazza = buildChurchPiazza(church, heights, this.roadIndex, this.buildingIndex, this.kit, this.worldKit);
           if (piazza) {
             this.scene.add(piazza.group);
             this.pavedAreas.push(piazza.area);
@@ -845,6 +849,17 @@ export class Game {
         );
         this.scene.add(roadside.group);
         this.roadsideStats = { sidewalks: roadside.sidewalks, curbs: roadside.curbs };
+      }
+      // impalcati sui ponti OSM: la carreggiata procedurale resta quella con
+      // quota e fisica, il modulo GLB è la struttura sotto e ai lati
+      if (this.worldKit && this.quality.bridges > 0) {
+        const bridge = buildBridgeKit(osm, this.worldKit, this.quality.bridges);
+        this.scene.add(bridge.group);
+        this.bridgeStats = {
+          bridges: bridge.bridges,
+          modules: bridge.modules,
+          highway: bridge.highwayModules,
+        };
       }
       this.scene.add(buildDryStoneWalls(osm, heights, this.roadIndex, this.buildingIndex, this.renderer));
       // confini di campo: muretti su bosco/prato, recinzioni su vigne e aie,
@@ -4057,6 +4072,7 @@ export class Game {
             }),
             hitCount: this.worldHits?.count ?? 0,
             roadside: this.roadsideStats ?? { sidewalks: 0, curbs: 0 },
+            bridge: this.bridgeStats ?? { bridges: 0, modules: 0, highway: 0 },
             heroGrass: this.worldGrass?.heroCount ?? 0,
           }
         : null,

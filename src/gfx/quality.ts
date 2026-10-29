@@ -95,6 +95,12 @@ export interface QualityPreset {
    * quando il world kit è caricato; qui si limita solo il numero di moduli.
    */
   roadside: number;
+  /**
+   * Moduli GLB di ponte sulle campate OSM. Si contano in conci da 20 m e si
+   * consumano partendo dai ponti più vicini: `0` lascia la struttura
+   * procedurale, `medium` copre le campate entro ~7 km.
+   */
+  bridges: number;
   /** raggio di streaming del terreno in metri */
   viewRadius: number;
   /**
@@ -140,6 +146,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     drainage: false,
     guardrails: false,
     roadside: 0,
+    bridges: 0,
     viewRadius: 1500,
     landcover: 'off',
     landcoverRadius: 0,
@@ -176,6 +183,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     drainage: false,
     guardrails: false,
     roadside: 0,
+    bridges: 0,
     viewRadius: 2200,
     landcover: 'base',
     landcoverRadius: 0,
@@ -212,6 +220,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     drainage: true,
     guardrails: true,
     roadside: 80,
+    bridges: 80,
     viewRadius: 2600,
     landcover: 'full',
     landcoverRadius: 1400,
@@ -248,6 +257,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     drainage: true,
     guardrails: true,
     roadside: 140,
+    bridges: 180,
     viewRadius: 3100,
     landcover: 'full',
     landcoverRadius: 1900,
@@ -284,6 +294,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     drainage: true,
     guardrails: true,
     roadside: 200,
+    bridges: 420,
     viewRadius: 3100,
     landcover: 'full',
     landcoverRadius: 2300,
