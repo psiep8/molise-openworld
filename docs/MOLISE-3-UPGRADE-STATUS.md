@@ -141,8 +141,15 @@ visive in gioco restano indicate esplicitamente quando non eseguite.
 - Controllo runtime sul build servito da `vite preview`: modalità a piedi e a
   guida avviate, uscita dall'auto → camminata → rientro in auto senza errori in
   console (`errorCount: 0`), a 24,7 fps su GPU software.
+- Controllo visivo sul dev server, preset `high`, scena di campagna (`?bench=1`):
+  copertura 24/30 celle piantabili (fill 0,8), 397.396 triangoli, ultima
+  ricostruzione 53 ms; il minimo radar mostra il satellite reale di Palata e i
+  marciapiedi procedurali hanno i moduli GLB accostati. I campi vicini hanno
+  materia (file di coltivo, erba, terra), mentre i crinali oltre 60 m restano
+  DEM/landcover come previsto.
 - `npm run smoke` completo: la prima scheda ha guidato e reso l'immagine, ma il
   rerun con la scheda `autostart=walk` è andato in timeout sotto SwiftShader e
   non viene contato come prova superata.
-- Verifica visiva (screenshot e giudizio su marciapiedi, posa seduta e
-  copertura): **non eseguita**.
+- La posa seduta sulle ossa non è stata giudicata a schermo: la transizione
+  funziona (ingresso e uscita completano, nessun errore), ma la direzione delle
+  rotazioni va guardata da vicino.
