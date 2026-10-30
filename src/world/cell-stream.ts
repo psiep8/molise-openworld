@@ -21,8 +21,13 @@ import { mulberry32 } from '../geo/geo';
  *    altre;
  *  - i buffer si aggiornano per intervalli (`addUpdateRange`), non per intero.
  *
- * Il risultato è che non esiste più una soglia che fa "rifare tutto": il mondo
- * cresce e cala di continuo, e un hitch non blocca mai il frame.
+ * Il contenuto di una cella **non dipende dalla fascia di distanza**: il seme
+ * è solo `(cx, cz)` e il piano cresce in ordine stabile, quindi la fascia più
+ * vicina è un'estensione di quella più lontana (stesse posizioni, stesse
+ * rotazioni). Avvicinandosi si aggiungono i ciuffi nuovi in coda, in
+ * dissolvenza; quelli già piantati restano accesi e immobili. Prima la fascia
+ * cambiava anche il seme: l'erba spariva e ricompariva spostata, ed era il
+ * "si ricrea" che si vedeva guidando.
  */
 
 /** Fasce di distanza del dettaglio: 0-30, 30-60, 60-95, oltre. */
@@ -38,14 +43,15 @@ export function bandForDistance(distance: number): number {
 }
 
 /**
- * Seme stabile di una cella. Dipende solo da coordinate, fascia e seme del
- * campo: la stessa cella ha sempre la stessa vegetazione, in ogni sessione.
+ * Seme stabile di una cella. Dipende solo da coordinate e seme del campo: la
+ * stessa cella ha sempre la stessa vegetazione, in ogni fascia e in ogni
+ * sessione. La fascia **non** entra nel seme: se entrasse, avvicinandosi la
+ * cella verrebbe riseminata e l'erba già a terra cambierebbe posizione.
  */
-export function cellSeed(cx: number, cz: number, band: number, seed: number): number {
+export function cellSeed(cx: number, cz: number, seed: number): number {
   let hash = (seed ^ 0x9e3779b9) >>> 0;
   hash = Math.imul(hash ^ (cx | 0), 0x85ebca6b) >>> 0;
   hash = Math.imul(hash ^ (cz | 0), 0xc2b2ae35) >>> 0;
-  hash = Math.imul(hash ^ (band | 0), 0x27d4eb2f) >>> 0;
   hash ^= hash >>> 15;
   return hash >>> 0;
 }
@@ -281,6 +287,12 @@ interface Run {
   start: number;
   count: number;
   used: number;
+  /**
+   * Quante istanze iniziali sono quelle già presenti nella generazione
+   * precedente: restano subito a piena opacità (non devono mai spegnersi e
+   * riaccendersi quando cambia la fascia).
+   */
+  seeded: number;
   /** opacità corrente 0…1 */
   t: number;
   target: number;
@@ -551,7 +563,7 @@ export class StreamedCells {
     cell.band = entry.band;
     cell.density = this.density;
 
-    this.writer.reseed(cellSeed(entry.cx, entry.cz, entry.band, this.options.seed));
+    this.writer.reseed(cellSeed(entry.cx, entry.cz, this.options.seed));
     this.builder(entry.cx, entry.cz, entry.band, this.writer);
 
     // Cella vuota: niente strada, niente prato, nessun coltivo. Si ricorda il
@@ -572,6 +584,11 @@ export class StreamedCells {
     }
     cell.empty = false;
 
+    // La generazione che si sta vedendo: il piano nuovo ha lo stesso ordine
+    // (stesso seme, contenuto indipendente dalla fascia), quindi le prime
+    // `shared` istanze sono esattamente quelle già piantate.
+    const newest = cell.gens.length > 0 ? cell.gens[cell.gens.length - 1]! : null;
+
     const gen: Generation = { runs: [] };
     let failed = false;
     for (let i = 0; i < this.layers.length; i++) {
@@ -586,6 +603,7 @@ export class StreamedCells {
         failed = true;
         break;
       }
+      const shared = Math.min(newest?.runs[i]?.used ?? 0, count);
       const layer = this.layers[i]!;
       const matrix = layer.mesh.instanceMatrix;
       const matrixArray = matrix.array as Float32Array;
@@ -601,7 +619,22 @@ export class StreamedCells {
         layer.mesh.instanceColor.addUpdateRange(slot.start * 3, slot.count * 3);
         layer.mesh.instanceColor.needsUpdate = true;
       }
-      gen.runs.push({ start: slot.start, count: slot.count, used: count, t: 0, target: 1 });
+      // le istanze condivise nascono già piene: la vecchia generazione può
+      // spegnersi sotto di loro senza che si veda un buco o un "ricrearsi"
+      const fade = this.fadeAttributes[i]!;
+      const fadeArray = fade.array as Float32Array;
+      fadeArray.fill(1, slot.start, slot.start + shared);
+      fadeArray.fill(0, slot.start + shared, slot.start + slot.count);
+      fade.addUpdateRange(slot.start, slot.count);
+      fade.needsUpdate = true;
+      gen.runs.push({
+        start: slot.start,
+        count: slot.count,
+        used: count,
+        seeded: shared,
+        t: 0,
+        target: 1,
+      });
     }
 
     if (failed) {
@@ -672,8 +705,11 @@ export class StreamedCells {
   private writeFade(layerIndex: number, run: Run): void {
     const attribute = this.fadeAttributes[layerIndex]!;
     const array = attribute.array as Float32Array;
-    const stagger = 0.28;
-    for (let i = 0; i < run.used; i++) {
+    const stagger = 0.35;
+    // in entrata le istanze già a terra restano piene e non entrano nella
+    // dissolvenza; in uscita si spengono tutte, comprese quelle condivise
+    const from = run.target > 0 ? run.seeded : 0;
+    for (let i = from; i < run.used; i++) {
       const slot = run.start + i;
       const delay = hashFraction(slot) * stagger;
       const local = Math.min(1, Math.max(0, (run.t - delay) / (1 - stagger)));

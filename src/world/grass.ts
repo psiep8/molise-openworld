@@ -27,8 +27,6 @@ const CELL = 14;
 const RADIUS = 150;
 /** Ciuffi per m² in ciascuna fascia di distanza (0-30, 30-60, 60-95, 95+). */
 const BAND_DENSITY = [9, 5.4, 2.7, 1.05] as const;
-/** Larghezza/riempimento dei ciuffi per fascia: i lontani sono più radi e grandi. */
-const BAND_LOD = [1, 0.6, 0.3, 0.12] as const;
 const MAX_TUFTS = 160000;
 const MAX_EDGES = 26000;
 const MAX_FLOWERS = 5000;
@@ -483,7 +481,6 @@ export class GrassField {
     ground.prepare(centreX, centreZ, size * 0.75 + 8, this.areas.near(centreX, centreZ, size * 0.75 + 8), this.paved);
 
     const density = BAND_DENSITY[band] ?? BAND_DENSITY[3];
-    const lod = BAND_LOD[band] ?? BAND_LOD[3];
     const scale = this.density;
 
     // --- ciuffi -----------------------------------------------------------
@@ -502,9 +499,10 @@ export class GrassField {
       // lungo le strade l'erba resta corta e si allunga verso i campi: sul
       // ciglio (2,7 m) è al 55%, da 6 m in poi è piena
       const verge = 0.55 + 0.45 * Math.min(1, Math.max(0, (roadDist - 2.7) / 3.3));
-      // i ciuffi lontani sono più radi ma leggermente più grandi, così il
-      // passaggio dal tappeto pieno al prato rado non si legge
-      const baseScale = (0.6 + writer.random() * 0.45) * verge * (1 + (1 - lod) * 0.4);
+      // La taglia NON dipende dalla fascia: se cambiasse, al passaggio di
+      // soglia tutti i ciuffi della cella cambierebbero dimensione insieme e
+      // l'erba sembrerebbe "scendere" e rifarsi.
+      const baseScale = (0.6 + writer.random() * 0.45) * verge;
       const heightScale = grassBladeHeightScale(cover, roadDist, writer.random(), writer.random());
       const coverScale = cover === COVER_CROP ? 0.6 : cover === COVER_WOOD || cover === COVER_DRY ? 0.74 : 1;
       const widthScale = baseScale * coverScale;

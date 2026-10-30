@@ -100,10 +100,10 @@ describe('fascia di dettaglio', () => {
 
 describe('seme e chiave della cella', () => {
   it('è deterministico e indipendente dall’ordine di creazione', () => {
-    expect(cellSeed(12, -34, 2, 0x9a55)).toBe(cellSeed(12, -34, 2, 0x9a55));
-    expect(cellSeed(12, -34, 2, 0x9a55)).not.toBe(cellSeed(12, -34, 1, 0x9a55));
-    expect(cellSeed(12, -34, 2, 0x9a55)).not.toBe(cellSeed(13, -34, 2, 0x9a55));
-    expect(cellSeed(12, -34, 2, 0x9a55)).not.toBe(cellSeed(12, -34, 2, 0x9a56));
+    expect(cellSeed(12, -34, 0x9a55)).toBe(cellSeed(12, -34, 0x9a55));
+    expect(cellSeed(12, -34, 0x9a55)).not.toBe(cellSeed(13, -34, 0x9a55));
+    expect(cellSeed(12, -34, 0x9a55)).not.toBe(cellSeed(12, -35, 0x9a55));
+    expect(cellSeed(12, -34, 0x9a55)).not.toBe(cellSeed(12, -34, 0x9a56));
   });
 
   it('resta un intero senza segno anche a coordinate negative', () => {
@@ -113,7 +113,7 @@ describe('seme e chiave della cella', () => {
       [0, 0],
       [12345, -54321],
     ]) {
-      const seed = cellSeed(cx!, cz!, 3, 7);
+      const seed = cellSeed(cx!, cz!, 7);
       expect(Number.isInteger(seed)).toBe(true);
       expect(seed).toBeGreaterThanOrEqual(0);
       expect(seed).toBeLessThanOrEqual(0xffffffff);
@@ -343,5 +343,85 @@ describe('StreamedCells', () => {
     // tutte le celle vive vengono rimesse in coda (una volta sola)
     expect(log.length).toBeGreaterThan(built);
     expect(field.metrics.instances).toBe(expectedCells(0, 0) * 12);
+  });
+
+  it('avvicinandosi aggiunge solo i ciuffi nuovi: quelli a terra restano fermi e accesi', () => {
+    // piano deterministico: la fascia decide solo QUANTI ciuffi, non dove
+    const plan = Array.from({ length: 40 }, (_, i) => ({
+      x: (i % 8) * 0.9 + 0.2,
+      z: Math.floor(i / 8) * 1.1 + 0.2,
+    }));
+    const perBand = [40, 27, 13, 7];
+    const layer = makeLayer(12000, 48);
+    const field = new StreamedCells(
+      [layer],
+      (cx, cz, band, writer) => {
+        writer.begin(0);
+        const n = perBand[band] ?? 7;
+        for (let i = 0; i < n; i++) {
+          const p = plan[i]!;
+          writer.add(cx * CELL + p.x, 0, cz * CELL + p.z, 0, 1, 1, 1);
+          writer.rgb(1, 1, 1);
+        }
+      },
+      {
+        cellSize: CELL,
+        radius: 120,
+        keepRadius: 120,
+        budgetMs: 1000,
+        maxCellsPerFrame: 500,
+        seed: 77,
+      },
+    );
+
+    // istanze dentro la cella (0,0), con lo slot per leggerne la dissolvenza
+    const cell = () => {
+      const matrix = layer.mesh.instanceMatrix.array as Float32Array;
+      const fade = layer.mesh.geometry.getAttribute('aFade') as THREE.InstancedBufferAttribute;
+      const fadeArray = fade.array as Float32Array;
+      const out: { key: string; m: number[]; fade: number }[] = [];
+      for (let i = 0; i < layer.mesh.instanceMatrix.count; i++) {
+        const o = i * 16;
+        if (matrix[o + 15] === 0) continue;
+        const x = matrix[o + 12]!;
+        const z = matrix[o + 14]!;
+        if (x < 0 || x >= CELL || z < 0 || z >= CELL) continue;
+        out.push({
+          key: `${x.toFixed(3)},${z.toFixed(3)}`,
+          m: Array.from(matrix.subarray(o, o + 16)),
+          fade: fadeArray[i]!,
+        });
+      }
+      return out;
+    };
+
+    let previous: ReturnType<typeof cell> = [];
+    // 100 m → fascia 3, 70 → 2, 50 → 1, 9 → 0: la cella si avvicina
+    const steps: [distance: number, band: number][] = [
+      [100, 3],
+      [70, 2],
+      [50, 1],
+      [9, 0],
+    ];
+    for (const [distance, band] of steps) {
+      const px = CELL / 2 + distance;
+      const pz = CELL / 2;
+      // frame del cambio di fascia: la vecchia generazione è ancora in uscita
+      field.update(px, pz, 0, 0, 0.016);
+      const mid = cell();
+      for (const old of previous) {
+        const copies = mid.filter((p) => p.key === old.key);
+        expect(copies.length, `ciuffo ${old.key} sparito a ${distance} m`).toBeGreaterThan(0);
+        // almeno una copia è già a piena opacità e identica: niente buco,
+        // niente "erba che scende e si ricrea"
+        expect(copies.some((c) => c.fade === 1 && c.m.every((v, i) => v === old.m[i]))).toBe(true);
+      }
+      // a dissolvenza finita resta esattamente il piano della nuova fascia
+      field.update(px, pz, 0, 0, 1);
+      const settled = cell();
+      expect(settled.length).toBe(perBand[band]);
+      expect(new Set(settled.map((p) => p.key)).size).toBe(settled.length);
+      previous = settled;
+    }
   });
 });
