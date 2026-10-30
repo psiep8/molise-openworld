@@ -708,3 +708,34 @@ Verifiche di questa sessione:
 - Verifiche: typecheck, 461 test e build verdi. Restano da guardare in gioco le
   direzioni della posa seduta, la continuità dei marciapiedi sul DEM e il costo
   reale della copertura a 60 m.
+
+### 30 ottobre 2026 — F01: popolamento continuo a celle (scatti del paesaggio vicino)
+
+- Il dettaglio vicino non si ricostruisce più in blocco: `src/world/cell-stream.ts`
+  divide il disco in celle stabili con chiave `(cx, cz)`, seme deterministico,
+  pool di slot contigui (`SlotRuns`), budget di tempo per frame (2,5 ms erba,
+  1,5 ms grano), coda ordinata dal punto previsto fra un secondo e dissolvenza
+  per istanza (`aFade` nel vertex shader, 0,45 s in / 0,3 s out).
+- `src/world/local-ground.ts` sostituisce `GroundMask` nel dettaglio: la
+  maschera rasterizzava 0,5 m su tutto il disco (72–92 ms misurati); una cella
+  da 14 m prende solo i segmenti/edifici/aree che la toccano e risolve i punti
+  con aritmetica locale (`isOnRoad` costava 6,7 µs per chiamata).
+- Erba divisa in tre layer (ciuffi, ciglio, fiori) con densità e LOD per fascia
+  di distanza (0–30, 30–60, 60–95, 95+ m); il grano vive nelle stesse celle con
+  `bandRebuild: false` (la sua densità non dipende dalla fascia).
+- `WorldGrass` (zolle GLB) usa `LocalGround` e si rifà ogni 22 m invece di 12;
+  `ScatterVegetation` sposta l'ancora di LOD ogni 40 m invece di 24.
+- Densità reversibile `detailScale` (0,5–1) con isteresi 36/54 fps: scende prima
+  di toccare i gradini permanenti, risale quando il frame torna largo.
+- Misure sul dev server, GPU RX 580, preset `high`: traversata sintetica di 60 s
+  a 120 km/h (3.600 frame) → erba media **0,77 ms**, max **3,2 ms**, p99 2,3;
+  grano media 0,27 ms, max 2,3; nessun aggiornamento oltre 8 ms. Guida reale di
+  20 s: erba max 4,4 ms, grano max 0,9, fps 37 con `degraded 0` (la baseline
+  precedente era ~40 fps ma con ombre già spente al gradino 2).
+- `tests/cell-stream.test.ts` (17 test): fasce, seme/chiave, `SlotRuns` senza
+  sovrapposizioni, determinismo, priorità verso il punto previsto, nessuna
+  istanza duplicata o persa a cavallo delle celle, celle vuote non rifatte,
+  dissolvenza in entrata/uscita. Suite completa: **485/485** in 54 file.
+- Non serve un Web Worker: il piano di una cella costa 0,1 ms medi (max 9 ms a
+  freddo), sotto la soglia di 0,5 ms indicata dal piano.
+

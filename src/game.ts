@@ -64,6 +64,7 @@ import { CloudLayer } from './world/clouds';
 import { Precipitation } from './world/precipitation';
 import { GroundMist } from './world/mist';
 import { GrassField } from './world/grass';
+import type { CellStreamStats } from './world/cell-stream';
 import {
   RealWeather,
   defaultWeather,
@@ -225,6 +226,20 @@ export interface Diagnostics {
     triangles: number;
     milliseconds: number;
   } | null;
+  /**
+   * Popolamento a celle del dettaglio ravvicinato.
+   *
+   * `cells` è quante celle vivono intorno al giocatore, `queued` quante
+   * aspettano il budget del frame, `lastBuildMs`/`maxBuildMs` dicono se una
+   * cella sta sfondando il frame. `detailScale` è la densità reversibile:
+   * scende sotto i 42 fps e risale sopra i 56, senza toccare i gradini
+   * permanenti di qualità.
+   */
+  streaming: {
+    detailScale: number;
+    grass: (CellStreamStats & { radius: number; cellSize: number }) | null;
+    wheat: CellStreamStats | null;
+  };
   route: { distance: number; label: string } | null;
   /** strade ed edifici arrivati dai bundle XYZ (null se l'endpoint non è configurato) */
   streamed: {
@@ -510,6 +525,15 @@ export class Game {
    * È `sticky`: non torna indietro da sola, per non far ballare la grafica.
    */
   private degradeStep = 0;
+  /**
+   * Scala reversibile del dettaglio ravvicinato (erba, grano).
+   *
+   * I gradini di degradazione sono permanenti, giusti per un PC che non ce la
+   * fa, sbagliati per un calo momentaneo (una città, il caricamento di un
+   * tile). Qui la densità del solo dettaglio a terra scende di poco e risale
+   * quando il frame torna largo, senza toccare il resto del mondo.
+   */
+  private detailScale = 1;
   private slowChecks = 0;
   /**
    * `?fixed=1` (o `?nodegrade=1`): niente degradazione adattiva.
@@ -3492,6 +3516,14 @@ export class Game {
   private tunePerformance(): void {
     if (this.fixedQuality) return;
     const floor = this.quality.renderScaleFloor;
+    // Dettaglio ravvicinato: è il primo costo a scendere, perché erba e grano
+    // sono materia e non nitidezza. La soglia è larga (36 / 54 fps) e il passo
+    // piccolo: la densità si assesta invece di oscillare fra due valori.
+    if (this.fps < 36) {
+      this.detailScale = Math.max(0.5, this.detailScale - 0.1);
+    } else if (this.fps > 54) {
+      this.detailScale = Math.min(1, this.detailScale + 0.05);
+    }
     // La risoluzione è l'ultima risorsa: abbassarla è il modo più rapido per
     // riempire lo schermo di scalini. Prima si tolgono ombre ed erba (che non
     // toccano la nitidezza), poi si scende di pixel: sotto i 30 fps si prova
@@ -3979,14 +4011,26 @@ export class Game {
     this.farTerrain?.setInnerRadius(this.viewRadius * 0.7);
     this.farTerrain?.update(focus.x, focus.z);
     updateWind(dt);
+    // Velocità del giocatore per la coda delle celle: quelle davanti al senso
+    // di marcia si costruiscono per prime (a 120 km/h servono ~33 m/s di
+    // anticipo, non un raggio centrato sul paraurti).
+    const motion =
+      this.mode === 'drive'
+        ? {
+            vx: -Math.sin(this.car.state.yaw) * this.car.state.speed,
+            vz: -Math.cos(this.car.state.yaw) * this.car.state.speed,
+            dt,
+          }
+        : { vx: this.player.velocity.x, vz: this.player.velocity.z, dt };
     this.grass?.update(
       focus.x,
       focus.z,
       this.heights,
       this.roadIndex,
       this.buildingIndex,
-      Math.max(QUALITY_PRESETS.minimal.grassDensity, this.quality.grassDensity),
+      Math.max(QUALITY_PRESETS.minimal.grassDensity, this.quality.grassDensity) * this.detailScale,
       this.osm.areas,
+      motion,
     );
     this.worldGrass?.update(
       focus.x,
@@ -4005,8 +4049,9 @@ export class Game {
       this.buildingIndex,
       this.osm.areas,
       this.quality.groundDetail,
-      this.quality.cropDensity,
+      this.quality.cropDensity * this.detailScale,
       { wetness: this.roadWetness },
+      motion,
     );
     if (this.manualTime) this.applyManualAtmosphere(dt, focus);
     else if (this.realWeatherEnabled) this.applyWeatherVisuals(dt, focus);
@@ -4396,22 +4441,15 @@ export class Game {
       triangles: this.renderer.info.render.triangles,
       degraded: this.degradeStep,
       landcover: this.terrain?.landcoverStats ?? this.landcover?.stats() ?? null,
-      groundCover: (() => {
-        const stats = this.fieldDetail?.coverageStats();
-        const ground = stats?.ground;
-        if (!stats || !ground) return null;
-        return {
-          coverage: ground.coverage,
-          fill: ground.fill,
-          cells: ground.cells,
-          blocked: ground.blocked,
-          near: ground.near + (stats.detail?.spots.length ?? 0),
-          far: ground.far,
-          radius: ground.radius,
-          triangles: ground.triangles + (stats.detail?.triangles ?? 0),
-          milliseconds: stats.milliseconds,
-        };
-      })(),
+      // La copertura GLB del suolo è stata ritirata: il dettaglio ravvicinato
+      // ora è a celle (vedi `streaming`). Il campo resta per compatibilità con
+      // chi legge `__molise`.
+      groundCover: null,
+      streaming: {
+        detailScale: Math.round(this.detailScale * 100) / 100,
+        grass: this.grass?.streamingStats() ?? null,
+        wheat: this.fieldDetail?.streamingStats() ?? null,
+      },
       route: this.route ? { distance: Math.round(this.route.distance), label: this.routeLabel } : null,
       streamed: this.streamedWorld && OPEN_WORLD_DATA_PROVIDER
         ? { ...this.streamedWorld.stats, provider: OPEN_WORLD_DATA_PROVIDER.id }

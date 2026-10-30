@@ -5,7 +5,8 @@ import { boundsOf, mulberry32, pointInPolygon, type Pt } from '../geo/geo';
 import type { Building, BuildingIndex, OsmData, RoadIndex } from '../geo/osm';
 import type { ObstacleIndex } from '../geo/obstacles';
 import type { QualityLevel } from '../gfx/quality';
-import { COVER_CROP, COVER_MEADOW, COVER_WOOD, GroundMask } from './ground-mask';
+import { COVER_CROP, COVER_MEADOW, COVER_WOOD } from './ground-mask';
+import { AreaLookup, LocalGround } from './local-ground';
 import { insidePaved, type PavedArea } from './paved';
 import { WorldHitField } from './world-hits';
 import type { WorldAsset, WorldHitMesh, WorldKit, WorldRole, WorldSpot } from './worldkit';
@@ -565,8 +566,16 @@ const GRASS_HERO_RADIUS = GRASS_RADIUS * 0.65;
  */
 export class WorldGrass {
   readonly group = new THREE.Group();
-  private readonly mask = new GroundMask(GRASS_RADIUS);
-  private readonly valid: Uint32Array;
+  /**
+   * Le zolle GLB non usano più `GroundMask`: la maschera rasterizzava 19.000
+   * celle da 0,5 m a ogni ricostruzione (6-18 ms di blocco ogni 12 m). Qui
+   * bastano le stesse regole applicate punto per punto, con la fotografia
+   * locale di `LocalGround` (una query spaziale per cella, non una griglia).
+   */
+  private readonly ground = new LocalGround();
+  private readonly areaLookup = new AreaLookup();
+  private bound = false;
+  private boundHeights: Heightfield | null = null;
   private meshes: THREE.Object3D[] = [];
   private originX = Number.NaN;
   private originZ = Number.NaN;
@@ -582,7 +591,6 @@ export class WorldGrass {
     private readonly kit: WorldKit,
     private readonly paved: readonly PavedArea[] = [],
   ) {
-    this.valid = new Uint32Array(this.mask.n * this.mask.n);
     this.variants = kit
       .variants('grass')
       .filter((asset) => asset.triangles <= 2500)
@@ -616,9 +624,16 @@ export class WorldGrass {
       return;
     }
     for (const mesh of this.meshes) mesh.visible = true;
+    if (!this.bound || this.boundHeights !== heights) {
+      this.ground.bind(heights, roads, buildings);
+      this.boundHeights = heights;
+      this.bound = true;
+    }
+    // 22 m invece di 12: la ricostruzione ora costa poco, ma resta una
+    // riallocazione di istanze: meglio farla meno spesso e più avanti
     if (
       Number.isFinite(this.originX) &&
-      Math.hypot(x - this.originX, z - this.originZ) < 12 &&
+      Math.hypot(x - this.originX, z - this.originZ) < 22 &&
       Math.abs(d - this.density) < 0.12
     ) {
       return;
@@ -627,34 +642,28 @@ export class WorldGrass {
     this.originZ = z;
     this.density = d;
 
-    this.mask.build(x, z, heights, roads, buildings, 0.6, 0.3, this.paved, areas);
-    const n = this.mask.n;
-    const cell = this.mask.cellSize;
-    let count = 0;
-    for (let j = 0; j < n; j++) {
-      for (let i = 0; i < n; i++) {
-        if (!this.mask.isBlocked(i, j)) this.valid[count++] = j * n + i;
-      }
-    }
-    if (count === 0) return;
+    this.areaLookup.refresh(areas);
+    this.ground.prepare(x, z, GRASS_RADIUS, this.areaLookup.near(x, z, GRASS_RADIUS), this.paved);
 
     const wanted = Math.round(GRASS_MAX * d);
     const rng = mulberry32(Math.round(x * 13 + z * 7) | 1);
     const spots: WorldSpot[] = [];
     for (let placed = 0; placed < wanted; placed++) {
-      const idx = this.valid[Math.floor(rng() * count)]!;
-      const i = idx % n;
-      const j = (idx - i) / n;
-      const px = this.mask.originX + (i + rng()) * cell;
-      const pz = this.mask.originZ + (j + rng()) * cell;
-      const distance = Math.hypot(px - x, pz - z);
-      if (distance > GRASS_RADIUS) continue;
+      // punto nel disco, con densità uniforme sull'area
+      const angle = rng() * Math.PI * 2;
+      const radius = Math.sqrt(rng()) * GRASS_RADIUS;
+      const px = x + Math.cos(angle) * radius;
+      const pz = z + Math.sin(angle) * radius;
       // niente ciuffi veri su un campo arato o sulla macchia secca: l'erba
       // fotografata segue la copertura reale del suolo, non un disco uniforme
-      const cover = this.mask.coverAt(i, j);
+      const cover = this.ground.cover(px, pz);
       const coverChance =
         cover === COVER_MEADOW ? 1 : cover === COVER_WOOD ? 0.62 : cover === COVER_CROP ? 0.16 : 0.06;
       if (rng() > coverChance) continue;
+      // strada, marciapiede, casa, lastricato e pendio: le stesse regole della
+      // vecchia maschera, applicate solo ai punti che si provano davvero
+      if (!this.ground.free(px, pz, 0.6, 0.3)) continue;
+      if (this.ground.slope(px, pz) > 30) continue;
       // il landcover è più preciso delle aree OSM: su terra nuda o roccia
       // restano solo poche erbacce, non un prato completo
       const surface = this.surfaceAt?.(px, pz);
@@ -662,10 +671,10 @@ export class WorldGrass {
       if (surface === 'rock' && rng() > 0.02) continue;
       // vicino ai piedi i ciuffi contano; sul bordo del raggio sarebbero
       // puntini sparsi: densità decrescente come nel tappeto procedurale
-      if (distance > GRASS_RADIUS * 0.55 && rng() > 0.55) continue;
+      if (radius > GRASS_RADIUS * 0.55 && rng() > 0.55) continue;
       spots.push({
         x: px,
-        y: this.mask.heightAt(px, pz) - 0.02,
+        y: this.ground.height(px, pz) - 0.02,
         z: pz,
         yaw: rng() * Math.PI * 2,
         scale: 0.65 + rng() * 0.65,
@@ -680,7 +689,7 @@ export class WorldGrass {
       this.meshes.push(group);
       this.group.add(group);
     }
-    const heroSpots = this.placeHeroGrass(x, z, heights, roads, buildings, d);
+    const heroSpots = this.placeHeroGrass(x, z, d);
     this.heroCount = heroSpots.length;
     if (heroSpots.length) {
       const group = this.kit.instances('grass-hero', heroSpots, {
@@ -700,45 +709,26 @@ export class WorldGrass {
    * macchia verde in mezzo a un campo arato sembrerebbe un errore. La base è
    * già a y = 0 nel GLB, quindi basta appoggiarla alla quota del DEM.
    */
-  private placeHeroGrass(
-    x: number,
-    z: number,
-    heights: Heightfield,
-    roads: RoadIndex,
-    buildings: BuildingIndex,
-    density: number,
-  ): WorldSpot[] {
+  private placeHeroGrass(x: number, z: number, density: number): WorldSpot[] {
     const wanted = Math.round(GRASS_HERO_MAX * density);
     if (wanted <= 0 || this.heroVariants.length === 0) return [];
-    const n = this.mask.n;
-    const cell = this.mask.cellSize;
-    let count = 0;
-    for (let j = 0; j < n; j++) {
-      for (let i = 0; i < n; i++) {
-        if (!this.mask.isBlocked(i, j)) this.valid[count++] = j * n + i;
-      }
-    }
-    if (count === 0) return [];
     const rng = mulberry32((Math.round(x * 17 + z * 11) | 1) ^ 0x5e11);
     const spots: WorldSpot[] = [];
     for (let attempt = 0; attempt < wanted * 16 && spots.length < wanted; attempt++) {
-      const idx = this.valid[Math.floor(rng() * count)]!;
-      const i = idx % n;
-      const j = (idx - i) / n;
-      const px = this.mask.originX + (i + rng()) * cell;
-      const pz = this.mask.originZ + (j + rng()) * cell;
-      const distance = Math.hypot(px - x, pz - z);
-      if (distance < 2.4 || distance > GRASS_HERO_RADIUS) continue;
-      const cover = this.mask.coverAt(i, j);
+      const angle = rng() * Math.PI * 2;
+      const radius = Math.sqrt(rng()) * GRASS_HERO_RADIUS;
+      const px = x + Math.cos(angle) * radius;
+      const pz = z + Math.sin(angle) * radius;
+      if (radius < 2.4) continue;
+      const cover = this.ground.cover(px, pz);
       if (cover !== COVER_MEADOW && cover !== COVER_WOOD) continue;
       const surface = this.surfaceAt?.(px, pz);
       if (surface === 'dirt' || surface === 'rock') continue;
-      if (roads.isOnRoad(px, pz, 1.8)) continue;
-      if (buildings.hitsCircle(px, pz, 1.6)) continue;
+      if (!this.ground.free(px, pz, 1.8, 1.6)) continue;
       // pendenza locale sui quattro lati della zolla
       const rise =
-        Math.abs(this.mask.heightAt(px - 1.2, pz) - this.mask.heightAt(px + 1.2, pz)) +
-        Math.abs(this.mask.heightAt(px, pz - 1.2) - this.mask.heightAt(px, pz + 1.2));
+        Math.abs(this.ground.height(px - 1.2, pz) - this.ground.height(px + 1.2, pz)) +
+        Math.abs(this.ground.height(px, pz - 1.2) - this.ground.height(px, pz + 1.2));
       if (rise > 0.55) continue;
       // le zolle sono quadrati di prato scan: se restano isolate si vede il
       // bordo tagliato. Avvicinandole un po' i fili si sovrappongono e la
@@ -746,7 +736,7 @@ export class WorldGrass {
       if (spots.some((spot) => Math.hypot(spot.x - px, spot.z - pz) < 1.1)) continue;
       spots.push({
         x: px,
-        y: heights.heightAt(px, pz) - 0.08,
+        y: this.ground.height(px, pz) - 0.08,
         z: pz,
         yaw: rng() * Math.PI * 2,
         // le zolle arrivano già a 0,8 m: qui si varia solo un po' la taglia

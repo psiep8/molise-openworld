@@ -158,7 +158,10 @@ export class ScatterVegetation {
     const cellX = Math.floor(x / SCATTER_CELL_SIZE);
     const cellZ = Math.floor(z / SCATTER_CELL_SIZE);
     if (cellX === this.centerCellX && cellZ === this.centerCellZ) {
-      if (Math.hypot(x - this.lodAnchorX, z - this.lodAnchorZ) < 24) return;
+      // 40 m invece di 24: con la macchina a 120 km/h un rebuild ogni 24 m
+      // arrivava ogni 0,7 s e ridefiniva tutte le istanze vicine; a 40 m il
+      // cambio di LOD delle chiome lontane non si nota e il costo si dimezza
+      if (Math.hypot(x - this.lodAnchorX, z - this.lodAnchorZ) < 40) return;
       this.lodAnchorX = x;
       this.lodAnchorZ = z;
       this.rebuildInstances(x, z);

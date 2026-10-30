@@ -517,7 +517,7 @@ export function roadElevationAt(road: Road, index: number, t: number): number | 
  * centro storico la griglia contiene centinaia di segmenti per cella e questo
  * scarto è la differenza fra 6 secondi e 40 ms di ricostruzione dell'erba.
  */
-interface RoadSegment {
+export interface RoadSegment {
   id: number;
   ax: number;
   az: number;

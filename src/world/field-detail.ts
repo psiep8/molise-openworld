@@ -1,35 +1,41 @@
-import * as THREE from 'three';
+﻿import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { START } from '../config';
 import type { Heightfield } from '../geo/elevation';
-import { clamp, mulberry32, pointInPolygon } from '../geo/geo';
+import { mulberry32, pointInPolygon } from '../geo/geo';
 import type { Area, BuildingIndex, RoadIndex } from '../geo/osm';
 import { windUniforms } from '../gfx/wind';
-import { COVER_CROP, COVER_DRY, COVER_MEADOW, COVER_WOOD, GroundMask } from './ground-mask';
+import { StreamedCells, type CellStreamStats, type CellWriter } from './cell-stream';
+import { COVER_CROP, COVER_DRY, COVER_MEADOW, COVER_WOOD, type CoverClass } from './ground-mask';
+import { AreaLookup, LocalGround } from './local-ground';
 import type { PavedArea } from './paved';
 import type { ObstacleIndex } from '../geo/obstacles';
 import type { WorldKit, WorldSpot } from './worldkit';
-import type { GroundCoverPlan } from './ground-cover';
 
 /**
- * Dettaglio di prossimità di campi e terreno.
+ * Dettaglio di prossimitÃ  di campi e terreno.
  *
- * Il terreno del gioco è un DEM con una texture di copertura; da vicino manca
- * la materia. Qui c'è il grano procedurale istanziato: spighe vere, fitte, che
+ * Il terreno del gioco Ã¨ un DEM con una texture di copertura; da vicino manca
+ * la materia. Qui c'Ã¨ il grano procedurale istanziato: spighe vere, fitte, che
  * ondeggiano col vento e piegano quando l'auto ci passa dentro. Le zolle GLB
  * fotogrammetriche sono state ritirate (vedi il costruttore): coprivano il
  * prato con lastre ripetute. Le balle di paglia restano solide e finiscono in
  * `ObstacleIndex`.
+ *
+ * Il grano era la parte piÃ¹ cara di tutta la ricostruzione (35 ms su 50) e
+ * veniva riseminato per intero ogni 15 m: qui vive nelle stesse **celle
+ * stabili** dell'erba (`cell-stream.ts`), con dissolvenza e budget per frame.
  */
 
-const DETAIL_RADIUS = 72;
-const REBUILD_DISTANCE = 15;
-const MAX_WHEAT = 22000;
-/** Quanto tempo per frame può prendersi la semina di un campo (ms). */
-const WHEAT_STEP_MS = 4;
+/** Raggio del campo di grano: oltre non si distingue dall'erba. */
+const WHEAT_RADIUS = 88;
+/** Cella del grano: piÃ¹ grande dell'erba, i campi sono distese continue. */
+const WHEAT_CELL = 16;
+/** Spighe per mÂ² in un coltivo alla densitÃ  piena. */
+const WHEAT_PER_M2 = 2.6;
+const MAX_WHEAT = 26000;
+const MAX_WHEAT_PER_CELL = 1100;
 const WHEAT_HEIGHT = 0.8;
-/** Il grano lontano non si distingue dall'erba: oltre questa distanza è zavorra. */
-const WHEAT_RADIUS = 68;
 
 function makeWheatTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
@@ -39,7 +45,7 @@ function makeWheatTexture(): THREE.CanvasTexture {
   if (ctx) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const rng = mulberry32(0x51a7);
-    // Più spighe per ciuffo: con 18 lame su 128 px il campo sembrava un
+    // PiÃ¹ spighe per ciuffo: con 18 lame su 128 px il campo sembrava un
     // insieme di bastoncini radi invece di una coltura fitta.
     for (let i = 0; i < 26; i++) {
       const x = 6 + rng() * 116;
@@ -98,7 +104,8 @@ function applyWheatWind(material: THREE.MeshLambertMaterial): void {
         '#include <common>',
         `#include <common>
         uniform float uTime;
-        uniform vec2 uWind;`,
+        uniform vec2 uWind;
+        attribute float aFade;`,
       )
       .replace(
         '#include <begin_vertex>',
@@ -112,48 +119,29 @@ function applyWheatWind(material: THREE.MeshLambertMaterial): void {
         float wheatPhase = wheatPos.x * 0.21 + wheatPos.z * 0.17;
         float wheatSway = sin( uTime * 1.35 + wheatPhase ) * 0.055 + sin( uTime * 2.7 + wheatPhase * 1.7 ) * 0.018;
         transformed.x += wheatSway * wheatBend * wheatBend * uWind.x;
-        transformed.z += wheatSway * wheatBend * wheatBend * uWind.y;`,
+        transformed.z += wheatSway * wheatBend * wheatBend * uWind.y;
+        // dissolvenza di cella: la spiga cresce dal suolo
+        transformed *= aFade;`,
       );
   };
-  material.customProgramCacheKey = () => 'wheat-field-wind-v1';
+  material.customProgramCacheKey = () => 'wheat-field-wind-v2';
   material.needsUpdate = true;
 }
 
 /** Zolle di terreno, accenti di campo, grano e fango intorno al giocatore. */
 export class WorldFieldDetail {
   readonly group = new THREE.Group();
-  private readonly mask = new GroundMask(DETAIL_RADIUS);
   private readonly wheat: THREE.InstancedMesh;
-  private readonly dummy = new THREE.Object3D();
+  private readonly stream: StreamedCells;
+  private readonly ground = new LocalGround();
+  private readonly areas = new AreaLookup();
   private readonly wheatColor = new THREE.Color();
-  private meshes: THREE.Object3D[] = [];
-  private originX = Number.NaN;
-  private originZ = Number.NaN;
-  private density = -1;
-  private budget = 0;
-  private cropBudget = 0;
-  private active = false;
-  /** bagnato 0…1: decide quante zolle di fango entrano nel piano. */
+  private readonly coverage = new Map<number, CoverClass>();
+  private density = 0;
+  private bound = false;
+  /** bagnato 0â€¦1: decide quante zolle di fango entrano nel piano. */
   private wetness = 0;
   private mud: { x: number; z: number; radius: number }[] = [];
-  /** metriche dell'ultimo piano: copertura, buchi, LOD e triangoli stimati. */
-  private plan: GroundCoverPlan | null = null;
-  private detailPlan: GroundCoverPlan | null = null;
-  /** durata dell'ultima ricostruzione: misura il rischio di hitch. */
-  private planMs = 0;
-  /** semina in corso, divisa su più frame per non bloccare il gioco. */
-  private wheatJob: {
-    x: number;
-    z: number;
-    heights: Heightfield;
-    wanted: number;
-    rng: () => number;
-    i: number;
-    j: number;
-    used: number;
-    /** spighe ancora valide del campo precedente, per non svuotare il campo */
-    carry: number;
-  } | null = null;
 
   constructor(
     private readonly paved: readonly PavedArea[] = [],
@@ -165,7 +153,7 @@ export class WorldFieldDetail {
     // Da vicino dovevano dare materia al prato, ma erano scansioni di terra e
     // pietraia: in mezzo a un campo diventavano lastre grigie ripetute, con i
     // bordi dei triangoli visibili e il prato vero che spariva sotto. Il
-    // terreno procedurale (copertura + erba a istanze) è più coerente, non ha
+    // terreno procedurale (copertura + erba a istanze) Ã¨ piÃ¹ coerente, non ha
     // cuciture e costa zero draw call. Restano il grano, le balle e i casali,
     // che sono oggetti riconoscibili e non tappeti.
     this.wheat = new THREE.InstancedMesh(
@@ -187,10 +175,24 @@ export class WorldFieldDetail {
     this.wheat.setColorAt(0, this.wheatColor.set(0xffffff));
     applyWheatWind(this.wheat.material as THREE.MeshLambertMaterial);
     this.group.add(this.wheat);
+
+    this.stream = new StreamedCells(
+      [{ mesh: this.wheat, maxPerCell: MAX_WHEAT_PER_CELL, colored: true }],
+      (cx, cz, band, writer) => this.buildCell(cx, cz, band, writer),
+      {
+        cellSize: WHEAT_CELL,
+        radius: WHEAT_RADIUS,
+        budgetMs: 1.5,
+        seed: 0x51a7,
+        leadSeconds: 1,
+        fadeIn: 0.5,
+        bandRebuild: false,
+      },
+    );
   }
 
   /**
-   * Il fango è fisica, non solo un decal: sotto le ruote la superficie diventa
+   * Il fango Ã¨ fisica, non solo un decal: sotto le ruote la superficie diventa
    * `mud` (aderenza 0,35, affondamento 0,65) solo quando la pioggia ha davvero
    * formato la pozza. Con il terreno asciutto le stesse celle sono terra.
    */
@@ -206,25 +208,29 @@ export class WorldFieldDetail {
   }
 
   /** Copertura dell'ultimo piano: diagnostica e test, non rendering. */
-  coverageStats(): {
-    ground: GroundCoverPlan | null;
-    detail: GroundCoverPlan | null;
-    milliseconds: number;
-  } {
-    return { ground: this.plan, detail: this.detailPlan, milliseconds: this.planMs };
+  coverageStats(): { ground: null; detail: null; milliseconds: number } {
+    return { ground: null, detail: null, milliseconds: this.stream.metrics.lastBuildMs };
   }
 
-  /** Fattore di velocità dentro il grano (1 = campo aperto). */
+  /** Fattore di velocitÃ  dentro il grano (1 = campo aperto). */
   factorAt(x: number, z: number): number {
-    if (!this.active) return 1;
-    const fx = (x - this.mask.originX) / this.mask.cellSize;
-    const fz = (z - this.mask.originZ) / this.mask.cellSize;
-    if (fx < 0 || fz < 0 || fx >= this.mask.n || fz >= this.mask.n) return 1;
-    const i = Math.floor(fx);
-    const j = Math.floor(fz);
-    const cover = this.mask.coverAt(i, j);
-    if (this.mask.isBlocked(i, j)) return 1;
+    if (this.coverage.size === 0) return 1;
+    const cx = Math.floor(x / WHEAT_CELL);
+    const cz = Math.floor(z / WHEAT_CELL);
+    const cover = this.coverage.get((cx + 32768) * 65536 + (cz + 32768));
+    if (cover === undefined) return 1;
     return cover === COVER_CROP || cover === COVER_DRY ? 0.9 : 1;
+  }
+
+  /** Diagnostica del grano a celle (`__molise`). */
+  streamingStats(): CellStreamStats {
+    const m = this.stream.metrics;
+    return {
+      ...m,
+      lastBuildMs: Math.round(m.lastBuildMs * 10) / 10,
+      averageBuildMs: Math.round(m.averageBuildMs * 100) / 100,
+      maxBuildMs: Math.round(m.maxBuildMs * 10) / 10,
+    };
   }
 
   update(
@@ -237,180 +243,86 @@ export class WorldFieldDetail {
     groundBudget: number,
     cropDensity: number,
     weather: { wetness?: number } = {},
+    motion: { vx?: number; vz?: number; dt?: number } = {},
   ): void {
-    const budget = Math.max(0, Math.round(groundBudget));
-    const crop = clamp(cropDensity, 0, 1);
-    const wetness = clamp(weather.wetness ?? 0, 0, 1);
-    if (budget <= 0 && crop <= 0.01) {
-      this.setVisible(false);
+    const crop = Math.max(0, Math.min(1, cropDensity));
+    this.wetness = Math.max(0, Math.min(1, weather.wetness ?? 0));
+    if (crop <= 0.01 && groundBudget <= 0) {
+      this.group.visible = false;
       return;
     }
-    this.setVisible(true);
-    // La semina del frame precedente va avanti anche quando non c'è una nuova
-    // ricostruzione da fare: è l'unica operazione pesante divisa a fette, e se
-    // avanzasse solo dopo un rebuild il campo resterebbe a metà finché non ci
-    // si allontana di 15 m.
-    this.stepWheat();
-    if (
-      this.active &&
-      Number.isFinite(this.originX) &&
-      Math.hypot(x - this.originX, z - this.originZ) < this.rebuildDistance() &&
-      Math.abs(budget - this.budget) < 1 &&
-      Math.abs(crop - this.density) < 0.05 &&
-      // il fango dipende dalla pioggia: un acquazzone deve rifare il piano,
-      // una variazione di 2% no (altrimenti si ricostruisce a ogni frame)
-      Math.abs(wetness - this.wetness) < 0.08
-    ) {
-      return;
+    this.group.visible = true;
+    if (!this.bound || this.heightfield !== heights) {
+      this.ground.bind(heights, roads, buildings);
+      this.heightfield = heights;
+      this.bound = true;
     }
-    this.wetness = wetness;
-    this.originX = x;
-    this.originZ = z;
-    this.budget = budget;
-    this.cropBudget = crop;
-    // senza questo la guardia di sopra non scatta mai e l'intera maschera
-    // (e il grano) viene ricostruita a ogni frame: 28 ms di CPU per frame.
     this.density = crop;
-    this.active = true;
-    this.mud = [];
-    // Zolle e accenti di campo GLB sono ritirati (vedi il costruttore): il
-    // piano di copertura non serve più, resta solo la maschera per il grano.
-    this.plan = null;
-    this.detailPlan = null;
-    const startedAt = typeof performance !== 'undefined' ? performance.now() : 0;
-
-    this.mask.build(x, z, heights, roads, buildings, 0.9, 0.35, this.paved, areas);
-
-    this.rebuildWheat(x, z, heights);
-    if (typeof performance !== 'undefined') this.planMs = performance.now() - startedAt;
+    this.areas.refresh(areas);
+    this.stream.setDensity(crop);
+    this.stream.update(x, z, motion.vx ?? 0, motion.vz ?? 0, motion.dt ?? 1 / 60);
   }
 
-  /**
-   * Distanza oltre la quale rifare il piano.
-   *
-   * Il raggio di copertura nasce dal budget (`plan.radius`), quindi la soglia lo
-   * segue: un preset basso copre ~22 m e non può permettersi di aspettare 26 m,
-   * uno alto arriva a ~46 m e può saltare qualche metro in più. A 120 km/h ogni
-   * metro in più è un hitch in meno.
-   */
-  private rebuildDistance(): number {
-    const radius = this.plan?.radius ?? 0;
-    return clamp(radius * 0.45, REBUILD_DISTANCE, 26);
-  }
+  private heightfield: Heightfield | null = null;
 
-  /**
-   * Avvia la semina di un campo. Il lavoro vero è in `stepWheat`: una griglia
-   * piena di campioni di superficie e quota costa ~35 ms, che su un frame da 16
-   * è uno scatto visibile. Qui si azzera soltanto lo stato del lavoro.
-   */
-  private rebuildWheat(x: number, z: number, heights: Heightfield): void {
-    const wanted = Math.round(MAX_WHEAT * this.cropBudget);
-    if (wanted < 32) {
-      this.wheatJob = null;
-      this.wheat.count = 0;
-      return;
-    }
-    this.wheatJob = {
-      x,
-      z,
-      heights,
-      wanted,
-      rng: mulberry32(Math.round(x * 7 + z * 11) | 1),
-      i: 0,
-      j: 0,
-      used: 0,
-      // le istanze oltre `used` sono ancora quelle del campo precedente, in
-      // posizioni vere: meglio vederle che vedere il campo svuotarsi e riempirsi
-      carry: this.wheat.count,
-    };
-    this.stepWheat(WHEAT_STEP_MS);
-  }
+  /** Grano di una cella: solo coltivi e macchie secche, mai il bosco. */
+  private buildCell(cx: number, cz: number, _band: number, writer: CellWriter): void {
+    const size = WHEAT_CELL;
+    const ox = cx * size;
+    const oz = cz * size;
+    const centreX = ox + size / 2;
+    const centreZ = oz + size / 2;
+    const ground = this.ground;
+    ground.prepare(centreX, centreZ, size * 0.75 + 6, this.areas.near(centreX, centreZ, size * 0.75 + 6), this.paved);
 
-  /**
-   * Un passo di semina entro un budget di tempo. Conserva indici e stato del
-   * generatore, quindi la sequenza di istanze è identica a quella del ciclo
-   * unico: cambia solo in quanti frame viene distribuita.
-   *
-   * Ritorna `true` quando il campo è completo.
-   */
-  private stepWheat(budgetMs = WHEAT_STEP_MS): boolean {
-    const job = this.wheatJob;
-    if (!job) return true;
-    const clock = typeof performance !== 'undefined' ? () => performance.now() : () => 0;
-    const started = clock();
-    const cell = this.mask.cellSize;
-    const rng = job.rng;
-    const heights = job.heights;
-    while (job.used < job.wanted && job.j < this.mask.n) {
-      if (job.i >= this.mask.n) {
-        job.j += 1;
-        job.i = 0;
-        continue;
-      }
-      const i = job.i;
-      const j = job.j;
-      job.i += 1;
-      if (this.mask.isBlocked(i, j)) continue;
-      const cover = this.mask.coverAt(i, j);
+    // copertura del centro: una cella di grano in mezzo al prato non ha senso
+    const centreCover = ground.cover(centreX, centreZ);
+    this.rememberCover(cx, cz, centreCover);
+    const wanted = Math.round(size * size * WHEAT_PER_M2 * this.density);
+    if (wanted <= 0) return;
+
+    writer.begin(0);
+    for (let n = 0; n < wanted; n++) {
+      const px = ox + writer.random() * size;
+      const pz = oz + writer.random() * size;
+      const cover = ground.cover(px, pz);
       if (cover === COVER_WOOD) continue;
-      const pz = this.mask.originZ + (j + 0.5) * cell;
-      const px = this.mask.originX + (i + rng()) * cell;
-      const pzJitter = pz + (rng() - 0.5) * cell;
-      const surface = this.surfaceAt?.(px, pzJitter) ?? null;
-      if (cover === COVER_MEADOW && surface !== 'dirt') continue;
-      if (Math.hypot(px - job.x, pzJitter - job.z) > WHEAT_RADIUS) continue;
-      if (rng() > 0.58 + this.cropBudget * 0.38) continue;
-      const slope = heights.slopeAt(px, pzJitter);
-      if (slope > 16) continue;
-      const heightScale = 0.74 + rng() * 0.52;
-      const spread = 0.82 + rng() * 0.34;
-      this.dummy.position.set(px, this.mask.heightAt(px, pzJitter) - 0.02, pzJitter);
-      this.dummy.rotation.set(0, rng() * Math.PI * 2, 0);
-      this.dummy.scale.set(spread, heightScale, spread);
-      this.dummy.updateMatrix();
-      const used = job.used;
-      this.wheat.setMatrixAt(used, this.dummy.matrix);
-      const dry = cover === COVER_DRY || rng() > 0.3;
-      this.wheatColor.setHSL(
-        dry ? 0.13 + rng() * 0.025 : 0.2 + rng() * 0.03,
-        dry ? 0.48 : 0.38,
-        dry ? 0.48 + rng() * 0.1 : 0.42 + rng() * 0.09,
-      );
-      this.wheat.setColorAt(used, this.wheatColor);
-      job.used = used + 1;
-      if (clock() - started >= budgetMs) {
-
-        // le istanze già seminate si vedono: il campo cresce invece di apparire
-        // tutto insieme dopo mezzo secondo
-        this.wheat.count = Math.max(job.used, Math.min(job.carry, MAX_WHEAT));
-        this.wheat.instanceMatrix.needsUpdate = true;
-        if (this.wheat.instanceColor) this.wheat.instanceColor.needsUpdate = true;
-        return false;
+      if (cover === COVER_MEADOW) {
+        // il prato Ã¨ dell'erba: ci cresce grano solo su terra lavorata
+        if ((this.surfaceAt?.(px, pz) ?? null) !== 'dirt') continue;
       }
+      if (cover === COVER_CROP && writer.random() > 0.92) continue;
+      if (cover === COVER_DRY && writer.random() > 0.6) continue;
+      if (!ground.free(px, pz, 0.6, 0.4)) continue;
+      if (ground.slope(px, pz) > 16) continue;
+      const heightScale = 0.74 + writer.random() * 0.52;
+      const spread = 0.82 + writer.random() * 0.34;
+      if (!writer.add(
+        px,
+        ground.height(px, pz) - 0.02,
+        pz,
+        writer.random() * Math.PI * 2,
+        spread,
+        heightScale,
+        spread,
+      )) break;
+      const dry = cover === COVER_DRY || writer.random() > 0.3;
+      this.wheatColor.setHSL(
+        dry ? 0.13 + writer.random() * 0.025 : 0.2 + writer.random() * 0.03,
+        dry ? 0.48 : 0.38,
+        dry ? 0.48 + writer.random() * 0.1 : 0.42 + writer.random() * 0.09,
+      );
+      writer.rgb(this.wheatColor.r, this.wheatColor.g, this.wheatColor.b);
     }
-    this.wheat.count = job.used;
-    this.wheat.instanceMatrix.needsUpdate = true;
-    if (this.wheat.instanceColor) this.wheat.instanceColor.needsUpdate = true;
-    this.wheatJob = null;
-    return true;
   }
 
-  private setVisible(visible: boolean): void {
-    this.group.visible = visible;
-    if (!visible) {
-      this.wheat.count = 0;
-      this.wheatJob = null;
-    }
+  private rememberCover(cx: number, cz: number, cover: CoverClass): void {
+    if (this.coverage.size > 4000) this.coverage.clear();
+    this.coverage.set((cx + 32768) * 65536 + (cz + 32768), cover);
   }
 
   dispose(): void {
-    for (const mesh of this.meshes) {
-      mesh.traverse((object) => {
-        if (object instanceof THREE.InstancedMesh) object.dispose();
-      });
-    }
-    this.meshes = [];
-    this.wheatJob = null;
+    this.stream.dispose();
     this.wheat.geometry.dispose();
     (this.wheat.material as THREE.Material).dispose();
   }
@@ -517,3 +429,4 @@ export function buildVillageScenes(
   }
   return group;
 }
+

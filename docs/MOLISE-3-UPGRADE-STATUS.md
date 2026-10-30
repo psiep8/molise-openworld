@@ -67,10 +67,21 @@ Il piano di prova passo-passo usato per la verifica manuale è in
   diventa `ground-mud` con probabilità crescente sotto la pioggia, e con bagnato
   > 0,7 compaiono chiazze anche nelle praterie basse. La superficie restituita
   alla fisica è `mud` (grip 0,35, affondamento 0,65), non più `dirt` camuffato.
-- Il piano viene rifatto solo se il giocatore si sposta di 15 m o se bagnato,
-  budget o densità cambiano oltre la soglia: niente ricostruzione a ogni frame.
-  `WorldFieldDetail.coverageStats()` espone copertura, riempimento, celle
-  bloccate, conteggio LOD, triangoli stimati e durata dell'ultima ricostruzione.
+- Il piano delle zolle GLB viene rifatto solo se il giocatore si sposta di 15 m
+  o se bagnato, budget o densità cambiano oltre la soglia.
+- F01 (30 ottobre 2026) — il dettaglio vicino (erba e grano) non è più una
+  ricostruzione a blocchi: `src/world/cell-stream.ts` gestisce celle stabili con
+  chiave `(cx, cz)`, seme deterministico, pool di slot contigui, budget di tempo
+  per frame, coda ordinata dal punto previsto fra un secondo e dissolvenza per
+  istanza (`aFade` nello shader). `src/world/local-ground.ts` prende solo i
+  segmenti/edifici/aree che toccano la cella, al posto della maschera rasterizzata
+  su tutto il disco. Erba su tre layer (ciuffi, ciglio, fiori) con densità per
+  fascia; grano nelle stesse celle. `WorldGrass` usa `LocalGround` e si rifà ogni
+  22 m, `ScatterVegetation` ogni 40 m. La densità ravvicinata ha un livello
+  reversibile (`detailScale`, 0,5–1) con isteresi 36/54 fps.
+- `WorldFieldDetail.coverageStats()` resta per compatibilità e restituisce
+  `null` sulla copertura GLB (le zolle fotogrammetriche sono ritirate); le
+  metriche vere sono in `__molise.streaming` (`grass`, `wheat`, `detailScale`).
 - Arredo urbano GLB continuo (`src/world/roadside-kit.ts`): moduli accostati lungo
   la tangente su entrambi i lati dei tratti con `walkSpans`, alla quota del
   profilo stradale (18 cm sopra l'asfalto), con sovrapposizione del 2%; prima
@@ -87,19 +98,18 @@ Il piano di prova passo-passo usato per la verifica manuale è in
 
 ### Limiti
 
-- La generazione non usa un Web Worker, ma non serve: misurato in gioco, il
-  piano delle zolle costa **1,9–2,6 ms**, la costruzione della maschera 11–14 ms,
-  le istanze 0,4 ms. Il costo vero era il grano (35,6 ms), ora diviso in fette da
-  4 ms; portare 2 ms su un worker non avrebbe cambiato nulla. Il collo di
-  bottiglia residuo è `GroundMask.build`, che resta sincrona (vedi sotto).
-- Il grano è seminato a fette (`stepWheat`, budget 4 ms per frame): conserva
-  indici e stato del generatore, quindi la sequenza di spighe è identica a quella
-  del ciclo unico, ma distribuita su ~9 frame invece di un blocco da 35 ms. La
-  griglia si ricalcola ogni `rebuildDistance()` metri, che ora segue il raggio di
-  copertura del preset (15–26 m).
-- `GroundMask.build` (quote, pendenza, strade, piazzale, poligoni di copertura,
-  edifici) è ancora sincrona per intero: ~11–14 ms in campagna e ~32 ms in paese.
-  È il prossimo pezzo da spezzare se si vuole azzerare lo scatto residuo.
+- La generazione non usa un Web Worker e ora non serve: misurato in gioco, il
+  piano di una cella di erba costa **0,1 ms medi** (max 9 ms a freddo) e quello
+  del grano 0,16 ms; la traversata a 120 km/h resta sotto 3,2 ms per frame. Il
+  vecchio collo di bottiglia (`GroundMask.build`, 72–92 ms) è stato tolto dal
+  dettaglio, non spostato su un worker.
+- Il grano vive nelle stesse celle dell'erba: niente più semina a fette né
+  ricostruzione ogni 15 m. `bandRebuild: false` evita di rifarlo al cambio di
+  fascia, e le celle senza coltivo restano in memoria come vuote invece di essere
+  ripianificate a ogni passo (erano ~6.000 piani in mezzo minuto in paese).
+- `GroundMask` resta nel codice per i test e per chi ne ha bisogno, ma il
+  dettaglio ravvicinato non lo usa più: `LocalGround` risolve strada, marciapiede,
+  edificio, lastricato e copertura punto per punto sulla singola cella.
 - Non c'è un overlay grafico di copertura: le metriche sono disponibili via
   `coverageStats()` e nei test, non disegnate in mappa.
 - Oltre 60 m il suolo resta DEM + landcover + satellite: riempirlo tutto con GLB
@@ -155,8 +165,18 @@ Il piano di prova passo-passo usato per la verifica manuale è in
 ## Verifiche di questa sessione
 
 - `npx tsc --noEmit` ✅
-- `npx vitest run` **461/461** ✅ in 53 file
+- `npx vitest run` **485/485** ✅ in 54 file
 - `npm run build` ✅
+- F01 — popolamento del paesaggio: traversata sintetica di 60 s a 120 km/h sul
+  dev server (`high`, RX 580), 3.600 aggiornamenti → erba media 0,77 ms, max
+  3,2 ms, p99 2,3; grano media 0,27 ms, max 2,3; **nessun frame di popolamento
+  oltre 8 ms** e nessuno oltre 33. Guida reale di 20 s: erba max 4,4 ms, grano
+  max 0,9, fps 37 con `degraded 0` e `detailScale` 0,5–1 (isteresi 36/54). Il
+  popolamento non compare più nei long task: i due registrati (103, 117 ms)
+  cadono al caricamento di shader/tile, non al passaggio delle celle.
+- `tests/cell-stream.test.ts`: 17 test puri su fasce, seme, `SlotRuns`,
+  determinismo, priorità del punto previsto, nessuna istanza duplicata o persa
+  al confine, celle vuote non rifatte, dissolvenza in entrata/uscita.
 - Controllo runtime sul build servito da `vite preview`: modalità a piedi e a
   guida avviate, uscita dall'auto → camminata → rientro in auto senza errori in
   console (`errorCount: 0`), a 24,7 fps su GPU software.
