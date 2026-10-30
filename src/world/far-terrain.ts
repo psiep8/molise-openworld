@@ -23,6 +23,12 @@
 
 import * as THREE from 'three';
 import type { Heightfield } from '../geo/elevation';
+import {
+  distantTerrainColor,
+  horizontalAlignment,
+  horizonPalette,
+  type HorizonPalette,
+} from './atmosphere';
 
 /** Raggio interno: si sovrappone ai chunk già caricati, senza lasciare buchi. */
 const DEFAULT_INNER = 2_000;
@@ -36,7 +42,8 @@ const REBUILD_STEP = 350;
 const GRASS = new THREE.Color(0x6f7d52);
 const FOREST = new THREE.Color(0x4e6144);
 const ROCK = new THREE.Color(0x8f8d84);
-const HAZE = new THREE.Color(0x9fb0bb);
+/** Sereno di giorno: la tavolozza viene poi aggiornata dal gioco a ogni meteo. */
+const DEFAULT_PALETTE = horizonPalette({ sunElevation: 27, cloud: 0, rain: 0, snow: 0, day: 1 });
 
 /** Hash deterministico: due run diverse devono dare la stessa montagna. */
 function hash2(ix: number, iz: number): number {
@@ -145,6 +152,9 @@ export class FarTerrain {
   private lastX = Number.NaN;
   private lastZ = Number.NaN;
   private built = false;
+  /** Tavolozza dell'aria e direzione del sole: cambiano i colori, non le quote. */
+  private palette: HorizonPalette = DEFAULT_PALETTE;
+  private readonly sunDirection = new THREE.Vector3(0, 1, 0);
 
   constructor(
     private readonly heights: Heightfield,
@@ -162,6 +172,9 @@ export class FarTerrain {
 
     this.material = new THREE.MeshLambertMaterial({
       vertexColors: true,
+      // l'aria dell'orizzonte è già dentro i colori per vertice, con tetto di
+      // opacità: la nebbia di scena qui renderebbe di nuovo tutto bianco a 11 km
+      fog: false,
       // senza questo l'anello si spegnerebbe al tramonto mentre il resto del
       // paesaggio resta illuminato dal sole
       side: THREE.FrontSide,
@@ -201,6 +214,27 @@ export class FarTerrain {
     if (Math.abs(next - this.innerRadius) < 50) return;
     this.innerRadius = next;
     this.lastX = Number.NaN;
+  }
+
+  /**
+   * Aggiorna l'aria dell'orizzonte. Se cambia il colore (ora del giorno,
+   * meteo) o la direzione del sole, l'anello si ridisegna: i colori sono per
+   * vertice e devono seguire il sole, altrimenti il versante in ombra resta
+   * chiaro mentre il sole è già tramontato.
+   */
+  setAtmosphere(palette: HorizonPalette, sunDirection: THREE.Vector3): void {
+    const samePalette =
+      palette.away === this.palette.away &&
+      palette.sun === this.palette.sun &&
+      palette.sky === this.palette.sky &&
+      palette.fog === this.palette.fog &&
+      Math.abs(palette.airOpacity - this.palette.airOpacity) < 1e-4;
+    const sameSun = this.sunDirection.dot(sunDirection) > 0.9995;
+    if (samePalette && sameSun) return;
+    this.palette = palette;
+    this.sunDirection.copy(sunDirection);
+    this.lastX = Number.NaN;
+    this.lastZ = Number.NaN;
   }
 
   /** Sposta e ricampiona l'anello quando la camera si è mossa abbastanza. */
@@ -254,6 +288,7 @@ export class FarTerrain {
     const col = color.array as Float32Array;
     const ratio = this.outerRadius / this.innerRadius;
     const scratch = new THREE.Color();
+    const air = new THREE.Color();
 
     let i = 0;
     for (let ring = 0; ring <= RINGS; ring++) {
@@ -274,27 +309,46 @@ export class FarTerrain {
         pos[i] = x;
         pos[i + 1] = h - drop;
         pos[i + 2] = z;
-
-        // colore per quota e distanza: prato in basso, faggeta a mezza costa,
-        // roccia sui crinali, e un velo d'aria con la distanza
-        const outside = distanceOutside(x, z, this.bounds);
-        const altitude = h - 420;
-        scratch.copy(GRASS);
-        scratch.lerp(FOREST, THREE.MathUtils.smoothstep(altitude, 60, 520));
-        scratch.lerp(ROCK, THREE.MathUtils.smoothstep(altitude, 620, 1_050));
-        scratch.lerp(HAZE, 0.18 + 0.34 * THREE.MathUtils.smoothstep(outside, 0, 7_000));
-        col[i] = scratch.r;
-        col[i + 1] = scratch.g;
-        col[i + 2] = scratch.b;
         i += 3;
       }
     }
-
     position.needsUpdate = true;
-    color.needsUpdate = true;
     // le normali si ricavano dai triangoli: 6.000 vertici, una volta ogni 350 m
     this.geometry.computeVertexNormals();
     this.geometry.computeBoundingSphere();
+
+    const normal = this.geometry.getAttribute('normal') as THREE.BufferAttribute;
+    const sun = this.sunDirection;
+    for (let v = 0, n = 0; v < pos.length; v += 3, n++) {
+      const x = pos[v]!;
+      const z = pos[v + 2]!;
+      const altitude = pos[v + 1]! - 420;
+      // prato in basso, faggeta a mezza costa, roccia sui crinali
+      scratch.copy(GRASS);
+      scratch.lerp(FOREST, THREE.MathUtils.smoothstep(altitude, 60, 520));
+      scratch.lerp(ROCK, THREE.MathUtils.smoothstep(altitude, 620, 1_050));
+      // macchie a bassa frequenza: la montagna non è una tinta unica
+      const patch = fbm2(x / 900, z / 900, 2) * 0.5 + 0.5;
+      scratch.multiplyScalar(0.9 + 0.2 * patch);
+      // versanti in ombra più scuri, crinali più chiari
+      const facing = Math.max(0, normal.getX(n) * sun.x + normal.getY(n) * sun.y + normal.getZ(n) * sun.z);
+      scratch.multiplyScalar(0.9 + 0.16 * facing);
+
+      const dx = x - cx;
+      const dz = z - cz;
+      // l'aria lontana ha un tetto di opacità: il rilievo resta sempre visibile
+      distantTerrainColor(
+        scratch,
+        Math.hypot(dx, dz),
+        horizontalAlignment(dx, dz, sun.x, sun.z),
+        this.palette,
+        air,
+      );
+      col[v] = air.r;
+      col[v + 1] = air.g;
+      col[v + 2] = air.b;
+    }
+    color.needsUpdate = true;
   }
 
   dispose(): void {

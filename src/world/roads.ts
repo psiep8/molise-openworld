@@ -1054,7 +1054,9 @@ float roadCrack;`,
   // il catrame della toppa e' piu' liscio, la crepe piu' ruvida
   roughnessFactor = mix(roughnessFactor, 0.55, roadToppa * 0.45);
   roughnessFactor = mix(roughnessFactor, 0.98, roadCrack * 0.5);
-  roughnessFactor = mix(roughnessFactor, 0.12, uRoadWet);
+  // bagnato sì, specchio no: 0,12 faceva un lobo solare enorme in controsole,
+  // che cancellava la strada. 0,22 resta lucido ma diffonde la luce.
+  roughnessFactor = mix(roughnessFactor, 0.22, uRoadWet);
 }`,
       );
   };

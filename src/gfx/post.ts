@@ -110,7 +110,10 @@ export class PostPipeline {
     this.composer.addPass(new RenderPass(scene, camera));
 
     if (bloomStrength > 0) {
-      this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), bloomStrength, 0.2, 3.2);
+      // soglia alta: il cielo e il sole restano fuori dal bloom, che serve solo
+      // ai riflessi davvero speculari. A 3,2 il disco solare allargava un alone
+      // bianco su tutto l'orizzonte (il "non si vede più nulla" in controsole).
+      this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), bloomStrength, 0.2, 4.2);
       this.composer.addPass(this.bloom);
     } else {
       this.bloom = null;

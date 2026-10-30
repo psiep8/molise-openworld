@@ -30,6 +30,8 @@ import { ObstacleIndex } from './geo/obstacles';
 import { Terrain, setCloudShadow } from './world/terrain';
 import { Landcover, monthForGameDay } from './world/landcover';
 import { FarTerrain } from './world/far-terrain';
+import { horizonPalette, type HorizonPalette } from './world/atmosphere';
+import { adaptGlare, backlightExposure, glareFactor, sunDiskStrength } from './gfx/backlight';
 import { buildBuildings, setWindowGlow } from './world/buildings';
 import { StreamedWorld } from './world/streamed-world';
 import { buildChurch } from './world/church';
@@ -645,6 +647,17 @@ export class Game {
   private manualHour = 15;
   private manualWeather: WeatherPreset = 'auto';
   private readonly fogColor = new THREE.Color();
+  /** Meteo corrente per l'esposizione: sopravvive anche senza atmosfera manuale. */
+  private rainNow = 0;
+  private snowNow = 0;
+  private cloudNow = 0;
+  private dayNow = 1;
+  /** Quanto la camera sta guardando dentro il sole (0…1), smorzato come l'occhio. */
+  private backlight = 0;
+  /** Esposizione senza controsole: l'adattamento la abbassa ogni frame. */
+  private baseExposure = EXPOSURE_DAY;
+  private readonly cameraForward = new THREE.Vector3();
+  private horizonLookCache: { key: string; palette: HorizonPalette } | null = null;
   private readonly tintA = new THREE.Color();
   private readonly tintB = new THREE.Color();
   private readonly sunTint = new THREE.Color();
@@ -709,10 +722,17 @@ export class Game {
     this.stereoCamera.rotation.order = 'YXZ';
     this.stereoCamera.position.set(START.x, 400, START.z);
 
-    // giornata serena di partenza: la stessa foschia del meteo reale, così
-    // l'orizzonte con le montagne lontane si vede fin dal primo frame
-    this.scene.fog = new THREE.FogExp2(0xb9cbd8, 0.008);
-    this.scene.background = new THREE.Color(0xb9cbd8);
+    // Giornata serena di partenza: aria lunga e blu, così le montagne a 11 km
+    // restano riconoscibili fin dal primo frame (la nebbia a 0,008 le cancellava).
+    const initialPalette = horizonPalette({
+      sunElevation: DEFAULT_SUN.elevation,
+      cloud: 0,
+      rain: 0,
+      snow: 0,
+      day: 1,
+    });
+    this.scene.fog = new THREE.FogExp2(initialPalette.fog, 0.00024);
+    this.scene.background = new THREE.Color(initialPalette.sky);
 
     this.scene.add(this.player.avatar);
     this.scene.add(this.car.group);
@@ -1132,6 +1152,8 @@ export class Game {
       // cintura di montagne oltre il DEM: una mesh, una draw call, nessuna texture
       this.farTerrain = new FarTerrain(heights);
       this.scene.add(this.farTerrain.group);
+      // anche il pomeriggio fisso del gioco passa dalla tavolozza nuova
+      this.restoreDefaultAtmosphere();
 
       this.spawnAtStart();
       this.hud.setLoading(0.78, 'Carico il terreno intorno a Palata…');
@@ -2519,8 +2541,20 @@ export class Game {
     this.renderer.toneMappingExposure = EXPOSURE_DAY;
     // ripristino a giornata serena: foschia lunga, come quando il meteo reale
     // è attivo e il cielo è limpido
-    this.scene.fog = new THREE.FogExp2(0xb9cbd8, 0.008);
-    this.scene.background = new THREE.Color(0xb9cbd8);
+    const palette = horizonPalette({ sunElevation: DEFAULT_SUN.elevation, cloud: 0, rain: 0, snow: 0, day: 1 });
+    this.horizonLookCache = { key: 'default', palette };
+    this.scene.fog = new THREE.FogExp2(palette.fog, 0.00024);
+    this.scene.background = new THREE.Color(palette.sky);
+    this.sky.setHorizon(palette.away, palette.sun, this.sky.sunDirection, 0.72);
+    this.sky.setSunStrength(1);
+    this.sky.setOvercast(0);
+    this.farTerrain?.setAtmosphere(palette, this.sky.sunDirection);
+    this.backlight = 0;
+    this.baseExposure = EXPOSURE_DAY;
+    this.rainNow = 0;
+    this.snowNow = 0;
+    this.cloudNow = 0;
+    this.dayNow = 1;
     this.clouds?.setVisible(false);
     this.precipitation?.clear();
     this.car.setLights(0);
@@ -2589,6 +2623,25 @@ export class Game {
     });
   }
 
+  /**
+   * Controsole: l'occhio si chiude guardando il sole e si riapre piano.
+   * Gira ogni frame, anche quando l'atmosfera è quella fissa del gioco.
+   */
+  private updateBacklight(dt: number): void {
+    if (!this.sky) return;
+    this.camera.getWorldDirection(this.cameraForward);
+    const target =
+      glareFactor(this.cameraForward, this.sky.sunDirection) * (1 - 0.35 * this.cloudNow);
+    this.backlight = adaptGlare(this.backlight, target, dt);
+    this.renderer.toneMappingExposure = backlightExposure(
+      this.baseExposure,
+      this.backlight,
+      this.rainNow,
+      this.snowNow,
+      this.dayNow,
+    );
+  }
+
   /** Cielo, luci, nebbia e particelle a partire da sole e condizioni. */
   private applyAtmosphere(sun: SunPosition, w: WeatherSnapshot, dt: number): void {
     const day = smoothstep(-6, 8, sun.elevation);
@@ -2637,21 +2690,64 @@ export class Game {
     // Giornata serena: foschia più lontana e meno densa, altrimenti le colline
     // a 1–2 km si sciolgono nel bianco. Con pioggia/neve/nebbia restano i valori
     // corti di prima.
-    const fogDensity = foggy ? 0.008 : snow > 0 ? 0.003 : rain > 0 ? 0.0017 : 0.00024 + cloud * 0.00018;
+    // La pioggia non è nebbia: con 0,0017 a 1 km era già tutto latteo (il cielo
+    // coperto sembrava bianco). 0,0007 dà profondità senza lavare il paesaggio.
+    const fogDensity = foggy ? 0.008 : snow > 0 ? 0.002 : rain > 0 ? 0.0007 : 0.00024 + cloud * 0.00018;
 
-    this.fogColor.setHex(0x16222e).lerp(this.tintA.setHex(0xb9cbd8), day);
-    this.fogColor.lerp(this.tintB.setHex(0xe6bd92), horizon * day * 0.35);
-    this.fogColor.lerp(this.tintA.setHex(0x9aa7ae), cloud * 0.35 * day);
-    if (foggy) this.fogColor.lerp(this.tintA.setHex(0xb9c2c6), 0.5 * day);
+    // Tavolozza dell'aria: blu-grigio saturo, caldo solo verso il sole. Si
+    // ricalcola solo quando l'ora o il meteo cambiano davvero (l'anello lontano
+    // si ridisegna a ogni cambio).
+    const lookKey =
+      `${Math.round(sun.elevation * 2)},${Math.round(cloud * 100)},` +
+      `${Math.round(rain * 100)},${Math.round(snow * 100)},${foggy ? 1 : 0},${Math.round(day * 100)}`;
+    if (this.horizonLookCache?.key !== lookKey) {
+      this.horizonLookCache = {
+        key: lookKey,
+        palette: horizonPalette({
+          sunElevation: sun.elevation,
+          cloud,
+          rain,
+          snow,
+          mist: foggy ? 1 : 0,
+          day,
+        }),
+      };
+    }
+    const palette = this.horizonLookCache.palette;
 
+    this.fogColor.setHex(palette.fog);
     if (this.scene.fog instanceof THREE.FogExp2) {
       this.scene.fog.color.copy(this.fogColor);
       this.scene.fog.density = day < 0.5 ? fogDensity * 1.3 : fogDensity;
     }
-    this.scene.background = this.fogColor;
+    // il fondo non è la nebbia: è il cielo all'orizzonte, un filo più profondo
+    if (this.scene.background instanceof THREE.Color) this.scene.background.setHex(palette.sky);
+    else this.scene.background = new THREE.Color(palette.sky);
+    // Con il cielo coperto la fascia d'aria sale e la cupola si abbassa: è
+    // quello che distingue un grigio-azzurro piovoso dal bianco puro.
+    const overcast = Math.max(cloud, rain, snow, foggy ? 1 : 0);
+    this.sky.setHorizon(
+      palette.away,
+      palette.sun,
+      this.sky.sunDirection,
+      0.62 * day + 0.1 + 0.18 * overcast,
+      0.16 + 0.42 * overcast,
+      1 - 0.3 * cloud - 0.22 * rain - 0.16 * snow,
+    );
+    this.sky.setOvercast(overcast * day);
+    this.farTerrain?.setAtmosphere(palette, this.sky.sunDirection);
+
+    this.sky.setSunStrength(sunDiskStrength(cloud, rain, snow));
+    this.rainNow = rain;
+    this.snowNow = snow;
+    this.cloudNow = cloud;
+    this.dayNow = day;
+
+    const baseExposure = EXPOSURE_DAY - (1 - day) * 0.02 - cloud * 0.02 + horizon * 0.025;
     // Di notte si alza leggermente l'esposizione invece di abbassarla: i fari
     // illuminano la strada ma il resto dell'inquadratura deve restare leggibile.
-    this.renderer.toneMappingExposure = EXPOSURE_DAY - (1 - day) * 0.02 - cloud * 0.02 + horizon * 0.025;
+    this.baseExposure = baseExposure;
+    this.renderer.toneMappingExposure = backlightExposure(baseExposure, this.backlight, rain, snow, day);
 
     const observedWind = this.realWeather.snapshot;
     const windSpeed = observedWind?.windSpeed ?? 0;
@@ -4056,6 +4152,9 @@ export class Game {
     if (this.manualTime) this.applyManualAtmosphere(dt, focus);
     else if (this.realWeatherEnabled) this.applyWeatherVisuals(dt, focus);
     this.updateSky(focus);
+    // l'esposizione si adatta anche nel pomeriggio fisso del gioco: guardare il
+    // sole deve smorzare la scena in ogni modalità, non solo con l'ora manuale
+    this.updateBacklight(dt);
     this.streetLights?.update(this.camera.position, this.nightFactor);
 
     const moveSpeed =

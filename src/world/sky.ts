@@ -35,6 +35,26 @@ export interface SkyRig {
   setLighting(params: Partial<LightingParams>): void;
   /** 0 = giorno, 1 = notte piena: accende stelle e luna. */
   setNightSky(amount: number): void;
+  /**
+   * Tinta dell'orizzonte: azzurro lontano dal sole, caldo verso il sole.
+   * `height` è l'altezza della fascia (in direzione y) e `dim` abbassa la
+   * radianza della cupola con nuvole/pioggia, che altrimenti vira al bianco.
+   */
+  setHorizon(
+    away: number,
+    sun: number,
+    sunDirection: THREE.Vector3,
+    mix: number,
+    height?: number,
+    dim?: number,
+  ): void;
+  /** 0…1: quanto il disco solare è visibile (nuvole, pioggia, neve lo spengono). */
+  setSunStrength(strength: number): void;
+  /**
+   * Cielo coperto 0…1: tinge tutta la cupola di grigio-azzurro e limita la
+   * radianza. Senza, con la pioggia la cupola resta bianca anche controsole.
+   */
+  setOvercast(amount: number): void;
   /** Genera la luce ambientale riflessa dal cielo (IBL). Costa poco: si auto-limita. */
   updateEnvironment(renderer: THREE.WebGLRenderer, scene: THREE.Scene): void;
 }
@@ -66,6 +86,19 @@ export const DEFAULT_LIGHTING: LightingParams = {
 const SKY_RADIANCE = 0.42;
 
 /**
+ * Tinta dell'orizzonte iniettata nella cupola.
+ *
+ * Il gradiente di Preetham da solo, a questa esposizione, schiarisce l'orizzonte
+ * fino al bianco. Qui la fascia bassa viene tirata verso un blu-grigio saturo
+ * (più caldo solo verso il sole), lasciando intatto il gradiente sopra i ~10°.
+ */
+const HORIZON_DEFAULTS = {
+  away: new THREE.Color(0x7f97aa),
+  sun: new THREE.Color(0x9fb0b8),
+  mix: 0.6,
+} as const;
+
+/**
  * Scala la radianza di una cupola Sky, anche quella usata per la cubemap PMREM.
  *
  * Toglie anche il disco solare analitico dello shader: era un puntino bianco
@@ -76,12 +109,42 @@ const SKY_RADIANCE = 0.42;
 function dimSky(target: Sky): void {
   const material = target.material as THREE.ShaderMaterial;
   material.uniforms.skyRadiance = { value: SKY_RADIANCE };
+  material.uniforms.uHorizonAway = { value: HORIZON_DEFAULTS.away.clone() };
+  material.uniforms.uHorizonSun = { value: HORIZON_DEFAULTS.sun.clone() };
+  material.uniforms.uSunFlat = { value: new THREE.Vector2(0, 1) };
+  material.uniforms.uHorizonMix = { value: 0 };
+  material.uniforms.uHorizonHeight = { value: 0.16 };
+  material.uniforms.uSkyDim = { value: 1 };
+  material.uniforms.uSkyTint = { value: 0 };
+  material.uniforms.uSkyClamp = { value: 6 };
   material.fragmentShader =
     'uniform float skyRadiance;\n' +
+    'uniform vec3 uHorizonAway;\n' +
+    'uniform vec3 uHorizonSun;\n' +
+    'uniform vec2 uSunFlat;\n' +
+    'uniform float uHorizonMix;\n' +
+    'uniform float uHorizonHeight;\n' +
+    'uniform float uSkyDim;\n' +
+    'uniform float uSkyTint;\n' +
+    'uniform float uSkyClamp;\n' +
     material.fragmentShader
       .replace(
         'gl_FragColor = vec4( texColor, 1.0 );',
-        'texColor *= skyRadiance;\n\t\t\tgl_FragColor = vec4( texColor, 1.0 );',
+        `texColor *= skyRadiance * uSkyDim;
+        // La radianza del cielo coperto non ha un limite fisico: controsole
+        // diventa un muro bianco. Il clamp tiene la cupola sotto il bianco
+        // prima di tingerla, così la tinta resta visibile.
+        texColor = min( texColor, vec3( uSkyClamp ) );
+        // fascia bassa: il blu dell'aria invece del bianco lattiginoso. Con
+        // nuvole e pioggia la fascia sale e la tinta si estende a tutta la
+        // cupola: grigio-azzurro, non "bianco in alto e colorato in basso".
+        vec3 skyDir = normalize( vWorldPosition - cameraPosition );
+        float horizonBand = 1.0 - smoothstep( 0.0, uHorizonHeight, max( skyDir.y, 0.0 ) );
+        float sunWarm = smoothstep( -0.35, 0.95, dot( normalize( skyDir.xz + vec2( 1e-5 ) ), uSunFlat ) ) * 0.75;
+        vec3 horizonTint = mix( uHorizonAway, uHorizonSun, sunWarm );
+        float tintMix = max( horizonBand * uHorizonMix, uSkyTint );
+        texColor = mix( texColor, horizonTint, tintMix );
+        gl_FragColor = vec4( texColor, 1.0 );`,
       )
       .replace(
         'vec3 sundiscColor = ( 760.0 * sundisc ) * min( vSunE * Fex, 80.0 );',
@@ -226,6 +289,34 @@ export function createSky(scene: THREE.Scene): SkyRig {
   sunSprite.visible = false;
   scene.add(sunSprite);
 
+  /** 0…1: disco e alone spenti sotto nuvole fitte, pioggia o neve. */
+  let sunStrength = 1;
+  const setSunStrength = (strength: number): void => {
+    sunStrength = THREE.MathUtils.clamp(strength, 0, 1);
+  };
+  const setOvercast = (amount: number): void => {
+    const covered = THREE.MathUtils.clamp(amount, 0, 1);
+    uniforms.uSkyTint.value = 0.55 * covered;
+    // sereno: il clamp non tocca il cielo; coperto: niente bianco abbagliante
+    uniforms.uSkyClamp.value = THREE.MathUtils.lerp(6, 0.95, covered);
+  };
+  const setHorizon = (
+    away: number,
+    sun: number,
+    direction: THREE.Vector3,
+    mix: number,
+    height = 0.16,
+    dim = 1,
+  ): void => {
+    uniforms.uHorizonAway.value.setHex(away);
+    uniforms.uHorizonSun.value.setHex(sun);
+    const length = Math.hypot(direction.x, direction.z);
+    if (length > 1e-5) uniforms.uSunFlat.value.set(direction.x / length, direction.z / length);
+    uniforms.uHorizonMix.value = THREE.MathUtils.clamp(mix, 0, 1);
+    uniforms.uHorizonHeight.value = THREE.MathUtils.clamp(height, 0.02, 1);
+    uniforms.uSkyDim.value = THREE.MathUtils.clamp(dim, 0.35, 1);
+  };
+
   /** 0 = giorno, 1 = notte piena. */
   const setNightSky = (amount: number): void => {
     const on = THREE.MathUtils.clamp(amount, 0, 1);
@@ -257,8 +348,11 @@ export function createSky(scene: THREE.Scene): SkyRig {
     // il sole si spegne appena sotto l'orizzonte, senza scattare
     const sunAltitude = THREE.MathUtils.clamp((sunDirection.y + 0.015) / 0.09, 0, 1);
     sunSprite.position.copy(target).addScaledVector(sunDirection, 6000);
-    (sunSprite.material as THREE.SpriteMaterial).opacity = sunAltitude * 0.85;
-    sunSprite.visible = sunAltitude > 0.01;
+    // il disco non è più un faro: sotto nuvole/pioggia si spegne, e anche al
+    // sereno resta sotto l'unità (era il principale responsabile del bianco
+    // totale guardando controsole, con il bloom che lo allargava)
+    (sunSprite.material as THREE.SpriteMaterial).opacity = sunAltitude * 0.62 * sunStrength;
+    sunSprite.visible = sunAltitude * sunStrength > 0.01;
   };
 
   const setShadowMapSize = (size: number): void => {
@@ -333,6 +427,9 @@ export function createSky(scene: THREE.Scene): SkyRig {
     setSkyParams,
     setLighting,
     setNightSky,
+    setHorizon,
+    setSunStrength,
+    setOvercast,
     updateEnvironment,
   };
 }
