@@ -9,6 +9,7 @@ import {
   ROAD_LIFT,
   type Road,
 } from '../src/geo/osm';
+import { ROAD_PROFILE } from '../src/world/road-profile';
 
 function flatHeights(elevation = 100): Heightfield {
   const meta: HeightMeta = {
@@ -143,17 +144,20 @@ describe('groundAt condivisa', () => {
     const heights = flatHeights();
     const rural = road({ walkSpans: [false, false, false] });
     const ground = new WorldGround(heights, new RoadIndex([rural], heights));
-    // spalla di ghiaia (fino a 3,35 m), poi una falda dolce di 1,4 m
-    const shoulder = ground.sampleAt(0, 3.3);
-    const slope = ground.sampleAt(0, 4.05);
-    const outerEdge = ground.sampleAt(0, 4.74);
-    const beyond = ground.sampleAt(0, 4.78);
+    // banchina in terra, fondo della cunetta, risalita al DEM
+    const shoulderEdge = 3 + ROAD_PROFILE.shoulderWidth;
+    const ditchBottom = shoulderEdge + ROAD_PROFILE.ditchWidth * 0.55;
+    const outerEdgeDistance = shoulderEdge + ROAD_PROFILE.ditchWidth + ROAD_PROFILE.vergeWidth;
+    const shoulder = ground.sampleAt(0, shoulderEdge - 0.1);
+    const ditch = ground.sampleAt(0, ditchBottom);
+    const outerEdge = ground.sampleAt(0, outerEdgeDistance);
+    const beyond = ground.sampleAt(0, outerEdgeDistance + 0.04);
     expect(shoulder.kind).toBe('shoulder');
-    expect(shoulder.y).toBeCloseTo(100 + ROAD_LIFT - 0.03, 5);
-    expect(slope.kind).toBe('shoulder');
-    // il ciglione scende verso il prato: non è una cunetta a parete
-    expect(slope.y).toBeLessThan(shoulder.y);
-    expect(slope.y).toBeGreaterThan(100);
+    expect(shoulder.y).toBeCloseTo(100 + ROAD_LIFT - ROAD_PROFILE.shoulderDrop, 5);
+    expect(ditch.kind).toBe('shoulder');
+    // il fondo della cunetta scende di 22 cm e risale al prato
+    expect(ditch.y).toBeCloseTo(100 + ROAD_LIFT - ROAD_PROFILE.ditchDepth, 2);
+    expect(ditch.y).toBeLessThan(shoulder.y);
     expect(outerEdge.kind).toBe('shoulder');
     expect(outerEdge.y).toBeCloseTo(100, 2);
     expect(beyond.kind).toBe('terrain');

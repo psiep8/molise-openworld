@@ -25,20 +25,19 @@ export const ROAD_PROFILE = {
   curbWidth: 0.22,
   curbHeight: 0.18,
   /**
-   * Spalla in ghiaia: mezza metro, quanto basta a staccare l'asfalto dall'erba
-   * senza la fascia marrone che sembrava una rampa di cemento.
+   * Banchina in terra battuta: 75 cm, la fascia che si vede davvero ai bordi
+   * di una provinciale di campagna, dove le ruote lasciano ghiaia e fango.
    */
-  shoulderWidth: 0.35,
+  shoulderWidth: 0.75,
   /**
-   * Ciglione di campagna: non una cunetta profonda su entrambi i lati, ma un
-   * avvallamento di pochi centimetri che raccorda la spalla al prato. La
-   * trincea da 30 cm era il "fossato" che si vedeva come una rampa scura
-   * accanto a ogni provinciale, anche dove il terreno non ne aveva bisogno.
+   * Cunetta di scolo: 22 cm di profondità su una V larga 90 cm, il minimo per
+   * leggere come fosso e raccogliere l'acqua. La vecchia trincea da 30 cm
+   * aveva pareti ripide ed era nera: qui il fondo è terra, non asfalto.
    */
-  ditchDepth: 0.1,
-  ditchWidth: 1,
+  ditchDepth: 0.22,
+  ditchWidth: 0.9,
   vergeWidth: 0.4,
-  shoulderDrop: 0.03,
+  shoulderDrop: 0.04,
 } as const;
 
 export function sidewalkWidthForRoad(width: number): number {
@@ -82,12 +81,14 @@ export function roadProfileReach(profile: RoadProfile): number {
 export function ruralProfilePoints(profile: RoadProfile, lift: number): RoadProfilePoint[] {
   if (!profile.paved || profile.sidewalkWidth > 0 || profile.bridge || profile.tunnel) return [];
   const shoulderEdge = profile.halfWidth + ROAD_PROFILE.shoulderWidth;
-  // Due stazioni: bordo della spalla e ritorno al DEM. Una sola falda dolce
-  // (sotto i 10°) al posto della cunetta a tre stazioni: metà triangoli e
-  // nessuna parete verticale accanto alla strada.
+  // Tre stazioni: bordo della banchina, fondo della cunetta, ritorno al DEM.
+  // La V è asimmetrica (parete interna più corta) come un fosso di scolo
+  // vero: l'acqua resta sul fondo, il prato risale dolcemente.
   const vergeEdge = shoulderEdge + ROAD_PROFILE.ditchWidth + ROAD_PROFILE.vergeWidth;
+  const bottom = shoulderEdge + ROAD_PROFILE.ditchWidth * 0.55;
   return [
     { distance: shoulderEdge, offset: lift - ROAD_PROFILE.shoulderDrop },
+    { distance: bottom, offset: lift - ROAD_PROFILE.ditchDepth },
     { distance: vergeEdge, offset: 0 },
   ];
 }

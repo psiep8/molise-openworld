@@ -599,9 +599,9 @@ function emitVerge(
         const x = line[i]!.x + px * station.distance;
         const z = line[i]!.z + pz * station.distance;
         const y = heights.heightAt(x, z) + station.offset;
-        // il cavo del ciglione è appena più in ombra dell'erba intorno: una
-        // striscia al 18% di nero sembrava un tubo interrato
-        const tint = j === 1 ? 0.92 : j === 2 ? 0.97 : 1;
+        // il fondo della cunetta è terra umida, quindi più scuro dell'erba;
+        // il bordo esterno resta quasi erba, per raccordarsi al prato
+        const tint = j === 1 ? 0.8 : j === 2 ? 0.96 : 1;
         target.positions.push(x, y, z);
         target.normals.push(px * 0.16, 0.98, pz * 0.16);
         target.colors.push(color.r * tint, color.g * tint, color.b * tint);
@@ -1333,7 +1333,9 @@ export function buildRoads(
   // ghiaia compattata, non cemento: il moltiplicatore 2,35 schiariva la mappa
   // d'asfalto fino al bianco e la spalla leggeva come una rampa di cemento
   // accanto a ogni provinciale. Un filo più chiara dell'asfalto basta.
-  const shoulderColor = new THREE.Color(1.24, 1.16, 0.98);
+  // terra battuta: la grana d'asfalto schiarita e scaldata di giallo legge
+  // come ghiaia compatta, senza la striscia di fango del gravel scuro
+  const shoulderColor = new THREE.Color(1.06, 0.93, 0.72);
   // ciglione erboso: la stessa famiglia di verdi del tappeto d'erba, così il
   // raccordo col prato non è una fascia marrone
   const vergeColor = new THREE.Color(0x939c6b);

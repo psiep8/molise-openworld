@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { START } from '../config';
 import type { Heightfield } from '../geo/elevation';
-import type { OsmData, Road, RoadIndex } from '../geo/osm';
+import { roadLift, type OsmData, type Road, type RoadIndex } from '../geo/osm';
 import {
   ROAD_PROFILE,
   sidewalkWidthForRoad,
@@ -12,18 +12,19 @@ import type { WorldAsset, WorldKit, WorldSpot } from './worldkit';
 /**
  * Arredo stradale GLB: marciapiedi e cordoli.
  *
- * Il manto d'asfalto, il marciapiede e il cordolo del paese restano quelli
- * procedurali di `world/roads.ts`: sono l'unica superficie con quota, fisica e
- * collisioni coerenti. Questi moduli fotogrammetrici **rivestono** quel nastro
- * nei tratti urbani, modulo dopo modulo senza buchi, alla stessa quota del
- * marciapiede procedurale (18 cm sopra la carreggiata).
+ * Il manto d'asfalto resta quello procedurale di `world/roads.ts`: è l'unica
+ * superficie con quota, fisica e collisioni coerenti. I moduli fotogrammetrici
+ * **sono** la superficie visibile del marciapiede nei tratti urbani: lastre
+ * sottili (10 triangoli per i moduli a/b) appoggiate 3 cm sopra il nastro
+ * procedurale, così non c'è z-fighting e il piede non balla.
  *
- * Prima erano piazzati a caso ogni 18–44 m anche fuori dal paese: sembravano
- * lastre cadute in mezzo al campo. Ora:
+ * Regole:
  *  - solo strade asfaltate con `walkSpans` (marciapiede OSM) e fuori da ponti;
- *  - moduli accostati lungo tangente, su entrambi i lati, con sovrapposizione
- *    del 2% per non lasciare fessure in curva;
- *  - quota dal profilo stradale condiviso, non dal DEM nudo;
+ *  - moduli accostati lungo la tangente, su entrambi i lati, con
+ *    sovrapposizione del 2% per non lasciare fessure in curva;
+ *  - larghezza del modulo scalata alla larghezza reale del marciapiede;
+ *  - quota dal profilo stradale condiviso (DEM + velo asfalto + cordolo + 3 cm),
+ *    non dal DEM nudo: era quello che li faceva sprofondare sotto il nastro;
  *  - tetto per preset (`quality.roadside`), prima le strade più vicine al via.
  */
 
@@ -131,15 +132,13 @@ export function buildRoadsideKit(
   const group = new THREE.Group();
   group.name = 'roadside-kit';
   const total = Math.max(0, Math.round(budget));
-  // Marciapiedi e cordoli procedurali sono l'unica superficie: seguono la
-  // curva della spline, hanno la quota letta dalla fisica e stanno dentro il
-  // nastro stradale senza sovrapposizioni. I moduli GLB (11.000 triangoli a
-  // lastra) venivano appoggiati *sopra* quel nastro: due superfici a 4 mm di
-  // distanza, che da lontano facevano z-fighting e da vicino sembravano
-  // piastrelle cadute lungo la provinciale. Restano nel kit per altri usi, qui
-  // non si istanziano più.
-  const sidewalkAssets: WorldAsset[] = [];
-  const curbAssets: WorldAsset[] = [];
+  // Solo le varianti leggere: i moduli a/b sono lastre da 10 triangoli, i
+  // cordoli modulari da 216–1.080. Gli scan da 11.000–19.000 triangoli a
+  // lastra restano fuori: con centinaia di moduli sarebbero milioni di
+  // triangoli per un marciapiede.
+  const light = (asset: WorldAsset): boolean => asset.triangles <= 1_500;
+  const sidewalkAssets: WorldAsset[] = kit.variants('sidewalk').filter(light);
+  const curbAssets: WorldAsset[] = kit.variants('curb').filter(light);
   if (total === 0 || (sidewalkAssets.length === 0 && curbAssets.length === 0)) {
     return { group, sidewalks: 0, curbs: 0 };
   }
@@ -148,7 +147,7 @@ export function buildRoadsideKit(
   const curbSpots: WorldSpot[] = [];
   // I cordoli sono economici e fanno la continuità; i marciapiedi fotogrammetrici
   // costano 11k triangoli l'uno, quindi si prendono circa un terzo del budget.
-  const curbCap = curbAssets.length > 0 ? Math.ceil(total * 0.68) : 0;
+  const curbCap = curbAssets.length > 0 ? Math.ceil(total * 0.45) : 0;
   const sidewalkCap = sidewalkAssets.length > 0 ? total - curbCap : 0;
 
   // Prima le strade urbane più vicine al punto di partenza: con un budget basso
@@ -190,7 +189,9 @@ export function buildRoadsideKit(
     let s = Math.max(2, moduleLength(assets[0]!) * 0.5);
     // Il ciclo avanza sempre di almeno un modulo: niente rischio di stallo.
     while (s < sampler.length && spots.length < cap) {
-      const asset = assets[spots.length % assets.length]!;
+      // il cordolo resta lungo (5,43 m) per coprire il marciapiede senza
+      // alternare pezzi da 1,14 m che lascerebbero buchi di cemento
+      const asset = role === 'curb' ? assets[0]! : assets[spots.length % assets.length]!;
       const length = moduleLength(asset);
       const point = sampler.at(s);
       const x = point.x - point.tz * side * offset;
@@ -199,18 +200,26 @@ export function buildRoadsideKit(
         const slope = heights.slopeAt(x, z);
         if (slope <= 12) {
           // La base del modulo va interrata quanto basta perché la sua
-          // superficie cada a 18 cm dall'asfalto, la stessa quota che legge la
-          // fisica (`sampleRoadProfile`): niente marciapiedi sospesi.
+          // superficie cada 3 cm sopra il marciapiede procedurale (che sta a
+          // 18 cm dall'asfalto): niente z-fighting, niente piede che affonda.
+          const longX = asset.size.x >= asset.size.z;
+          const acrossSize = longX ? asset.size.z : asset.size.x;
+          const targetAcross =
+            role === 'sidewalk' ? walkWidth : ROAD_PROFILE.curbWidth;
+          const across = targetAcross / Math.max(0.01, acrossSize);
           spots.push({
             x,
             y:
               heights.heightAt(x, z) +
+              roadLift(index, road.paved) +
               ROAD_PROFILE.curbHeight -
               asset.size.y +
-              0.004,
+              0.03,
             z,
             yaw: yawFor(asset, point.tx, point.tz),
             scale: 1,
+            scaleX: longX ? 1 : across,
+            scaleZ: longX ? across : 1,
             variant: assets.indexOf(asset),
           });
         }
@@ -229,8 +238,15 @@ export function buildRoadsideKit(
     }
   }
 
-  if (sidewalkSpots.length) group.add(kit.instances('sidewalk', sidewalkSpots, { castShadow: true }));
-  if (curbSpots.length) group.add(kit.instances('curb', curbSpots, { castShadow: true }));
+  // `variants` esplicito: gli spot numerano l'elenco filtrato, ma senza questo
+  // `instances` rilegge tutte le varianti del ruolo e i moduli leggeri (indice
+  // 0/1) diventano gli scan pesanti da 11.000 triangoli.
+  if (sidewalkSpots.length) {
+    group.add(kit.instances('sidewalk', sidewalkSpots, { castShadow: true, variants: sidewalkAssets }));
+  }
+  if (curbSpots.length) {
+    group.add(kit.instances('curb', curbSpots, { castShadow: true, variants: curbAssets }));
+  }
 
   return { group, sidewalks: sidewalkSpots.length, curbs: curbSpots.length };
 }

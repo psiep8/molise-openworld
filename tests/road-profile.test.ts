@@ -20,11 +20,11 @@ describe('cross-section stradale', () => {
     expect(sampleRoadProfile(roadProfileReach(profile) + 0.01, profile, 0.2)).toBeNull();
   });
 
-  it('costruisce banchina, ciglione dolce e raccordo esattamente sul DEM', () => {
+  it('costruisce banchina in terra, cunetta e raccordo esattamente sul DEM', () => {
     const profile = createRoadProfile({ width: 6, paved: true });
     const lift = 0.2;
     const points = ruralProfilePoints(profile, lift);
-    expect(points).toHaveLength(2);
+    expect(points).toHaveLength(3);
     expect(sampleRoadProfile(3 + ROAD_PROFILE.shoulderWidth, profile, lift)?.offset).toBeCloseTo(
       lift - ROAD_PROFILE.shoulderDrop,
     );
@@ -32,13 +32,19 @@ describe('cross-section stradale', () => {
       expect(sampleRoadProfile(point.distance, profile, lift)?.offset).toBeCloseTo(point.offset, 8);
     }
 
-    // Niente trincea: una sola falda erbosa che raccorda la spalla al DEM,
-    // con pendenza da prato (sotto i 10°), non le pareti della vecchia cunetta.
-    const start = points[0]!;
-    const exit = points[1]!;
-    const angle = (Math.atan(Math.abs((exit.offset - start.offset) / (exit.distance - start.distance))) * 180) / Math.PI;
-    expect(angle).toBeLessThanOrEqual(10);
-    expect(points.at(-1)!.offset).toBe(0);
+    // La cunetta scende di 22 cm e risale al DEM: fondo di terra, non una
+    // parete verticale né un prato appena increspato.
+    const shoulder = points[0]!;
+    const bottom = points[1]!;
+    const exit = points[2]!;
+    expect(lift - bottom.offset).toBeCloseTo(ROAD_PROFILE.ditchDepth);
+    expect(bottom.distance).toBeGreaterThan(shoulder.distance);
+    expect(bottom.distance).toBeLessThan(exit.distance);
+    const inner = (Math.atan(Math.abs((bottom.offset - shoulder.offset) / (bottom.distance - shoulder.distance))) * 180) / Math.PI;
+    const outer = (Math.atan(Math.abs((exit.offset - bottom.offset) / (exit.distance - bottom.distance))) * 180) / Math.PI;
+    expect(inner).toBeLessThan(30);
+    expect(outer).toBeLessThan(30);
+    expect(exit.offset).toBe(0);
     expect(roadProfileReach(profile) - profile.halfWidth).toBeCloseTo(
       ROAD_PROFILE.shoulderWidth + ROAD_PROFILE.ditchWidth + ROAD_PROFILE.vergeWidth,
     );
