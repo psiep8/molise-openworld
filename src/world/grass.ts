@@ -649,6 +649,9 @@ export class GrassField {
       const pz = ez + (job.rng() - 0.5) * 0.22;
       // dentro un'altra carreggiata (incrocio) l'erba non cresce
       if (job.roads.isOnRoad(px, pz, -0.06)) return;
+      // in paese il ciglio è il marciapiede: nessun ciuffo sulle lastre
+      const surface = job.roads.sampleSurface(px, pz, job.heights.heightAt(px, pz));
+      if (surface?.kind === 'sidewalk') return;
       if (job.buildings.hitsCircle(px, pz, 0.3)) return;
       if (job.heights.slopeAt(px, pz) > 30) return;
       const py = job.heights.heightAt(px, pz);

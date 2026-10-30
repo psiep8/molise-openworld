@@ -1597,7 +1597,7 @@ export function buildRoads(
         // "casuali" che si vedevano in paese. Niente palo su strada o dentro
         // un muro.
         if (roadIndex?.isOnRoad(lampX, lampZ, 0.3, idx)) continue;
-        if (buildingIndex?.hitsCircle(lampX, lampZ, 0.35)) continue;
+        if (buildings?.hitsCircle(lampX, lampZ, 0.35)) continue;
         lamps.push({
           x: lampX,
           z: lampZ,
