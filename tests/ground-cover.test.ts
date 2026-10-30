@@ -67,6 +67,17 @@ describe('copertura continua delle zolle GLB', () => {
     for (const spot of result.spots) expect(spot.x).toBeGreaterThanOrEqual(2);
   });
 
+  it('scivola dentro la cella quando il centro è su una casa, invece di lasciare un buco', () => {
+    const blockedAtOrigin = plan({
+      variantAt: (x, z) => (Math.abs(x) < 1.5 && Math.abs(z) < 1.5 ? null : { asset: meadow }),
+    });
+    expect(blockedAtOrigin.blocked).toBe(0);
+    expect(blockedAtOrigin.spots.length).toBe(blockedAtOrigin.cells);
+    // la zolla della cella (0,0) è stata spostata di ~1/3 di passo, non persa
+    const nudged = blockedAtOrigin.spots.find((spot) => Math.abs(spot.z) < 0.01 && spot.x > 2);
+    expect(nudged).toBeDefined();
+  });
+
   it('separa il livello vicino da quello lontano', () => {
     const result = plan({ budget: 54, spacing: 16 });
     expect(result.near).toBeGreaterThan(0);
@@ -87,7 +98,10 @@ describe('copertura continua delle zolle GLB', () => {
     for (const spot of sloped.spots) {
       expect(spot.slopeX).toBeCloseTo(0.2, 6);
       expect(spot.slopeZ).toBeCloseTo(0.1, 6);
-      expect(spot.y).toBeCloseTo(0.2 * spot.x + 0.1 * spot.z + 0.035, 6);
+      // la zolla è inclinata col gradiente e appoggiata al centro, con appena
+      // 1,5 cm di sollevamento: abbastanza per non sfarfallare, poco per non
+      // restare sospesa sugli angoli
+      expect(spot.y).toBeCloseTo(0.2 * spot.x + 0.1 * spot.z + 0.015, 6);
     }
   });
 

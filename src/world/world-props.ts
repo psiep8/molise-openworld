@@ -43,11 +43,13 @@ export interface WorldPropBudget {
 }
 
 const BUDGETS: Record<QualityLevel, WorldPropBudget> = {
-  minimal: { tree: 3, shrub: 90, distantTree: 120, rock: 8, sign: 2, house: 0, grass: 50 },
-  low: { tree: 8, shrub: 150, distantTree: 240, rock: 22, sign: 4, house: 0, grass: 110 },
-  medium: { tree: 22, shrub: 320, distantTree: 620, rock: 55, sign: 7, house: 2, grass: 190 },
-  high: { tree: 40, shrub: 560, distantTree: 1050, rock: 90, sign: 10, house: 4, grass: 300 },
-  ultra: { tree: 58, shrub: 760, distantTree: 1400, rock: 120, sign: 12, house: 6, grass: 400 },
+  minimal: { tree: 3, shrub: 90, distantTree: 160, rock: 8, sign: 2, house: 0, grass: 50 },
+  low: { tree: 8, shrub: 150, distantTree: 340, rock: 22, sign: 4, house: 0, grass: 110 },
+  // Sagome lontane: 9-10 m, poche centinaia di triangoli l'una. Riempono i
+  // crinali e i bordi dei boschi che il tappeto entro 540 m non raggiunge.
+  medium: { tree: 22, shrub: 320, distantTree: 1000, rock: 55, sign: 7, house: 2, grass: 190 },
+  high: { tree: 40, shrub: 560, distantTree: 1600, rock: 90, sign: 10, house: 4, grass: 300 },
+  ultra: { tree: 58, shrub: 760, distantTree: 2200, rock: 120, sign: 12, house: 6, grass: 400 },
 };
 
 export function worldPropBudget(quality: QualityLevel): WorldPropBudget {
@@ -188,9 +190,12 @@ export function buildWorldProps(
   const shrubs = lightVariants(kit, 'shrub', 12, 1400);
   const distant = lightVariants(kit, 'tree-distant', 6, 400);
   const rocks = lightVariants(kit, 'rock', 5, 5000);
-  // i cartelli europei fotografici sono 3,7–4,8k triangoli: con il vecchio
-  // tetto a 2.000 restavano fuori e si vedevano solo le sagome low-poly
-  const signs = lightVariants(kit, 'sign', 8, 6000);
+  // Cartelli decorativi: nessuno. Erano piazzati ogni ~800 m a 7-12 m dal
+  // ciglio, con la variante scelta a caso e il verso calcolato dalla strada:
+  // non corrispondevano a nulla e sembravano segnali piovuti dal cielo. La
+  // segnaletica buona è quella dei dati OSM (stop, dare precedenza, limite),
+  // costruita da `buildSigns` con orientamento e palo veri.
+  const signs: WorldAsset[] = [];
   const houses = kit.variants('house').slice(0, 1);
 
   const treeSpots: WorldSpot[] = [];
@@ -377,12 +382,14 @@ export function buildWorldProps(
         const tx = (b.x - a.x) / seg;
         const tz = (b.z - a.z) / seg;
         const side = signRng() < 0.5 ? 1 : -1;
-        const off = road.width / 2 + 7 + signRng() * 5;
+        // a filo strada, sulla spalla: a 7-12 m dal ciglio il cartello finiva
+        // in mezzo al campo e non guardava più nessuno
+        const off = road.width / 2 + 0.95 + signRng() * 0.55;
         const x = b.x - tz * side * off;
         const z = b.z + tx * side * off;
         const distance = fromHome(x, z);
         if (distance < TOWN_CLEAR + 200 || distance > 2300) continue;
-        if (!free(x, z, 2)) continue;
+        if (!free(x, z, 0.35)) continue;
         if (heights.slopeAt(x, z) > 10) continue;
         // il cartello guarda chi arriva, non la carreggiata: di profilo non si
         // leggerebbe niente (vedi `signYaw`)
@@ -456,11 +463,16 @@ export function buildWorldProps(
   const treeHits: WorldHitMesh[] = [];
   const shrubHits: WorldHitMesh[] = [];
   const signHits: WorldHitMesh[] = [];
-  if (treeSpots.length) group.add(kit.instances('tree', treeSpots, { castShadow: true, hits: treeHits }));
-  if (shrubSpots.length) group.add(kit.instances('shrub', shrubSpots, { castShadow: false, hits: shrubHits }));
-  if (distantSpots.length) group.add(kit.instances('tree-distant', distantSpots, { castShadow: false }));
-  if (rockSpots.length) group.add(kit.instances('rock', rockSpots, { castShadow: true }));
-  if (signSpots.length) group.add(kit.instances('sign', signSpots, { castShadow: true, hits: signHits }));
+  if (treeSpots.length)
+    group.add(kit.instances('tree', treeSpots, { castShadow: true, hits: treeHits, variants: trees }));
+  if (shrubSpots.length)
+    group.add(kit.instances('shrub', shrubSpots, { castShadow: false, hits: shrubHits, variants: shrubs }));
+  if (distantSpots.length)
+    group.add(kit.instances('tree-distant', distantSpots, { castShadow: false, variants: distant }));
+  if (rockSpots.length)
+    group.add(kit.instances('rock', rockSpots, { castShadow: true, variants: rocks }));
+  if (signSpots.length)
+    group.add(kit.instances('sign', signSpots, { castShadow: true, hits: signHits, variants: signs }));
   if (houseSpots.length) group.add(kit.instances('house', houseSpots, { castShadow: true }));
 
   const hits = new WorldHitField();

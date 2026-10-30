@@ -25,11 +25,24 @@ describe('regole georeferenziate del ground kit', () => {
     expect(groundKitSlugAt({ ...context, distanceToRoad: 3.4 })).toBe('ground-bank-tile');
   });
 
-  it('limita i modelli ai pendii compatibili e usa fango solo nella classe bagnata', () => {
+  it('limita i modelli ai pendii compatibili e non mette fango sull’asciutto', () => {
     expect(groundKitSlugAt({ ...context, slopeDegrees: 24.01 })).toBeNull();
     expect(groundKitSlugAt({ ...context, distanceToRoad: -0.1 })).toBeNull();
-    expect(groundKitSlugAt({ ...context, surface: 'dirt', seed: 0.8 })).toBe('ground-mud');
+    // terra asciutta: resta prato/coltivo, non una pozza di fango
+    expect(groundKitSlugAt({ ...context, surface: 'dirt', seed: 0.8 })).toBe('ground-meadow-tile');
     expect(groundKitSlugAt({ ...context, surface: 'dirt', seed: 0.2 })).toBe('ground-meadow-tile');
+    // suolo nudo in un coltivo: zolla di campo, non prato
+    expect(
+      groundKitSlugAt({ ...context, surface: 'dirt', seed: 0.2, cover: COVER_CROP }),
+    ).toBe('ground-field-tile');
+  });
+
+  it('tiene la pietra solo su roccia o pendio vero, non sul prato dolce', () => {
+    expect(groundKitSlugAt({ ...context, slopeDegrees: 18 })).toBe('ground-meadow-tile');
+    expect(groundKitSlugAt({ ...context, slopeDegrees: 21 })).toBe('ground-bank-tile');
+    expect(groundKitSlugAt({ ...context, cover: COVER_WOOD, seed: 0.95 })).toBe(
+      'ground-meadow-tile',
+    );
   });
 
   it('con la pioggia il fango aumenta e copre anche le praterie basse', () => {
@@ -76,7 +89,10 @@ describe('regole georeferenziate del ground kit', () => {
     };
     const residential = { ...water, kind: 'residential' };
     expect(groundAreaBlocksKit(0, 0, [water])).toBe(true);
-    expect(groundAreaBlocksKit(0, 0, [residential])).toBe(true);
+    // l'area residenziale copre tutto il paese: se bloccasse le zolle, in centro
+    // resterebbe il mosaico satellite invece del prato GLB
+    expect(groundAreaBlocksKit(0, 0, [residential])).toBe(false);
+    expect(groundAreaBlocksKit(0, 0, [{ ...water, kind: 'parking' }])).toBe(true);
     expect(groundAreaBlocksKit(8, 0, [water])).toBe(false);
     expect(groundAreaBlocksKit(0, 0, [{ ...water, kind: 'wood' }])).toBe(false);
   });

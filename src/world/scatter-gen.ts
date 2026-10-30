@@ -151,9 +151,12 @@ export class ScatterGenerator {
           this.addSmallObject(instances, 'shrub', x, z, 0.55 + rng() * 0.8, rng);
         }
 
-        const rockChance = slope > 16 ? 0.12 : cover === 'scrub' ? 0.025 : 0.004;
-        if (slope < 58 && rng() < rockChance) {
-          this.addSmallObject(instances, 'rock', x, z, 0.45 + rng() * 1.35, rng);
+        // Sassi: un accento su pendii e macchia, non un campo di pietre. Al 12%
+        // su ogni candidato di un pendio, l'erba spariva dietro migliaia di
+        // massi bassi e il versante sembrava una frana.
+        const rockChance = slope > 22 ? 0.03 : cover === 'scrub' ? 0.008 : 0.0015;
+        if (slope < 55 && rng() < rockChance) {
+          this.addSmallObject(instances, 'rock', x, z, 0.3 + rng() * 0.75, rng);
         }
       }
     }

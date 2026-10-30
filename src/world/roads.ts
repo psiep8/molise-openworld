@@ -129,6 +129,57 @@ export function smoothPolyline(points: Pt[], passes = 2, strength = 0.55): Pt[] 
  * parametrizzazione centripeta evita i cappi che una Catmull-Rom uniforme fa
  * nei tornanti stretti.
  */
+/**
+ * Semplificazione di Douglas–Peucker.
+ *
+ * La spline campiona ogni 2,5 m anche lungo un rettilineo di provincia: sono
+ * punti che non aggiungono forma ma pagano due triangoli a testa su ogni
+ * nastro (asfalto, spalle, banchine, strisce). Qui restano solo i punti che
+ * stanno più di `tolerance` metri dalla corda fra i due estremi: su una curva
+ * da 30 m di raggio si perdono le corde sotto i 6 m, cioè nulla che si veda.
+ */
+export function simplifyPolyline(points: Pt[], tolerance = 0.15): Pt[] {
+  if (points.length < 3 || !(tolerance > 0)) return points.slice();
+  const tol2 = tolerance * tolerance;
+  const keep = new Uint8Array(points.length);
+  keep[0] = 1;
+  keep[points.length - 1] = 1;
+  const stack: [number, number][] = [[0, points.length - 1]];
+  while (stack.length) {
+    const [first, last] = stack.pop()!;
+    const a = points[first]!;
+    const b = points[last]!;
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const len2 = dx * dx + dz * dz;
+    let worst = -1;
+    let worstIndex = -1;
+    for (let i = first + 1; i < last; i++) {
+      const p = points[i]!;
+      let d2: number;
+      if (len2 < 1e-9) {
+        d2 = (p.x - a.x) * (p.x - a.x) + (p.z - a.z) * (p.z - a.z);
+      } else {
+        const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / len2));
+        const qx = a.x + dx * t;
+        const qz = a.z + dz * t;
+        d2 = (p.x - qx) * (p.x - qx) + (p.z - qz) * (p.z - qz);
+      }
+      if (d2 > worst) {
+        worst = d2;
+        worstIndex = i;
+      }
+    }
+    if (worst > tol2 && worstIndex >= 0) {
+      keep[worstIndex] = 1;
+      stack.push([first, worstIndex], [worstIndex, last]);
+    }
+  }
+  const out: Pt[] = [];
+  for (let i = 0; i < points.length; i++) if (keep[i]) out.push(points[i]!);
+  return out;
+}
+
 export function splineThrough(points: Pt[], step = 5): Pt[] {
   if (points.length < 3) return points.slice();
   const out: Pt[] = [points[0]!];
@@ -207,15 +258,34 @@ function pushDashes(
   heights: Heightfield,
   blocked: (x: number, z: number) => boolean = () => false,
 ): void {
+  // Tratteggio misurato in metri, non in "una frazione di ogni segmento": la
+  // spline campiona ogni 2,5 m, quindi il vecchio 28–72% produceva trattini da
+  // 1,1 m con pause da 1,4 m — una scala a pioli, non la mezzeria di una
+  // provinciale. Qui: 3 m pieni ogni 7,5 m, come sull'asfalto vero.
+  const DASH = 3;
+  const PERIOD = 7.5;
+  let travelled = 0;
   for (let i = 0; i < pts.length - 1; i++) {
-    const a = pts[i];
-    const b = pts[i + 1];
-    const dash: Pt[] = [
-      { x: a.x + (b.x - a.x) * 0.28, z: a.z + (b.z - a.z) * 0.28 },
-      { x: a.x + (b.x - a.x) * 0.72, z: a.z + (b.z - a.z) * 0.72 },
-    ];
-    if (blocked(dash[0].x, dash[0].z) || blocked(dash[1].x, dash[1].z)) continue;
-    pushRibbon(target, dash, width, lift, color, heights, 1);
+    const a = pts[i]!;
+    const b = pts[i + 1]!;
+    const seg = Math.hypot(b.x - a.x, b.z - a.z);
+    if (seg < 1e-3) continue;
+    let s = 0;
+    while (s < seg) {
+      const phase = (travelled + s) % PERIOD;
+      if (phase >= DASH) {
+        s += PERIOD - phase;
+        continue;
+      }
+      const end = Math.min(seg, s + (DASH - phase));
+      const p0 = lerpPt(a, b, 1 - s / seg, s / seg);
+      const p1 = lerpPt(a, b, 1 - end / seg, end / seg);
+      if (!blocked(p0.x, p0.z) && !blocked(p1.x, p1.z)) {
+        pushRibbon(target, [p0, p1], width, lift, color, heights, 1);
+      }
+      s = end;
+    }
+    travelled += seg;
   }
 }
 
@@ -442,7 +512,9 @@ function pushRuralVerge(
         const x = pts[i]!.x + px * station.distance;
         const z = pts[i]!.z + pz * station.distance;
         const y = heights.heightAt(x, z) + station.offset;
-        const tint = j === 1 ? 0.82 : j === 2 ? 0.93 : 1;
+        // il cavo del ciglione è appena più in ombra dell'erba intorno: una
+        // striscia al 18% di nero sembrava un tubo interrato
+        const tint = j === 1 ? 0.92 : j === 2 ? 0.97 : 1;
         target.positions.push(x, y, z);
         target.normals.push(px * 0.16, 0.98, pz * 0.16);
         target.colors.push(color.r * tint, color.g * tint, color.b * tint);
@@ -1145,8 +1217,13 @@ export function buildRoads(
   const tunnelLiners = emptyRibbon();
   const asphaltColor = new THREE.Color(0xffffff);
   const dirtColor = new THREE.Color(0xf6efe6);
-  const shoulderColor = new THREE.Color(0xcdbfa6);
-  const vergeColor = new THREE.Color(0x81785e);
+  // ghiaia compattata, non cemento: il moltiplicatore 2,35 schiariva la mappa
+  // d'asfalto fino al bianco e la spalla leggeva come una rampa di cemento
+  // accanto a ogni provinciale. Un filo più chiara dell'asfalto basta.
+  const shoulderColor = new THREE.Color(1.24, 1.16, 0.98);
+  // ciglione erboso: la stessa famiglia di verdi del tappeto d'erba, così il
+  // raccordo col prato non è una fascia marrone
+  const vergeColor = new THREE.Color(0x939c6b);
   const tunnelColor = new THREE.Color(0x4b4a43);
   const kitWalkMat = kit?.material('sidewalk', 'footway_flags', { repeat: [0.55, 0.5], white: true }) ?? null;
   const kitKerbMat = kit?.material('sidewalk', 'granite_kerb', { repeat: [1, 2], white: true }) ?? null;
@@ -1164,14 +1241,18 @@ export function buildRoads(
 
   osm.roads.forEach((road, idx) => {
     // angoli smussati, poi spline centripeta: l'asfalto passa per i nodi OSM
-    // ma senza le cuspidi che facevano "scattare" il volante
-    const pts = roadPolyline(road);
+    // ma senza le cuspidi che facevano "scattare" il volante. Per i nastri si
+    // tolgono i punti ridondanti (Douglas–Peucker, 15 cm): la fisica continua
+    // a leggere la spline fitta, quindi il guardrail e l'auto non cambiano.
+    const pts = simplifyPolyline(roadPolyline(road), road.paved ? 0.15 : 0.22);
     const isDirt = !road.paved;
     const target = isDirt ? dirt : asphalt;
     const base = isDirt ? dirtColor : asphaltColor;
     const color = base.clone().multiplyScalar(0.97 + (hashInt(idx, 7) % 60) / 1000);
     // micro offset per evitare z-fighting negli incroci (condiviso con la fisica)
     const lift = roadLift(idx, road.paved);
+    // lato dei lampioni scelto una volta per strada, non a ogni palo
+    const lampSide = hashInt(idx, 13) % 2 === 0 ? 1 : -1;
     const deck = road.bridge ? bridgeElevations(road, pts) : null;
     if (deck) {
       // Il ponte è un impalcato sospeso: niente marciapiede né spalla a terra.
@@ -1252,8 +1333,11 @@ export function buildRoads(
           return spans[bestIndex] === true;
         })
       : null;
+    // Senza maschera (strade dei tile streamed, che non passano da
+    // `markTownSidewalks`) non si inventa un paese: niente marciapiedi. Il
+    // vecchio default `true` lastricava di cordoli ogni strada di campagna.
     const inTown = (index: number): boolean =>
-      town ? town[Math.min(Math.max(index, 0), town.length - 1)] === true : true;
+      town ? town[Math.min(Math.max(index, 0), town.length - 1)] === true : false;
     for (const side of [-1, 1]) {
       // cordolo: fascia chiara in cima al rialzo. Si interrompe all'incrocio
       // (prima ci passava sopra, disegnando una striscia grigia di traverso).
@@ -1312,7 +1396,7 @@ export function buildRoads(
           shoulder,
           offsetPolyline(pts, side * (road.width / 2 + ROAD_PROFILE.shoulderWidth / 2)),
           ROAD_PROFILE.shoulderWidth,
-          lift - 0.05,
+          lift - ROAD_PROFILE.shoulderDrop,
           shoulderColor,
           heights,
           onJunction,
@@ -1500,13 +1584,23 @@ export function buildRoads(
           }
         }
       }
-      // lampioni ogni ~32 m: due file ai lati, quello che rende un paese un paese
-      if (sinceLamp > 32) {
-        const side = lamps.length % 2 === 0 ? 1 : -1;
+      // Lampioni ogni ~34 m, tutti sullo stesso lato della via: alternarli a
+      // ogni palo dava una fila a zig-zag che non esiste in nessun paese.
+      // Solo in strade larghe abbastanza e solo dentro il costruito.
+      if (sinceLamp > 34 && road.width >= 4.6) {
+        const side = lampSide;
         const off = road.width / 2 + walkWidth + 0.35;
+        const lampX = b.x - tz * side * off;
+        const lampZ = b.z + tx * side * off;
+        // all'incrocio la perpendicolare può cadere sulla carreggiata che
+        // attraversa: un lampione in mezzo all'asfalto era uno dei pali
+        // "casuali" che si vedevano in paese. Niente palo su strada o dentro
+        // un muro.
+        if (roadIndex?.isOnRoad(lampX, lampZ, 0.3, idx)) continue;
+        if (buildingIndex?.hitsCircle(lampX, lampZ, 0.35)) continue;
         lamps.push({
-          x: b.x - tz * side * off,
-          z: b.z + tx * side * off,
+          x: lampX,
+          z: lampZ,
           // il braccio del lampione punta verso la carreggiata
           yaw: Math.atan2(tz * side, -tx * side),
         });
@@ -1534,9 +1628,16 @@ export function buildRoads(
   // un tile ogni ~3 m: le UV dei nastri scorrono già in metri (6 m per tile)
   const asphaltPbr = pbr(renderer, 'asphalt', { repeat: 2, normal: true, rough: true });
   const dirtPbr = pbr(renderer, 'gravel', { repeat: 2, normal: true, rough: true });
+  // La ghiaia del kit è marrone scuro: sulla spalla leggeva come una striscia
+  // di fango. La grana dell'asfalto, schiarita dal vertex color, dà il grigio
+  // sabbia di una banchina consumata.
+  const shoulderPbr = pbr(renderer, 'asphalt', { repeat: 2, normal: true, rough: true });
   if (kitAsphaltMat) {
     kitAsphaltMat.vertexColors = true;
     kitAsphaltMat.side = THREE.DoubleSide;
+    // l'asfalto del kit è fotografato scuro: alzato di un filo legge come
+    // asfalto consumato e non come pece nera, soprattutto con il sole basso
+    kitAsphaltMat.color.setRGB(1.4, 1.4, 1.4);
     kitAsphaltMat.envMapIntensity = 0.55;
     kitAsphaltMat.polygonOffset = true;
     kitAsphaltMat.polygonOffsetFactor = -2;
@@ -1574,10 +1675,10 @@ export function buildRoads(
   });
   // spalla in ghiaia: stessa grana dello sterrato, tinta sabbia compatta
   const shoulderMat = new THREE.MeshStandardMaterial({
-    color: 0xb7a88c,
+    color: 0xffffff,
     vertexColors: true,
-    ...dirtPbr,
-    normalScale: new THREE.Vector2(0.7, 0.7),
+    ...shoulderPbr,
+    normalScale: new THREE.Vector2(0.45, 0.45),
     roughness: 1,
     metalness: 0,
     side: THREE.DoubleSide,

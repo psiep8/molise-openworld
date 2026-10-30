@@ -212,6 +212,8 @@ export function buildBridgeKit(osm: OsmData, kit: WorldKit, budget: number): Bri
     bridges++;
   }
 
-  if (spots.length > 0) group.add(kit.instances('bridge', spots, { castShadow: true }));
+  // Un ponte lontano non deve entrare nella shadow map: l'InstancedMesh è uno
+  // solo per tutto il mondo e non si può cullare per campata.
+  if (spots.length > 0) group.add(kit.instances('bridge', spots, { castShadow: false }));
   return { group, bridges, modules, highwayModules };
 }

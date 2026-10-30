@@ -24,11 +24,21 @@ export interface RoadSurfaceProfilePoint {
 export const ROAD_PROFILE = {
   curbWidth: 0.22,
   curbHeight: 0.18,
-  shoulderWidth: 0.72,
-  ditchDepth: 0.3,
-  ditchWidth: 1.4,
-  vergeWidth: 1.28,
-  shoulderDrop: 0.05,
+  /**
+   * Spalla in ghiaia: mezza metro, quanto basta a staccare l'asfalto dall'erba
+   * senza la fascia marrone che sembrava una rampa di cemento.
+   */
+  shoulderWidth: 0.35,
+  /**
+   * Ciglione di campagna: non una cunetta profonda su entrambi i lati, ma un
+   * avvallamento di pochi centimetri che raccorda la spalla al prato. La
+   * trincea da 30 cm era il "fossato" che si vedeva come una rampa scura
+   * accanto a ogni provinciale, anche dove il terreno non ne aveva bisogno.
+   */
+  ditchDepth: 0.1,
+  ditchWidth: 1,
+  vergeWidth: 0.4,
+  shoulderDrop: 0.03,
 } as const;
 
 export function sidewalkWidthForRoad(width: number): number {
@@ -68,18 +78,16 @@ export function roadProfileReach(profile: RoadProfile): number {
     : profile.halfWidth;
 }
 
-/** Stazioni del fosso e della scarpata, per ciascun lato della carreggiata. */
+/** Stazioni del ciglione di campagna, per ciascun lato della carreggiata. */
 export function ruralProfilePoints(profile: RoadProfile, lift: number): RoadProfilePoint[] {
   if (!profile.paved || profile.sidewalkWidth > 0 || profile.bridge || profile.tunnel) return [];
   const shoulderEdge = profile.halfWidth + ROAD_PROFILE.shoulderWidth;
-  const ditchStart = shoulderEdge;
-  const ditchBottom = ditchStart + ROAD_PROFILE.ditchWidth * 0.65;
-  const ditchExit = ditchStart + ROAD_PROFILE.ditchWidth;
-  const vergeEdge = ditchExit + ROAD_PROFILE.vergeWidth;
+  // Due stazioni: bordo della spalla e ritorno al DEM. Una sola falda dolce
+  // (sotto i 10°) al posto della cunetta a tre stazioni: metà triangoli e
+  // nessuna parete verticale accanto alla strada.
+  const vergeEdge = shoulderEdge + ROAD_PROFILE.ditchWidth + ROAD_PROFILE.vergeWidth;
   return [
-    { distance: ditchStart, offset: lift - ROAD_PROFILE.shoulderDrop },
-    { distance: ditchBottom, offset: -ROAD_PROFILE.ditchDepth },
-    { distance: ditchExit, offset: 0 },
+    { distance: shoulderEdge, offset: lift - ROAD_PROFILE.shoulderDrop },
     { distance: vergeEdge, offset: 0 },
   ];
 }

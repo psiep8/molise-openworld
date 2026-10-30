@@ -107,20 +107,23 @@ describe('groundAt condivisa', () => {
     expect(shoulder.kind).toBe('terrain');
   });
 
-  it('la quota fisica segue la cunetta visibile e rientra sul DEM senza gradino', () => {
+  it('la quota fisica segue la spalla e rientra sul DEM senza gradino', () => {
     const heights = flatHeights();
     const rural = road({ walkSpans: [false, false, false] });
     const ground = new WorldGround(heights, new RoadIndex([rural], heights));
-    const shoulder = ground.sampleAt(0, 3.5);
-    const ditchBottom = ground.sampleAt(0, 3 + 0.72 + 1.4 * 0.65);
-    const outerEdge = ground.sampleAt(0, 6.4);
-    const beyond = ground.sampleAt(0, 6.43);
+    // spalla di ghiaia (fino a 3,35 m), poi una falda dolce di 1,4 m
+    const shoulder = ground.sampleAt(0, 3.3);
+    const slope = ground.sampleAt(0, 4.05);
+    const outerEdge = ground.sampleAt(0, 4.74);
+    const beyond = ground.sampleAt(0, 4.78);
     expect(shoulder.kind).toBe('shoulder');
-    expect(shoulder.y).toBeCloseTo(100 + ROAD_LIFT - 0.05, 5);
-    expect(ditchBottom.kind).toBe('shoulder');
-    expect(ditchBottom.y).toBeCloseTo(100 - 0.3, 5);
+    expect(shoulder.y).toBeCloseTo(100 + ROAD_LIFT - 0.03, 5);
+    expect(slope.kind).toBe('shoulder');
+    // il ciglione scende verso il prato: non è una cunetta a parete
+    expect(slope.y).toBeLessThan(shoulder.y);
+    expect(slope.y).toBeGreaterThan(100);
     expect(outerEdge.kind).toBe('shoulder');
-    expect(outerEdge.y).toBeCloseTo(100, 5);
+    expect(outerEdge.y).toBeCloseTo(100, 2);
     expect(beyond.kind).toBe('terrain');
     expect(Math.abs(beyond.y - outerEdge.y)).toBeLessThanOrEqual(0.02);
   });

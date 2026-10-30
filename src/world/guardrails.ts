@@ -4,7 +4,7 @@ import type { Heightfield } from '../geo/elevation';
 import type { ObstacleIndex } from '../geo/obstacles';
 import type { OsmData } from '../geo/osm';
 import { bridgeElevations, roadPolyline } from './roads';
-import type { WorldKit, WorldSpot } from './worldkit';
+import type { WorldKit } from './worldkit';
 
 export interface GuardrailOptions {
   /** tetto di campate; evita di riempire la scena su un preset basso */
@@ -14,9 +14,12 @@ export interface GuardrailOptions {
   /** se presente, il nastro diventa solido anche per auto e pedoni */
   obstacles?: ObstacleIndex;
   /**
-   * Se il kit ha il ruolo `guardrail`, al posto del nastro procedurale si
-   * istanziano i moduli GLB (10 m) sulle stesse campate. Le collisioni restano
-   * identiche: si registrano prima, sulla geometria calcolata.
+   * Il world kit resta nel contratto per i chiamanti, ma i moduli `guardrail`
+   * non si usano più come barriera continua: le varianti heavy/terminal sono
+   * da 8.900 e 2.900 triangoli l'una e, con 1.400 campate, erano 17 milioni di
+   * triangoli per un nastro di lamiera. Il W-beam procedurale costa una
+   * frazione e non lascia lastroni stesi di traverso. Il kit resta la sorgente
+   * di alberi, case, cartelli, zolle, lampioni e ponti.
    */
   kit?: WorldKit | null;
 }
@@ -357,33 +360,6 @@ export function buildGuardrails(
         options.obstacles.add(rail.x + dx, rail.z + dz, 0.09, 'guardrail');
       }
     }
-  }
-
-  const assets = options.kit?.variants('guardrail') ?? [];
-  if (assets.length > 0) {
-    const spots: WorldSpot[] = [];
-    for (const rail of rails) {
-      // variante deterministica dalla posizione: niente rng condiviso, così
-      // ricostruire i guardrail non cambia il resto della scena
-      const seed = Math.abs(Math.round(rail.x * 3 + rail.z * 7));
-      const asset = assets[seed % assets.length]!;
-      const tx = Math.sin(rail.yaw);
-      const tz = Math.cos(rail.yaw);
-      const axisX = asset.size.x >= asset.size.z;
-      const yaw = axisX ? Math.atan2(-tz, tx) : rail.yaw;
-      const length = Math.max(asset.size.x, asset.size.z);
-      spots.push({
-        x: rail.x,
-        y: rail.y - RAIL_Y,
-        z: rail.z,
-        yaw,
-        scale: Math.min(1.6, Math.max(0.55, rail.length / length)),
-        variant: seed % assets.length,
-      });
-    }
-    group.userData.kit = true;
-    group.add(options.kit!.instances('guardrail', spots, { castShadow: false }));
-    return { group, spans: rails.length };
   }
 
   const metal = new THREE.MeshStandardMaterial({

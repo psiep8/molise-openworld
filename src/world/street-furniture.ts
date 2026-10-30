@@ -53,8 +53,14 @@ export class StreetLights {
     }
 
     // Se il world kit ha i lampioni GLB, il palo procedurale non serve: si
-    // istanziano i modelli (2-4 varianti) e restano solo le PointLight del pool.
-    const streetlightAssets = kit?.variants('streetlight') ?? [];
+    // istanziano i modelli leggeri e restano solo le PointLight del pool.
+    //
+    // `streetlight-lamp` costa 8.380 triangoli: con 379 lampioni erano quasi
+    // tre milioni di triangoli per un palo alto sette metri, indistinguibile
+    // dagli altri due. Si usano solo le varianti da ~300 triangoli.
+    const streetlightAssets = (kit?.variants('streetlight') ?? []).filter(
+      (asset) => asset.triangles <= 1200 && asset.slug !== 'streetlight-pole',
+    );
     if (streetlightAssets.length > 0) {
       // materiali segnaposto: i GLB hanno i propri, `update` li lascia spenti
       this.headMaterial = new THREE.MeshStandardMaterial();
@@ -67,7 +73,14 @@ export class StreetLights {
         scale: 1,
         variant: index % streetlightAssets.length,
       }));
-      this.group.add(kit!.instances('streetlight', kitSpots, { castShadow: true }));
+      this.group.add(
+        kit!.instances('streetlight', kitSpots, {
+          // pali da 5 cm: l'ombra non si distingue sul texel della shadow map,
+          // ma le 700 istanze finiscono tutte nella passata ombre
+          castShadow: false,
+          variants: streetlightAssets,
+        }),
+      );
       for (const spot of spots) {
         // la luce resta alla quota dell'apparecchio, non a terra
         this.spots.push({ x: spot.x, y: heights.heightAt(spot.x, spot.z) + 5.4, z: spot.z });

@@ -1,14 +1,16 @@
-import {
-  COVER_CROP,
-  COVER_DRY,
-  COVER_MEADOW,
-  COVER_WOOD,
-  type CoverClass,
-} from './ground-mask';
+import { COVER_CROP, COVER_DRY, COVER_WOOD, type CoverClass } from './ground-mask';
 import { pointInPolygon, type Bounds, type Pt } from '../geo/geo';
 
 type GroundArea = { kind: string; points: Pt[]; bounds: Bounds };
 
+/**
+ * Aree dove una zolla di terra non ha senso: acqua, asfalto, cortili, cantieri.
+ *
+ * `residential` **non** è in elenco: il poligono dell'area residenziale copre
+ * tutto il paese, quindi bastava quello per bloccare ogni cella e lasciare il
+ * suolo del centro abitato al mosaico satellite. Le case sono già escluse una
+ * per una dalle impronte degli edifici; i prati fra le case sono suolo vero.
+ */
 const NON_GROUND_AREAS = new Set([
   'water',
   'reservoir',
@@ -16,14 +18,11 @@ const NON_GROUND_AREAS = new Set([
   'river',
   'lake',
   'sea',
-  'residential',
   'industrial',
   'commercial',
   'retail',
   'parking',
   'farmyard',
-  'school',
-  'hospital',
   'construction',
   'railway',
 ]);
@@ -59,6 +58,11 @@ export function groundAreaBlocksKit(x: number, z: number, areas: readonly Ground
   );
 }
 
+/** Suolo nudo asciutto: coltivo se il dato lo dice, altrimenti prato. */
+function dryGroundSlug(cover: CoverClass): GroundKitSlug {
+  return cover === COVER_CROP || cover === COVER_DRY ? 'ground-field-tile' : 'ground-meadow-tile';
+}
+
 /** Classifies one deterministic ground-kit placement from georeferenced data. */
 export function groundKitSlugAt(context: GroundKitContext): GroundKitSlug | null {
   const { cover, slopeDegrees, distanceToRoad, surface, seed } = context;
@@ -78,20 +82,26 @@ export function groundKitSlugAt(context: GroundKitContext): GroundKitSlug | null
   }
   if (distanceToRoad < 0 || slopeDegrees > 24) return null;
 
-  // Rock and the outer road bank are real kit material, not a tint on the DEM.
-  if (surface === 'rock' || distanceToRoad <= 3.4 || slopeDegrees >= 14) {
+  // Roccia e scarpate vere sono le uniche superfici da zolla "bank": sul prato
+  // in pendenza dolce (14-20°) la zolla di roccia sembrava un lastrone caduto
+  // dal cielo. La soglia alta tiene la pietra dove il DEM la mostra davvero.
+  if (surface === 'rock' || distanceToRoad <= 3.4 || slopeDegrees >= 20) {
     return 'ground-bank-tile';
   }
   // Il fango non è una tinta: con la pioggia la terra smossa diventa una pozza
-  // di fango GLB, e nelle praterie basse compaiono chiazze solo con bagnato alto.
+  // di fango GLB. Senza pioggia la stessa cella resta terra/coltivo: prima
+  // comparivano chiazze di fango asciutte anche a bagnato zero.
   if (surface === 'dirt') {
-    const mudChance = 0.25 + wetness * 0.65;
-    if (seed > 1 - mudChance) return 'ground-mud';
+    if (wetness >= 0.35) {
+      const mudChance = 0.2 + wetness * 0.7;
+      if (seed > 1 - mudChance) return 'ground-mud';
+    }
+    return dryGroundSlug(cover);
   }
   if (wetness > 0.7 && cover !== COVER_WOOD && seed > 0.93) return 'ground-mud';
   if (cover === COVER_CROP || cover === COVER_DRY) return 'ground-field-tile';
-  if (cover === COVER_WOOD) return seed > 0.86 ? 'ground-bank-tile' : 'ground-meadow-tile';
-  if (cover === COVER_MEADOW) return 'ground-meadow-tile';
+  // Nel bosco il suolo è foglia e sottobosco, non roccia: la zolla da scarpata
+  // resta fuori e la copertura resta continua.
   return 'ground-meadow-tile';
 }
 

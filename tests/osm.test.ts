@@ -184,11 +184,13 @@ describe('marciapiedi solo nel costruito', () => {
       { x: 100, z: 0 },
       { x: 200, z: 0 },
     ]);
+    // Due case per lato della via: il centro di ogni impronta cade entro 26 m
+    // dal nodo stradale, quindi è tessuto urbano e non un casale isolato.
     const buildings = new BuildingIndex([
-      building(0, 20),
-      building(15, 22),
-      building(-15, 22),
-      building(0, 33),
+      building(-5, 10),
+      building(5, 10),
+      building(-5, -20),
+      building(5, -20),
     ]);
     markTownSidewalks([road500], buildings);
     const spans = road500.walkSpans!;
@@ -203,8 +205,21 @@ describe('marciapiedi solo nel costruito', () => {
     const shoulder = index.surfaceOffset(200, 3.3);
     expect(shoulder).toBeGreaterThan(0.1);
     expect(shoulder).toBeLessThan(0.25);
-    // oltre la spalla si torna sull'erba
-    expect(index.surfaceOffset(200, 5)).toBe(0);
+    // oltre il ciglione si torna sull'erba (il raccordo arriva a ~5,1 m)
+    expect(index.surfaceOffset(200, 5.2)).toBe(0);
+  });
+
+  it('un casale isolato non fa nascere il marciapiede in mezzo ai campi', () => {
+    const road500 = road('residential', [
+      { x: -200, z: 0 },
+      { x: -100, z: 0 },
+      { x: 0, z: 0 },
+      { x: 100, z: 0 },
+      { x: 200, z: 0 },
+    ]);
+    // Una sola casa a 20 m: è campagna, non un paese.
+    markTownSidewalks([road500], new BuildingIndex([building(0, 20)]));
+    expect(road500.walkSpans!.some(Boolean)).toBe(false);
   });
 
   describe('larghezze inferite delle strade rurali', () => {

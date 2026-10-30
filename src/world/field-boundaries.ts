@@ -181,7 +181,10 @@ function makeInstanced(
   }
   mesh.instanceMatrix.needsUpdate = true;
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  mesh.castShadow = true;
+  // muretti a secco e staccionate: 24.000 conci in un'unica mesh, tutti
+  // dentro la shadow map anche a chilometri. L'ombra di un muretto alto 80 cm
+  // non si legge comunque a 33 cm per texel.
+  mesh.castShadow = false;
   mesh.receiveShadow = true;
   return mesh;
 }

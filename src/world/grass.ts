@@ -19,9 +19,11 @@ const REBUILD_DISTANCE = 18;
  * e oltre restava solo la foto satellite: il confine si vedeva come un cerchio.
  */
 function tuftLod(distance: number): number {
-  if (distance <= 20) return 1;
-  const t = Math.min(1, (distance - 20) / (RADIUS - 20));
-  return Math.max(0.07, Math.pow(1 - t, 1.5));
+  // Pieno fino a 30 m: prima già a 21 m il tappeto diradava e si vedeva il
+  // terreno nudo a chiazze, come erbacce sparse invece che prato.
+  if (distance <= 30) return 1;
+  const t = Math.min(1, (distance - 30) / (RADIUS - 30));
+  return Math.max(0.1, Math.pow(1 - t, 1.5));
 }
 
 /** Scala verticale naturale: sterpaglie e bordi di campo possono superare 1,5 m. */
@@ -35,14 +37,20 @@ export function grassBladeHeightScale(
     throw new RangeError('I parametri di crescita dell’erba devono essere finiti');
   }
   const verge = roadDistance >= 2.7 && roadDistance <= 6.4;
+  // Erba di ottobre: alta, ma non un canneto uniforme. Metà dei ciuffi sono
+  // sterpaglie da 70-110 cm, un terzo erba media e il resto prato basso: è la
+  // stratificazione che si vede nel campo (e nel riferimento), mentre una
+  // sola altezza per tutti legge come una siepe di bambù.
   const tallChance =
-    cover === COVER_DRY ? 0.42 :
-    cover === COVER_CROP ? 0.015 :
-    cover === COVER_WOOD ? 0.025 :
-    verge ? 0.2 : 0.06;
+    cover === COVER_DRY ? 0.58 :
+    cover === COVER_CROP ? 0.02 :
+    cover === COVER_WOOD ? 0.28 :
+    verge ? 0.6 : 0.5;
+  const midChance = 0.35;
   const height = Math.max(0, Math.min(1, heightRoll));
-  if (tallRoll >= tallChance) return 1.8 + height * 1.6;
-  return 7.5 + height * 2.5;
+  if (tallRoll < tallChance) return 4.4 + height * 2.6;
+  if (tallRoll < tallChance + midChance) return 2.4 + height * 1.4;
+  return 1.2 + height * 0.9;
 }
 
 /** Altezza del ciuffo in metri, prima della scala per istanza. */
@@ -228,7 +236,9 @@ export class GrassField {
   private static buildGeometry(): THREE.BufferGeometry {
     // ciuffi più larghi: a parità di istanze coprono più suolo e il prato
     // smette di sembrare una griglia di puntini verdi
-    const blade = new THREE.PlaneGeometry(0.27, TUFT_HEIGHT, 1, 1);
+    // Ciuffi larghi: a parità di istanze coprono più suolo e il prato non
+    // sembra una fila di spazzolini verdi sul terreno nudo.
+    const blade = new THREE.PlaneGeometry(0.48, TUFT_HEIGHT, 1, 1);
     blade.translate(0, TUFT_HEIGHT / 2, 0);
     const parts: THREE.BufferGeometry[] = [blade];
     for (const angle of [Math.PI / 3, (Math.PI * 2) / 3]) {
@@ -243,8 +253,9 @@ export class GrassField {
     const colors = new Float32Array(position.count * 3);
     for (let i = 0; i < position.count; i++) {
       const t = Math.max(0, Math.min(1, position.getY(i) / TUFT_HEIGHT));
-      // base al 48%, punta piena: il ciuffo non è un quad verde piatto
-      const shade = 0.48 + 0.52 * t;
+      // base al 62%, punta piena: il ciuffo non è un quad verde piatto, ma non
+      // deve nemmeno diventare nero contro il prato chiaro del terreno
+      const shade = 0.74 + 0.26 * t;
       colors[i * 3] = shade;
       colors[i * 3 + 1] = shade;
       colors[i * 3 + 2] = shade;
@@ -280,8 +291,10 @@ export class GrassField {
       const ctrlY = baseY - height * 0.55;
 
       // verde con variazione di luminosità e punta più chiara
-      const hue = 78 + rng() * 26;
-      const light = 32 + rng() * 22;
+      const hue = 72 + rng() * 34;
+      // Lame chiare e giallastre come l'erba di ottobre: a luminosità 32-54%
+      // il ciuffo controluce diventava quasi nero.
+      const light = 50 + rng() * 22;
       ctx.strokeStyle = `hsl(${hue.toFixed(0)} 34% ${light.toFixed(0)}%)`;
       ctx.lineCap = 'round';
       // lame sottili: con tratti spessi il ciuffo legge come una foglia, non erba
@@ -454,7 +467,9 @@ export class GrassField {
 
     // una sola rasterizzazione di strade/edifici/pendio: le 480.000 query
     // per rifiuto casuale diventano una lookup su array
-    this.mask.build(x, z, heights, roads, buildings, 2.7, 0.5, this.paved, areas);
+    // 1,6 m dal ciglio: il tappeto arriva a ridosso della spalla, senza
+    // lasciare la fascia spelacchiata larga 3 m che si vedeva accanto all'asfalto
+    this.mask.build(x, z, heights, roads, buildings, 1.6, 0.5, this.paved, areas);
     const n = this.mask.n;
     const cellSize = this.mask.cellSize;
     let valid = 0;
@@ -505,7 +520,9 @@ export class GrassField {
       color: new THREE.Color(),
       // verdi leggermente spenti, con qualche tono più secco: un prato
       // molisano non è un tappeto da campo da golf
-      palette: [0x7d8f5c, 0x8a9b68, 0x748455, 0x93a26f, 0x7f8f5f, 0x8d9260],
+      // verdi caldi e chiari, vicini al colore del terreno: il prato non deve
+      // sembrare un tappeto di aghi scuri appoggiato su un campo pallido
+      palette: [0xa9b982, 0xb7c48f, 0x9fb075, 0xc2cc9a, 0xadb98a, 0xb5bb8f],
       // bianco e giallo sono i più comuni, il papavero è l'accento
       flowerPalette: [0xf2f0dc, 0xf2f0dc, 0xe8cf63, 0xe8cf63, 0xb08ac0, 0xc4483a],
       valid,

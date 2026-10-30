@@ -131,12 +131,15 @@ export function buildRoadsideKit(
   const group = new THREE.Group();
   group.name = 'roadside-kit';
   const total = Math.max(0, Math.round(budget));
-  const sidewalkAssets = kit
-    .variants('sidewalk')
-    .filter((asset) => moduleLength(asset) >= 4);
-  const curbAssets = kit
-    .variants('curb')
-    .filter((asset) => moduleLength(asset) >= 2);
+  // Marciapiedi e cordoli procedurali sono l'unica superficie: seguono la
+  // curva della spline, hanno la quota letta dalla fisica e stanno dentro il
+  // nastro stradale senza sovrapposizioni. I moduli GLB (11.000 triangoli a
+  // lastra) venivano appoggiati *sopra* quel nastro: due superfici a 4 mm di
+  // distanza, che da lontano facevano z-fighting e da vicino sembravano
+  // piastrelle cadute lungo la provinciale. Restano nel kit per altri usi, qui
+  // non si istanziano più.
+  const sidewalkAssets: WorldAsset[] = [];
+  const curbAssets: WorldAsset[] = [];
   if (total === 0 || (sidewalkAssets.length === 0 && curbAssets.length === 0)) {
     return { group, sidewalks: 0, curbs: 0 };
   }

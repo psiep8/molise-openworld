@@ -20,25 +20,28 @@ describe('cross-section stradale', () => {
     expect(sampleRoadProfile(roadProfileReach(profile) + 0.01, profile, 0.2)).toBeNull();
   });
 
-  it('costruisce banchina, cunetta trapezoidale e raccordo esattamente sul DEM', () => {
+  it('costruisce banchina, ciglione dolce e raccordo esattamente sul DEM', () => {
     const profile = createRoadProfile({ width: 6, paved: true });
     const lift = 0.2;
     const points = ruralProfilePoints(profile, lift);
-    expect(points).toHaveLength(4);
-    expect(sampleRoadProfile(3 + ROAD_PROFILE.shoulderWidth, profile, lift)?.offset).toBeCloseTo(lift - 0.05);
+    expect(points).toHaveLength(2);
+    expect(sampleRoadProfile(3 + ROAD_PROFILE.shoulderWidth, profile, lift)?.offset).toBeCloseTo(
+      lift - ROAD_PROFILE.shoulderDrop,
+    );
     for (const point of points) {
       expect(sampleRoadProfile(point.distance, profile, lift)?.offset).toBeCloseTo(point.offset, 8);
     }
 
-    const bottom = points[1]!;
+    // Niente trincea: una sola falda erbosa che raccorda la spalla al DEM,
+    // con pendenza da prato (sotto i 10°), non le pareti della vecchia cunetta.
     const start = points[0]!;
-    const exit = points[2]!;
-    const downAngle = (Math.atan(Math.abs((bottom.offset - start.offset) / (bottom.distance - start.distance))) * 180) / Math.PI;
-    const upAngle = (Math.atan(Math.abs((exit.offset - bottom.offset) / (exit.distance - bottom.distance))) * 180) / Math.PI;
-    expect(downAngle).toBeLessThanOrEqual(33);
-    expect(upAngle).toBeLessThanOrEqual(33);
+    const exit = points[1]!;
+    const angle = (Math.atan(Math.abs((exit.offset - start.offset) / (exit.distance - start.distance))) * 180) / Math.PI;
+    expect(angle).toBeLessThanOrEqual(10);
     expect(points.at(-1)!.offset).toBe(0);
-    expect(roadProfileReach(profile) - profile.halfWidth).toBeCloseTo(3.4);
+    expect(roadProfileReach(profile) - profile.halfWidth).toBeCloseTo(
+      ROAD_PROFILE.shoulderWidth + ROAD_PROFILE.ditchWidth + ROAD_PROFILE.vergeWidth,
+    );
     expect(sampleRoadProfile(roadProfileReach(profile), profile, lift)?.offset).toBe(0);
     expect(sampleRoadProfile(roadProfileReach(profile) + 0.03, profile, lift)).toBeNull();
   });

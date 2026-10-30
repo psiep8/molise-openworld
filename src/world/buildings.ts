@@ -843,7 +843,7 @@ export function buildBuildings(
         new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.96, metalness: 0, envMapIntensity: 0.3 }),
       );
       mesh.name = 'plinths';
-      mesh.castShadow = true;
+      mesh.castShadow = false;
       mesh.receiveShadow = true;
       group.add(mesh);
     }
@@ -853,7 +853,11 @@ export function buildBuildings(
     if (merged) {
       const mesh = new THREE.Mesh(merged, trimMat);
       mesh.name = 'building-trim';
-      mesh.castShadow = true;
+      // Niente ombra: cornicioni, stipiti e persiane sono spessi 7-15 cm, sotto
+      // il texel della shadow map (1024 su 340 m ≈ 33 cm) non si vedono, ma la
+      // mesh è unica per tutto il mondo e finisce *intera* nella passata ombre:
+      // 2,9 M triangoli per disegnare ombre che nessuno distingue.
+      mesh.castShadow = false;
       mesh.receiveShadow = true;
       group.add(mesh);
     }
@@ -863,6 +867,7 @@ export function buildBuildings(
     if (merged) {
       const mesh = new THREE.Mesh(merged, glassMat);
       mesh.name = 'building-glass';
+      mesh.castShadow = false;
       mesh.receiveShadow = true;
       group.add(mesh);
     }
@@ -872,6 +877,7 @@ export function buildBuildings(
     if (merged) {
       const mesh = new THREE.Mesh(merged, glassLitMat);
       mesh.name = 'building-glass-lit';
+      mesh.castShadow = false;
       mesh.receiveShadow = true;
       group.add(mesh);
     }

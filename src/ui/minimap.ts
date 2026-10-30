@@ -1,5 +1,5 @@
-import { CENTER_LAT, HOME, latLonToWorld, VILLAGES, WORLD } from '../config';
-import { clamp, type Pt } from '../geo/geo';
+import { HOME, latLonToWorld, VILLAGES, WORLD } from '../config';
+import type { Pt } from '../geo/geo';
 import type { OsmData } from '../geo/osm';
 import { OPEN_WORLD_IMAGERY, type TileProvider } from '../world/imagery';
 import { SatelliteBasemap, SatelliteTiles } from './satellite';
@@ -32,22 +32,25 @@ interface MapBuilding {
   maxZ: number;
 }
 
+// Palette cartografica della minimappa vettoriale: le stesse tinte del
+// paesaggio 3D (bosco scuro, prato oliva, coltivo giallastro, acqua blu), con
+// alpha alto abbastanza da leggersi sul fondo scuro.
 const AREA_FILL: Record<string, string> = {
-  wood: 'rgba(46, 66, 39, 0.55)',
-  forest: 'rgba(46, 66, 39, 0.55)',
-  scrub: 'rgba(69, 82, 47, 0.4)',
-  meadow: 'rgba(105, 116, 66, 0.28)',
-  grassland: 'rgba(105, 116, 66, 0.28)',
-  farmland: 'rgba(112, 104, 61, 0.34)',
-  farm: 'rgba(112, 104, 61, 0.34)',
-  allotments: 'rgba(99, 101, 55, 0.36)',
-  water: 'rgba(47, 83, 96, 0.85)',
-  residential: 'rgba(92, 88, 78, 0.35)',
-  industrial: 'rgba(92, 88, 78, 0.35)',
-  quarry: 'rgba(110, 105, 96, 0.4)',
-  vineyard: 'rgba(86, 96, 48, 0.35)',
-  orchard: 'rgba(76, 92, 52, 0.35)',
-  park: 'rgba(66, 88, 50, 0.35)',
+  wood: 'rgba(54, 80, 46, 0.95)',
+  forest: 'rgba(54, 80, 46, 0.95)',
+  scrub: 'rgba(78, 95, 58, 0.85)',
+  meadow: 'rgba(112, 126, 78, 0.7)',
+  grassland: 'rgba(112, 126, 78, 0.7)',
+  farmland: 'rgba(132, 119, 72, 0.72)',
+  farm: 'rgba(132, 119, 72, 0.72)',
+  allotments: 'rgba(118, 118, 66, 0.72)',
+  water: 'rgba(56, 104, 120, 0.96)',
+  residential: 'rgba(122, 112, 94, 0.6)',
+  industrial: 'rgba(118, 112, 102, 0.6)',
+  quarry: 'rgba(128, 122, 111, 0.7)',
+  vineyard: 'rgba(98, 110, 58, 0.72)',
+  orchard: 'rgba(88, 105, 60, 0.72)',
+  park: 'rgba(76, 100, 58, 0.7)',
 };
 
 const ASPHALT = '#f0e8d3';
@@ -131,8 +134,17 @@ export class MapRenderer {
   private readonly mapPad = 48;
   readonly satTiles: SatelliteTiles;
   readonly satMap: SatelliteBasemap;
-  /** true = radar satellite, false = mappa vettoriale notturna */
-  radar = true;
+  /**
+   * true = foto satellite, false = mappa vettoriale.
+   *
+   * La minimappa parte dalla mappa vettoriale: il mosaico locale più fine è
+   * 4096 px sull'intera area di gioco (~3,4 m/px) e a 380 m di scala veniva
+   * ingrandito quasi sei volte, quindi sfocato e con i colori della foto
+   * Sentinel. La cartografia vettoriale è disegnata alla risoluzione del
+   * canvas, resta nitida a ogni zoom e mostra strade, case, boschi e acqua.
+   * `V` riporta la foto, che resta utile per riconoscere i campi dall'alto.
+   */
+  radar = false;
   /** Chiamata quando arrivano nuove tile: il gioco ridisegna le mappe. */
   onUpdate?: () => void;
   /** Base statica della mappa grande (satellite + strade), riusata a ogni frame. */
@@ -407,44 +419,35 @@ export class MapRenderer {
     ctx.beginPath();
     ctx.arc(cx, cy, size / 2 - 3, 0, Math.PI * 2);
     ctx.clip();
-    // Il satellite resta la base della minimappa a ogni zoom. Prima sotto i
-    // 650 m veniva sostituito dalla mappa vettoriale: era nitido, ma non si
-    // vedeva più il terreno vero. Ora la foto locale (fino a z18) fa da sfondo
-    // e le strade vettoriali restano sopra come guida.
-    const radarClose = this.radar;
-    ctx.fillStyle = radarClose ? '#26301f' : '#16201b';
+    // Cartografia vettoriale pura, a ogni zoom. La foto aerea dà 3,5 m per
+    // pixel: sulla minimappa da 260 px era una macchia beige sfocata su cui
+    // nemmeno le strade si leggevano. Il satellite resta solo nella mappa
+    // grande (M), dove c'è spazio per i dettagli veri.
+    // fondo carta: verde-oliva scuro, non nero. Con il nero le aree
+    // semitrasparenti (boschi, prati) sparivano e la mappa sembrava vuota.
+    ctx.fillStyle = '#2b3423';
     ctx.fillRect(0, 0, size, size);
 
-    if (radarClose) {
-      // zoom delle tile scelto perché un pixel di tile copra ~un pixel di
-      // canvas: a 300 m la z17 mostrava pixel grandi e la strada sembrava
-      // sfocata, a 200 m serviva la z18
-      const mpp = viewMeters / size;
-      const ideal = Math.log2((156543.03392 * Math.cos((CENTER_LAT * Math.PI) / 180)) / mpp);
-      this.satTiles.draw(ctx, size, view, viewMeters, clamp(Math.round(ideal), 14, 18));
-    }
-
     const half = viewMeters / 2;
-    if (!radarClose) {
-      for (const a of this.areas) {
-        if (a.maxX < view.x - half || a.minX > view.x + half || a.maxZ < view.z - half || a.minZ > view.z + half) continue;
-        ctx.beginPath();
-        for (let i = 0; i < a.pts.length; i += 2) {
-          const px = cx + (a.pts[i] - view.x) * k;
-          const py = cy + (a.pts[i + 1] - view.z) * k;
-          if (i === 0) ctx.moveTo(px, py);
-          else ctx.lineTo(px, py);
-        }
-        ctx.closePath();
-        ctx.fillStyle = a.color;
-        ctx.fill();
+    for (const a of this.areas) {
+      if (a.maxX < view.x - half || a.minX > view.x + half || a.maxZ < view.z - half || a.minZ > view.z + half) continue;
+      ctx.beginPath();
+      for (let i = 0; i < a.pts.length; i += 2) {
+        const px = cx + (a.pts[i] - view.x) * k;
+        const py = cy + (a.pts[i + 1] - view.z) * k;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
       }
+      ctx.closePath();
+      ctx.fillStyle = a.color;
+      ctx.fill();
     }
 
-    // Le impronte degli edifici restano leggibili anche sopra la foto: a scala
-    // ravvicinata danno il riferimento che i 3,5 m/px del satellite non hanno.
-    // Sopra la foto sono più trasparenti per non coprire il terreno.
-    ctx.fillStyle = radarClose ? 'rgba(45, 42, 37, 0.52)' : 'rgba(45, 42, 37, 0.9)';
+    // Tinta carta topografica: edifici pieni color pietra, contorno scuro.
+    // Prima erano al 52% di opacità e la minimappa sembrava sbiadita.
+    ctx.fillStyle = 'rgba(226, 214, 188, 0.86)';
+    ctx.strokeStyle = 'rgba(28, 30, 22, 0.72)';
+    ctx.lineWidth = Math.max(0.7, 0.8 * u);
     for (const b of this.buildings) {
       if (b.maxX < view.x - half || b.minX > view.x + half || b.maxZ < view.z - half || b.minZ > view.z + half) continue;
       ctx.beginPath();
@@ -456,6 +459,7 @@ export class MapRenderer {
       }
       ctx.closePath();
       ctx.fill();
+      ctx.stroke();
     }
 
     ctx.lineCap = 'round';
@@ -469,22 +473,15 @@ export class MapRenderer {
         if (i === 0) ctx.moveTo(px, py);
         else ctx.lineTo(px, py);
       }
-      if (radarClose) {
-        // sopra la foto aerea bastano poche strade evidenziate
-        ctx.lineWidth = Math.max(1.1, r.width * k * 0.55) * u;
-        ctx.strokeStyle = r.paved ? 'rgba(255, 246, 219, 0.72)' : 'rgba(226, 202, 154, 0.5)';
-        ctx.globalAlpha = 0.8;
-      } else {
-        const width = Math.max(1, r.paved ? 2.8 : 1.35) * u;
-        // bordo scuro: separa la strada dai campi anche su sfondo chiaro
-        ctx.lineWidth = width + 2.2 * u;
-        ctx.strokeStyle = 'rgba(12, 16, 13, 0.72)';
-        ctx.globalAlpha = 1;
-        ctx.stroke();
-        ctx.lineWidth = width;
-        ctx.strokeStyle = r.paved ? ASPHALT : DIRT;
-        ctx.globalAlpha = r.paved ? 1 : 0.8;
-      }
+      const width = Math.max(1, r.paved ? 3.4 : 1.4) * u;
+      // bordo scuro: separa la strada dai campi anche su sfondo chiaro
+      ctx.lineWidth = width + 2.2 * u;
+      ctx.strokeStyle = 'rgba(12, 16, 13, 0.78)';
+      ctx.globalAlpha = 1;
+      ctx.stroke();
+      ctx.lineWidth = width;
+      ctx.strokeStyle = r.paved ? ASPHALT : DIRT;
+      ctx.globalAlpha = r.paved ? 1 : 0.8;
       ctx.stroke();
     }
     ctx.globalAlpha = 1;

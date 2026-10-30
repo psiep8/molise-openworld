@@ -76,7 +76,24 @@ export interface GroundCoverPlan {
 }
 
 const DEFAULT_MAX_RADIUS = 60;
-const DEFAULT_LIFT = 0.035;
+const DEFAULT_LIFT = 0.015;
+/**
+ * Spostamenti provati quando il centro della cella cade su strada o casa.
+ * In paese il passo della griglia (16 m) cade quasi sempre su un edificio: se
+ * la cella venisse scartata, il cortile e il prato dietro la casa resterebbero
+ * al mosaico satellite. Con uno scivolamento di un terzo del passo la zolla
+ * trova lo spazio libero e copre comunque la cella.
+ */
+const NUDGES: readonly (readonly [number, number])[] = [
+  [0.33, 0],
+  [-0.33, 0],
+  [0, 0.33],
+  [0, -0.33],
+  [0.24, 0.24],
+  [-0.24, 0.24],
+  [0.24, -0.24],
+  [-0.24, -0.24],
+];
 
 function hash2(x: number, z: number): number {
   const value = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453;
@@ -144,21 +161,43 @@ export function planGroundCover(options: GroundCoverOptions): GroundCoverPlan {
   for (const cell of groundGridCells(x, z, radius, spacing)) {
     if (spots.length >= count) break;
     cells++;
-    const px = cell.x;
-    const pz = cell.z;
-    const cellSeed = hash2(px + seed * 7.1, pz - seed * 3.7);
-    const slope = terrainSlopeAt(heightAt, px, pz);
-    const choice = variantAt(px, pz, cellSeed, slope.degrees);
+    let px = cell.x;
+    let pz = cell.z;
+    let cellSeed = hash2(px + seed * 7.1, pz - seed * 3.7);
+    let slope = terrainSlopeAt(heightAt, px, pz);
+    let choice = variantAt(px, pz, cellSeed, slope.degrees);
+    if (!choice) {
+      // Centro occupato da casa o carreggiata: si prova a scivolare dentro la
+      // cella invece di lasciare un buco di 16 m nel suolo del paese.
+      for (const [dx, dz] of NUDGES) {
+        const nx = cell.x + dx * spacing;
+        const nz = cell.z + dz * spacing;
+        const nseed = hash2(nx + seed * 7.1, nz - seed * 3.7);
+        const nslope = terrainSlopeAt(heightAt, nx, nz);
+        const nchoice = variantAt(nx, nz, nseed, nslope.degrees);
+        if (!nchoice) continue;
+        px = nx;
+        pz = nz;
+        cellSeed = nseed;
+        slope = nslope;
+        choice = nchoice;
+        break;
+      }
+    }
     if (!choice) {
       blocked++;
       continue;
     }
     const footprint = Math.max(0.5, choice.asset.footprint);
-    // sovrapposizione dell'8%: le zolle non lasciano fessure nemmeno sulle
-    // pendenze, dove il piano medio inclinato si scosta dal DEM
-    const scale = clamp((spacing * 1.08) / footprint, 1, 2.6) * (choice.scale ?? 1);
+    // Sovrapposizione del 16%: con l'8% bastava una pendenza o un bordo di
+    // zolla inclinato perché si aprisse una fessura da cui si vedeva il
+    // mosaico satellite. Le zolle si accavallano, il suolo resta continuo.
+    const scale = clamp((spacing * 1.16) / footprint, 1, 2.6) * (choice.scale ?? 1);
     const distance = Math.hypot(px - x, pz - z);
     const lod = distance <= nearRadius ? 1 : 2;
+    // Quota dal centro (la zolla è già inclinata col gradiente locale) ma con
+    // un sollevamento minimo: appoggiata più in alto, sugli dossi gli angoli
+    // restano sospesi e da sotto si vede il mosaico satellite.
     spots.push({
       x: px,
       y: heightAt(px, pz) + lift,

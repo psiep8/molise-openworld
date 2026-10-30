@@ -5,28 +5,21 @@ import type { Heightfield } from '../geo/elevation';
 import { clamp, mulberry32, pointInPolygon } from '../geo/geo';
 import type { Area, BuildingIndex, RoadIndex } from '../geo/osm';
 import { windUniforms } from '../gfx/wind';
-import { COVER_CROP, COVER_DRY, COVER_MEADOW, COVER_WOOD, GroundMask, type CoverClass } from './ground-mask';
+import { COVER_CROP, COVER_DRY, COVER_MEADOW, COVER_WOOD, GroundMask } from './ground-mask';
 import type { PavedArea } from './paved';
 import type { ObstacleIndex } from '../geo/obstacles';
 import type { WorldKit, WorldSpot } from './worldkit';
-import { groundAreaBlocksKit, groundKitSlugAt } from './ground-kit-rules';
-import { detailRadiusFor, planGroundCover, type GroundCoverChoice, type GroundCoverPlan, type GroundCoverVariant } from './ground-cover';
+import type { GroundCoverPlan } from './ground-cover';
 
 /**
  * Dettaglio di prossimità di campi e terreno.
  *
  * Il terreno del gioco è un DEM con una texture di copertura; da vicino manca
- * la materia: zolle vere, grano, stoppie, fango e balle di paglia. Questa classe
- * mette insieme tre sistemi che condividono la stessa maschera locale:
- *
- *  - zolle GLB fotogrammetriche (ruolo `ground`) sopra il DEM, scelte per
- *    copertura (prato, terra, roccia, fango);
- *  - accenti di campo GLB (ruolo `field`) nei coltivi;
- *  - grano procedurale istanziato, molto più denso dei ciuffi d'erba.
- *
- * Il grano e le zolle non sono ostacoli: l'auto ci passa dentro e li piega,
- * come l'erba. Le balle di paglia invece sono solide e finiscono in
- * `ObstacleIndex`; il fango cambia la superficie letta dalla fisica.
+ * la materia. Qui c'è il grano procedurale istanziato: spighe vere, fitte, che
+ * ondeggiano col vento e piegano quando l'auto ci passa dentro. Le zolle GLB
+ * fotogrammetriche sono state ritirate (vedi il costruttore): coprivano il
+ * prato con lastre ripetute. Le balle di paglia restano solide e finiscono in
+ * `ObstacleIndex`.
  */
 
 const DETAIL_RADIUS = 72;
@@ -34,23 +27,9 @@ const REBUILD_DISTANCE = 15;
 const MAX_WHEAT = 22000;
 /** Quanto tempo per frame può prendersi la semina di un campo (ms). */
 const WHEAT_STEP_MS = 4;
-const WHEAT_HEIGHT = 1.15;
+const WHEAT_HEIGHT = 0.8;
 /** Il grano lontano non si distingue dall'erba: oltre questa distanza è zavorra. */
 const WHEAT_RADIUS = 68;
-
-function hash2(x: number, z: number): number {
-  const value = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453;
-  return value - Math.floor(value);
-}
-
-function variantEntries(kit: WorldKit, role: 'ground' | 'field' | 'bale' | 'village') {
-  return kit.variants(role).map((asset, index) => ({ asset, index }));
-}
-
-function pick<T>(items: readonly T[], seed: number): T | null {
-  if (items.length === 0) return null;
-  return items[Math.floor(seed * items.length) % items.length] ?? null;
-}
 
 function makeWheatTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
@@ -60,8 +39,10 @@ function makeWheatTexture(): THREE.CanvasTexture {
   if (ctx) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const rng = mulberry32(0x51a7);
-    for (let i = 0; i < 18; i++) {
-      const x = 10 + rng() * 108;
+    // Più spighe per ciuffo: con 18 lame su 128 px il campo sembrava un
+    // insieme di bastoncini radi invece di una coltura fitta.
+    for (let i = 0; i < 26; i++) {
+      const x = 6 + rng() * 116;
       const base = 252;
       const topY = 18 + rng() * 72;
       const bend = (rng() - 0.5) * 34;
@@ -142,10 +123,6 @@ function applyWheatWind(material: THREE.MeshLambertMaterial): void {
 export class WorldFieldDetail {
   readonly group = new THREE.Group();
   private readonly mask = new GroundMask(DETAIL_RADIUS);
-  private readonly groundVariants: ReturnType<typeof variantEntries>;
-  private readonly fieldVariants: ReturnType<typeof variantEntries>;
-  private readonly smallGround: ReturnType<typeof variantEntries>;
-  private readonly largeGround: ReturnType<typeof variantEntries>;
   private readonly wheat: THREE.InstancedMesh;
   private readonly dummy = new THREE.Object3D();
   private readonly wheatColor = new THREE.Color();
@@ -179,15 +156,18 @@ export class WorldFieldDetail {
   } | null = null;
 
   constructor(
-    private readonly kit: WorldKit,
     private readonly paved: readonly PavedArea[] = [],
     private readonly surfaceAt?: (x: number, z: number) => string | null,
   ) {
     this.group.name = 'world-field-detail';
-    this.groundVariants = variantEntries(this.kit, 'ground');
-    this.fieldVariants = variantEntries(this.kit, 'field');
-    this.smallGround = this.groundVariants.filter(({ asset }) => asset.size.x < 8);
-    this.largeGround = this.groundVariants.filter(({ asset }) => asset.size.x >= 8);
+    // Le zolle fotogrammetriche (18-22 m) sono state ritirate dal mondo.
+    //
+    // Da vicino dovevano dare materia al prato, ma erano scansioni di terra e
+    // pietraia: in mezzo a un campo diventavano lastre grigie ripetute, con i
+    // bordi dei triangoli visibili e il prato vero che spariva sotto. Il
+    // terreno procedurale (copertura + erba a istanze) è più coerente, non ha
+    // cuciture e costa zero draw call. Restano il grano, le balle e i casali,
+    // che sono oggetti riconoscibili e non tappeti.
     this.wheat = new THREE.InstancedMesh(
       wheatGeometry(),
       new THREE.MeshLambertMaterial({
@@ -293,215 +273,16 @@ export class WorldFieldDetail {
     this.density = crop;
     this.active = true;
     this.mud = [];
+    // Zolle e accenti di campo GLB sono ritirati (vedi il costruttore): il
+    // piano di copertura non serve più, resta solo la maschera per il grano.
+    this.plan = null;
+    this.detailPlan = null;
     const startedAt = typeof performance !== 'undefined' ? performance.now() : 0;
 
-    // Keep the entire visual/physical road cross-section clear of loose GLB
-    // ground tiles; shoulders and ditches are built from the same road profile.
-    this.mask.build(x, z, heights, roads, buildings, 3.4, 0.7, this.paved, areas);
+    this.mask.build(x, z, heights, roads, buildings, 0.9, 0.35, this.paved, areas);
 
-    const groundSpots: WorldSpot[] = [];
-    const fieldSpots: WorldSpot[] = [];
-    const groundAreas = areas.filter(
-      (area) =>
-        area.bounds.maxX >= x - 65 &&
-        area.bounds.minX <= x + 65 &&
-        area.bounds.maxZ >= z - 65 &&
-        area.bounds.minZ <= z + 65,
-    );
-    const smallCap = Math.ceil(budget * 0.18);
-    const largeCap = budget - smallCap;
-
-    // Varianti ampie in un anello di qualità scalabile: la griglia è ordinata
-    // dal giocatore verso l'esterno, così il tetto per preset non lascia il
-    // terreno vicino scoperto solo perché l'iterazione partiva da nord-ovest.
-    // Griglia contigua, non più estrazioni casuali: ogni cella libera riceve
-    // una zolla e le scale si sovrappongono dell'8%. Il raggio nasce dal budget
-    // (`groundDetail`: 8/22/38/54) e arriva al massimo a 60 m.
-    const largeVariants = this.groundVariantMeta(this.largeGround);
-    const minimumLargeFootprint = this.largeGround.reduce(
-      (size, entry) => Math.min(size, entry.asset.size.x, entry.asset.size.z),
-      18,
-    );
-    const largeStep = Math.max(13, Math.min(18, minimumLargeFootprint * 0.92));
-    this.plan = planGroundCover({
-      x,
-      z,
-      budget: largeCap,
-      spacing: largeStep,
-      maxRadius: 60,
-      heightAt: (sx, sz) => this.mask.heightAt(sx, sz),
-      variantAt: (px, pz, seed, slopeDegrees) => {
-        if (groundAreaBlocksKit(px, pz, groundAreas)) return null;
-        const i = Math.floor((px - this.mask.originX) / this.mask.cellSize);
-        const j = Math.floor((pz - this.mask.originZ) / this.mask.cellSize);
-        if (i < 0 || j < 0 || i >= this.mask.n || j >= this.mask.n) return null;
-        if (this.mask.isBlocked(i, j)) return null;
-        const cover = this.mask.coverAt(i, j);
-        const surface = this.surfaceAt?.(px, pz) ?? null;
-        const roadDistance = roads.distanceFromRoad(px, pz);
-        const chosen = this.pickGround(cover, surface, slopeDegrees, roadDistance, seed, wetness);
-        if (!chosen) return null;
-        const asset = largeVariants.get(chosen.index);
-        if (!asset) return null;
-        if (chosen.asset.slug === 'ground-mud') {
-          this.mud.push({ x: px, z: pz, radius: Math.max(3, chosen.asset.size.x * 0.44) });
-        }
-        return { asset } satisfies GroundCoverChoice;
-      },
-    });
-    groundSpots.push(...this.plan.spots);
-
-    // Fotogrammetrie piccole solo come dettaglio vicino ai piedi, anch'esse su
-    // griglia contigua: riempiono i buchi fra le zolle grandi dove si guarda
-    // da vicino, senza spendere triangoli a 60 m.
-    const smallStep = Math.max(
-      4,
-      Math.min(5, (this.smallGround[0]?.asset.size.x ?? 5) * 0.92),
-    );
-    const smallRadius = detailRadiusFor(smallCap, smallStep);
-    const smallVariants = this.groundVariantMeta(this.smallGround);
-    this.detailPlan = planGroundCover({
-      x,
-      z,
-      budget: smallCap,
-      spacing: smallStep,
-      maxRadius: smallRadius,
-      heightAt: (sx, sz) => this.mask.heightAt(sx, sz),
-      lift: 0.042,
-      variantAt: (px, pz, seed, slopeDegrees) => {
-        if (groundAreaBlocksKit(px, pz, groundAreas)) return null;
-        const i = Math.floor((px - this.mask.originX) / this.mask.cellSize);
-        const j = Math.floor((pz - this.mask.originZ) / this.mask.cellSize);
-        if (i < 0 || j < 0 || i >= this.mask.n || j >= this.mask.n) return null;
-        if (this.mask.isBlocked(i, j)) return null;
-        const cover = this.mask.coverAt(i, j);
-        const surface = this.surfaceAt?.(px, pz) ?? null;
-        const roadDistance = roads.distanceFromRoad(px, pz);
-        if (
-          !groundKitSlugAt({
-            cover,
-            slopeDegrees,
-            distanceToRoad: roadDistance,
-            surface,
-            seed,
-          })
-        ) {
-          return null;
-        }
-        const list = this.smallGround;
-        const entry = list[Math.floor(hash2(px - 1, pz + 2) * list.length)];
-        const asset = entry ? smallVariants.get(entry.index) : undefined;
-        if (!asset) return null;
-        return {
-          asset,
-          scale: 0.9 + hash2(px - 9, pz + 6) * 0.2,
-          yaw: hash2(px + 7, pz - 2) * Math.PI * 2,
-        } satisfies GroundCoverChoice;
-      },
-    });
-    groundSpots.push(...this.detailPlan.spots);
-
-    // accenti di campo: i GLB di coltivo/stoppie danno scala e materia dove il
-    // grano procedurale non arriva (bordi, capezzagne, campi riposati)
-    const fieldCap = Math.max(2, Math.round(8 * this.cropBudget));
-    let fieldUsed = 0;
-    if (this.fieldVariants.length > 0 && fieldCap > 0) {
-      for (let gz = Math.ceil(this.mask.originZ / 16) * 16; gz < this.mask.originZ + this.mask.n * this.mask.cellSize; gz += 16) {
-        if (fieldUsed >= fieldCap) break;
-        for (let gx = Math.ceil(this.mask.originX / 16) * 16; gx < this.mask.originX + this.mask.n * this.mask.cellSize; gx += 16) {
-          if (fieldUsed >= fieldCap) break;
-          const seed = hash2(gx + 17, gz - 23);
-          if (seed > 0.34) continue;
-          const px = gx + (hash2(gx + 4, gz + 8) - 0.5) * 9;
-          const pz = gz + (hash2(gx - 6, gz - 4) - 0.5) * 9;
-          if (Math.hypot(px - x, pz - z) > DETAIL_RADIUS - 12) continue;
-          const i = Math.floor((px - this.mask.originX) / this.mask.cellSize);
-          const j = Math.floor((pz - this.mask.originZ) / this.mask.cellSize);
-          if (i < 0 || j < 0 || i >= this.mask.n || j >= this.mask.n) continue;
-          if (this.mask.isBlocked(i, j)) continue;
-          const cover = this.mask.coverAt(i, j);
-          const surface = this.surfaceAt?.(px, pz) ?? null;
-          if (cover === COVER_WOOD) continue;
-          if (cover === COVER_MEADOW && surface !== 'dirt') continue;
-          if (heights.slopeAt(px, pz) > 9) continue;
-          const chosen = this.pickField(seed, fieldUsed);
-          if (!chosen) continue;
-          const scale = clamp(7 / Math.max(chosen.asset.size.x, 1), 0.18, 1.15);
-          fieldSpots.push({
-            x: px,
-            y: this.mask.heightAt(px, pz) + 0.03,
-            z: pz,
-            yaw: hash2(gx - 3, gz + 13) * Math.PI * 2,
-            scale,
-            variant: chosen.index,
-          });
-          fieldUsed++;
-        }
-      }
-    }
-
-    this.rebuildMeshes(groundSpots, fieldSpots);
     this.rebuildWheat(x, z, heights);
     if (typeof performance !== 'undefined') this.planMs = performance.now() - startedAt;
-  }
-
-  private pickField(seed: number, used: number) {
-    const hero = this.fieldVariants.find(({ asset }) => asset.hero);
-    if (hero && used === 0 && seed > 0.72) return hero;
-    const ordinary = this.fieldVariants.filter(({ asset }) => !asset.hero);
-    return pick(ordinary.length ? ordinary : this.fieldVariants, seed);
-  }
-
-  /** Metadati delle varianti per il pianificatore puro della copertura. */
-  private groundVariantMeta(
-    entries: ReturnType<typeof variantEntries>,
-  ): Map<number, GroundCoverVariant> {
-    const out = new Map<number, GroundCoverVariant>();
-    for (const { asset, index } of entries) {
-      out.set(index, {
-        slug: asset.slug,
-        footprint: Math.min(asset.size.x, asset.size.z),
-        variant: index,
-        triangles: asset.triangles,
-      });
-    }
-    return out;
-  }
-
-  private pickGround(
-    cover: CoverClass,
-    surface: string | null,
-    slopeDegrees: number,
-    distanceToRoad: number,
-    seed: number,
-    wetness: number,
-  ) {
-    const slug = groundKitSlugAt({ cover, surface, slopeDegrees, distanceToRoad, seed, wetness });
-    if (!slug) return null;
-    const selected = this.largeGround.find(({ asset }) => asset.slug === slug);
-    return selected ?? pick(this.largeGround, seed);
-  }
-
-  private rebuildMeshes(groundSpots: WorldSpot[], fieldSpots: WorldSpot[]): void {
-    for (const mesh of this.meshes) this.group.remove(mesh);
-    for (const mesh of this.meshes) {
-      mesh.traverse((object) => {
-        if (object instanceof THREE.InstancedMesh) object.dispose();
-      });
-    }
-    this.meshes = [];
-    if (groundSpots.length) {
-      const ground = this.kit.instances('ground', groundSpots, { castShadow: false, receiveShadow: true });
-      ground.name = 'world-ground-patches';
-      this.meshes.push(ground);
-      this.group.add(ground);
-    }
-    if (fieldSpots.length) {
-      const field = this.kit.instances('field', fieldSpots, { castShadow: false, receiveShadow: true });
-      field.name = 'world-field-patches';
-      this.meshes.push(field);
-      this.group.add(field);
-    }
   }
 
   /**

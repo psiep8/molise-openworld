@@ -1,6 +1,17 @@
 import * as THREE from 'three';
 import { FAR_TOWNS, GAME, HOME, START, VIEW_RADIUS, VILLAGES, latLonToWorld, worldToLatLon } from './config';
-import { clamp, distance2, pointInPolygon, smoothstep, type Pt } from './geo/geo';
+import { clamp, distance2, distanceToSegment2, pointInPolygon, smoothstep, type Pt } from './geo/geo';
+
+/** Vero se il punto è dentro il poligono o a meno di `margin` dal suo bordo. */
+function nearPolygon(x: number, z: number, points: readonly Pt[], margin: number): boolean {
+  const limit = margin * margin;
+  for (let i = 0, p = points.length - 1; i < points.length; p = i++) {
+    const a = points[i]!;
+    const b = points[p]!;
+    if (distanceToSegment2(x, z, b.x, b.z, a.x, a.z) <= limit) return true;
+  }
+  return false;
+}
 import { loadCanopy, type CanopyField } from './geo/canopy';
 import { loadHeightfield, type Heightfield } from './geo/elevation';
 import { OPEN_WORLD_DATA_PROVIDER, tileKey, WorldTileManager } from './geo/world-tiles';
@@ -500,6 +511,23 @@ export class Game {
    */
   private degradeStep = 0;
   private slowChecks = 0;
+  /**
+   * `?fixed=1` (o `?nodegrade=1`): niente degradazione adattiva.
+   *
+   * Serve a chi vuole vedere e provare **tutto** il preset scelto: senza questo
+   * blocco, qualche secondo sotto i 30 fps toglie ombre, riduce il raggio e
+   * abbassa la risoluzione, quindi il confronto "prima/dopo" non è più sullo
+   * stesso mondo.
+   */
+  private readonly fixedQuality = (() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('fixed') === '1' || params.get('nodegrade') === '1';
+    } catch {
+      return false;
+    }
+  })();
   /** raggio di streaming corrente: parte dal preset e scende se serve */
   private viewRadius = VIEW_RADIUS;
   /** montagne lontane oltre il DEM (null finché il mondo non è caricato) */
@@ -1011,11 +1039,7 @@ export class Game {
       this.landcover.setSeason(monthForGameDay(this.gameDay));
       const landcoverSurface = (x: number, z: number) => this.landcover?.surfaceAt(x, z) ?? null;
       if (this.worldKit && this.quality.worldProps) {
-        this.fieldDetail = new WorldFieldDetail(
-          this.worldKit,
-          this.pavedAreas,
-          landcoverSurface,
-        );
+        this.fieldDetail = new WorldFieldDetail(this.pavedAreas, landcoverSurface);
         this.scene.add(this.fieldDetail.group);
         this.strawBalesGroup = buildStrawBales(
           this.worldKit,
@@ -1351,6 +1375,39 @@ export class Game {
     this.hud.toast('Garage importato svuotato', 2400);
   }
 
+  /**
+   * Sposta una posa di mezzeria nella corsia di destra, senza cambiarne
+   * l'orientamento. Le pose di spawn e del banco prova nascevano sulla
+   * mezzeria, con il tratteggio che passava sotto la scocca dell'auto.
+   */
+  private intoRightLane(x: number, z: number, yaw: number): { x: number; z: number } {
+    let best = 30;
+    let width = 0;
+    for (const road of this.osm.roads) {
+      if (!road.paved) continue;
+      // sul rettilineo i nodi OSM stanno anche 40-50 m l'uno dall'altro:
+      // serve la distanza dal segmento, non dal singolo nodo
+      for (let i = 0; i < road.points.length - 1; i++) {
+        const a = road.points[i]!;
+        const b = road.points[i + 1]!;
+        const dx = b.x - a.x;
+        const dz = b.z - a.z;
+        const len2 = dx * dx + dz * dz;
+        if (len2 < 1e-6) continue;
+        const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / len2));
+        const d = Math.hypot(x - (a.x + dx * t), z - (a.z + dz * t));
+        if (d < best) {
+          best = d;
+          width = road.width;
+        }
+      }
+    }
+    if (!width) return { x, z };
+    // metà corsia: la mezzeria resta fuori dal profilo dell'auto
+    const lane = Math.min(1.9, Math.max(1.1, width * 0.24));
+    return { x: x + Math.cos(yaw) * lane, z: z - Math.sin(yaw) * lane };
+  }
+
   /** Cerca il punto più vicino su una strada asfaltata, con l'orientamento della carreggiata. */
   private findRoadPose(x: number, z: number, clearance = 0): RoadPose | null {
     let best: RoadPose | null = null;
@@ -1369,7 +1426,11 @@ export class Game {
         best = { x: p.x, z: p.z, yaw, distance: d };
       }
     }
-    return best;
+    if (!best) return null;
+    const lane = this.intoRightLane(best.x, best.z, best.yaw);
+    // se la corsia è occupata (muro a filo strada), resta la mezzeria libera
+    if (clearance > 0 && this.buildingIndex.resolveCircle(lane.x, lane.z, clearance).hit) return best;
+    return { ...best, x: lane.x, z: lane.z };
   }
 
   /** Colonna luminosa sulla destinazione dell'itinerario. */
@@ -3429,6 +3490,7 @@ export class Game {
    * evita che la grafica oscilli fra due livelli.
    */
   private tunePerformance(): void {
+    if (this.fixedQuality) return;
     const floor = this.quality.renderScaleFloor;
     // La risoluzione è l'ultima risorsa: abbassarla è il modo più rapido per
     // riempire lo schermo di scalini. Prima si tolgono ombre ed erba (che non
@@ -3594,7 +3656,10 @@ export class Game {
     this.hud.setMode(view.mode);
 
     if (view.mode === 'drive') {
-      this.car.reset(view.x, view.z, view.yaw, this.ground);
+      // la posa del banco prova è sulla mezzeria: l'auto va nella sua corsia,
+      // altrimenti il tratteggio le passa in mezzo alla scocca
+      const lane = this.intoRightLane(view.x, view.z, view.yaw);
+      this.car.reset(lane.x, lane.z, view.yaw, this.ground);
       // 80 km/h: la posa è ferma per riproducibilità, ma velocità e camera
       // sono quelle della vista in movimento richiesta dal brief.
       this.car.state.speed = 80 / 3.6;
@@ -4101,8 +4166,11 @@ export class Game {
     const target = this.tmp2.set(this.player.position.x, this.player.position.y + 1.45, this.player.position.z);
     const desired = this.tmp3.copy(target).addScaledVector(dir, -4.4);
     desired.y = Math.max(desired.y, this.ground.heightAt(desired.x, desired.z) + 0.75);
-    this.constrainCameraToBuildings(target, desired);
-    this.camera.position.lerp(desired, 1 - Math.exp(-14 * dt));
+    // Se il muro è dietro il giocatore, la camera si accorcia ma ci arriva con
+    // un lerp rapido (non con un teletrasporto): il salto istantaneo al punto
+    // corretto era quello che faceva "strappare" l'inquadratura.
+    const blocked = this.constrainCameraToBuildings(target, desired);
+    this.camera.position.lerp(desired, 1 - Math.exp(-(blocked ? 30 : 14) * dt));
     this.constrainCameraToBuildings(target, this.camera.position);
     this.camera.lookAt(target);
   }
@@ -4120,7 +4188,6 @@ export class Game {
     const car = this.car.state;
     const fx = -Math.sin(car.yaw);
     const fz = -Math.cos(car.yaw);
-    const blend = snap ? 1 : 1 - Math.exp(-7.5 * dt);
 
     if (this.driveCam === 2) {
       // cofano: bassa, davanti al parabrezza, sguardo lungo la strada
@@ -4160,21 +4227,40 @@ export class Game {
       this.car.position.y + 1.2,
       car.z + fz * ahead,
     );
-    this.constrainCameraToBuildings(target, desired);
+    // Niente teletrasporto quando l'auto è contro un muro: la camera si
+    // avvicina al punto libero con un lerp molto rapido. Il vecchio "copia
+    // subito" la faceva saltare sopra il tetto e ruotare di colpo, ed era il
+    // bug che si vedeva sbattendo contro una casa.
+    const blocked = this.constrainCameraToBuildings(target, desired);
+    const rate = snap ? Infinity : blocked ? 34 : 7.5;
     if (snap) this.camera.position.copy(desired);
-    else this.camera.position.lerp(desired, blend);
+    else this.camera.position.lerp(desired, 1 - Math.exp(-rate * dt));
     this.constrainCameraToBuildings(target, this.camera.position);
 
     this.camera.lookAt(target);
   }
 
-  private constrainCameraToBuildings(target: THREE.Vector3, position: THREE.Vector3): void {
+  /**
+   * Toglie la camera da dentro i muri.
+   *
+   * Prima il test usava il punto esatto del poligono: bastava un campione ogni
+   * 0,75 m perché la camera si fermasse **dentro** il muro di facciata, e da lì
+   * si vedevano gli interni (stipiti, vetri, vani) e il "muro invisibile" della
+   * collisione. Ora il test ha un margine, il ritiro è più largo del passo e,
+   * se la camera finirebbe a ridosso dell'auto, sale sopra il tetto invece di
+   * infilarsi nella casa.
+   *
+   * Ritorna `true` quando la posizione è stata corretta: in quel caso va
+   * applicata subito, non interpolata, altrimenti il lerp la attraversa.
+   */
+  private constrainCameraToBuildings(target: THREE.Vector3, position: THREE.Vector3): boolean {
     const dx = position.x - target.x;
     const dy = position.y - target.y;
     const dz = position.z - target.z;
     const distance = Math.hypot(dx, dy, dz);
-    if (distance < 1) return;
-    const samples = Math.ceil(distance / 0.75);
+    if (distance < 1) return false;
+    const samples = Math.ceil(distance / 0.5);
+    const margin = 0.55;
 
     for (let i = 1; i <= samples; i++) {
       const t = i / samples;
@@ -4183,19 +4269,27 @@ export class Game {
       const z = target.z + dz * t;
       for (const building of this.buildingIndex.near(x, z)) {
         if (
-          x < building.bounds.minX ||
-          x > building.bounds.maxX ||
-          z < building.bounds.minZ ||
-          z > building.bounds.maxZ ||
-          !pointInPolygon(x, z, building.points)
+          x < building.bounds.minX - margin ||
+          x > building.bounds.maxX + margin ||
+          z < building.bounds.minZ - margin ||
+          z > building.bounds.maxZ + margin
         ) continue;
         const roof = this.ground.heightAt(x, z) + building.height;
         if (y >= roof) continue;
-        const safeT = Math.max(0, t - 0.9 / distance);
+        if (!pointInPolygon(x, z, building.points) && !nearPolygon(x, z, building.points, margin)) {
+          continue;
+        }
+        const safeT = Math.max(0, t - (1.2 + margin) / distance);
         position.set(target.x + dx * safeT, target.y + dy * safeT, target.z + dz * safeT);
-        return;
+        // Se il muro è a ridosso dell'auto non si sale sul tetto (era un salto
+        // di 5-6 m con la camera che guardava giù a picco): si alza appena la
+        // camera, quanto basta a non infilarsi nella facciata.
+        const boom = safeT * distance;
+        if (boom < 2.2) position.y += 1.5 * (1 - boom / 2.2);
+        return true;
       }
     }
+    return false;
   }
 
   private snapWalkCamera(): void {

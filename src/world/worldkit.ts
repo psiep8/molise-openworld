@@ -295,10 +295,29 @@ export interface WorldHitMesh {
   variant: number;
 }
 
-/** Altezza del sottoalbero nel mondo (dopo le trasformazioni dei padri). */
+/**
+ * Ingombro delle **mesh** del sottoalbero, non dei nodi.
+ *
+ * `Box3.expandByObject` include anche figli senza geometria e helper: sul
+ * `ground-field-tile` un nodo vuoto a y=0 allargava il box fino a 15 m, così la
+ * normalizzazione lasciava la mesh sospesa 7,6 m sopra il terreno (il lastrone
+ * grigio che attraversava la strada). Qui si guardano solo le geometrie che si
+ * disegnano davvero.
+ */
 function subtreeBox(nodes: THREE.Object3D[]): THREE.Box3 {
   const box = new THREE.Box3();
-  for (const node of nodes) box.expandByObject(node);
+  const part = new THREE.Box3();
+  for (const node of nodes) {
+    node.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      if (!(mesh as unknown as { isMesh?: boolean }).isMesh || !mesh.geometry) return;
+      mesh.geometry.computeBoundingBox();
+      const geometryBox = mesh.geometry.boundingBox;
+      if (!geometryBox) return;
+      part.copy(geometryBox).applyMatrix4(mesh.matrixWorld);
+      box.union(part);
+    });
+  }
   return box;
 }
 
@@ -397,6 +416,14 @@ function buildAsset(
         }
         // tutti i ruoli passano di qui: anche sassi e case devono bagnarsi
         applySurface(material, entry.role, entry.height);
+        if (entry.role === 'ground') {
+          // Le foto di terreno sono più scure della landcover dipinta dal
+          // terreno (albedo reale contro colore pastello): senza questa
+          // correzione la zolla sembrava una toppa bagnata in mezzo al prato.
+          material.color.multiplyScalar(1.22);
+          material.roughness = 1;
+          material.metalness = 0;
+        }
         material.needsUpdate = true;
         materialCache.set(base, material);
       }
@@ -417,6 +444,38 @@ function buildAsset(
     }
   }
   if (parts.length === 0) return null;
+  // Ultima normalizzazione sulle geometrie vere: alcuni GLB hanno il nodo
+  // ruotato o figli vuoti che falsano il box del sottoalbero. Il campo
+  // `ground-field-tile`, per esempio, restava sospeso 7,6 m sopra il terreno
+  // con una zolla alta 15 m solo di bounding box. Qui si misura ciò che si
+  // disegna, si porta la base a y = 0 e si adatta all'impronta dichiarata.
+  const finalBox = new THREE.Box3();
+  for (const part of parts) {
+    part.geometry.computeBoundingBox();
+    finalBox.union(part.geometry.boundingBox!);
+  }
+  if (!finalBox.isEmpty()) {
+    const actual = footprint
+      ? Math.max(finalBox.max.x - finalBox.min.x, finalBox.max.z - finalBox.min.z, 0.001)
+      : Math.max(finalBox.max.y - finalBox.min.y, 0.001);
+    const fit = target / actual;
+    const center = finalBox.getCenter(new THREE.Vector3());
+    const normalize = new THREE.Matrix4()
+      .makeScale(fit, fit, fit)
+      .multiply(new THREE.Matrix4().makeTranslation(-center.x, -finalBox.min.y, -center.z));
+    finalBox.makeEmpty();
+    for (const part of parts) {
+      part.geometry.applyMatrix4(normalize);
+      part.geometry.computeBoundingBox();
+      part.geometry.computeBoundingSphere();
+      finalBox.union(part.geometry.boundingBox!);
+    }
+    size.set(
+      finalBox.max.x - finalBox.min.x,
+      finalBox.max.y - finalBox.min.y,
+      finalBox.max.z - finalBox.min.z,
+    );
+  }
   let triangles = 0;
   for (const part of parts) {
     const index = part.geometry.getIndex();
@@ -426,7 +485,7 @@ function buildAsset(
     slug: entry.slug,
     role: entry.role,
     name: entry.name,
-    size: new THREE.Vector3(size.x * scale, size.y * scale, size.z * scale),
+    size,
     triangles: Math.round(triangles),
     hero: entry.hero,
     parts,
@@ -495,11 +554,22 @@ export class WorldKit {
   instances(
     role: WorldRole,
     spots: readonly WorldSpot[],
-    opts: { castShadow?: boolean; receiveShadow?: boolean; hits?: WorldHitMesh[] } = {},
+    opts: {
+      castShadow?: boolean;
+      receiveShadow?: boolean;
+      hits?: WorldHitMesh[];
+      /**
+       * Varianti da usare, nell'ordine in cui gli spot le numerano. Serve ai
+       * chiamanti che filtrano per peso (lampioni, alberi, cartelli): senza
+       * questo `instances` disegnava **tutte** le varianti del ruolo e la
+       * variante pesante rientrava dalla finestra.
+       */
+      variants?: readonly WorldAsset[];
+    } = {},
   ): THREE.Group {
     const group = new THREE.Group();
     group.name = `world-${role}`;
-    const assets = this.variants(role);
+    const assets = opts.variants ?? this.variants(role);
     if (assets.length === 0 || spots.length === 0) return group;
 
     const dummy = new THREE.Object3D();

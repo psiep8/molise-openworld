@@ -1,4 +1,4 @@
-import { latLonToWorld } from '../config';
+import { latLonToWorld, WORLD } from '../config';
 import type { Heightfield } from './elevation';
 import { boundsOf, distanceToSegment2, pointInPolygon, type Bounds, type Pt } from './geo';
 import {
@@ -140,11 +140,14 @@ export interface Road {
  * di realismo).
  */
 export function markTownSidewalks(roads: Road[], buildings: BuildingIndex): void {
-  // Griglia dei centri degli edifici: un marciapiede esiste solo entro 40 m
-  // da un edificio; geometria e fisica condividono questa maschera.
+  // Griglia dei centri degli edifici: un marciapiede esiste solo dove c'è
+  // davvero un tessuto urbano. Con un solo edificio entro 40 m bastava un
+  // casale isolato per far nascere il cordolo in mezzo ai campi; servono
+  // almeno due edifici entro 26 m, cioè una via con case su entrambi i lati
+  // o una schiera. Geometria e fisica condividono questa maschera.
   const cell = 48;
-  const radius = 40;
-  const minBuildings = 1;
+  const radius = 26;
+  const minBuildings = 2;
   const grid = new Map<number, { x: number; z: number }[]>();
   const key = (cx: number, cz: number): number => (cx + 4096) * 8192 + (cz + 4096);
   for (const b of buildings.all) {
@@ -309,6 +312,33 @@ function project(coords: [number, number][]): Pt[] {
   });
 }
 
+/**
+ * Spezza una polilinea nelle parti dentro il mondo giocabile.
+ *
+ * I dati OSM contengono anche relazioni di itinerario lunghe decine di
+ * chilometri (una "provinciale" può essere mappata da Ancona a Termoli). Il
+ * gioco ne disegnava ogni punto: il nastro dell'asfalto arrivava a 100 km dal
+ * DEM, con 320.000 vertici fuori mappa e un bounding box così grande che il
+ * frustum culling non lo scartava mai. Qui restano solo i tratti che il mondo
+ * può davvero mostrare, con un margine oltre il bordo del DEM.
+ */
+function worldRuns(points: Pt[], margin = 80): Pt[][] {
+  const limitX = WORLD.halfWidth + margin;
+  const limitZ = WORLD.halfHeight + margin;
+  const runs: Pt[][] = [];
+  let run: Pt[] = [];
+  for (const point of points) {
+    if (Math.abs(point.x) <= limitX && Math.abs(point.z) <= limitZ) {
+      run.push(point);
+      continue;
+    }
+    if (run.length >= 2) runs.push(run);
+    run = [];
+  }
+  if (run.length >= 2) runs.push(run);
+  return runs;
+}
+
 function ringArea(points: Pt[]): number {
   let a = 0;
   for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
@@ -337,13 +367,13 @@ export async function loadOsm(base = './geo/'): Promise<OsmData> {
   if (!res.ok) throw new Error(`osm.json: HTTP ${res.status} (esegui "npm run geo")`);
   const raw = (await res.json()) as RawOsm;
 
-  const roads: Road[] = raw.roads.map((r) => {
-    const points = project(r.c);
+  const roads: Road[] = [];
+  for (const r of raw.roads) {
     const surface = r.sf ?? (roadSurface(r.t) === 'asphalt' ? 'asphalt' : 'dirt');
     // Il tag `width` è più preciso della classe, ma un valore assurdo non deve
     // deformare la mappa: si accetta solo una forbice plausibile.
     const tagWidth = r.wd && r.wd >= 2 && r.wd <= 14 ? r.wd : undefined;
-    return {
+    const base = {
       type: r.t,
       name: r.n ?? '',
       // Senza `width`, le corsie dichiarate sono un indizio migliore della
@@ -359,10 +389,11 @@ export async function loadOsm(base = './geo/'): Promise<OsmData> {
       oneway: r.ow,
       maxspeed: r.ms,
       ref: r.r,
-      points,
-      bounds: boundsOf(points),
     };
-  });
+    for (const points of worldRuns(project(r.c))) {
+      roads.push({ ...base, points, bounds: boundsOf(points) });
+    }
+  }
 
   const buildings: Building[] = raw.buildings.map((b) => {
     const points = project(b.c);
