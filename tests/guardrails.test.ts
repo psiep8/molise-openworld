@@ -8,6 +8,7 @@ import type { GroundSampler } from '../src/geo/ground';
 import { loadOsm, type OsmData, type Road } from '../src/geo/osm';
 import { buildGuardrails, mergeRuns, needsRail, railStations } from '../src/world/guardrails';
 import { roadPolyline } from '../src/world/roads';
+import { WorldKit, type WorldAsset, type WorldRole } from '../src/world/worldkit';
 
 describe('fusione dei tratti', () => {
   it('chiude una buca corta e tiene il tratto lungo', () => {
@@ -119,6 +120,29 @@ function stubGround(fn: (x: number, z: number) => number): GroundSampler {
       surface: 'terrain',
     }),
   };
+}
+
+/** Kit minimo con le tre varianti reali (misure del manifest). */
+function kitAsset(slug: string, role: WorldRole, size: [number, number, number]): WorldAsset {
+  const geometry = new THREE.BoxGeometry(size[0], size[1], size[2]);
+  return {
+    slug,
+    role,
+    name: slug,
+    size: new THREE.Vector3(...size),
+    triangles: 524,
+    parts: [
+      { name: slug, geometry, material: new THREE.MeshStandardMaterial(), castShadow: false },
+    ],
+  };
+}
+
+function guardrailKit(): WorldKit {
+  return new WorldKit([
+    kitAsset('guardrail', 'guardrail', [0.52, 1.48, 10]),
+    kitAsset('guardrail-heavy', 'guardrail', [0.46, 1.5, 7.7]),
+    kitAsset('guardrail-terminal', 'guardrail', [4.3, 1.09, 0.39]),
+  ]);
 }
 
 /** Strada dritta lungo z, `count` nodi a `step` metri. */
@@ -277,6 +301,62 @@ describe('guardrail sul terreno', () => {
       { maxSpans: 10_000 },
     );
     expect(spans).toBe(0);
+  });
+
+  it('con il kit usa i moduli GLB al posto del nastro procedurale', () => {
+    const heights = stubHeights(hillside);
+    const kit = guardrailKit();
+    const { group, spans, modules } = buildGuardrails(
+      straightRoad(),
+      heights,
+      stubGround(hillside),
+      { maxSpans: 10_000, kit },
+    );
+    expect(spans).toBeGreaterThan(0);
+    expect(group.userData.kit).toBe(true);
+    // niente più nastro e pali procedurali
+    expect(group.children.some((c) => c.name === 'guardrail-rails')).toBe(false);
+    // ogni campata da ~24 m è coperta da moduli da ~11,6 m
+    expect(modules).toBeGreaterThan(spans);
+    expect(group.children.every((c) => c instanceof THREE.InstancedMesh)).toBe(true);
+    // tutti i moduli stanno dal lato che scende, a filo del ciglio
+    const matrix = new THREE.Matrix4();
+    const position = new THREE.Vector3();
+    for (const child of group.children as THREE.InstancedMesh[]) {
+      for (let i = 0; i < child.count; i++) {
+        child.getMatrixAt(i, matrix);
+        position.setFromMatrixPosition(matrix);
+        expect(position.x).toBeLessThan(-3.4);
+      }
+    }
+    // il terminale chiude la tratta
+    expect(group.children.some((c) => c.name.includes('guardrail-terminal'))).toBe(true);
+  });
+
+  it('sui ponti mette la variante pesante, senza superare il tetto', () => {
+    const road = straightRoad({ bridge: true, elevations: new Array(21).fill(60) });
+    const kit = guardrailKit();
+    const { group, modules } = buildGuardrails(road, stubHeights(() => 0), stubGround(() => 0), {
+      maxSpans: 10_000,
+      kit,
+    });
+    expect(modules).toBeGreaterThan(0);
+    const heavy = group.children.filter((c) => c.name.includes('guardrail-heavy'));
+    expect(heavy.length).toBeGreaterThan(0);
+    const heavyInstances = heavy.reduce((sum, c) => sum + (c as THREE.InstancedMesh).count, 0);
+    // 120 moduli al massimo: la variante pesante costa 8.900 triangoli l'uno
+    expect(heavyInstances).toBeLessThanOrEqual(120);
+  });
+
+  it('senza kit torna al fallback procedurale', () => {
+    const flat = stubHeights(hillside);
+    const kit = new WorldKit([]);
+    const { group, modules } = buildGuardrails(straightRoad(), flat, stubGround(hillside), {
+      maxSpans: 100,
+      kit,
+    });
+    expect(modules).toBe(0);
+    expect(group.children.some((c) => c.name === 'guardrail-rails')).toBe(true);
   });
 
   it('col tetto di campate taglia tratti interi, non a metà', () => {

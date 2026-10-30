@@ -281,6 +281,8 @@ export interface Diagnostics {
     hitCount: number;
     /** moduli GLB di marciapiede e cordolo piazzati fuori dal paese */
     roadside: { sidewalks: number; curbs: number };
+    /** barriera: campate logiche e moduli GLB effettivamente istanziati */
+    guardrails: { spans: number; modules: number; glb: boolean };
     /** impalcati GLB sui ponti OSM */
     bridge: { bridges: number; modules: number; highway: number };
     /** zolle fotogrammetriche `grass-hero` attorno al giocatore */
@@ -413,6 +415,7 @@ export class Game {
   private obstacles = new ObstacleIndex();
   /** guardrail correnti; si ricostruiscono se cambia il preset */
   private guardrailsGroup: THREE.Group | null = null;
+  private guardrailsStats: { spans: number; modules: number; glb: boolean } | null = null;
   private terrain!: Terrain;
   private worldTileManager: WorldTileManager | null = null;
   private lastWorldTileX = Number.NaN;
@@ -2834,6 +2837,7 @@ export class Game {
   private rebuildGuardrails(): void {
     if (!this.osm || !this.ground || !this.heights) return;
     this.obstacles.removeTag('guardrail');
+    this.guardrailsStats = null;
     if (this.guardrailsGroup) {
       this.scene.remove(this.guardrailsGroup);
       // I moduli GLB condividono geometria e materiali con il resto del world
@@ -2852,13 +2856,19 @@ export class Game {
     if (!this.quality.guardrails) return;
     // Le campate sono lunghe al massimo 24 m: la rete a valle delle strade di
     // collina ne chiede circa 3.500, e il tetto taglia tratti interi (mai mezza
-    // barriera). Restano due draw call in ogni caso (pali e nastro, istanziati).
+    // barriera). I moduli GLB sono istanziati per variante (base, heavy,
+    // terminale): poche draw call anche con migliaia di pezzi.
     const guardrails = buildGuardrails(this.osm, this.heights, this.ground, {
       maxSpans: this.quality.level === 'medium' ? 4200 : 7000,
       obstacles: this.obstacles,
       kit: this.worldKit,
     });
     this.guardrailsGroup = guardrails.group;
+    this.guardrailsStats = {
+      spans: guardrails.spans,
+      modules: guardrails.modules,
+      glb: guardrails.group.userData.kit === true,
+    };
     this.scene.add(guardrails.group);
   }
 
@@ -4579,6 +4589,7 @@ export class Game {
             }),
             hitCount: this.worldHits?.count ?? 0,
             roadside: this.roadsideStats ?? { sidewalks: 0, curbs: 0 },
+            guardrails: this.guardrailsStats ?? { spans: 0, modules: 0, glb: false },
             bridge: this.bridgeStats ?? { bridges: 0, modules: 0, highway: 0 },
             heroGrass: this.worldGrass?.heroCount ?? 0,
           }

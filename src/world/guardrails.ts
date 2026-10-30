@@ -4,7 +4,7 @@ import type { Heightfield } from '../geo/elevation';
 import type { ObstacleIndex } from '../geo/obstacles';
 import type { OsmData } from '../geo/osm';
 import { bridgeElevations, roadPolyline } from './roads';
-import type { WorldKit } from './worldkit';
+import type { WorldAsset, WorldKit, WorldSpot } from './worldkit';
 
 export interface GuardrailOptions {
   /** tetto di campate; evita di riempire la scena su un preset basso */
@@ -14,12 +14,11 @@ export interface GuardrailOptions {
   /** se presente, il nastro diventa solido anche per auto e pedoni */
   obstacles?: ObstacleIndex;
   /**
-   * Il world kit resta nel contratto per i chiamanti, ma i moduli `guardrail`
-   * non si usano più come barriera continua: le varianti heavy/terminal sono
-   * da 8.900 e 2.900 triangoli l'una e, con 1.400 campate, erano 17 milioni di
-   * triangoli per un nastro di lamiera. Il W-beam procedurale costa una
-   * frazione e non lascia lastroni stesi di traverso. Il kit resta la sorgente
-   * di alberi, case, cartelli, zolle, lampioni e ponti.
+   * Se il kit ha il ruolo `guardrail`, la barriera è fatta di moduli GLB
+   * (10 m l'uno, 524 triangoli): niente più lamiera procedurale davanti alle
+   * fotogrammetrie. La variante pesante resta limitata ai ponti e il terminale
+   * chiude le tratte. Senza kit si torna al W-beam procedurale, dichiarato
+   * come fallback.
    */
   kit?: WorldKit | null;
 }
@@ -31,6 +30,18 @@ interface RailSpan {
   yaw: number;
   length: number;
   bridge: boolean;
+  /** larghezza della strada: le provinciali larghe vogliono la variante pesante */
+  width: number;
+  /** estremi del nastro, per appoggiare i moduli GLB alla quota giusta */
+  ax: number;
+  az: number;
+  bx: number;
+  bz: number;
+  baseA: number;
+  baseB: number;
+  /** primo/ultimo modulo di una tratta: lì va il terminale */
+  tipStart: boolean;
+  tipEnd: boolean;
 }
 
 interface Post {
@@ -74,6 +85,16 @@ const POST_STEP = 4;
  * alla quota della strada in quel punto.
  */
 const RAIL_PIECE = 24;
+/**
+ * Allungamento massimo del modulo GLB lungo la tratta.
+ *
+ * Il pezzo è lungo 10 m: accostarlo senza sovrapposizioni lascerebbe giunti
+ * visibili in curva. Con 1,16× (11,6 m al passo, 2% di sovrapposizione) i pali
+ * restano dritti e la rete scende di circa il 15% di triangoli.
+ */
+const GLB_STRETCH = 1.16;
+/** Tetto ai moduli pesanti: 8.900 triangoli l'uno, si concedono solo ai ponti. */
+const HEAVY_MODULES = 120;
 
 /**
  * Chiude le interruzioni corte e scarta i tratti corti.
@@ -195,11 +216,11 @@ export function buildGuardrails(
   heights: Heightfield,
   ground: GroundSampler,
   options: GuardrailOptions = {},
-): { group: THREE.Group; spans: number } {
+): { group: THREE.Group; spans: number; modules: number } {
   const maxSpans = Math.max(0, options.maxSpans ?? 2400);
   const group = new THREE.Group();
   group.name = 'guardrails';
-  if (options.enabled === false || maxSpans === 0) return { group, spans: 0 };
+  if (options.enabled === false || maxSpans === 0) return { group, spans: 0, modules: 0 };
 
   const rails: RailSpan[] = [];
   const posts: Post[] = [];
@@ -307,6 +328,7 @@ export function buildGuardrails(
         let j = i;
         while (j < keep.length && keep[j]) j++;
         if (rails.length + (j - i) > maxSpans) break;
+        const firstOfRun = rails.length;
         for (let k = i; k < j; k++) {
           const piece = pieces[k]!;
           const ux = -Math.cos(piece.yaw) * side;
@@ -321,6 +343,7 @@ export function buildGuardrails(
             const z = piece.az + (piece.bz - piece.az) * t + uz * off;
             return ground.heightAt(x, z);
           };
+          const tipStart = rails.length === firstOfRun;
           rails.push({
             x: (piece.ax + piece.bx) / 2 + ux * off,
             y: (piece.baseA + piece.baseB) / 2 + RAIL_Y,
@@ -328,6 +351,15 @@ export function buildGuardrails(
             yaw: piece.yaw,
             length: piece.length + 0.12,
             bridge: piece.bridge,
+            width: road.width,
+            ax: piece.ax + ux * off,
+            az: piece.az + uz * off,
+            bx: piece.bx + ux * off,
+            bz: piece.bz + uz * off,
+            baseA: piece.baseA,
+            baseB: piece.baseB,
+            tipStart,
+            tipEnd: k === j - 1,
           });
           // pali ogni 4 m circa, ognuno alla quota della strada in quel punto
           const steps = Math.max(1, Math.round(piece.length / POST_STEP));
@@ -346,7 +378,7 @@ export function buildGuardrails(
     }
   }
 
-  if (!rails.length) return { group, spans: 0 };
+  if (!rails.length) return { group, spans: 0, modules: 0 };
 
   // Collisione: una barriera è fatta di pali, ma l'auto non deve passare negli
   // spazi. Si registrano cerchi ravvicinati lungo il nastro, non solo sui pali.
@@ -362,6 +394,91 @@ export function buildGuardrails(
     }
   }
 
+  // Moduli GLB: la barriera che si vede è quella fotogrammetrica. Il modulo
+  // base è lungo 10 m e costa 524 triangoli; la variante pesante (8.900) si
+  // concede solo ai ponti, con un tetto, e il terminale chiude le tratte.
+  const kitAssets = options.kit?.variants('guardrail') ?? [];
+  const baseAsset = kitAssets.find((a) => a.slug === 'guardrail') ?? kitAssets[0];
+  if (baseAsset) {
+    const heavyAsset = kitAssets.find((a) => a.slug === 'guardrail-heavy') ?? null;
+    const terminalAsset = kitAssets.find((a) => a.slug === 'guardrail-terminal') ?? null;
+    const variants: WorldAsset[] = [baseAsset];
+    if (heavyAsset) variants.push(heavyAsset);
+    if (terminalAsset) variants.push(terminalAsset);
+    const variantOf = (asset: WorldAsset): number => variants.indexOf(asset);
+    const axisLength = (asset: WorldAsset): number => Math.max(asset.size.x, asset.size.z);
+    const yawAlong = (asset: WorldAsset, tx: number, tz: number): number =>
+      asset.size.x >= asset.size.z ? Math.atan2(-tz, tx) : Math.atan2(tx, tz);
+
+    const spots: WorldSpot[] = [];
+    let heavyLeft = HEAVY_MODULES;
+    for (const rail of rails) {
+      const dx = rail.bx - rail.ax;
+      const dz = rail.bz - rail.az;
+      const length = Math.hypot(dx, dz) || rail.length;
+      const tx = dx / length;
+      const tz = dz / length;
+      const heavy = rail.bridge && heavyAsset !== null && heavyLeft > 0;
+      const asset = heavy ? heavyAsset! : baseAsset;
+      const moduleLength = axisLength(asset);
+      const step = Math.max(1, moduleLength * GLB_STRETCH);
+      const count = Math.max(1, Math.ceil(length / step));
+      const actual = length / count;
+      // un pezzo più corto del modulo resta a scala 1 e si sovrappone ai vicini,
+      // invece di schiacciare pali e lamiera
+      const stretch = Math.max(1, actual / moduleLength);
+      const zLong = asset.size.z >= asset.size.x;
+      for (let i = 0; i < count; i++) {
+        const t = (i + 0.5) / count;
+        const x = rail.ax + dx * t;
+        const z = rail.az + dz * t;
+        const surface = rail.bridge
+          ? rail.baseA + (rail.baseB - rail.baseA) * t
+          : ground.heightAt(x, z);
+        spots.push({
+          x,
+          // i pali affondano di 8 cm: nessuna barriera sospesa sul ciglio
+          y: surface - 0.08,
+          z,
+          yaw: yawAlong(asset, tx, tz),
+          scale: 1,
+          scaleX: zLong ? 1 : stretch,
+          scaleZ: zLong ? stretch : 1,
+          variant: variantOf(asset),
+        });
+        if (heavy) heavyLeft--;
+      }
+      if (terminalAsset) {
+        const half = axisLength(terminalAsset) / 2;
+        const put = (x: number, z: number, surface: number): void => {
+          spots.push({
+            x,
+            y: surface - 0.06,
+            z,
+            yaw: yawAlong(terminalAsset, tx, tz),
+            scale: 1,
+            variant: variantOf(terminalAsset),
+          });
+        };
+        if (rail.tipStart) {
+          const x = rail.ax + tx * half;
+          const z = rail.az + tz * half;
+          put(x, z, rail.bridge ? rail.baseA : ground.heightAt(x, z));
+        }
+        if (rail.tipEnd) {
+          const x = rail.bx - tx * half;
+          const z = rail.bz - tz * half;
+          put(x, z, rail.bridge ? rail.baseB : ground.heightAt(x, z));
+        }
+      }
+    }
+    const glb = options.kit!.instances('guardrail', spots, { variants, castShadow: false });
+    glb.name = 'guardrails';
+    glb.userData.kit = true;
+    return { group: glb, spans: rails.length, modules: spots.length };
+  }
+
+  // Fallback dichiarato: senza kit il nastro procedurale resta la barriera.
   const metal = new THREE.MeshStandardMaterial({
     color: 0x9aa0a2,
     metalness: 0.65,
@@ -421,5 +538,5 @@ export function buildGuardrails(
   railMesh.instanceMatrix.needsUpdate = true;
   postMesh.instanceMatrix.needsUpdate = true;
   group.add(railMesh, postMesh);
-  return { group, spans: rails.length };
+  return { group, spans: rails.length, modules: 0 };
 }
