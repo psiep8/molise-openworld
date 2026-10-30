@@ -1421,8 +1421,9 @@ export class Vehicle {
   reset(x: number, z: number, yaw: number, ground: GroundSampler): void {
     this.pendingImpact = null;
     this.state = createCarState(x, z, yaw);
-    const y = ground.heightAt(x, z);
-    this.group.position.set(x, y, z);
+    const here = ground.sampleAt(x, z);
+    this.surfaceLift = here.lift;
+    this.group.position.set(x, here.y, z);
     this.group.rotation.set(0, yaw, 0);
     this.tiltPitch = 0;
     this.tiltRoll = 0;
@@ -1591,11 +1592,17 @@ export class Vehicle {
     this.leanRoll += (lean.roll - this.leanRoll) * kLean;
     this.leanPitch += (lean.pitch - this.leanPitch) * kLean;
 
-    // l'asfalto è drappeggiato sopra il DEM e il marciapiede sta 18 cm più su:
-    // la carrozzeria sale con la stessa quota del piano calpestabile
-    this.surfaceLift += (targetLift - this.surfaceLift) * k;
+    // Il piano calpestabile (`groundY`) contiene già l'asfalto e il gradino del
+    // cordolo. Qui si smorza solo la differenza fra il lift smorzato e quello
+    // vero: in salita il corpo sale subito (le ruote non affondano mai nel
+    // manto), in discesa scende morbido (niente caduta secca dal cordolo).
+    // Prima si sommava di nuovo tutto il lift e l'auto restava 20 cm sopra la
+    // strada, proprio dove la mesh del terreno poteva già sbucare.
+    if (targetLift > this.surfaceLift) this.surfaceLift = targetLift;
+    else this.surfaceLift += (targetLift - this.surfaceLift) * (1 - Math.exp(-6 * dt));
+    const bodyLift = this.surfaceLift - targetLift + this.bump;
 
-    this.group.position.set(next.x, groundY + this.surfaceLift + this.bump, next.z);
+    this.group.position.set(next.x, groundY + bodyLift, next.z);
     this.group.rotation.set(this.tiltPitch + this.leanPitch, next.yaw, this.tiltRoll + this.leanRoll);
     const skidding = next.sliding > 0.2 || next.wheelspin ||
       (input.handbrake && Math.abs(next.speed) > 3);
@@ -1640,8 +1647,8 @@ export class Vehicle {
     const lightLevel = this.headlightOverride ? Math.max(0.55, this.nightLevel) : this.nightLevel;
     this.applyLenses(lightLevel);
     this.updateLampLights();
-    this.lightReflections[0]!.position.y = -this.surfaceLift - this.bump + 0.025;
-    this.lightReflections[1]!.position.y = -this.surfaceLift - this.bump + 0.025;
+    this.lightReflections[0]!.position.y = -bodyLift + 0.025;
+    this.lightReflections[1]!.position.y = -bodyLift + 0.025;
     this.reflectionMaterials[0]!.opacity = clamp(this.roadWetness * lightLevel * 0.7, 0, 0.7);
     this.reflectionMaterials[1]!.opacity = clamp(
       this.roadWetness * (this.nightLevel * 0.5 + braking * 0.7) * 0.72,

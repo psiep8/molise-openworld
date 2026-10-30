@@ -1,6 +1,7 @@
 import { latLonToWorld, WORLD } from '../config';
 import type { Heightfield } from './elevation';
 import { boundsOf, distanceToSegment2, pointInPolygon, type Bounds, type Pt } from './geo';
+import { terrainMeshHeightAt } from './terrain-surface';
 import {
   createRoadProfile,
   ROAD_PROFILE,
@@ -828,7 +829,7 @@ export class RoadIndex {
    * sotto il manto stradale e sembrava di affondare nella sabbia.
    */
   surfaceOffset(x: number, z: number): number {
-    const terrain = this.heights?.heightAt(x, z) ?? 0;
+    const terrain = this.heights ? terrainMeshHeightAt(this.heights, x, z) : 0;
     return this.sampleSurface(x, z, terrain)?.lift ?? 0;
   }
 

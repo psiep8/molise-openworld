@@ -5,12 +5,15 @@ import { registerScroll } from '../gfx/wind';
 import type { Heightfield } from '../geo/elevation';
 import { boundsOf, clamp, hashInt, mulberry32, wrapAngle, type Pt } from '../geo/geo';
 import { CURB_HEIGHT, roadLift, type BuildingIndex, type OsmData, type Road, type RoadIndex } from '../geo/osm';
+import { createTerrainSurface, type TerrainSurface } from '../geo/terrain-surface';
 import type { CityKit } from './citykit';
+import { roadRibbonColumns, roadRibbonStations } from './road-surface';
 import {
   createRoadProfile,
   ROAD_PROFILE,
   ruralProfilePoints,
   sidewalkWidthForRoad,
+  type RoadProfilePoint,
 } from './road-profile';
 
 interface RibbonArrays {
@@ -225,7 +228,7 @@ function pushRuns(
   width: number,
   lift: number,
   color: THREE.Color,
-  heights: Heightfield,
+  heights: TerrainSurface,
   blocked: (x: number, z: number) => boolean,
   allowed: (index: number) => boolean = () => true,
 ): void {
@@ -255,7 +258,7 @@ function pushDashes(
   width: number,
   lift: number,
   color: THREE.Color,
-  heights: Heightfield,
+  heights: TerrainSurface,
   blocked: (x: number, z: number) => boolean = () => false,
 ): void {
   // Tratteggio misurato in metri, non in "una frazione di ogni segmento": la
@@ -305,17 +308,85 @@ function offsetPolyline(points: Pt[], offset: number): Pt[] {
   return out;
 }
 
+/**
+ * Nastro drappeggiato sulla superficie del terreno.
+ *
+ * Le stazioni sono fitte (`roadRibbonStations`): una provinciale dritta ma
+ * lunga centinaia di metri non può essere un solo quadrilatero, altrimenti la
+ * corda passa sotto la collina (il prato copre l'asfalto) o sopra (la strada
+ * buca l'auto). La larghezza è divisa in colonne perché anche la diagonale
+ * della mesh da 9,5 m non resti senza vertici in mezzo alla carreggiata.
+ */
 function pushRibbon(
   target: RibbonArrays,
   pts: Pt[],
   width: number,
   lift: number,
   color: THREE.Color,
-  heights: Heightfield,
+  heights: TerrainSurface,
   shade: number,
   elevations?: number[],
 ): void {
   if (pts.length < 2) return;
+  if (elevations) {
+    pushDeckRibbon(target, pts, width, lift, color, heights, shade, elevations);
+    return;
+  }
+  const stations = roadRibbonStations(pts);
+  const columns = roadRibbonColumns(width);
+  const half = width / 2;
+  const base = target.positions.length / 3;
+  let travelled = 0;
+  for (let i = 0; i < stations.length; i++) {
+    if (i > 0) {
+      travelled += Math.hypot(stations[i]!.x - stations[i - 1]!.x, stations[i]!.z - stations[i - 1]!.z);
+    }
+    const p = stations[i]!;
+    const prev = stations[Math.max(0, i - 1)]!;
+    const next = stations[Math.min(stations.length - 1, i + 1)]!;
+    let tx = next.x - prev.x;
+    let tz = next.z - prev.z;
+    const len = Math.hypot(tx, tz) || 1;
+    tx /= len;
+    tz /= len;
+    // perpendicolare in pianta
+    const px = -tz;
+    const pz = tx;
+    const n = heights.normalAt(p.x, p.z, 5);
+    const nl = Math.hypot(n.x, n.y, n.z) || 1;
+    for (let k = 0; k < columns; k++) {
+      const offset = -half + (width * k) / (columns - 1);
+      const ex = p.x + px * offset;
+      const ez = p.z + pz * offset;
+      target.positions.push(ex, heights.heightAt(ex, ez) + lift, ez);
+      target.normals.push(n.x / nl, n.y / nl, n.z / nl);
+      target.colors.push(color.r * shade, color.g * shade, color.b * shade);
+      // u attraversa la carreggiata, v scorre lungo la strada (~6 m per tile)
+      target.uvs.push(k / (columns - 1), travelled / 6);
+    }
+    if (i > 0) {
+      for (let k = 0; k < columns - 1; k++) {
+        const a = base + (i - 1) * columns + k;
+        const b = a + 1;
+        const c = base + i * columns + k;
+        const d = c + 1;
+        target.indices.push(a, b, c, b, d, c);
+      }
+    }
+  }
+}
+
+/** Impalcato di ponte o tunnel: quota lineare, nessun terreno da seguire. */
+function pushDeckRibbon(
+  target: RibbonArrays,
+  pts: Pt[],
+  width: number,
+  lift: number,
+  color: THREE.Color,
+  heights: TerrainSurface,
+  shade: number,
+  elevations: number[],
+): void {
   const base = target.positions.length / 3;
   let travelled = 0;
   for (let i = 0; i < pts.length; i++) {
@@ -335,21 +406,12 @@ function pushRibbon(
     const nl = Math.hypot(n.x, n.y, n.z) || 1;
 
     for (const side of [-1, 1]) {
-      // ogni bordo segue il terreno *sotto di sé*: con la quota unica del
-      // centrolinea, su un pendio trasversale il lato in salita sprofondava
-      // nell'asfalto e quello in discesa restava sospeso
       const ex = pts[i].x + px * half * side;
       const ez = pts[i].z + pz * half * side;
-      if (elevations) {
-        // ponte: il bordo segue l'impalcato, non il fondovalle sotto
-        const h = (elevations[i] ?? elevations[elevations.length - 1] ?? 0) + lift;
-        target.positions.push(ex, h, ez);
-        target.normals.push(0, 1, 0);
-      } else {
-        const h = heights.heightAt(ex, ez) + lift;
-        target.positions.push(ex, h, ez);
-        target.normals.push(n.x / nl, n.y / nl, n.z / nl);
-      }
+      // ponte: il bordo segue l'impalcato, non il fondovalle sotto
+      const h = (elevations[i] ?? elevations[elevations.length - 1] ?? 0) + lift;
+      target.positions.push(ex, h, ez);
+      target.normals.push(n.x / nl, n.y / nl, n.z / nl);
       target.colors.push(color.r * shade, color.g * shade, color.b * shade);
       // u attraversa la carreggiata, v scorre lungo la strada (~6 m per tile)
       target.uvs.push(side < 0 ? 0 : 1, travelled / 6);
@@ -487,19 +549,44 @@ function pushRuralVerge(
   width: number,
   lift: number,
   color: THREE.Color,
-  heights: Heightfield,
+  heights: TerrainSurface,
   blocked: (x: number, z: number) => boolean,
   allowed: (index: number) => boolean,
 ): void {
   const profile = createRoadProfile({ width, paved: true });
   const stations = ruralProfilePoints(profile, lift);
   if (stations.length < 2) return;
+  // il ciglione è un nastro come l'asfalto: spezzato nei tratti "in paese" e
+  // sugli incroci, poi drappeggiato sulla stessa superficie del terreno
+  let run: Pt[] = [];
+  const flush = (): void => {
+    if (run.length >= 2) {
+      // stesso passo dell'asfalto: il ciglione parte dal bordo della spalla,
+      // se le due fasce non ricadessero sugli stessi punti si aprirebbe una fessura
+      emitVerge(target, roadRibbonStations(run), color, heights, stations);
+    }
+    run = [];
+  };
+  for (let i = 0; i < pts.length; i++) {
+    if (!allowed(i) || blocked(pts[i]!.x, pts[i]!.z)) flush();
+    else run.push(pts[i]!);
+  }
+  flush();
+}
+
+function emitVerge(
+  target: RibbonArrays,
+  line: Pt[],
+  color: THREE.Color,
+  heights: TerrainSurface,
+  stations: readonly RoadProfilePoint[],
+): void {
   const across = stations.length;
   for (const side of [-1, 1]) {
     const base = target.positions.length / 3;
-    for (let i = 0; i < pts.length; i++) {
-      const previous = pts[Math.max(0, i - 1)]!;
-      const next = pts[Math.min(pts.length - 1, i + 1)]!;
+    for (let i = 0; i < line.length; i++) {
+      const previous = line[Math.max(0, i - 1)]!;
+      const next = line[Math.min(line.length - 1, i + 1)]!;
       let tx = next.x - previous.x;
       let tz = next.z - previous.z;
       const length = Math.hypot(tx, tz) || 1;
@@ -509,8 +596,8 @@ function pushRuralVerge(
       const pz = tx * side;
       for (let j = 0; j < across; j++) {
         const station = stations[j]!;
-        const x = pts[i]!.x + px * station.distance;
-        const z = pts[i]!.z + pz * station.distance;
+        const x = line[i]!.x + px * station.distance;
+        const z = line[i]!.z + pz * station.distance;
         const y = heights.heightAt(x, z) + station.offset;
         // il cavo del ciglione è appena più in ombra dell'erba intorno: una
         // striscia al 18% di nero sembrava un tubo interrato
@@ -520,7 +607,7 @@ function pushRuralVerge(
         target.colors.push(color.r * tint, color.g * tint, color.b * tint);
         target.uvs.push(j / (across - 1), i * 0.45);
       }
-      if (i === 0 || !allowed(i - 1) || !allowed(i) || blocked(pts[i]!.x, pts[i]!.z)) continue;
+      if (i === 0) continue;
       const previousRow = base + (i - 1) * across;
       const currentRow = base + i * across;
       for (let j = 0; j < across - 1; j++) {
@@ -545,18 +632,38 @@ function pushCurbWall(
   yTop: number,
   outward: number,
   color: THREE.Color,
-  heights: Heightfield,
+  heights: TerrainSurface,
   blocked: (x: number, z: number) => boolean,
   allowed: (index: number) => boolean = () => true,
 ): void {
+  // come i nastri: si spezza sui tratti esclusi e si densifica per seguire il
+  // terreno, altrimenti su un rettilineo lungo il cordolo sprofonda o svetta
+  let run: Pt[] = [];
+  const flush = (): void => {
+    if (run.length >= 2) {
+      emitCurbWall(target, roadRibbonStations(run), yBottom, yTop, outward, color, heights);
+    }
+    run = [];
+  };
+  for (let i = 0; i < pts.length; i++) {
+    if (!allowed(i) || blocked(pts[i]!.x, pts[i]!.z)) flush();
+    else run.push(pts[i]!);
+  }
+  flush();
+}
+
+function emitCurbWall(
+  target: RibbonArrays,
+  pts: Pt[],
+  yBottom: number,
+  yTop: number,
+  outward: number,
+  color: THREE.Color,
+  heights: TerrainSurface,
+): void {
   for (let i = 0; i < pts.length - 1; i++) {
-    if (!allowed(i) || !allowed(i + 1)) continue;
-    const a = pts[i];
-    const b = pts[i + 1];
-    const mx = (a.x + b.x) / 2;
-    const mz = (a.z + b.z) / 2;
-    if (blocked(a.x, a.z) && blocked(b.x, b.z)) continue;
-    if (blocked(mx, mz)) continue;
+    const a = pts[i]!;
+    const b = pts[i + 1]!;
     const dx = b.x - a.x;
     const dz = b.z - a.z;
     const len = Math.hypot(dx, dz);
@@ -599,7 +706,7 @@ function pushZebra(
   width: number,
   lift: number,
   color: THREE.Color,
-  heights: Heightfield,
+  heights: TerrainSurface,
 ): void {
   const px = -tz;
   const pz = tx;
@@ -632,7 +739,7 @@ function pushStopLine(
   width: number,
   lift: number,
   color: THREE.Color,
-  heights: Heightfield,
+  heights: TerrainSurface,
 ): void {
   const px = -tz;
   const pz = tx;
@@ -727,7 +834,7 @@ function pushTriangle(
   tri: Pt[],
   lift: number,
   color: THREE.Color,
-  heights: Heightfield,
+  heights: TerrainSurface,
 ): void {
   if (tri.length < 3) return;
   const base = target.positions.length / 3;
@@ -753,7 +860,7 @@ function pushStraightArrow(
   width: number,
   lift: number,
   color: THREE.Color,
-  heights: Heightfield,
+  heights: TerrainSurface,
 ): void {
   const px = -tz;
   const pz = tx;
@@ -1203,6 +1310,10 @@ export function buildRoads(
 ): { group: THREE.Group; lamps: { x: number; z: number; yaw: number }[] } {
   const group = new THREE.Group();
   group.name = 'roads';
+  // una sola cache della mesh per tutto il build: le colonne di un nastro
+  // ricadono sugli stessi vertici del terreno, e ricampionarli a ogni vertice
+  // costava secondi interi
+  const surface = createTerrainSurface(heights);
   const asphalt = emptyRibbon();
   const dirt = emptyRibbon();
   // marciapiede e cordolo separati: il kit ha una texture per le lastre e una
@@ -1256,19 +1367,19 @@ export function buildRoads(
     const deck = road.bridge ? bridgeElevations(road, pts) : null;
     if (deck) {
       // Il ponte è un impalcato sospeso: niente marciapiede né spalla a terra.
-      pushRibbon(target, pts, road.width, lift, color, heights, 1, deck);
+      pushRibbon(target, pts, road.width, lift, color, surface, 1, deck);
       pushBridgeFascia(kerb, pts, road.width, deck, lift, curbColor);
       return;
     }
     if (road.tunnel) {
       const tunnelDeck = bridgeElevations(road, pts);
       if (tunnelDeck) {
-        pushRibbon(target, pts, road.width, lift, color, heights, 1, tunnelDeck);
+        pushRibbon(target, pts, road.width, lift, color, surface, 1, tunnelDeck);
         pushTunnelLiner(tunnelLiners, pts, road.width, tunnelDeck, lift, tunnelColor);
         return;
       }
     }
-    pushRibbon(target, pts, road.width, lift, color, heights, 1);
+    pushRibbon(target, pts, road.width, lift, color, surface, 1);
     // Punto che sta su un'ALTRA strada: è l'incrocio. Qui non vanno cordoli,
     // marciapiedi né strisce, altrimenti restano delle righe chiare in mezzo
     // alla carreggiata (era il difetto visibile a ridosso degli incroci).
@@ -1276,7 +1387,7 @@ export function buildRoads(
       roadIndex ? roadIndex.isOnRoad(x, z, 0.35, idx) : false;
     // tratteggio di mezzeria sulle carreggiate larghe
     if (!isDirt && road.width >= 5.4) {
-      pushDashes(markings, pts, 0.14, lift + 0.012, markingColor, heights, onJunction);
+      pushDashes(markings, pts, 0.14, lift + 0.012, markingColor, surface, onJunction);
     }
 
     // Solo le strade asfaltate hanno marciapiede e cordolo: le sterrate no.
@@ -1291,7 +1402,7 @@ export function buildRoads(
           lift,
           -side,
           color,
-          heights,
+          surface,
           () => false,
         );
       }
@@ -1342,7 +1453,7 @@ export function buildRoads(
       // cordolo: fascia chiara in cima al rialzo. Si interrompe all'incrocio
       // (prima ci passava sopra, disegnando una striscia grigia di traverso).
       const curbLine = offsetPolyline(pts, side * (road.width / 2 + curbWidth / 2));
-      pushRuns(kerb, curbLine, curbWidth, curbTop, curbColor, heights, onJunction, inTown);
+      pushRuns(kerb, curbLine, curbWidth, curbTop, curbColor, surface, onJunction, inTown);
       // faccia verticale del cordolo, a filo dell'asfalto
       pushCurbWall(
         kerb,
@@ -1351,13 +1462,13 @@ export function buildRoads(
         lift + CURB_HEIGHT,
         side,
         curbColor,
-        heights,
+        surface,
         onJunction,
         inTown,
       );
       // marciapiede accostato al cordolo, interrotto agli incroci veri
       const walkLine = offsetPolyline(pts, side * (road.width / 2 + curbWidth + walkWidth / 2));
-      pushRuns(walkway, walkLine, walkWidth, walkLift, pavementColor, heights, blockedWalk, inTown);
+      pushRuns(walkway, walkLine, walkWidth, walkLift, pavementColor, surface, blockedWalk, inTown);
       // bordo esterno del marciapiede: chiude il nastro sul lato verso il prato
       pushCurbWall(
         kerb,
@@ -1366,7 +1477,7 @@ export function buildRoads(
         walkLift,
         -side,
         curbColor,
-        heights,
+        surface,
         blockedWalk,
         inTown,
       );
@@ -1384,7 +1495,7 @@ export function buildRoads(
           0.11,
           lift + 0.012,
           markingColor,
-          heights,
+          surface,
           onJunction,
           rural,
         );
@@ -1398,14 +1509,14 @@ export function buildRoads(
           ROAD_PROFILE.shoulderWidth,
           lift - ROAD_PROFILE.shoulderDrop,
           shoulderColor,
-          heights,
+          surface,
           onJunction,
           rural,
         );
       }
     }
     if (road.width >= 3.6) {
-      pushRuralVerge(verges, pts, road.width, lift, vergeColor, heights, onJunction, rural);
+      pushRuralVerge(verges, pts, road.width, lift, vergeColor, surface, onJunction, rural);
     }
 
     // attraversamenti, stop e lampioni: gli incroci valgono anche in campagna
@@ -1474,7 +1585,7 @@ export function buildRoads(
           const gwAt = { x: b.x - tx * (cross.half + 0.9), z: b.z - tz * (cross.half + 0.9) };
           if (!onJunction(gwAt.x, gwAt.z)) {
             for (const tri of giveWayTriangles(gwAt, tx, tz, road.width)) {
-              pushTriangle(markings, tri, lift + 0.011, markingColor, heights);
+              pushTriangle(markings, tri, lift + 0.011, markingColor, surface);
             }
           }
         } else if (!zebraHere && !(osm.controls?.length)) {
@@ -1483,7 +1594,7 @@ export function buildRoads(
           const back = cross ? cross.half + 1.5 : 4.3;
           const at = { x: b.x - tx * back, z: b.z - tz * back };
           if (!onJunction(at.x, at.z)) {
-            pushStopLine(markings, at, tx, tz, road.width, lift + 0.011, markingColor, heights);
+            pushStopLine(markings, at, tx, tz, road.width, lift + 0.011, markingColor, surface);
             // freccia dritta dietro lo stop, solo su strade larghe: prima
             // finiva sopra la linea e sulla corsia opposta
             if (road.width >= 6.2) {
@@ -1497,7 +1608,7 @@ export function buildRoads(
                   road.width,
                   lift + 0.011,
                   markingColor,
-                  heights,
+                  surface,
                 );
               }
             }
@@ -1537,7 +1648,7 @@ export function buildRoads(
                 }
               }
               if (onAsphalt) continue;
-              pushRibbon(kerb, arc, 0.22, curbTop, curbColor, heights, 1);
+              pushRibbon(kerb, arc, 0.22, curbTop, curbColor, surface, 1);
             }
           }
         }
@@ -1560,8 +1671,8 @@ export function buildRoads(
             z: b.z - tz * (crossing.half + 5.6),
           };
           if (!onJunction(zAt.x, zAt.z) && !onJunction(sAt.x, sAt.z)) {
-            pushZebra(markings, zAt, tx, tz, road.width, lift + 0.011, markingColor, heights);
-            pushStopLine(markings, sAt, tx, tz, road.width, lift + 0.011, markingColor, heights);
+            pushZebra(markings, zAt, tx, tz, road.width, lift + 0.011, markingColor, surface);
+            pushStopLine(markings, sAt, tx, tz, road.width, lift + 0.011, markingColor, surface);
             if (road.width >= 6.2) {
               const aAt = {
                 x: b.x - tx * (crossing.half + 9.2),
@@ -1576,7 +1687,7 @@ export function buildRoads(
                   road.width,
                   lift + 0.011,
                   markingColor,
-                  heights,
+                  surface,
                 );
               }
             }
@@ -1613,16 +1724,16 @@ export function buildRoads(
     const road = roadAt(osm, control);
     if (!road) continue;
     if (control.kind === 'stop') {
-      pushStopLine(markings, control, road.tx, road.tz, road.width, road.lift + 0.011, markingColor, heights);
+      pushStopLine(markings, control, road.tx, road.tz, road.width, road.lift + 0.011, markingColor, surface);
     } else {
       for (const triangle of giveWayTriangles(control, road.tx, road.tz, road.width)) {
-        pushTriangle(markings, triangle, road.lift + 0.011, markingColor, heights);
+        pushTriangle(markings, triangle, road.lift + 0.011, markingColor, surface);
       }
     }
   }
   for (const crossing of osm.crossings ?? []) {
     const road = roadAt(osm, crossing);
-    if (road) pushZebra(markings, crossing, road.tx, road.tz, road.width, road.lift + 0.011, markingColor, heights);
+    if (road) pushZebra(markings, crossing, road.tx, road.tz, road.width, road.lift + 0.011, markingColor, surface);
   }
 
   // un tile ogni ~3 m: le UV dei nastri scorrono già in metri (6 m per tile)
@@ -1810,12 +1921,13 @@ export function buildRoads(
 export function buildWater(osm: OsmData, heights: Heightfield, renderer: THREE.WebGLRenderer): THREE.Group {
   const group = new THREE.Group();
   group.name = 'water';
+  const surface = createTerrainSurface(heights);
   const ribbons = emptyRibbon();
   const waterColor = new THREE.Color(0xffffff);
 
   for (const w of osm.waterways) {
     const width = w.type === 'river' ? 5 : w.type === 'canal' ? 3.2 : 2.2;
-    pushRibbon(ribbons, roundCorners(resample(w.points, 8), 30), width, 0.08, waterColor, heights, 1);
+    pushRibbon(ribbons, roundCorners(resample(w.points, 8), 30), width, 0.08, waterColor, surface, 1);
   }
 
   const streamNormals = waterNormals(renderer, 2, 2);

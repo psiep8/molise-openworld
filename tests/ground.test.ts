@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Heightfield, type HeightMeta } from '../src/geo/elevation';
 import { WorldGround } from '../src/geo/ground';
+import { terrainMeshHeightAt } from '../src/geo/terrain-surface';
 import {
   BRIDGE_CLEARANCE,
   prepareRoadElevations,
@@ -29,6 +30,37 @@ function flatHeights(elevation = 100): Heightfield {
     generatedAt: '2026-01-01T00:00:00.000Z',
   };
   return new Heightfield(meta, new Int16Array(meta.nx * meta.nz).fill(elevation * 10));
+}
+
+/** DEM con dossi veri: serve a distinguere la mesh del terreno dal bilineare. */
+function bumpyHeights(): Heightfield {
+  const meta: HeightMeta = {
+    source: 'test',
+    license: 'test',
+    attribution: 'test',
+    encoding: 'decimetri',
+    step: 5,
+    nx: 81,
+    nz: 41,
+    originX: -200,
+    originZ: -100,
+    lat: 41.87,
+    lon: 14.77,
+    metersPerDegLat: 111000,
+    metersPerDegLon: 83000,
+    minElevation: 0,
+    maxElevation: 500,
+    generatedAt: '2026-01-01T00:00:00.000Z',
+  };
+  const data = new Int16Array(meta.nx * meta.nz);
+  for (let j = 0; j < meta.nz; j++) {
+    for (let i = 0; i < meta.nx; i++) {
+      const x = meta.originX + i * meta.step;
+      const z = meta.originZ + j * meta.step;
+      data[j * meta.nx + i] = Math.round((100 + 4 * Math.sin(x / 13) + 3 * Math.cos(z / 11)) * 10);
+    }
+  }
+  return new Heightfield(meta, data);
 }
 
 function road(overrides: Partial<Road> = {}): Road {
@@ -156,6 +188,35 @@ describe('groundAt condivisa', () => {
     expect(ground.sampleAt(10, 40).surface).toBe('grass');
     // il landcover non deve sovrascrivere l'asfalto
     expect(ground.sampleAt(0, 0).surface).not.toBe('grass');
+  });
+
+  it('la quota calpestabile è quella della mesh del terreno, non il DEM bilineare', () => {
+    const heights = bumpyHeights();
+    const asphalt = road();
+    prepareRoadElevations([asphalt], heights);
+    const ground = new WorldGround(heights, new RoadIndex([asphalt], heights));
+
+    // un punto dove le due superfici sono davvero diverse, altrimenti il test
+    // non dimostrerebbe niente
+    let x = 0;
+    for (let candidate = -55; candidate <= 55; candidate += 0.5) {
+      if (Math.abs(terrainMeshHeightAt(heights, candidate, 0) - heights.heightAt(candidate, 0)) > 0.05) {
+        x = candidate;
+        break;
+      }
+    }
+    const mesh = terrainMeshHeightAt(heights, x, 0);
+    expect(Math.abs(mesh - heights.heightAt(x, 0))).toBeGreaterThan(0.05);
+
+    const onRoad = ground.sampleAt(x, 0);
+    expect(onRoad.kind).toBe('road');
+    expect(onRoad.y).toBeCloseTo(mesh + ROAD_LIFT, 5);
+
+    // fuori strada la stessa superficie, senza il lift dell'asfalto
+    const offRoad = ground.sampleAt(x, 40);
+    expect(offRoad.kind).toBe('terrain');
+    expect(offRoad.y).toBeCloseTo(terrainMeshHeightAt(heights, x, 40), 5);
+    expect(offRoad.y).toBe(terrainMeshHeightAt(heights, x, 40));
   });
 
   it('accetta un array vivo: aggiungere un indice cambia subito la quota', () => {

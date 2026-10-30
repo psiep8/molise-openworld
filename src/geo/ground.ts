@@ -1,5 +1,6 @@
 import type { Heightfield } from './elevation';
 import type { RoadIndex, RoadSurfaceSample } from './osm';
+import { terrainMeshHeightAt } from './terrain-surface';
 
 /**
  * Quota del piano calpestabile.
@@ -61,7 +62,10 @@ export class WorldGround implements GroundSampler {
   }
 
   sampleAt(x: number, z: number): GroundSample {
-    const terrain = this.heights.heightAt(x, z);
+    // Non `heights.heightAt`: la quota calpestabile è quella della mesh del
+    // terreno che si vede, altrimenti l'asfalto disegnato e la fisica leggono
+    // due superfici diverse (una corda di 9,5 m contro il DEM bilineare).
+    const terrain = terrainMeshHeightAt(this.heights, x, z);
     let best: RoadSurfaceSample | null = null;
     let bestRank = -1;
     let bestY = -Infinity;
