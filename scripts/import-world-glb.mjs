@@ -681,6 +681,147 @@ const SOURCES = [
     ],
   },
 
+  // --- alberi delle campagne: pack CC BY forniti dal proprietario ----------
+  // Ogni pack produce **un solo GLB** con tutte le varianti e i loro LOD: le
+  // voci del manifest puntano allo stesso file con `nodes`, così il loader
+  // scarica una volta sola texture e geometrie condivise. Le querce e gli abeti
+  // conservano LOD0/LOD1 reali; gli altri pack, già low-poly o senza LOD,
+  // entrano con un solo nodo semplificato.
+  {
+    file: 'oak_trees_pack_17var_lods_seasons_gameready.glb',
+    usage: 'placed',
+    pack: {
+      slug: 'tree-oak-pack',
+      texture: 1024,
+      // LOD0 + LOD1 di tre querce: il dettaglio vicino è quello vero del pack
+      total: 160000,
+      entries: [
+        { node: 'Big_oak_tree__001_LOD0', slug: 'oak-big', name: 'Quercia grande', role: 'tree', height: 19.6 },
+        { node: 'Big_oak_tree__001_LOD1', slug: 'oak-big-near', name: 'Quercia grande (LOD1)', role: 'tree-distant', height: 19.6 },
+        { node: 'Large_oak_tree_003_LOD0', slug: 'oak-large', name: 'Quercia secolare', role: 'tree', height: 28 },
+        { node: 'Large_oak_tree_003_LOD1', slug: 'oak-large-near', name: 'Quercia secolare (LOD1)', role: 'tree-distant', height: 28 },
+        { node: 'Medium_oak_tree__003_LOD0', slug: 'oak-medium', name: 'Quercia media', role: 'tree', height: 12.7 },
+        { node: 'Medium_oak_tree__003_LOD1', slug: 'oak-medium-near', name: 'Quercia media (LOD1)', role: 'tree-distant', height: 12.7 },
+      ],
+    },
+  },
+  {
+    file: 'realistic_fir_trees_pack_lods_gameready.glb',
+    usage: 'placed',
+    pack: {
+      slug: 'tree-fir-pack',
+      texture: 1024,
+      total: 60000,
+      entries: [
+        { node: 'Christmas tree_LOD0', slug: 'fir-large', name: 'Abete grande', role: 'tree', height: 9.3 },
+        { node: 'Christmas tree_LOD1', slug: 'fir-large-near', name: 'Abete grande (LOD1)', role: 'tree-distant', height: 9.3 },
+        { node: 'Christmas tree_6_LOD0', slug: 'fir-medium', name: 'Abete medio', role: 'tree', height: 6.6 },
+        { node: 'Christmas tree_6_LOD1', slug: 'fir-medium-near', name: 'Abete medio (LOD1)', role: 'tree-distant', height: 6.6 },
+      ],
+    },
+  },
+  {
+    file: 'various_forest_assets_pack.glb',
+    usage: 'placed',
+    pack: {
+      slug: 'tree-mediterranean-pack',
+      texture: 512,
+      total: 90000,
+      entries: [
+        { node: 'Oak_25', slug: 'med-oak', name: 'Quercia mediterranea', role: 'tree-distant', height: 18.9 },
+        { node: 'Maple_24', slug: 'med-maple', name: 'Acero campestre', role: 'tree-distant', height: 19.7 },
+        { node: 'Birch1_20', slug: 'med-birch', name: 'Betulla', role: 'tree-distant', height: 17.2 },
+        { node: 'PineTree_19', slug: 'med-pine', name: 'Pino domestico', role: 'tree-distant', height: 17.7 },
+        { node: 'HollyShrub_4', slug: 'med-holly', name: 'Agrifoglio', role: 'shrub', height: 5.25 },
+        { node: 'ConiferousShrub_16', slug: 'med-conifer-shrub', name: 'Macchia di conifere', role: 'shrub', height: 7.93 },
+        { node: 'DeciduousShrub_27', slug: 'med-deciduous-shrub', name: 'Macchia decidua', role: 'shrub', height: 6.44 },
+      ],
+    },
+  },
+  {
+    file: 'base_tree_pack_01.glb',
+    usage: 'placed',
+    pack: {
+      slug: 'tree-english-oak-pack',
+      texture: 512,
+      total: 40000,
+      entries: [
+        {
+          node: null,
+          nodes: [
+            'Oak_English_Hero_Forest_Oak_bark_3_Mat_0',
+            'Oak_English_Hero_Forest_Stitch_Main_Mat_0',
+            'Oak_English_Hero_Forest_Oak_English_Cluster_1_spring_Mat_0',
+            'Oak_English_Hero_Forest_Oak_English_Cluster_2_spring_Mat_0',
+          ],
+          slug: 'english-oak-spring',
+          name: 'Quercia inglese primaverile',
+          role: 'tree-distant',
+          height: 7.6,
+        },
+        {
+          node: null,
+          nodes: [
+            'Oak_English_Hero_Forest_Oak_bark_3_Mat_0',
+            'Oak_English_Hero_Forest_Stitch_Main_Mat_0',
+            'Oak_English_Hero_Forest_Oak_English_Cluster_1_summer_Mat_0',
+            'Oak_English_Hero_Forest_Oak_English_Cluster_2_summer_Mat_0',
+          ],
+          slug: 'english-oak-summer',
+          name: 'Quercia inglese estiva',
+          role: 'tree-distant',
+          height: 7.6,
+        },
+      ],
+    },
+  },
+  {
+    file: 'trees_pack.glb',
+    usage: 'placed',
+    pack: {
+      slug: 'tree-forest-pack',
+      texture: 512,
+      // tre alberi da 50–80k: si semplificano insieme, mantenendo la sagoma
+      total: 42000,
+      entries: [
+        { node: 'HCT Tree 02', slug: 'forest-tree-a', name: 'Albero di bosco A', role: 'tree', height: 10.4 },
+        { node: 'HCT Tree 02', slug: 'forest-tree-a-near', name: 'Albero di bosco A (near)', role: 'tree-distant', height: 10.4 },
+        { node: 'HCT Tree 03', slug: 'forest-tree-b', name: 'Albero di bosco B', role: 'tree', height: 10 },
+        { node: 'HCT Tree 03', slug: 'forest-tree-b-near', name: 'Albero di bosco B (near)', role: 'tree-distant', height: 10 },
+        { node: 'HCT Tree 07', slug: 'forest-tree-c', name: 'Albero di bosco C', role: 'tree', height: 8.3 },
+        { node: 'HCT Tree 07', slug: 'forest-tree-c-near', name: 'Albero di bosco C (near)', role: 'tree-distant', height: 8.3 },
+      ],
+    },
+  },
+  {
+    file: 'more_realistic_trees_free.glb',
+    usage: 'placed',
+    pack: {
+      slug: 'tree-realistic-extra-pack',
+      texture: 512,
+      total: 24000,
+      entries: [
+        { node: 'Object_4', slug: 'extra-tree-a', name: 'Albero realistico A', role: 'tree', height: 6.3 },
+        { node: 'Object_4', slug: 'extra-tree-a-near', name: 'Albero realistico A (near)', role: 'tree-distant', height: 6.3 },
+        { node: 'Object_6', slug: 'extra-tree-b', name: 'Albero realistico B', role: 'tree', height: 7.2 },
+        { node: 'Object_6', slug: 'extra-tree-b-near', name: 'Albero realistico B (near)', role: 'tree-distant', height: 7.2 },
+      ],
+    },
+  },
+  {
+    file: 'watercolor_tree_pack_m04s.glb',
+    usage: 'placed',
+    pack: {
+      slug: 'tree-watercolor-pack',
+      texture: 512,
+      total: 30000,
+      entries: [
+        { node: 'SM_WatercolorMaple2_MZRa', slug: 'watercolor-maple', name: 'Acero acquerello', role: 'tree-distant', height: 4.94 },
+        { node: 'WatercolorSpruce1_MZRa', slug: 'watercolor-spruce', name: 'Abete acquerello', role: 'tree-distant', height: 9.95 },
+      ],
+    },
+  },
+
   // --- ritirati: archiviati nel repo, mai caricati -------------------------
   { file: 'big_terrain.glb', usage: 'retired', retiredReason: 'Mesh unica da 2,5 x 2 km: senza reprojection e LOD non si aggancia al DEM.', pack: { total: 30000, texture: 512, role: 'spare', height: 12, name: 'Terreno grande' } },
   { file: 'terrain.glb', usage: 'retired', retiredReason: 'Scan di 78 km: non riproiettabile sul DEM; il terreno giocabile usa heightfield e field-detail.', pack: { total: 24000, texture: 512, role: 'spare', height: 8, name: 'Terreno' } },
@@ -742,6 +883,65 @@ function packNodes(document) {
     if (!best || children.length > best.listChildren().length) best = node;
   }
   return best ? best.listChildren() : [];
+}
+
+function subtreeTriangles(node) {
+  let tris = 0;
+  const visit = (entry) => {
+    const mesh = entry.getMesh();
+    if (mesh) {
+      for (const prim of mesh.listPrimitives()) {
+        const position = prim.getAttribute('POSITION');
+        const indices = prim.getIndices();
+        if (!position) continue;
+        tris += Math.round((indices ? indices.getCount() : position.getCount()) / 3);
+      }
+    }
+    for (const child of entry.listChildren()) visit(child);
+  };
+  visit(node);
+  return tris;
+}
+
+/**
+ * Tiene solo i nodi selezionati e i loro antenati.
+ *
+ * Nei pack Sketchfab i modelli stanno sotto contenitori con scala/rotazione:
+ * togliere il padre senza cuocere la world matrix li fa diventare giganti o
+ * coricati. Qui si lasciano intatti gli antenati, si rimuovono soltanto i
+ * fratelli che non servono (piani d'appoggio, billboard, reference umane).
+ */
+function pruneToNodes(document, names) {
+  const root = document.getRoot();
+  const selected = new Set(names);
+  const keep = new Set();
+  for (const name of names) {
+    const node = root.listNodes().find((entry) => entry.getName() === name);
+    if (!node) continue;
+    // il nodo selezionato è un contenitore LOD: va tenuto **tutto il suo
+    // sottoalbero**, altrimenti si tiene il gruppo e si buttano le mesh
+    const keepSubtree = (entry) => {
+      keep.add(entry);
+      for (const child of entry.listChildren()) keepSubtree(child);
+    };
+    keepSubtree(node);
+    let current = node.getParentNode();
+    while (current) {
+      keep.add(current);
+      current = current.getParentNode();
+    }
+  }
+  for (const scene of root.listScenes()) {
+    const prune = (parent) => {
+      for (const child of [...parent.listChildren()]) {
+        if (!keep.has(child)) parent.removeChild(child);
+        else prune(child);
+      }
+    };
+    prune(scene);
+  }
+  const scenes = root.listScenes();
+  for (const scene of scenes.slice(1)) scene.dispose();
 }
 
 function subtreeMaterials(node) {
@@ -1044,6 +1244,70 @@ async function main() {
     // alcune famiglie (es. l'erba) dichiarano i singoli nodi ma condividono il
     // budget texture del file: per loro vale il ramo esplicito
     const pack = definition.assets ? null : definition.pack;
+    if (pack?.entries) {
+      if (only && !only.some((token) => definition.file.toLowerCase().includes(token) || pack.slug.includes(token))) {
+        log('   filtro --only: pack saltato');
+        continue;
+      }
+      const selectedNames = [...new Set(pack.entries.flatMap((entry) => entry.nodes ?? (entry.node ? [entry.node] : [])))];
+      const before = meshTriangles(document);
+      pruneToNodes(document, selectedNames);
+      const tris = await simplifyTo(document, pack.total ?? 120000);
+      await prepareSurface(document, pack.texture ?? 1024);
+      await compressGeometry(document);
+      setProvenance(document, meta);
+      const bytes = await io.writeBinary(document);
+      const file = `models/${pack.slug}.glb`;
+      if (!checkOnly) await writeFile(path.join(OUT_DIR, file), bytes);
+      const share = Math.max(1, Math.floor(bytes.byteLength / pack.entries.length));
+      const firstManifestIndex = manifest.models.length;
+      for (const entry of pack.entries) {
+        const names = entry.nodes ?? (entry.node ? [entry.node] : []);
+        const nodes = names
+          .map((name) => document.getRoot().listNodes().find((candidate) => candidate.getName() === name))
+          .filter(Boolean);
+        // per le voci composte (bark + chiome stagionali) il box è l'unione
+        // dei nodi, non quello del primo pezzo
+        const box = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
+        let nodeTris = 0;
+        for (const node of nodes) {
+          nodeTris += subtreeTriangles(node);
+          const bounds = getBounds(node);
+          for (let axis = 0; axis < 3; axis++) {
+            box.min[axis] = Math.min(box.min[axis], bounds.min[axis]);
+            box.max[axis] = Math.max(box.max[axis], bounds.max[axis]);
+          }
+        }
+        const size = Number.isFinite(box.min[0])
+          ? { width: box.max[0] - box.min[0], height: box.max[1] - box.min[1], depth: box.max[2] - box.min[2] }
+          : { width: 1, height: entry.height, depth: 1 };
+        const fit = entry.height / Math.max(size.height, 0.0001);
+        manifest.models.push({
+          slug: entry.slug,
+          name: entry.name,
+          role: entry.role,
+          file,
+          nodes: names,
+          height: Number(entry.height.toFixed(2)),
+          width: Number((size.width * fit).toFixed(2)),
+          depth: Number((size.depth * fit).toFixed(2)),
+          triangles: nodeTris,
+          bytes: share,
+          usage: definition.usage,
+          normalize: 'height',
+          nonCommercial: /-NC/i.test(license),
+          credits: meta,
+        });
+        log(`   ${entry.slug} (${entry.role}): ${nodeTris} tris`);
+      }
+      // i byte sono una quota del file condiviso: l'ultima voce prende il
+      // resto, così la somma per file coincide esattamente con il GLB su disco
+      const last = manifest.models[firstManifestIndex + pack.entries.length - 1];
+      if (last) last.bytes += bytes.byteLength - share * pack.entries.length;
+      log(`   pack ${pack.slug}: ${before} -> ${tris} tris, ${(bytes.byteLength / 1e6).toFixed(2)} MB`);
+      continue;
+    }
+
     if (pack) {
       const target = pack.total ?? 20000;
       const before = meshTriangles(document);

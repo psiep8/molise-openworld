@@ -86,14 +86,22 @@ describe('worldkit manifest', () => {
 
   it('ha slug unici e file presenti', () => {
     const slugs = new Set<string>();
+    // I pack di alberi condividono un GLB fra più voci (LOD e specie): il peso
+    // dichiarato è la quota del file, quindi si confronta la somma per file.
+    const files = new Map<string, { size: number; declared: number }>();
     for (const model of manifest.models) {
       expect(slugs.has(model.slug), `slug duplicato: ${model.slug}`).toBe(false);
       slugs.add(model.slug);
       const path = `${ROOT}/${model.file}`;
       expect(existsSync(path), `file mancante: ${model.file}`).toBe(true);
       const size = statSync(path).size;
-      expect(size).toBe(model.bytes);
       expect(size).toBeLessThan(MAX_FILE_BYTES);
+      const entry = files.get(model.file) ?? { size, declared: 0 };
+      entry.declared += model.bytes;
+      files.set(model.file, entry);
+    }
+    for (const [file, entry] of files) {
+      expect(entry.declared, `peso dichiarato errato per ${file}`).toBe(entry.size);
     }
   });
 

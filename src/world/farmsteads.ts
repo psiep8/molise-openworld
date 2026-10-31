@@ -5,6 +5,7 @@ import { boundsOf, mulberry32, type Pt } from '../geo/geo';
 import type { Building, BuildingIndex, OsmData, RoadIndex } from '../geo/osm';
 import type { QualityLevel } from '../gfx/quality';
 import type { CityKit, KitSpot } from './citykit';
+import { footingTooSteep, plantingHeight } from './planting';
 
 /**
  * Casali di campagna.
@@ -124,16 +125,16 @@ function pickTreeVariant(kit: CityKit, rng: () => number, quality: QualityLevel)
 
 function treeSpot(
   kit: CityKit,
+  heights: Heightfield,
   rng: () => number,
   quality: QualityLevel,
   x: number,
   z: number,
-  y: number,
   scale: number,
 ): KitSpot {
   return {
     x,
-    y,
+    y: plantingHeight(heights, x, z, 0.75, 0.06),
     z,
     yaw: rng() * Math.PI * 2,
     scale,
@@ -291,13 +292,12 @@ export function buildFarmsteads(
           if (
             roads.isOnRoad(tx2, tz2, 1.2) ||
             buildings.hitsCircle(tx2, tz2, 1.6) ||
-            heights.slopeAt(tx2, tz2) > 20
+            heights.slopeAt(tx2, tz2) > 20 ||
+            footingTooSteep(heights, tx2, tz2, 0.75, 1.2)
           ) {
             continue;
           }
-          treeSpots.push(
-            treeSpot(kit, rng, quality, tx2, tz2, heights.heightAt(tx2, tz2), 0.85 + rng() * 0.5),
-          );
+          treeSpots.push(treeSpot(kit, heights, rng, quality, tx2, tz2, 0.85 + rng() * 0.5));
         }
       }
     }
@@ -334,8 +334,9 @@ export function buildFarmsteads(
         if (roads.isOnRoad(x, z, 1.1) || buildings.hitsCircle(x, z, 2)) continue;
         if (heights.slopeAt(x, z) > 24) continue;
         if (!farEnough(x, z)) continue;
+        if (footingTooSteep(heights, x, z, 0.75, 1.2)) continue;
 
-        treeSpots.push(treeSpot(kit, rng, quality, x, z, heights.heightAt(x, z), 0.8 + rng() * 0.55));
+        treeSpots.push(treeSpot(kit, heights, rng, quality, x, z, 0.8 + rng() * 0.55));
       }
     }
   }

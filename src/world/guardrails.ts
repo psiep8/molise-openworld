@@ -39,6 +39,8 @@ interface RailSpan {
   bz: number;
   baseA: number;
   baseB: number;
+  /** inclinazione della campata sulla pendenza (radianti, positiva in salita) */
+  pitch: number;
   /** primo/ultimo modulo di una tratta: lì va il terminale */
   tipStart: boolean;
   tipEnd: boolean;
@@ -344,11 +346,17 @@ export function buildGuardrails(
             return ground.heightAt(x, z);
           };
           const tipStart = rails.length === firstOfRun;
+          // La quota va presa ai due estremi del nastro, non solo al centro:
+          // su un saliscendi il centro è più in alto (o più in basso) e ogni
+          // campata resterebbe orizzontale, con i giunti a scalino.
+          const yA = surfaceAt(0);
+          const yB = surfaceAt(1);
           rails.push({
             x: (piece.ax + piece.bx) / 2 + ux * off,
-            y: (piece.baseA + piece.baseB) / 2 + RAIL_Y,
+            y: (yA + yB) / 2 + RAIL_Y,
             z: (piece.az + piece.bz) / 2 + uz * off,
             yaw: piece.yaw,
+            pitch: Math.atan2(yB - yA, piece.length),
             length: piece.length + 0.12,
             bridge: piece.bridge,
             width: road.width,
@@ -429,18 +437,33 @@ export function buildGuardrails(
       const stretch = Math.max(1, actual / moduleLength);
       const zLong = asset.size.z >= asset.size.x;
       for (let i = 0; i < count; i++) {
-        const t = (i + 0.5) / count;
-        const x = rail.ax + dx * t;
-        const z = rail.az + dz * t;
-        const surface = rail.bridge
-          ? rail.baseA + (rail.baseB - rail.baseA) * t
-          : ground.heightAt(x, z);
+        // Estremi del singolo modulo: la pendenza va misurata su 10 m, non
+        // sulla tratta intera da 24 m. Così anche una campata su una curva
+        // verticale resta appoggiata alla strada.
+        const t0 = i / count;
+        const t1 = (i + 1) / count;
+        const x0 = rail.ax + dx * t0;
+        const z0 = rail.az + dz * t0;
+        const x1 = rail.ax + dx * t1;
+        const z1 = rail.az + dz * t1;
+        const yA = rail.bridge
+          ? rail.baseA + (rail.baseB - rail.baseA) * t0
+          : ground.heightAt(x0, z0);
+        const yB = rail.bridge
+          ? rail.baseA + (rail.baseB - rail.baseA) * t1
+          : ground.heightAt(x1, z1);
+        const span = Math.hypot(x1 - x0, z1 - z0) || actual;
+        const grade = Math.atan2(yB - yA, span);
         spots.push({
-          x,
+          x: (x0 + x1) / 2,
           // i pali affondano di 8 cm: nessuna barriera sospesa sul ciglio
-          y: surface - 0.08,
-          z,
+          y: (yA + yB) / 2 - 0.08,
+          z: (z0 + z1) / 2,
           yaw: yawAlong(asset, tx, tz),
+          // I moduli lunghi in Z si inclinano attorno a X; i terminali, lunghi
+          // in X, attorno a Z. Il segno cambia con l'asse locale.
+          pitch: zLong ? -grade : grade,
+          pitchAxis: zLong ? 'x' : 'z',
           scale: 1,
           scaleX: zLong ? 1 : stretch,
           scaleZ: zLong ? stretch : 1,
@@ -450,12 +473,18 @@ export function buildGuardrails(
       }
       if (terminalAsset) {
         const half = axisLength(terminalAsset) / 2;
+        const endA = rail.bridge ? rail.baseA : ground.heightAt(rail.ax, rail.az);
+        const endB = rail.bridge ? rail.baseB : ground.heightAt(rail.bx, rail.bz);
+        const railGrade = Math.atan2(endB - endA, length);
+        const terminalXLong = terminalAsset.size.x >= terminalAsset.size.z;
         const put = (x: number, z: number, surface: number): void => {
           spots.push({
             x,
             y: surface - 0.06,
             z,
             yaw: yawAlong(terminalAsset, tx, tz),
+            pitch: terminalXLong ? railGrade : -railGrade,
+            pitchAxis: terminalXLong ? 'z' : 'x',
             scale: 1,
             variant: variantOf(terminalAsset),
           });
@@ -510,6 +539,10 @@ export function buildGuardrails(
     bevelThickness: 0.006,
   });
   railGeo.computeVertexNormals();
+  // L'estrusione parte da z = 0: centrandola sull'origine la campata ruota
+  // attorno al proprio centro quando segue la pendenza, invece di sollevarsi
+  // tutta da un estremo.
+  railGeo.translate(0, 0, -0.5);
   const postGeo = new THREE.BoxGeometry(0.08, POST_HEIGHT, 0.12);
   const railMesh = new THREE.InstancedMesh(railGeo, metal, rails.length);
   const postMesh = new THREE.InstancedMesh(postGeo, metal, posts.length);
@@ -523,7 +556,8 @@ export function buildGuardrails(
   const dummy = new THREE.Object3D();
   rails.forEach((rail, i) => {
     dummy.position.set(rail.x, rail.y, rail.z);
-    dummy.rotation.set(0, rail.yaw, 0);
+    // il nastro lungo Z segue la pendenza attorno al proprio asse X
+    dummy.rotation.set(-rail.pitch, rail.yaw, 0, 'YXZ');
     dummy.scale.set(1, rail.bridge ? 1.18 : 1, rail.length);
     dummy.updateMatrix();
     railMesh.setMatrixAt(i, dummy.matrix);

@@ -15,6 +15,7 @@ ridistribuibili e non sono inclusi nel repository.
 | --- | --- | --- | --- |
 | "Ground 2" | Mehmet Kozal (https://sketchfab.com/mkozal) | [Sketchfab](https://sketchfab.com/3d-models/ground-2-6ca627f164754ce3a963715b37f7cbdb) | CC-BY-4.0 |
 | A round bundle of straw in the field | 3dhdscan (https://sketchfab.com/3dhdscan) | [Sketchfab](https://sketchfab.com/3d-models/a-round-bundle-of-straw-in-the-field-7764eb5d300545fc8d9ff3ffabbe2d36) | CC-BY-4.0 |
+| Base Tree Pack 01 | perryfactor6177258 (https://sketchfab.com/perryfactor6177258) | [Sketchfab](https://sketchfab.com/3d-models/base-tree-pack-01-9f0a91dcbc9b470781849cf9bbb90210) | CC-BY-4.0 |
 | Big Terrain | Dogus ß ô â (https://sketchfab.com/Dogus.Berk.Bayram) | [Sketchfab](https://sketchfab.com/3d-models/big-terrain-50338f06da754fd29481b0bdf86b7f29) | CC-BY-4.0 |
 | Casa Di Abitazione | labarch (https://sketchfab.com/labarch) | [Sketchfab](https://sketchfab.com/3d-models/casa-di-abitazione-2fe49173c8f04abeaabb006e5cf623cd) | CC-BY-4.0 |
 | City infrastructure Map 3 | PropShop™ (https://sketchfab.com/syedabbas0815) | [Sketchfab](https://sketchfab.com/3d-models/city-infrastructure-map-3-1c6262eb26b94ec0b7565211268fb577) | CC-BY-4.0 |
@@ -43,10 +44,13 @@ ridistribuibili e non sono inclusi nel repository.
 | Maria Tach Field | Francesco Coldesina (https://sketchfab.com/topfrank2013) | [Sketchfab](https://sketchfab.com/3d-models/maria-tach-field-97750e1a8d264eb8aa2caa28128ba1d1) | CC-BY-4.0 |
 | Modular Bridge ( low Poly ) Game Ready. | Salah3D (https://sketchfab.com/abbasyounis214) | [Sketchfab](https://sketchfab.com/3d-models/modular-bridge-low-poly-game-ready-0d7261538b4e4433b230f083a0cef38f) | CC-BY-4.0 |
 | Modular City Road Pack – Game Ready | Salah3D (https://sketchfab.com/abbasyounis214) | [Sketchfab](https://sketchfab.com/3d-models/modular-city-road-pack-game-ready-d9df5cfa079f4da8a18ef1372c00d01c) | CC-BY-4.0 |
+| More Realistic Trees Free! | Nicholas-3D (https://sketchfab.com/Nicholas01) | [Sketchfab](https://sketchfab.com/3d-models/more-realistic-trees-free-b5b506fc4f5d4af9b546283bdf0c6a15) | CC-BY-4.0 |
 | Mud Material | KINXZ (https://sketchfab.com/kinxz) | [Sketchfab](https://sketchfab.com/3d-models/mud-material-8f6c45d163b24b02a845dd47561a6efe) | CC-BY-4.0 |
+| Oak trees pack (17var, LODs, seasons, gameready) | LOLIPOP (https://sketchfab.com/lolipop_1707) | [Sketchfab](https://sketchfab.com/3d-models/oak-trees-pack-17var-lods-seasons-gameready-a5e4e64f9f1d4089bdcc6170a9333393) | CC-BY-4.0 |
 | Old Street Pack | iagoArt3D (https://sketchfab.com/iagoDev) | [Sketchfab](https://sketchfab.com/3d-models/old-street-pack-a633537bfc7c4d99a3a618662513cbf9) | CC-BY-4.0 |
 | Photoscanned Patch of Ground | chrisg4919 (https://sketchfab.com/chrisg4919) | [Sketchfab](https://sketchfab.com/3d-models/photoscanned-patch-of-ground-c92e083da06d4295849c9f67e84c3664) | CC-BY-4.0 |
 | Rain drops circles | Download = Like please | VRA (https://sketchfab.com/architect47) | [Sketchfab](https://sketchfab.com/3d-models/rain-drops-circles-download-like-please-50b52de9b9a94ac09afbbaf28f102081) | CC-BY-4.0 |
+| Realistic fir trees pack (LODS, gameready) | LOLIPOP (https://sketchfab.com/lolipop_1707) | [Sketchfab](https://sketchfab.com/3d-models/realistic-fir-trees-pack-lods-gameready-f58e8b6d733e4b0586e5b7db847b89e7) | CC-BY-4.0 |
 | Realistic Trees Pack of 2 Free | Nicholas-3D (https://sketchfab.com/Nicholas01) | [Sketchfab](https://sketchfab.com/3d-models/realistic-trees-pack-of-2-free-08b4a9eac77a40419fd59402cc7b2deb) | CC-BY-4.0 |
 | Realistic Walkway | OrbArts (https://sketchfab.com/orbarts) | [Sketchfab](https://sketchfab.com/3d-models/realistic-walkway-8050b15ec2d44b14b843831b41fcb3ba) | CC-BY-SA-4.0 |
 | Realtime Grass | mfhscoobydoo (https://sketchfab.com/mfhscoobydoo) | [Sketchfab](https://sketchfab.com/3d-models/realtime-grass-07d38555cae844f7abdeace9d19c4777) | CC-BY-4.0 |
@@ -66,11 +70,14 @@ ridistribuibili e non sono inclusi nel repository.
 | Tall Green Field | Somersby (https://sketchfab.com/Somersby) | [Sketchfab](https://sketchfab.com/3d-models/tall-green-field-7598babd6ced44019806a7879bf60656) | CC-BY-NC-4.0 |
 | Terrain | DJMaesen (https://sketchfab.com/bumstrum) | [Sketchfab](https://sketchfab.com/3d-models/terrain-7f40b2e189234d8cb9ccaadf8e92b844) | CC-BY-4.0 |
 | Terrain | FNG (https://sketchfab.com/FirstNG) | [Sketchfab](https://sketchfab.com/3d-models/terrain-826c41844d4243599649c07caac5112f) | CC-BY-4.0 |
+| Trees pack | local.yany (https://sketchfab.com/local.yany) | [Sketchfab](https://sketchfab.com/3d-models/trees-pack-be120215d5e64b4c885ea572c82ae462) | CC-BY-4.0 |
+| Various Forest Assets Pack | Dari (https://sketchfab.com/dariiiii) | [Sketchfab](https://sketchfab.com/3d-models/various-forest-assets-pack-cf138b8eb2d340cda643ed59f824989c) | CC-BY-4.0 |
 | Vegetation Pack | golukumar (https://sketchfab.com/mortalityrexotable) | [Sketchfab](https://sketchfab.com/3d-models/vegetation-pack-da04bbf692c14d39a6afe63d565af073) | CC-BY-4.0 |
 | Via S. Gemini (Viterbo - Italy) | Andrea Spognetta (Spogna) (https://sketchfab.com/spogna) | [Sketchfab](https://sketchfab.com/3d-models/via-s-gemini-viterbo-italy-608f8339c95f410ea42f2849dd272ce2) | CC-BY-NC-4.0 |
 | Village, country road, farm, transformer tower | Metazeon (https://sketchfab.com/Metazeon) | [Sketchfab](https://sketchfab.com/3d-models/village-country-road-farm-transformer-tower-78be3dc764d14c58a1382771eeae00a4) | CC-BY-4.0 |
 | Village, farmland and irrigation canal | Metazeon (https://sketchfab.com/Metazeon) | [Sketchfab](https://sketchfab.com/3d-models/village-farmland-and-irrigation-canal-43a0f7d47d764b5280c3ef20b2d67f81) | CC-BY-4.0 |
 | Village, farmland and irrigation canal | Metazeon (https://sketchfab.com/Metazeon) | [Sketchfab](https://sketchfab.com/3d-models/village-farmland-and-irrigation-canal-244c4f2b98b24a3fb5424a8bba69505d) | CC-BY-4.0 |
+| Watercolor Tree Pack M04s | MozzarellaARC (https://sketchfab.com/mozzarellaARC) | [Sketchfab](https://sketchfab.com/3d-models/watercolor-tree-pack-m04s-c07974101f624863a0cbfc0fce5b8ff4) | CC-BY-4.0 |
 
 ## Come si rigenerano
 

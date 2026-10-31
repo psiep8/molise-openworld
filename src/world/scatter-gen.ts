@@ -1,5 +1,6 @@
 import { pointInPolygon, type Pt } from '../geo/geo';
 import type { CanopyField } from '../geo/canopy';
+import { footingTooSteep, plantingHeight } from './planting';
 import type { Heightfield } from '../geo/elevation';
 import { mulberry32 } from '../geo/geo';
 import type { Area, BuildingIndex, OsmData, RoadIndex } from '../geo/osm';
@@ -15,6 +16,12 @@ export interface ScatterInstance {
   y: number;
   z: number;
   scale: number;
+  /**
+   * Altezza reale dell'albero in metri (canopy misurato × specie).
+   * Il LOD vicino, l'eroe e la sagoma lontana usano la stessa quota, così
+   * avvicinandosi l'albero non cambia dimensione.
+   */
+  height?: number;
   rotation: number;
   variation: number;
 }
@@ -402,7 +409,21 @@ export class ScatterGenerator {
     if (canopyHeight !== null && canopyHeight >= 3) {
       scale = Math.max(0.55, Math.min(1.75, canopyHeight / nominalHeight));
     }
-    this.push(instances, kind, x, z, scale, rng);
+    // Il piede è più largo della sola mezzeria: sugli argini delle provinciali
+    // un campione singolo lasciava le radici a mezz'aria. Il disco cresce con
+    // la specie, e i salti estremi si evitano del tutto.
+    const radius = Math.min(1.15, 0.42 + nominalHeight * 0.035) * scale;
+    if (footingTooSteep(this.sources.heights, x, z, radius, 1.25)) return;
+    this.push(
+      instances,
+      kind,
+      x,
+      z,
+      scale,
+      rng,
+      plantingHeight(this.sources.heights, x, z, radius, 0.08),
+      nominalHeight * scale,
+    );
   }
 
   private addSmallObject(
@@ -416,7 +437,17 @@ export class ScatterGenerator {
     if (this.sources.roads.isOnRoad(x, z, kind === 'rock' ? 1.2 : 1.8)) return;
     if (this.sources.buildings.hitsCircle(x, z, 1.1)) return;
     if (insidePaved(x, z, this.paved)) return;
-    this.push(instances, kind, x, z, scale, rng);
+    // Anche un ciuffo basso non deve galleggiare sul ciglio: il disco qui è
+    // piccolo, altrimenti si affosserebbe nella scarpata.
+    this.push(
+      instances,
+      kind,
+      x,
+      z,
+      scale,
+      rng,
+      plantingHeight(this.sources.heights, x, z, kind === 'rock' ? 0.35 : 0.3, 0.03),
+    );
   }
 
   private push(
@@ -426,13 +457,16 @@ export class ScatterGenerator {
     z: number,
     scale: number,
     rng: () => number,
+    y = this.sources.heights.heightAt(x, z),
+    height = 0,
   ): void {
     instances.push({
       kind,
       x,
-      y: this.sources.heights.heightAt(x, z),
+      y,
       z,
       scale,
+      ...(height > 0 ? { height } : {}),
       rotation: rng() * Math.PI * 2,
       variation: Math.floor(rng() * 4),
     });

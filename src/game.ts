@@ -1011,6 +1011,7 @@ export class Game {
         canopy: this.canopy,
         obstacles: this.obstacles,
         kit: this.worldKit,
+        cityKit: this.kit,
       });
       this.scene.add(this.vegetation.group);
       // alberi di strada e auto in sosta del kit: solo dentro il paese e con un
@@ -2894,6 +2895,7 @@ export class Game {
         canopy: this.canopy,
         obstacles: this.obstacles,
         kit: this.worldKit,
+        cityKit: this.kit,
       });
       if (generation !== this.vegetationGeneration) {
         vegetation.dispose();

@@ -94,6 +94,13 @@ export interface WorldSpot {
   z: number;
   /** rotazione su Y; il modello guarda +Z quando yaw = 0 */
   yaw: number;
+  /**
+   * Inclinazione longitudinale (radianti) per i moduli che devono seguire la
+   * pendenza della strada. L'asse dipende da dove corre il modello: `x` per i
+   * guardrail lunghi in Z, `z` per quelli lunghi in X (i terminali).
+   */
+  pitch?: number;
+  pitchAxis?: 'x' | 'z';
   /** Gradiente DEM locale: consente alle zolle visive di seguire il piano medio. */
   slopeX?: number;
   slopeZ?: number;
@@ -131,6 +138,10 @@ export interface WorldAsset {
 /** Ruoli che ondeggiano col vento condiviso (velocità e direzione dal meteo). */
 const WIND_ROLES: ReadonlySet<WorldRole> = new Set([
   'tree',
+  // i LOD vicini dei nuovi pack usano lo stesso vento degli alberi: senza
+  // questo la chioma smetteva di muoversi appena passava da `tree` a
+  // `tree-distant`, cioè a 46 m dalla camera.
+  'tree-distant',
   'shrub',
   'grass',
   'grass-hero',
@@ -356,7 +367,10 @@ function collectMeshes(node: THREE.Object3D): THREE.Mesh[] {
  * teniamo il nome originale (leggibile) ma la ricerca deve provare entrambi.
  */
 function sanitizedNodeName(name: string): string {
-  return name.replace(/[[\].:/]/g, '');
+  // three sostituisce anche gli spazi con `_` oltre a togliere i caratteri
+  // riservati: i pack con "Christmas tree_LOD0" o "HCT Tree 02" altrimenti
+  // non trovavano più i nodi al caricamento anche se il manifest era giusto.
+  return name.replace(/\s/g, '_').replace(/[[\].:/]/g, '');
 }
 
 /**
@@ -364,6 +378,21 @@ function sanitizedNodeName(name: string): string {
  * (base a terra, centro in x/z, altezza reale) e materiale proprio, così il vento
  * di un albero non tocca il cespuglio che condivide la texture.
  */
+function findNode(scene: THREE.Object3D, name: string): THREE.Object3D | undefined {
+  const sanitized = sanitizedNodeName(name);
+  const direct = scene.getObjectByName(name) ?? scene.getObjectByName(sanitized);
+  if (direct) return direct;
+  // GLTFLoader conserva il nome originale in `userData.name`; è l'ultima
+  // rete per i pack con spazi, punti o nomi resi unici con suffisso.
+  let found: THREE.Object3D | undefined;
+  scene.traverse((object) => {
+    if (found) return;
+    const stored = (object.userData as { name?: string }).name;
+    if (stored === name) found = object;
+  });
+  return found;
+}
+
 function buildAsset(
   scene: THREE.Object3D,
   entry: WorldModelEntry,
@@ -371,14 +400,17 @@ function buildAsset(
 ): WorldAsset | null {
   const roots: THREE.Object3D[] = [];
   for (const name of entry.nodes) {
-    const found =
-      scene.getObjectByName(name) ?? scene.getObjectByName(sanitizedNodeName(name));
+    const found = findNode(scene, name);
     if (!found) {
       console.warn(`worldkit: nodo "${name}" mancante in ${entry.file}`);
       continue;
     }
     roots.push(found);
   }
+  // Se il manifest dichiara dei nodi ma nessuno esiste, l'asset è rotto: non si
+  // ripiega sull'intera scena, che in un pack condiviso duplicherebbe tutti gli
+  // alberi (era il caso dei GLB con più modelli nello stesso file).
+  if (roots.length === 0 && entry.nodes.length > 0) return null;
   const selected = roots.length > 0 ? roots : [scene];
   scene.updateMatrixWorld(true);
   const box = subtreeBox(selected);
@@ -607,6 +639,11 @@ export class WorldKit {
             tilt.setFromUnitVectors(up, normal);
             yaw.setFromAxisAngle(up, spot.yaw);
             dummy.quaternion.copy(tilt).multiply(yaw);
+          } else if (spot.pitch !== undefined) {
+            // I moduli seguono la pendenza della strada: senza questo ogni
+            // campata resta orizzontale e sui saliscendi si vedono gradini.
+            if (spot.pitchAxis === 'z') dummy.rotation.set(0, spot.yaw, spot.pitch, 'YZX');
+            else dummy.rotation.set(spot.pitch, spot.yaw, 0, 'YXZ');
           } else {
             dummy.rotation.set(0, spot.yaw, 0);
           }

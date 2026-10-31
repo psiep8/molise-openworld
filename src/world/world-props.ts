@@ -7,6 +7,7 @@ import type { ObstacleIndex } from '../geo/obstacles';
 import type { QualityLevel } from '../gfx/quality';
 import { COVER_CROP, COVER_MEADOW, COVER_WOOD } from './ground-mask';
 import { AreaLookup, LocalGround } from './local-ground';
+import { footingTooSteep, plantingHeight } from './planting';
 import { insidePaved, type PavedArea } from './paved';
 import { WorldHitField } from './world-hits';
 import type { WorldAsset, WorldHitMesh, WorldKit, WorldRole, WorldSpot } from './worldkit';
@@ -187,9 +188,18 @@ export function buildWorldProps(
   };
   if (!kit) return empty;
 
-  const trees = lightVariants(kit, 'tree', 2, 60000);
-  const shrubs = lightVariants(kit, 'shrub', 12, 1400);
-  const distant = lightVariants(kit, 'tree-distant', 6, 400);
+  // Alberi sparsi: le due fotogrammetrie storiche (con urto) più le nuove
+  // specie dei pack. Queste ultime arrivano dal ruolo `tree-distant` a 2.000–
+  // 8.000 triangoli; il piazzamento le usa a bassa densità, non come filare.
+  const heroTrees = kit
+    .variants('tree')
+    .filter((asset) => asset.slug === 'tree-real-a' || asset.slug === 'tree-real-b');
+  const trees = [
+    ...heroTrees,
+    ...lightVariants(kit, 'tree-distant', 18, 8_000).filter((asset) => asset.triangles > 450),
+  ];
+  const shrubs = lightVariants(kit, 'shrub', 24, 7_000);
+  const distant = lightVariants(kit, 'tree-distant', 14, 450);
   const rocks = lightVariants(kit, 'rock', 5, 5000);
   // Cartelli decorativi: nessuno. Erano piazzati ogni ~800 m a 7-12 m dal
   // ciglio, con la variante scelta a caso e il verso calcolato dalla strada:
@@ -229,10 +239,11 @@ export function buildWorldProps(
     if (!free(x, z, 1.4)) return;
     if (heights.slopeAt(x, z) > 30) return;
     if (treeSpots.some((spot) => Math.hypot(spot.x - x, spot.z - z) < 8)) return;
+    if (footingTooSteep(heights, x, z, 0.9, 1.25)) return;
     const variant = Math.floor(treeRng() * trees.length);
     treeSpots.push({
       x,
-      y: heights.heightAt(x, z) - 0.05,
+      y: plantingHeight(heights, x, z, 0.9, 0.08),
       z,
       yaw: treeRng() * Math.PI * 2,
       scale,
@@ -250,7 +261,7 @@ export function buildWorldProps(
     if (heights.slopeAt(x, z) > 32) return;
     shrubSpots.push({
       x,
-      y: heights.heightAt(x, z) - 0.03,
+      y: plantingHeight(heights, x, z, 0.35, 0.03),
       z,
       yaw: shrubRng() * Math.PI * 2,
       scale,
@@ -261,10 +272,11 @@ export function buildWorldProps(
   const addDistant = (x: number, z: number, scale: number): void => {
     if (distant.length === 0 || distantSpots.length >= budget.distantTree) return;
     if (!free(x, z, 1.2)) return;
+    if (footingTooSteep(heights, x, z, 0.6, 1.6)) return;
     const variant = Math.floor(distantRng() * distant.length);
     distantSpots.push({
       x,
-      y: heights.heightAt(x, z) - 0.06,
+      y: plantingHeight(heights, x, z, 0.6, 0.06),
       z,
       yaw: distantRng() * Math.PI * 2,
       scale,
@@ -282,7 +294,7 @@ export function buildWorldProps(
     const variant = Math.floor(rockRng() * rocks.length);
     rockSpots.push({
       x,
-      y: heights.heightAt(x, z) - 0.12 * scale,
+      y: plantingHeight(heights, x, z, 0.45, 0.12 * scale),
       z,
       yaw: rockRng() * Math.PI * 2,
       scale,

@@ -601,6 +601,150 @@
       }
     },
     {
+      "slug": "english-oak-spring",
+      "name": "Quercia inglese primaverile",
+      "role": "tree-distant",
+      "file": "models/tree-english-oak-pack.glb",
+      "nodes": [
+        "Oak_English_Hero_Forest_Oak_bark_3_Mat_0",
+        "Oak_English_Hero_Forest_Stitch_Main_Mat_0",
+        "Oak_English_Hero_Forest_Oak_English_Cluster_1_spring_Mat_0",
+        "Oak_English_Hero_Forest_Oak_English_Cluster_2_spring_Mat_0"
+      ],
+      "height": 7.6,
+      "width": 3.28,
+      "depth": 4.6,
+      "triangles": 6893,
+      "bytes": 200548,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Base Tree Pack 01",
+        "author": "perryfactor6177258 (https://sketchfab.com/perryfactor6177258)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/base-tree-pack-01-9f0a91dcbc9b470781849cf9bbb90210"
+      }
+    },
+    {
+      "slug": "english-oak-summer",
+      "name": "Quercia inglese estiva",
+      "role": "tree-distant",
+      "file": "models/tree-english-oak-pack.glb",
+      "nodes": [
+        "Oak_English_Hero_Forest_Oak_bark_3_Mat_0",
+        "Oak_English_Hero_Forest_Stitch_Main_Mat_0",
+        "Oak_English_Hero_Forest_Oak_English_Cluster_1_summer_Mat_0",
+        "Oak_English_Hero_Forest_Oak_English_Cluster_2_summer_Mat_0"
+      ],
+      "height": 7.6,
+      "width": 3.39,
+      "depth": 4.55,
+      "triangles": 7183,
+      "bytes": 200548,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Base Tree Pack 01",
+        "author": "perryfactor6177258 (https://sketchfab.com/perryfactor6177258)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/base-tree-pack-01-9f0a91dcbc9b470781849cf9bbb90210"
+      }
+    },
+    {
+      "slug": "extra-tree-a",
+      "name": "Albero realistico A",
+      "role": "tree",
+      "file": "models/tree-realistic-extra-pack.glb",
+      "nodes": [
+        "Object_4"
+      ],
+      "height": 6.3,
+      "width": 6.62,
+      "depth": 4.93,
+      "triangles": 801,
+      "bytes": 51496,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "More Realistic Trees Free!",
+        "author": "Nicholas-3D (https://sketchfab.com/Nicholas01)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/more-realistic-trees-free-b5b506fc4f5d4af9b546283bdf0c6a15"
+      }
+    },
+    {
+      "slug": "extra-tree-a-near",
+      "name": "Albero realistico A (near)",
+      "role": "tree-distant",
+      "file": "models/tree-realistic-extra-pack.glb",
+      "nodes": [
+        "Object_4"
+      ],
+      "height": 6.3,
+      "width": 6.62,
+      "depth": 4.93,
+      "triangles": 801,
+      "bytes": 51496,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "More Realistic Trees Free!",
+        "author": "Nicholas-3D (https://sketchfab.com/Nicholas01)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/more-realistic-trees-free-b5b506fc4f5d4af9b546283bdf0c6a15"
+      }
+    },
+    {
+      "slug": "extra-tree-b",
+      "name": "Albero realistico B",
+      "role": "tree",
+      "file": "models/tree-realistic-extra-pack.glb",
+      "nodes": [
+        "Object_6"
+      ],
+      "height": 7.2,
+      "width": 7.47,
+      "depth": 5.69,
+      "triangles": 905,
+      "bytes": 51496,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "More Realistic Trees Free!",
+        "author": "Nicholas-3D (https://sketchfab.com/Nicholas01)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/more-realistic-trees-free-b5b506fc4f5d4af9b546283bdf0c6a15"
+      }
+    },
+    {
+      "slug": "extra-tree-b-near",
+      "name": "Albero realistico B (near)",
+      "role": "tree-distant",
+      "file": "models/tree-realistic-extra-pack.glb",
+      "nodes": [
+        "Object_6"
+      ],
+      "height": 7.2,
+      "width": 7.47,
+      "depth": 5.69,
+      "triangles": 905,
+      "bytes": 51496,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "More Realistic Trees Free!",
+        "author": "Nicholas-3D (https://sketchfab.com/Nicholas01)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/more-realistic-trees-free-b5b506fc4f5d4af9b546283bdf0c6a15"
+      }
+    },
+    {
       "slug": "field-dry-grass",
       "name": "Erba secca sottile",
       "role": "field",
@@ -731,6 +875,98 @@
         "author": "Somersby (https://sketchfab.com/Somersby)",
         "license": "CC-BY-NC-4.0",
         "source": "https://sketchfab.com/3d-models/tall-green-field-7598babd6ced44019806a7879bf60656"
+      }
+    },
+    {
+      "slug": "fir-large",
+      "name": "Abete grande",
+      "role": "tree",
+      "file": "models/tree-fir-pack.glb",
+      "nodes": [
+        "Christmas tree_LOD0"
+      ],
+      "height": 9.3,
+      "width": 5.29,
+      "depth": 5.04,
+      "triangles": 6048,
+      "bytes": 457059,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Realistic fir trees pack (LODS, gameready)",
+        "author": "LOLIPOP (https://sketchfab.com/lolipop_1707)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/realistic-fir-trees-pack-lods-gameready-f58e8b6d733e4b0586e5b7db847b89e7"
+      }
+    },
+    {
+      "slug": "fir-large-near",
+      "name": "Abete grande (LOD1)",
+      "role": "tree-distant",
+      "file": "models/tree-fir-pack.glb",
+      "nodes": [
+        "Christmas tree_LOD1"
+      ],
+      "height": 9.3,
+      "width": 5.25,
+      "depth": 5.03,
+      "triangles": 3395,
+      "bytes": 457059,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Realistic fir trees pack (LODS, gameready)",
+        "author": "LOLIPOP (https://sketchfab.com/lolipop_1707)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/realistic-fir-trees-pack-lods-gameready-f58e8b6d733e4b0586e5b7db847b89e7"
+      }
+    },
+    {
+      "slug": "fir-medium",
+      "name": "Abete medio",
+      "role": "tree",
+      "file": "models/tree-fir-pack.glb",
+      "nodes": [
+        "Christmas tree_6_LOD0"
+      ],
+      "height": 6.6,
+      "width": 4.52,
+      "depth": 4.4,
+      "triangles": 5358,
+      "bytes": 457059,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Realistic fir trees pack (LODS, gameready)",
+        "author": "LOLIPOP (https://sketchfab.com/lolipop_1707)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/realistic-fir-trees-pack-lods-gameready-f58e8b6d733e4b0586e5b7db847b89e7"
+      }
+    },
+    {
+      "slug": "fir-medium-near",
+      "name": "Abete medio (LOD1)",
+      "role": "tree-distant",
+      "file": "models/tree-fir-pack.glb",
+      "nodes": [
+        "Christmas tree_6_LOD1"
+      ],
+      "height": 6.6,
+      "width": 4.51,
+      "depth": 4.39,
+      "triangles": 2819,
+      "bytes": 457059,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Realistic fir trees pack (LODS, gameready)",
+        "author": "LOLIPOP (https://sketchfab.com/lolipop_1707)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/realistic-fir-trees-pack-lods-gameready-f58e8b6d733e4b0586e5b7db847b89e7"
       }
     },
     {
@@ -899,6 +1135,144 @@
         "author": "99.Miles (https://sketchfab.com/99.Miles)",
         "license": "CC-BY-4.0",
         "source": "https://sketchfab.com/3d-models/low-poly-forest-tree-pack-5ff5a51e74324845a4e4905f182dfb2b"
+      }
+    },
+    {
+      "slug": "forest-tree-a",
+      "name": "Albero di bosco A",
+      "role": "tree",
+      "file": "models/tree-forest-pack.glb",
+      "nodes": [
+        "HCT Tree 02"
+      ],
+      "height": 10.4,
+      "width": 8.86,
+      "depth": 8.39,
+      "triangles": 12187,
+      "bytes": 232123,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Trees pack",
+        "author": "local.yany (https://sketchfab.com/local.yany)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/trees-pack-be120215d5e64b4c885ea572c82ae462"
+      }
+    },
+    {
+      "slug": "forest-tree-a-near",
+      "name": "Albero di bosco A (near)",
+      "role": "tree-distant",
+      "file": "models/tree-forest-pack.glb",
+      "nodes": [
+        "HCT Tree 02"
+      ],
+      "height": 10.4,
+      "width": 8.86,
+      "depth": 8.39,
+      "triangles": 12187,
+      "bytes": 232123,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Trees pack",
+        "author": "local.yany (https://sketchfab.com/local.yany)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/trees-pack-be120215d5e64b4c885ea572c82ae462"
+      }
+    },
+    {
+      "slug": "forest-tree-b",
+      "name": "Albero di bosco B",
+      "role": "tree",
+      "file": "models/tree-forest-pack.glb",
+      "nodes": [
+        "HCT Tree 03"
+      ],
+      "height": 10,
+      "width": 8.58,
+      "depth": 10,
+      "triangles": 10014,
+      "bytes": 232123,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Trees pack",
+        "author": "local.yany (https://sketchfab.com/local.yany)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/trees-pack-be120215d5e64b4c885ea572c82ae462"
+      }
+    },
+    {
+      "slug": "forest-tree-b-near",
+      "name": "Albero di bosco B (near)",
+      "role": "tree-distant",
+      "file": "models/tree-forest-pack.glb",
+      "nodes": [
+        "HCT Tree 03"
+      ],
+      "height": 10,
+      "width": 8.58,
+      "depth": 10,
+      "triangles": 10014,
+      "bytes": 232123,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Trees pack",
+        "author": "local.yany (https://sketchfab.com/local.yany)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/trees-pack-be120215d5e64b4c885ea572c82ae462"
+      }
+    },
+    {
+      "slug": "forest-tree-c",
+      "name": "Albero di bosco C",
+      "role": "tree",
+      "file": "models/tree-forest-pack.glb",
+      "nodes": [
+        "HCT Tree 07"
+      ],
+      "height": 8.3,
+      "width": 6.59,
+      "depth": 6.28,
+      "triangles": 9767,
+      "bytes": 232123,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Trees pack",
+        "author": "local.yany (https://sketchfab.com/local.yany)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/trees-pack-be120215d5e64b4c885ea572c82ae462"
+      }
+    },
+    {
+      "slug": "forest-tree-c-near",
+      "name": "Albero di bosco C (near)",
+      "role": "tree-distant",
+      "file": "models/tree-forest-pack.glb",
+      "nodes": [
+        "HCT Tree 07"
+      ],
+      "height": 8.3,
+      "width": 6.59,
+      "depth": 6.28,
+      "triangles": 9767,
+      "bytes": 232125,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Trees pack",
+        "author": "local.yany (https://sketchfab.com/local.yany)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/trees-pack-be120215d5e64b4c885ea572c82ae462"
       }
     },
     {
@@ -1352,6 +1726,167 @@
       }
     },
     {
+      "slug": "med-birch",
+      "name": "Betulla",
+      "role": "tree-distant",
+      "file": "models/tree-mediterranean-pack.glb",
+      "nodes": [
+        "Birch1_20"
+      ],
+      "height": 17.2,
+      "width": 9.15,
+      "depth": 9.72,
+      "triangles": 1938,
+      "bytes": 313470,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Various Forest Assets Pack",
+        "author": "Dari (https://sketchfab.com/dariiiii)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/various-forest-assets-pack-cf138b8eb2d340cda643ed59f824989c"
+      }
+    },
+    {
+      "slug": "med-conifer-shrub",
+      "name": "Macchia di conifere",
+      "role": "shrub",
+      "file": "models/tree-mediterranean-pack.glb",
+      "nodes": [
+        "ConiferousShrub_16"
+      ],
+      "height": 7.93,
+      "width": 8.21,
+      "depth": 8.6,
+      "triangles": 4648,
+      "bytes": 313470,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Various Forest Assets Pack",
+        "author": "Dari (https://sketchfab.com/dariiiii)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/various-forest-assets-pack-cf138b8eb2d340cda643ed59f824989c"
+      }
+    },
+    {
+      "slug": "med-deciduous-shrub",
+      "name": "Macchia decidua",
+      "role": "shrub",
+      "file": "models/tree-mediterranean-pack.glb",
+      "nodes": [
+        "DeciduousShrub_27"
+      ],
+      "height": 6.44,
+      "width": 8.03,
+      "depth": 8.53,
+      "triangles": 3171,
+      "bytes": 313472,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Various Forest Assets Pack",
+        "author": "Dari (https://sketchfab.com/dariiiii)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/various-forest-assets-pack-cf138b8eb2d340cda643ed59f824989c"
+      }
+    },
+    {
+      "slug": "med-holly",
+      "name": "Agrifoglio",
+      "role": "shrub",
+      "file": "models/tree-mediterranean-pack.glb",
+      "nodes": [
+        "HollyShrub_4"
+      ],
+      "height": 5.25,
+      "width": 7.7,
+      "depth": 7.47,
+      "triangles": 4574,
+      "bytes": 313470,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Various Forest Assets Pack",
+        "author": "Dari (https://sketchfab.com/dariiiii)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/various-forest-assets-pack-cf138b8eb2d340cda643ed59f824989c"
+      }
+    },
+    {
+      "slug": "med-maple",
+      "name": "Acero campestre",
+      "role": "tree-distant",
+      "file": "models/tree-mediterranean-pack.glb",
+      "nodes": [
+        "Maple_24"
+      ],
+      "height": 19.7,
+      "width": 17.67,
+      "depth": 17.28,
+      "triangles": 2714,
+      "bytes": 313470,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Various Forest Assets Pack",
+        "author": "Dari (https://sketchfab.com/dariiiii)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/various-forest-assets-pack-cf138b8eb2d340cda643ed59f824989c"
+      }
+    },
+    {
+      "slug": "med-oak",
+      "name": "Quercia mediterranea",
+      "role": "tree-distant",
+      "file": "models/tree-mediterranean-pack.glb",
+      "nodes": [
+        "Oak_25"
+      ],
+      "height": 18.9,
+      "width": 18.71,
+      "depth": 19.28,
+      "triangles": 2188,
+      "bytes": 313470,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Various Forest Assets Pack",
+        "author": "Dari (https://sketchfab.com/dariiiii)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/various-forest-assets-pack-cf138b8eb2d340cda643ed59f824989c"
+      }
+    },
+    {
+      "slug": "med-pine",
+      "name": "Pino domestico",
+      "role": "tree-distant",
+      "file": "models/tree-mediterranean-pack.glb",
+      "nodes": [
+        "PineTree_19"
+      ],
+      "height": 17.7,
+      "width": 11.35,
+      "depth": 11.11,
+      "triangles": 4764,
+      "bytes": 313470,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Various Forest Assets Pack",
+        "author": "Dari (https://sketchfab.com/dariiiii)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/various-forest-assets-pack-cf138b8eb2d340cda643ed59f824989c"
+      }
+    },
+    {
       "slug": "neve-che-cade",
       "name": "Neve che cade",
       "role": "spare",
@@ -1372,6 +1907,144 @@
         "source": "https://sketchfab.com/3d-models/falling-snow-loop-a19b97d7e64548b998eaeb4d8477c24c"
       },
       "retiredReason": "VFX mesh superata da Precipitation, che fa neve particellare."
+    },
+    {
+      "slug": "oak-big",
+      "name": "Quercia grande",
+      "role": "tree",
+      "file": "models/tree-oak-pack.glb",
+      "nodes": [
+        "Big_oak_tree__001_LOD0"
+      ],
+      "height": 19.6,
+      "width": 20.53,
+      "depth": 15.65,
+      "triangles": 3739,
+      "bytes": 280160,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Oak trees pack (17var, LODs, seasons, gameready)",
+        "author": "LOLIPOP (https://sketchfab.com/lolipop_1707)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/oak-trees-pack-17var-lods-seasons-gameready-a5e4e64f9f1d4089bdcc6170a9333393"
+      }
+    },
+    {
+      "slug": "oak-big-near",
+      "name": "Quercia grande (LOD1)",
+      "role": "tree-distant",
+      "file": "models/tree-oak-pack.glb",
+      "nodes": [
+        "Big_oak_tree__001_LOD1"
+      ],
+      "height": 19.6,
+      "width": 20.65,
+      "depth": 15.76,
+      "triangles": 2190,
+      "bytes": 280160,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Oak trees pack (17var, LODs, seasons, gameready)",
+        "author": "LOLIPOP (https://sketchfab.com/lolipop_1707)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/oak-trees-pack-17var-lods-seasons-gameready-a5e4e64f9f1d4089bdcc6170a9333393"
+      }
+    },
+    {
+      "slug": "oak-large",
+      "name": "Quercia secolare",
+      "role": "tree",
+      "file": "models/tree-oak-pack.glb",
+      "nodes": [
+        "Large_oak_tree_003_LOD0"
+      ],
+      "height": 28,
+      "width": 28.66,
+      "depth": 25.8,
+      "triangles": 11135,
+      "bytes": 280160,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Oak trees pack (17var, LODs, seasons, gameready)",
+        "author": "LOLIPOP (https://sketchfab.com/lolipop_1707)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/oak-trees-pack-17var-lods-seasons-gameready-a5e4e64f9f1d4089bdcc6170a9333393"
+      }
+    },
+    {
+      "slug": "oak-large-near",
+      "name": "Quercia secolare (LOD1)",
+      "role": "tree-distant",
+      "file": "models/tree-oak-pack.glb",
+      "nodes": [
+        "Large_oak_tree_003_LOD1"
+      ],
+      "height": 28,
+      "width": 28.59,
+      "depth": 25.9,
+      "triangles": 6016,
+      "bytes": 280160,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Oak trees pack (17var, LODs, seasons, gameready)",
+        "author": "LOLIPOP (https://sketchfab.com/lolipop_1707)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/oak-trees-pack-17var-lods-seasons-gameready-a5e4e64f9f1d4089bdcc6170a9333393"
+      }
+    },
+    {
+      "slug": "oak-medium",
+      "name": "Quercia media",
+      "role": "tree",
+      "file": "models/tree-oak-pack.glb",
+      "nodes": [
+        "Medium_oak_tree__003_LOD0"
+      ],
+      "height": 12.7,
+      "width": 9.42,
+      "depth": 9.34,
+      "triangles": 2579,
+      "bytes": 280160,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Oak trees pack (17var, LODs, seasons, gameready)",
+        "author": "LOLIPOP (https://sketchfab.com/lolipop_1707)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/oak-trees-pack-17var-lods-seasons-gameready-a5e4e64f9f1d4089bdcc6170a9333393"
+      }
+    },
+    {
+      "slug": "oak-medium-near",
+      "name": "Quercia media (LOD1)",
+      "role": "tree-distant",
+      "file": "models/tree-oak-pack.glb",
+      "nodes": [
+        "Medium_oak_tree__003_LOD1"
+      ],
+      "height": 12.7,
+      "width": 9.41,
+      "depth": 9.32,
+      "triangles": 1253,
+      "bytes": 280160,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Oak trees pack (17var, LODs, seasons, gameready)",
+        "author": "LOLIPOP (https://sketchfab.com/lolipop_1707)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/oak-trees-pack-17var-lods-seasons-gameready-a5e4e64f9f1d4089bdcc6170a9333393"
+      }
     },
     {
       "slug": "palo-elettrico",
@@ -3848,7 +4521,53 @@
         "license": "CC-BY-4.0",
         "source": "https://sketchfab.com/3d-models/village-country-road-farm-transformer-tower-78be3dc764d14c58a1382771eeae00a4"
       }
+    },
+    {
+      "slug": "watercolor-maple",
+      "name": "Acero acquerello",
+      "role": "tree-distant",
+      "file": "models/tree-watercolor-pack.glb",
+      "nodes": [
+        "SM_WatercolorMaple2_MZRa"
+      ],
+      "height": 4.94,
+      "width": 4.85,
+      "depth": 5.28,
+      "triangles": 364,
+      "bytes": 156634,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Watercolor Tree Pack M04s",
+        "author": "MozzarellaARC (https://sketchfab.com/mozzarellaARC)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/watercolor-tree-pack-m04s-c07974101f624863a0cbfc0fce5b8ff4"
+      }
+    },
+    {
+      "slug": "watercolor-spruce",
+      "name": "Abete acquerello",
+      "role": "tree-distant",
+      "file": "models/tree-watercolor-pack.glb",
+      "nodes": [
+        "WatercolorSpruce1_MZRa"
+      ],
+      "height": 9.95,
+      "width": 3.35,
+      "depth": 3.23,
+      "triangles": 70,
+      "bytes": 156634,
+      "usage": "placed",
+      "normalize": "height",
+      "nonCommercial": false,
+      "credits": {
+        "title": "Watercolor Tree Pack M04s",
+        "author": "MozzarellaARC (https://sketchfab.com/mozzarellaARC)",
+        "license": "CC-BY-4.0",
+        "source": "https://sketchfab.com/3d-models/watercolor-tree-pack-m04s-c07974101f624863a0cbfc0fce5b8ff4"
+      }
     }
   ],
-  "bytes": 82441092
+  "bytes": 90457668
 }
