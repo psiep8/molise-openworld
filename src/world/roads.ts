@@ -945,6 +945,85 @@ function toGeometry(a: RibbonArrays): THREE.BufferGeometry {
 }
 
 /**
+ * Una luce del veicolo come la vede lo shader dell'asfalto.
+ *
+ * Non è una luce della scena: è un modello analitico, così il riflesso esiste
+ * anche su `minimal` dove non c'è nessuna PointLight/SpotLight nel budget.
+ * `kind`: 0 anabbagliante, 1 fanalino, 2 stop, 3 retromarcia, 4 freccia.
+ */
+export interface RoadVehicleLight {
+  x: number;
+  y: number;
+  z: number;
+  /** direzione del fascio (unitaria) */
+  dx: number;
+  dy: number;
+  dz: number;
+  r: number;
+  g: number;
+  b: number;
+  /** intensità già pesata da ora, frenata, retromarcia */
+  power: number;
+  /** portata in metri della pozza */
+  range: number;
+  kind: 0 | 1 | 2 | 3 | 4;
+}
+
+const ROAD_LIGHT_SLOTS = 6;
+const roadLightPos = Array.from({ length: ROAD_LIGHT_SLOTS }, () => new THREE.Vector3(0, -999, 0));
+const roadLightDir = Array.from({ length: ROAD_LIGHT_SLOTS }, () => new THREE.Vector3(0, -1, 0));
+const roadLightColor = Array.from({ length: ROAD_LIGHT_SLOTS }, () => new THREE.Color(0xffffff));
+const roadLightPower = new Float32Array(ROAD_LIGHT_SLOTS);
+const roadLightKind = new Float32Array(ROAD_LIGHT_SLOTS);
+
+/** Uniform condivisi da tutti i materiali strada (compreso l'asfalto del kit). */
+const roadWeatherUniforms = {
+  wet: { value: 0 },
+  snow: { value: 0 },
+  rain: { value: 0 },
+  time: { value: 0 },
+};
+
+const roadLightUniforms = {
+  pos: { value: roadLightPos },
+  dir: { value: roadLightDir },
+  color: { value: roadLightColor },
+  power: { value: roadLightPower },
+  kind: { value: roadLightKind },
+};
+
+/**
+ * Bagnato, neve posata, pioggia e tempo per crepe, pozzanghere e increspature.
+ * Si aggiorna una volta per frame: tutti i materiali strada condividono gli
+ * stessi uniform, quindi non serve attraversare la scena.
+ */
+export function setRoadWeather(wetness: number, snowPack: number, rain: number, time: number): void {
+  roadWeatherUniforms.wet.value = THREE.MathUtils.clamp(wetness, 0, 1);
+  roadWeatherUniforms.snow.value = THREE.MathUtils.clamp(snowPack, 0, 1);
+  roadWeatherUniforms.rain.value = THREE.MathUtils.clamp(rain, 0, 1);
+  roadWeatherUniforms.time.value = Number.isFinite(time) ? time : 0;
+}
+
+/**
+ * Fino a sei luci di auto nello shader della strada. Le auto lontane restano
+ * fuori: il riflesso analitico serve dove l'occhio lo cerca davvero.
+ */
+export function setRoadVehicleLights(lights: readonly RoadVehicleLight[]): void {
+  let slot = 0;
+  for (const light of lights) {
+    if (slot >= ROAD_LIGHT_SLOTS) break;
+    if (!(light.power > 0.001)) continue;
+    roadLightPos[slot]!.set(light.x, light.y, light.z);
+    roadLightDir[slot]!.set(light.dx, light.dy, light.dz);
+    roadLightColor[slot]!.setRGB(light.r, light.g, light.b);
+    roadLightPower[slot] = light.power;
+    roadLightKind[slot] = light.kind;
+    slot++;
+  }
+  for (let i = slot; i < ROAD_LIGHT_SLOTS; i++) roadLightPower[i] = 0;
+}
+
+/**
  * Usura dell'asfalto, tutta nello shader del materiale.
  *
  * Le UV dei nastri sono metriche e comode: `u` attraversa la carreggiata
@@ -953,26 +1032,61 @@ function toGeometry(a: RibbonArrays): THREE.BufferGeometry {
  * scuro e più liscio (più riflesso), mentre il centro corsia resta più chiaro
  * per la polvere. Sopra ci va un rumore a bassa frequenza in coordinate mondo,
  * così la ripetizione della texture non si legge e ogni tratto ha le sue
- * macchie. `uRoadWet` (0..1) scurisce e lucida tutto quando piove.
+ * macchie.
+ *
+ * Con la pioggia compaiono pozzanghere con maschera procedurale (roughness
+ * ~0,03), increspature concentriche con fase e dimensione casuali per cella e
+ * riflessi analitici dei fari. La neve imbianca le superfici rivolte in alto e
+ * si assottiglia nelle tracce delle ruote. Tutto nello stesso programma: il
+ * materiale del kit e quello procedurale usano lo stesso shader.
  */
 function applyRoadWear(material: THREE.MeshStandardMaterial): void {
-  const wet = { value: 0 };
-  (material.userData as { roadWet?: { value: number } }).roadWet = wet;
+  const store = material.userData as {
+    roadWet?: { value: number };
+    roadSnow?: { value: number };
+    roadRain?: { value: number };
+    roadTime?: { value: number };
+    roadWear?: boolean;
+  };
+  // l'asfalto del kit è condiviso da tutte le strade (anche quelle di confine):
+  // senza questa guardia ogni build concatena un'altra copia dello shader e le
+  // dichiarazioni (`uRoadWet` in testa) risultano ridefinite → programma rotto
+  if (store.roadWear) return;
+  store.roadWear = true;
+  const previousCompile = material.onBeforeCompile;
+  const previousKey = material.customProgramCacheKey;
+  store.roadWet = roadWeatherUniforms.wet;
+  store.roadSnow = roadWeatherUniforms.snow;
+  store.roadRain = roadWeatherUniforms.rain;
+  store.roadTime = roadWeatherUniforms.time;
 
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.uRoadWet = wet;
+  material.onBeforeCompile = (shader, renderer) => {
+    // il materiale del kit ha già il suo onBeforeCompile (vento, bagnato,
+    // neve dei GLB): si concatena invece di sovrascriverlo
+    previousCompile?.call(material, shader, renderer);
+    shader.uniforms.uRoadWet = roadWeatherUniforms.wet;
+    shader.uniforms.uRoadSnow = roadWeatherUniforms.snow;
+    shader.uniforms.uRoadRain = roadWeatherUniforms.rain;
+    shader.uniforms.uRoadTime = roadWeatherUniforms.time;
+    shader.uniforms.uCarLightPos = roadLightUniforms.pos;
+    shader.uniforms.uCarLightDir = roadLightUniforms.dir;
+    shader.uniforms.uCarLightColor = roadLightUniforms.color;
+    shader.uniforms.uCarLightPower = roadLightUniforms.power;
+    shader.uniforms.uCarLightKind = roadLightUniforms.kind;
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
         `#include <common>
 varying vec2 vRoadUv;
-varying vec3 vRoadWorld;`,
+varying vec3 vRoadWorld;
+varying vec3 vRoadNormal;`,
       )
       .replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
 vRoadUv = uv;
-vRoadWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;`,
+vRoadWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;
+vRoadNormal = normalize(mat3(modelMatrix) * objectNormal);`,
       );
 
     shader.fragmentShader = shader.fragmentShader
@@ -981,7 +1095,16 @@ vRoadWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;`,
         `#include <common>
 varying vec2 vRoadUv;
 varying vec3 vRoadWorld;
+varying vec3 vRoadNormal;
 uniform float uRoadWet;
+uniform float uRoadSnow;
+uniform float uRoadRain;
+uniform float uRoadTime;
+uniform vec3 uCarLightPos[${ROAD_LIGHT_SLOTS}];
+uniform vec3 uCarLightDir[${ROAD_LIGHT_SLOTS}];
+uniform vec3 uCarLightColor[${ROAD_LIGHT_SLOTS}];
+uniform float uCarLightPower[${ROAD_LIGHT_SLOTS}];
+uniform float uCarLightKind[${ROAD_LIGHT_SLOTS}];
 
 // profilo delle due tracce di ruote: gaussiane strette a u = 0.30 e 0.70
 float wheelTracks(float u) {
@@ -1008,9 +1131,93 @@ float roadNoise(vec2 p) {
   return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
 
-// calcolate in <map_fragment> e riusate in <roughnessmap_fragment>
+// pozzanghera: maschera procedurale larga, non un disco perfetto
+float roadPuddle(vec2 p) {
+  float n = roadNoise(p * 0.13) * 0.55 + roadNoise(p * 0.41 + 19.0) * 0.3 +
+    roadNoise(p * 1.3) * 0.15;
+  return smoothstep(0.55, 0.72, n);
+}
+
+// increspature: due scale di celle, ognuna con fase, centro e raggio casuali.
+// Ritorna il gradiente della normale (x, z) sul piano della strada.
+vec2 roadRippleGrad(vec2 p, float t, float density, float amount) {
+  vec2 grad = vec2(0.0);
+  for (int i = 0; i < 2; i++) {
+    float fi = float(i);
+    float scale = i == 0 ? 3.0 : 7.0;
+    vec2 q = p * scale;
+    vec2 id = floor(q);
+    vec2 f = fract(q) - 0.5;
+    float seed = roadHash(id + fi * 17.31);
+    // niente nomi riservati: la parola active è riservata in GLSL ES 3.00 e il
+    // programma non compilava affatto (strada nera e warning a raffica)
+    float ringOn = step(seed, density);
+    float phase = fract(t * 0.85 + roadHash(id + 5.13 + fi) * 5.0);
+    vec2 center = (vec2(roadHash(id + 2.7), roadHash(id + 8.1)) - 0.5) * 0.55;
+    vec2 d = f - center;
+    float radius = mix(0.02, 0.46, phase) * (0.6 + 0.6 * roadHash(id + 3.9));
+    float ring = exp(-pow((length(d) - radius) / 0.035, 2.0));
+    ring *= (1.0 - phase) * ringOn;
+    grad += normalize(d + vec2(1e-4)) * ring;
+  }
+  return grad * amount;
+}
+
+// riflesso analitico delle luci auto: pozza del fascio + lobo speculare
+// allungato verso l'osservatore. Sempre presente, più forte sul bagnato.
+vec3 roadVehicleLights(vec3 P, vec3 N, vec3 V) {
+  vec3 total = vec3(0.0);
+  for (int i = 0; i < ${ROAD_LIGHT_SLOTS}; i++) {
+    float power = uCarLightPower[i];
+    if (power <= 0.0001) continue;
+    vec3 lp = uCarLightPos[i];
+    vec3 ld = uCarLightDir[i];
+    vec3 lc = uCarLightColor[i];
+    float kind = uCarLightKind[i];
+    vec2 delta = P.xz - lp.xz;
+    float height = max(0.25, lp.y - P.y);
+    float dist = sqrt(dot(delta, delta) + height * height);
+    vec2 forward = normalize(ld.xz + vec2(1e-4, 0.0));
+    vec2 side = vec2(-forward.y, forward.x);
+    float along = dot(delta, forward);
+    float across = dot(delta, side);
+    float beamLength = kind < 0.5 ? 26.0 : kind < 1.5 ? 6.5 : kind < 2.5 ? 8.0 : 5.0;
+    float beamWidth = kind < 0.5 ? 2.8 : kind < 1.5 ? 1.9 : kind < 2.5 ? 2.3 : 1.5;
+    float pool = smoothstep(-1.1, 1.3, along) *
+      exp(-max(along, 0.0) / beamLength) *
+      exp(-(across * across) / (beamWidth * beamWidth));
+    pool *= 1.0 / (1.0 + dist * dist * 0.018);
+
+    vec3 L = normalize(lp - P);
+    vec3 H = normalize(L + V);
+    float NdotH = clamp(dot(N, H), 0.0, 1.0);
+    float shininess = mix(36.0, 190.0, uRoadWet);
+    float spec = pow(NdotH, shininess);
+
+    // scia allungata lungo la direzione di vista proiettata sull'asfalto:
+    // è la firma del riflesso di un fanale su una strada lucida
+    vec2 viewDir = normalize(V.xz + vec2(1e-4));
+    float alongView = dot(delta, viewDir);
+    float acrossView = dot(delta, vec2(-viewDir.y, viewDir.x));
+    float streakWidth = mix(0.6, 1.35, uRoadWet);
+    float streak = exp(-(acrossView * acrossView) / (streakWidth * streakWidth)) *
+      exp(-abs(alongView) / mix(5.0, 13.0, uRoadWet));
+    float specular = spec * mix(0.12, 1.0, uRoadWet) +
+      streak * 0.35 * mix(0.3, 1.0, uRoadWet);
+
+    float response = mix(0.55, 1.15, uRoadWet) * (1.0 - uRoadSnow * 0.55);
+    total += lc * power * (pool * 0.32 + specular * 0.5) * response;
+  }
+  return total;
+}
+
+// calcolate in <map_fragment> e riusate più sotto: il rumore costa, va
+// campionato una volta sola per frammento anche se serve in tre punti
 float roadToppa;
-float roadCrack;`,
+float roadCrack;
+float roadSnowMask;
+float roadPuddleMask;
+float roadWetNoise;`,
       )
       .replace(
         '#include <map_fragment>',
@@ -1041,8 +1248,41 @@ float roadCrack;`,
   float cr = abs(roadNoise(vRoadWorld.xz * 0.42) - 0.5);
   roadCrack = (1.0 - smoothstep(0.0, 0.035, cr)) * 0.55;
   diffuseColor.rgb *= 1.0 - roadCrack * 0.38;
-  // bagnato: asfalto scuro, come dopo un temporale
-  diffuseColor.rgb *= mix(1.0, 0.60, uRoadWet);
+
+  // bagnato non uniforme: chiazze più scure e un filo di variazione nel tono,
+  // così la strada non diventa un nero piatto. Con l'asfalto asciutto il
+  // rumore non serve: il ramo è uniforme per tutto il draw, quindi la GPU lo
+  // salta davvero e non paga quattro campionamenti a ogni pixel di strada.
+  roadWetNoise = 0.0;
+  roadPuddleMask = 0.0;
+  if (uRoadWet > 0.01) {
+    roadWetNoise = roadNoise(vRoadWorld.xz * 0.55) * 0.6 + roadNoise(vRoadWorld.xz * 2.1) * 0.4;
+    roadPuddleMask = roadPuddle(vRoadWorld.xz) * smoothstep(0.18, 0.62, uRoadWet);
+  }
+  diffuseColor.rgb *= mix(1.0, 0.60 + 0.06 * roadWetNoise, uRoadWet);
+  diffuseColor.rgb *= mix(1.0, 0.52, roadPuddleMask);
+
+  // neve posata: superfici in alto, assottigliata nelle tracce delle ruote
+  roadSnowMask = smoothstep(0.02, 0.5, uRoadSnow) *
+    (0.72 + 0.28 * roadNoise(vRoadWorld.xz * 1.7));
+  roadSnowMask *= 1.0 - 0.85 * wheelTracks(vRoadUv.x);
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.82, 0.87, 0.95), roadSnowMask * 0.96);
+}`,
+      )
+      .replace(
+        '#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>
+{
+  if (uRoadRain > 0.02 && uRoadWet > 0.04) {
+    // le pozze riflettono le increspature molto più della strada bagnata
+    // uniforme: l'ampiezza cresce dove la maschera dice "acqua ferma"
+    vec2 grad = roadRippleGrad(vRoadWorld.xz, uRoadTime, 0.4 + 0.5 * uRoadRain,
+      (0.35 + 0.85 * roadPuddleMask) * uRoadWet);
+    // il gradiente è in spazio mondo (x, z): va portato in spazio vista, dove
+    // vive la normale dopo il chunk normal_fragment_maps
+    vec3 bump = mat3(viewMatrix) * vec3(grad.x, 0.0, grad.y);
+    normal = normalize(normal + bump * 1.15);
+  }
 }`,
       )
       .replace(
@@ -1054,13 +1294,26 @@ float roadCrack;`,
   // il catrame della toppa e' piu' liscio, la crepe piu' ruvida
   roughnessFactor = mix(roughnessFactor, 0.55, roadToppa * 0.45);
   roughnessFactor = mix(roughnessFactor, 0.98, roadCrack * 0.5);
-  // bagnato sì, specchio no: 0,12 faceva un lobo solare enorme in controsole,
-  // che cancellava la strada. 0,22 resta lucido ma diffonde la luce.
-  roughnessFactor = mix(roughnessFactor, 0.22, uRoadWet);
+  // bagnato sì, specchio no: 0,25 resta lucido ma diffonde la luce; le
+  // pozzanghere vere scendono a 0,03 e riflettono cielo e fari
+  roughnessFactor = mix(roughnessFactor, 0.25 + 0.09 * roadWetNoise,
+    uRoadWet * (1.0 - roadPuddleMask));
+  roughnessFactor = mix(roughnessFactor, 0.03, roadPuddleMask);
+  roughnessFactor = mix(roughnessFactor, 0.78, roadSnowMask);
 }`,
+      )
+      .replace(
+        '#include <opaque_fragment>',
+        `{
+  vec3 roadN = normalize(vRoadNormal);
+  vec3 roadV = normalize(cameraPosition - vRoadWorld);
+  outgoingLight += roadVehicleLights(vRoadWorld, roadN, roadV);
+}
+#include <opaque_fragment>`,
       );
   };
-  material.customProgramCacheKey = () => 'road-wear-v3';
+  material.customProgramCacheKey = () =>
+    `${previousKey ? previousKey() : 'road'}|road-wear-v4`;
 }
 
 /**
@@ -1775,7 +2028,9 @@ export function buildRoads(
     polygonOffsetFactor: -2,
     polygonOffsetUnits: -2,
   });
-  if (!kitAsphaltMat) applyRoadWear(asphaltMat);
+  // anche l'asfalto fotografico del kit passa dallo stesso shader: pozzanghere,
+  // increspature, neve e riflessi dei fari non devono sparire sui preset alti
+  applyRoadWear(asphaltMat);
   const dirtMat = new THREE.MeshStandardMaterial({
     color: 0xb9a68a,
     vertexColors: true,

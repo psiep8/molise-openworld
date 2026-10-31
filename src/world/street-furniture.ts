@@ -19,6 +19,18 @@ export interface LampSpot {
 const POLE_HEIGHT = 6.2;
 const ARM_REACH = 1.15;
 
+/** Materiale per il glow del pavimento sotto i lampioni: emisione radiali con blending additivo. */
+function createGroundGlowMaterial(): THREE.MeshBasicMaterial {
+  const material = new THREE.MeshBasicMaterial({
+    color: 0xfff8e8,
+    transparent: true,
+    opacity: 0.8,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  return material;
+}
+
 /**
  * Lampioni stradali.
  *
@@ -37,6 +49,7 @@ export class StreetLights {
   private readonly glassMaterial: THREE.MeshStandardMaterial;
   private readonly pool: THREE.PointLight[] = [];
   private readonly spots: { x: number; y: number; z: number }[] = [];
+  private readonly groundGlows: THREE.Mesh[] = [];
 
   constructor(
     spots: LampSpot[],

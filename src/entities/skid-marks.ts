@@ -8,6 +8,61 @@ const STORAGE_VERSION = 2;
 const STORAGE_KEY = 'molise.skid-marks';
 /** Ogni quanto salvare su storage i chunk accumulati (secondi simulati). */
 const PERSIST_SECONDS = 4;
+/** Base geometrica del quad: scala per istanza = larghezza/lunghezza in metri. */
+const BASE_WIDTH = 1;
+const BASE_LENGTH = 1;
+
+/**
+ * Alpha del segno: bordi morbidi, battistrada accennato e grana.
+ *
+ * Non è una tinta piatta: il centro resta pieno, i lati si sciolgono e
+ * qualche solco trasversale dà l'idea della scolpitura della gomma. Il colore
+ * RGB resta bianco, così la tinta vera arriva dal colore per istanza
+ * (asfalto nero-grigio, terra/marcio, neve).
+ */
+function makeSkidTexture(): THREE.CanvasTexture | null {
+  // nei test Node non c'è DOM: la texture è solo un extra visivo, la mesh
+  // deve poter nascere lo stesso
+  if (typeof document === 'undefined') return null;
+  const width = 32;
+  const height = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    const image = ctx.createImageData(width, height);
+    const hash = (x: number, y: number): number => {
+      const v = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+      return v - Math.floor(v);
+    };
+    for (let y = 0; y < height; y++) {
+      const v = y / (height - 1);
+      // battistrada: solchi traversali radi, non un motivo a righe fitte
+      const tread = 0.78 + 0.22 * Math.sin(v * Math.PI * 2 * 3.0 + Math.sin(v * 11.0) * 0.7);
+      for (let x = 0; x < width; x++) {
+        const u = x / (width - 1);
+        const edge = Math.abs(u * 2 - 1);
+        // 0.62 pieno al centro, poi dissolvenza morbida fino al bordo
+        const soft = 1 - Math.max(0, Math.min(1, (edge - 0.62) / 0.38));
+        const grain = 0.8 + 0.2 * hash(x, y);
+        const i = (y * width + x) * 4;
+        image.data[i] = 255;
+        image.data[i + 1] = 255;
+        image.data[i + 2] = 255;
+        image.data[i + 3] = Math.round(255 * soft * soft * tread * grain);
+      }
+    }
+    ctx.putImageData(image, 0, 0);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  return texture;
+}
 
 /** Interfaccia minima di `localStorage`, iniettabile nei test. */
 export interface SkidStorage {
@@ -91,12 +146,13 @@ export class SkidMarks {
   private persistClock = 0;
 
   constructor(private readonly storage: SkidStorage | null = defaultStorage()) {
-    const geometry = new THREE.PlaneGeometry(0.28, 0.9);
+    const geometry = new THREE.PlaneGeometry(BASE_WIDTH, BASE_LENGTH);
     geometry.rotateX(-Math.PI / 2);
     const material = new THREE.MeshBasicMaterial({
       color: 0xffffff,
+      map: makeSkidTexture(),
       transparent: true,
-      opacity: 0.62,
+      opacity: 0.88,
       depthWrite: false,
       polygonOffset: true,
       polygonOffsetFactor: -2,
@@ -508,8 +564,8 @@ export class SkidMarks {
     // Il nastro resta lungo quasi tutta la vita e si ritira solo alla fine:
     // scalarlo subito aprirebbe dei buchi tra un segmento e il successivo.
     const fade = Math.min(1, life * 6);
-    const lengthScale = Math.max(0.05, this.lengths[i]!) / 0.9;
-    this.dummy.scale.set(this.widths[i]! / 0.28, 1, lengthScale * fade);
+    const lengthScale = Math.max(0.05, this.lengths[i]!) / BASE_LENGTH;
+    this.dummy.scale.set(this.widths[i]! / BASE_WIDTH, 1, lengthScale * fade);
     this.dummy.updateMatrix();
     this.mesh.setMatrixAt(i, this.dummy.matrix);
     this.mesh.setColorAt(i, this.color.setHex(this.colors[i]!)

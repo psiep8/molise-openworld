@@ -39,7 +39,14 @@ import { buildDryStoneWalls } from './world/dry-stone';
 import { buildFieldBoundaries, loadParcels, type Parcels } from './world/field-boundaries';
 import { buildPowerLines } from './world/power-lines';
 import { buildGuardrails } from './world/guardrails';
-import { buildRoads, buildWater, extendBoundaryRoads, roadPolyline } from './world/roads';
+import {
+  buildRoads,
+  buildWater,
+  extendBoundaryRoads,
+  roadPolyline,
+  setRoadVehicleLights,
+  setRoadWeather,
+} from './world/roads';
 import {
   StreetLights,
   buildRoadDrainage,
@@ -636,6 +643,8 @@ export class Game {
   private lastWetness = -1;
   private roadWetness = 0;
   private snowPack = 0;
+  /** Tempo continuo per increspature e crepe del manto stradale. */
+  private roadClock = 0;
   private drivingWeather: SurfaceWeather = {
     wetness: 0,
     standingWater: 0,
@@ -1062,8 +1071,13 @@ export class Game {
       this.sky = createSky(this.scene);
       this.clouds = new CloudLayer();
       this.scene.add(this.clouds.mesh);
-      this.precipitation = new Precipitation();
+      this.precipitation = new Precipitation(this.qualityLevel);
       this.precipitation.group.visible = this.weatherFxOn;
+      this.precipitation.setCameraDroplets(this.qualityLevel === 'high' || this.qualityLevel === 'ultra');
+      // le goccioline sul vetro sono figlie della camera: la camera deve stare
+      // nel grafo della scena per essere disegnata
+      this.scene.add(this.camera);
+      this.precipitation.attachCamera(this.camera);
       // gli schizzi devono cadere sulla superficie vera: la quota include già
       // asfalto, marciapiede e ponte, quindi non serve più indovinare +25 cm
       this.precipitation.setGroundSampler((x, z) => this.ground.heightAt(x, z) + 0.055);
@@ -2548,6 +2562,7 @@ export class Game {
     // è attivo e il cielo è limpido
     const palette = horizonPalette({ sunElevation: DEFAULT_SUN.elevation, cloud: 0, rain: 0, snow: 0, day: 1 });
     this.horizonLookCache = { key: 'default', palette };
+    this.fogColor.setHex(palette.fog);
     this.scene.fog = new THREE.FogExp2(palette.fog, 0.00024);
     this.scene.background = new THREE.Color(palette.sky);
     this.sky.setHorizon(palette.away, palette.sun, this.sky.sunDirection, 0.72);
@@ -2562,8 +2577,11 @@ export class Game {
     this.dayNow = 1;
     this.clouds?.setVisible(false);
     this.precipitation?.clear();
+    this.precipitation?.setAmbient(this.fogColor, 1);
     this.car.setLights(0);
     this.applyWetness(0);
+    setRoadWeather(0, 0, 0, this.roadClock);
+    setRoadVehicleLights(this.car.roadLights());
   }
 
   /** Applica sole reale e condizioni meteo al cielo, alle luci e alle particelle. */
@@ -2617,8 +2635,9 @@ export class Game {
       // la tinta base dell'asfalto non va persa: la si conserva al primo passaggio
       const store = material.userData as { baseColor?: THREE.Color; roadWet?: { value: number } };
       if (store.roadWet) {
-        // l'asfalto si scurisce e si lucida da solo, dentro lo shader di usura
-        store.roadWet.value = target;
+        // l'asfalto si scurisce e si lucida da solo, dentro lo shader di usura;
+        // gli uniform però sono condivisi e li pilota `setRoadWeather` a ogni
+        // frame: qui non si scrive nulla, o l'ultimo materiale avrebbe ragione
         return;
       }
       store.baseColor ??= material.color.clone();
@@ -2697,7 +2716,16 @@ export class Game {
     // corti di prima.
     // La pioggia non è nebbia: con 0,0017 a 1 km era già tutto latteo (il cielo
     // coperto sembrava bianco). 0,0007 dà profondità senza lavare il paesaggio.
-    const fogDensity = foggy ? 0.008 : snow > 0 ? 0.002 : rain > 0 ? 0.0007 : 0.00024 + cloud * 0.00018;
+    // La neve invece deve togliere davvero orizzonte: la visibilità cala con
+    // l'intensità (fino a ~0,006) e la foschia prende la tinta bluastra della
+    // tavolozza, non solo le particelle.
+    const fogDensity = foggy
+      ? 0.008
+      : snow > 0
+        ? 0.0016 + snow * 0.0042
+        : rain > 0
+          ? 0.0007 + rain * 0.00035
+          : 0.00024 + cloud * 0.00018;
 
     // Tavolozza dell'aria: blu-grigio saturo, caldo solo verso il sole. Si
     // ricalcola solo quando l'ora o il meteo cambiano davvero (l'anello lontano
@@ -2801,6 +2829,9 @@ export class Game {
     this.applyWetness(Math.max(this.roadWetness, this.snowPack * 0.5));
     // la neve non è solo trazione: si posa anche sui modelli importati
     setWorldKitSnow(this.snowPack);
+    // pozzanghere, increspature e neve sull'asfalto: un solo set di uniform
+    // condiviso da tutti i materiali strada
+    setRoadWeather(this.roadWetness, this.snowPack, rain, this.roadClock);
   }
 
   // -------------------------------------------------------------------------
@@ -3030,6 +3061,10 @@ export class Game {
     this.slowChecks = 0;
     this.viewRadius = this.quality.viewRadius;
     this.car.setQuality(level);
+    this.precipitation?.setQuality(level);
+    // le goccioline sul vetro sono un effetto da preset alto: su medium
+    // costerebbero un overlay a schermo intero per pochi pixel di goccia
+    this.precipitation?.setCameraDroplets(level === 'high' || level === 'ultra');
     this.syncWeatherEffects();
     this.setShadows(this.quality.shadows);
     this.applyRenderScale();
@@ -4163,8 +4198,18 @@ export class Game {
       { wetness: this.roadWetness },
       motion,
     );
+    this.roadClock += dt;
     if (this.manualTime) this.applyManualAtmosphere(dt, focus);
     else if (this.realWeatherEnabled) this.applyWeatherVisuals(dt, focus);
+    // le luci dell'auto alimentano il riflesso analitico dell'asfalto a ogni
+    // preset: anche dove non c'è nessuna luce dinamica nel budget
+    const roadLights = this.car.roadLights();
+    setRoadVehicleLights(roadLights);
+    this.precipitation?.setLights(roadLights);
+    // nel pomeriggio fisso applyAtmosphere non gira: gli uniform della strada
+    // e il colore delle gocce vanno comunque riallineati ogni frame
+    setRoadWeather(this.roadWetness, this.snowPack, this.rainNow, this.roadClock);
+    this.precipitation?.setAmbient(this.fogColor, this.dayNow);
     this.updateSky(focus);
     // l'esposizione si adatta anche nel pomeriggio fisso del gioco: guardare il
     // sole deve smorzare la scena in ogni modalità, non solo con l'ora manuale

@@ -281,7 +281,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     shadowMapSize: 4096,
     shadows: true,
     post: true,
-    bloom: 0.02,
+    bloom: 0.015,
     ssao: true,
     grassDensity: 1,
     groundDetail: 132,

@@ -36,6 +36,7 @@ import type { CityKit } from '../world/citykit';
 import type { CarLibrary } from '../world/car-library';
 import { preciseBox, splitCarWheels } from './car-wheels';
 import { ribbonJoint, SkidMarks } from './skid-marks';
+import type { RoadVehicleLight } from '../world/roads';
 import { HumanBody, type HumanAssets } from './human-model';
 import type { Appearance } from './appearance';
 import { clamp } from '../geo/geo';
@@ -235,7 +236,6 @@ export class Vehicle {
   private sprayClock = 0;
   /** Strisce di gomma sul fango/erba: gruppo separato, non figlio dell'auto. */
   readonly skidMarks = new SkidMarks();
-  private skidClock = 0;
   /** Ultimo punto di contatto per ruota: serve a concatenare i nastri. */
   private readonly skidTrail = new Map<
     'fl' | 'fr' | 'rl' | 'rr',
@@ -251,6 +251,20 @@ export class Vehicle {
   private lampClock = 0;
   /** frenata corrente, 0…1: serve alle lenti posteriori dei GLB */
   private braking = 0;
+  /**
+   * Luci passate allo shader dell'asfalto: posizione, direzione, colore e
+   * intensità già pesate da ora/frenata/retromarcia. Sono riciclate ogni
+   * frame, così il riflesso non alloca nulla.
+   */
+  private readonly roadLightList: RoadVehicleLight[] = Array.from(
+    { length: 6 },
+    () => ({
+      x: 0, y: -999, z: 0,
+      dx: 0, dy: -0.1, dz: -1,
+      r: 1, g: 1, b: 1,
+      power: 0, range: 12, kind: 0,
+    }),
+  );
   /** fari accesi anche di giorno (`J`) */
   private headlightOverride = false;
   private kit: CityKit | null = null;
@@ -1284,6 +1298,104 @@ export class Vehicle {
     return this.state.yaw;
   }
 
+  /**
+   * Luci del veicolo per il riflesso analitico sull'asfalto.
+   *
+   * Non dipende dalle SpotLight/PointLight del preset: anche su `minimal`
+   * l'asfalto deve mostrare il fascio davanti e il rosso dietro. L'intensità
+   * tiene conto di fari accesi (anche di giorno col tasto `J`), stop,
+   * retromarcia e frecce.
+   */
+  roadLights(): readonly RoadVehicleLight[] {
+    const spec = this.spec;
+    const yaw = this.state.yaw;
+    const fx = -Math.sin(yaw);
+    const fz = -Math.cos(yaw);
+    const rx = Math.cos(yaw);
+    const rz = -Math.sin(yaw);
+    const gx = this.group.position.x;
+    const gy = this.group.position.y;
+    const gz = this.group.position.z;
+    const halfLength = spec.length * 0.5;
+    const halfWidth = Math.max(0.55, spec.width * 0.33);
+    const headY = gy + Math.max(0.55, spec.wheelRadius * 1.15);
+    const tailY = gy + Math.max(0.45, spec.wheelRadius * 0.95);
+
+    const on = this.headlightOverride ? Math.max(0.55, this.nightLevel) : this.nightLevel;
+    const headPower = on * (this.highBeam ? 2.15 : 1.45);
+    const brake = clamp(this.braking, 0, 1);
+    const brakeKind: 1 | 2 = brake > 0.12 ? 2 : 1;
+    // lo stop si vede anche di giorno e con i fari spenti
+    const tailPower = this.nightLevel * 0.65 + brake * 3.0;
+    const reversePower = this.state.gear < 0 ? 2.1 : 0;
+    const indicatorOn = this.indicator !== 'off' && blinkOn(this.lampClock);
+
+    // due fari davanti
+    for (let i = 0; i < 2; i++) {
+      const side = i === 0 ? -1 : 1;
+      const light = this.roadLightList[i]!;
+      light.x = gx + fx * (halfLength - 0.02) + rx * halfWidth * side;
+      light.y = headY;
+      light.z = gz + fz * (halfLength - 0.02) + rz * halfWidth * side;
+      light.dx = fx;
+      light.dy = -0.12;
+      light.dz = fz;
+      light.r = 1;
+      light.g = 0.93;
+      light.b = 0.78;
+      light.power = headPower;
+      light.range = this.highBeam ? 42 : 30;
+      light.kind = 0;
+    }
+    // due fanalini posteriori (stop compreso)
+    for (let i = 0; i < 2; i++) {
+      const side = i === 0 ? -1 : 1;
+      const light = this.roadLightList[2 + i]!;
+      light.x = gx - fx * (halfLength - 0.06) + rx * halfWidth * side;
+      light.y = tailY;
+      light.z = gz - fz * (halfLength - 0.06) + rz * halfWidth * side;
+      light.dx = -fx;
+      light.dy = -0.15;
+      light.dz = -fz;
+      light.r = 1;
+      light.g = 0.075;
+      light.b = 0.035;
+      light.power = tailPower;
+      light.range = 10;
+      light.kind = brakeKind;
+    }
+    // retromarcia: bianca, al centro della coda
+    const reverse = this.roadLightList[4]!;
+    reverse.x = gx - fx * (halfLength - 0.04);
+    reverse.y = tailY;
+    reverse.z = gz - fz * (halfLength - 0.04);
+    reverse.dx = -fx;
+    reverse.dy = -0.18;
+    reverse.dz = -fz;
+    reverse.r = 1;
+    reverse.g = 0.96;
+    reverse.b = 0.84;
+    reverse.power = reversePower;
+    reverse.range = 7;
+    reverse.kind = 3;
+    // freccia: ambra pulsante, solo quando il lato è acceso
+    const indicator = this.roadLightList[5]!;
+    const side = this.indicator === 'right' ? 1 : -1;
+    indicator.x = gx - fx * (halfLength - 0.05) + rx * halfWidth * side;
+    indicator.y = tailY;
+    indicator.z = gz - fz * (halfLength - 0.05) + rz * halfWidth * side;
+    indicator.dx = -fx;
+    indicator.dy = -0.15;
+    indicator.dz = -fz;
+    indicator.r = 1;
+    indicator.g = 0.48;
+    indicator.b = 0.04;
+    indicator.power = indicatorOn ? 1.6 : 0;
+    indicator.range = 7;
+    indicator.kind = 4;
+    return this.roadLightList;
+  }
+
   /** `amount` 0 = giorno, 1 = notte piena. */
   setLights(amount: number): void {
     this.nightLevel = clamp(amount, 0, 1);
@@ -1315,12 +1427,13 @@ export class Vehicle {
     const canLightRear = this.dynamicLights === 'all';
     const slip = this.state.wheelSlip;
     const stop = Math.max(this.braking, slip?.rl.locked || slip?.rr.locked ? 1 : 0);
-    const level = canLightRear ? this.nightLevel : 0;
+    // lo stop dinamico si accende anche di giorno: luci posteriori rosse
+    // sempre presenti a numero costante, cambia solo l'intensità
     for (const light of this.rearLights) {
-      light.intensity = level * (2.5 + 7 * stop);
+      light.intensity = canLightRear ? this.nightLevel * 2.5 + stop * 7.5 : 0;
     }
     for (const light of this.reverseLights) {
-      light.intensity = canLightRear && this.state.gear < 0 ? 2 : 0;
+      light.intensity = canLightRear && this.state.gear < 0 ? 2.2 : 0;
     }
   }
 
@@ -1721,9 +1834,12 @@ export class Vehicle {
   }
 
   /**
-   * Due strisce dietro le ruote posteriori, solo su superfici che si segnano.
-   * L'emissione è a tempo (10 Hz) così non si accumulano centinaia di quad
-   * sovrapposti quando il pattinamento dura mezzo secondo.
+   * Nastri dietro tutte e quattro le ruote, solo su superfici che si segnano.
+   *
+   * Il campionamento è adattivo: si aggiunge un punto quando la ruota ha
+   * percorso almeno 25 cm oppure ha cambiato direzione di oltre 3°. A tempo
+   * fisso le curve strette facevano "puntini" e le velocità alte allungavano i
+   * quad; così i tratti restano continui e i giunti non si vedono.
    */
   private updateSkidMarks(
     dt: number,
@@ -1731,11 +1847,9 @@ export class Vehicle {
     ground: GroundSampler,
     weather?: Partial<SurfaceWeather>,
   ): void {
-    this.skidClock = Math.max(0, this.skidClock - dt);
-    if (this.skidClock > 0) return;
-    // Frequenza adattata alla velocità: le bande restano continue senza creare
-    // un punto per ogni frame.
-    this.skidClock = 0.06;
+    void dt;
+    const MIN_STEP = 0.25;
+    const MAX_TURN = (Math.PI / 180) * 3;
     const fx = -Math.sin(state.yaw);
     const fz = -Math.cos(state.yaw);
     const rx = Math.cos(state.yaw);
@@ -1759,53 +1873,84 @@ export class Vehicle {
       }
       const material = surfaceMaterial(sample.surface);
       const intensity = skidIntensity(slip);
-      const width = 0.18 + intensity * 0.2;
+      // larghezza da pneumatico vero: 0,18 m di gomma stretta fino a 0,30 m
+      // quando lo slittamento è al massimo, non 0,28 m uguale per tutte
+      // la base varia per tipo di pneumatico: stretto 0,18, medio 0,22, largo 0,30
+      const baseWidths = { fl: 0.18, fr: 0.20, rl: 0.22, rr: 0.24 };
+      let width = baseWidths[wheel.id] + intensity * 0.12;
+      // Asfalto: il segno è più scuro ai lati e ha un bordo doppio
+      // l'intensità del colore varia con il grip (meno slippaggio = più scuro)
+      const isAsphalt = sample.surface === 'asphalt' || sample.surface === 'concrete' || sample.surface === 'cobblestone';
+      if (isAsphalt) {
+        // Bordo doppio: il segno è più scuro ai lati (0.8x la normale intensità)
+        const edgeFactor = 0.8 + 0.2 * Math.abs(wheel.side);
+        // Frenata col bloccaggio: il segno diventa più marcato
+        const lockedFactor = slip.load > 0.8 ? 1.3 : 1.0;
+        width *= 1.0 + (lockedFactor - 1) * 0.1; // leggermente più largo in bloccaggio
+      }
+      // Pioggia: il bagnato riduce drasticamente la visibilità dei segni
+      const wetReduction = surfaceMaterial(sample.surface).id === 'asphalt' && wetSurface
+        ? 0.4 // 60% di riduzione sul bagnato
+        : 1.0;
+      width *= wetReduction;
       const last = this.skidTrail.get(wheel.id);
       const gap = last ? Math.hypot(x - last.x, z - last.z) : Infinity;
-      if (last && last.surface === sample.surface && gap > 0.02 && gap < 4) {
+      if (last && last.surface === sample.surface) {
         const heading = Math.atan2(x - last.x, z - last.z);
-        // nelle curve strette i due quad rettilinei aprono un cuneo all'esterno:
-        // un tassello corto sulla bisettrice lo chiude prima di allungare il nastro
-        const joint = ribbonJoint(last.heading, heading, width);
-        if (joint) {
-          this.skidMarks.addJoint(
+        const turn = Math.abs(Math.atan2(
+          Math.sin(heading - last.heading),
+          Math.cos(heading - last.heading),
+        ));
+        // sotto 25 cm e 3° il punto è ridondante: si aspetta, così non si
+        // accumulano decine di quad quasi sovrapposti (il vecchio "puntini")
+        if (gap < MIN_STEP && turn < MAX_TURN) continue;
+        if (gap <= 4) {
+          // nelle curve strette i due quad rettilinei aprono un cuneo
+          // all'esterno: un tassello corto sulla bisettrice lo chiude
+          const joint = ribbonJoint(last.heading, heading, width);
+          if (joint) {
+            this.skidMarks.addJoint(
+              last.x,
+              last.z,
+              sample.y,
+              joint.yaw,
+              joint.length,
+              material.skid.color,
+              intensity,
+              material.skid.persistence,
+              width,
+              material.skid.depth,
+            );
+          }
+          this.skidMarks.addRibbon(
             last.x,
             last.z,
+            x,
+            z,
             sample.y,
-            joint.yaw,
-            joint.length,
             material.skid.color,
             intensity,
             material.skid.persistence,
             width,
             material.skid.depth,
           );
+          this.skidTrail.set(wheel.id, { x, z, surface: sample.surface, heading });
+          continue;
         }
-        this.skidMarks.addRibbon(
-          last.x,
-          last.z,
-          x,
-          z,
-          sample.y,
-          material.skid.color,
-          intensity,
-          material.skid.persistence,
-          width,
-          material.skid.depth,
-        );
-      } else {
-        this.skidMarks.add(
-          x,
-          z,
-          state.yaw,
-          sample.y,
-          material.skid.color,
-          intensity,
-          material.skid.persistence,
-          width,
-          material.skid.depth,
-        );
       }
+      // inizio del nastro o cambio di superficie: il primo quad è più tenue,
+      // così l'attacco non è un rettangolo netto
+      this.skidMarks.add(
+        x,
+        z,
+        state.yaw,
+        sample.y,
+        material.skid.color,
+        last ? intensity : intensity * 0.5,
+        material.skid.persistence,
+        width,
+        material.skid.depth,
+      );
       const heading = last ? Math.atan2(x - last.x, z - last.z) : state.yaw;
       this.skidTrail.set(wheel.id, { x, z, surface: sample.surface, heading });
     }
