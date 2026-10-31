@@ -1010,6 +1010,7 @@ export class Game {
         shadows: this.quality.level === 'high' || this.quality.level === 'ultra',
         canopy: this.canopy,
         obstacles: this.obstacles,
+        kit: this.worldKit,
       });
       this.scene.add(this.vegetation.group);
       // alberi di strada e auto in sosta del kit: solo dentro il paese e con un
@@ -2892,6 +2893,7 @@ export class Game {
         shadows,
         canopy: this.canopy,
         obstacles: this.obstacles,
+        kit: this.worldKit,
       });
       if (generation !== this.vegetationGeneration) {
         vegetation.dispose();
