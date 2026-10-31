@@ -239,7 +239,7 @@ function applySurface(material: THREE.MeshStandardMaterial, role: WorldRole, hei
         uniform float uTime;
         uniform vec2 uWind;
         uniform float uKitHeight;
-        uniform float uKitSway;${hit ? '\n        attribute vec4 aHit;' : ''}${pass ? '\n        uniform vec2 uCarPos;\n        uniform float uCarSpeed;' : ''}`,
+        uniform float uKitSway;${hit ? '\n        attribute vec4 aHit;' : ''}${pass ? '\n        uniform vec2 uCarPos;\n        uniform vec2 uCarVel;\n        uniform float uCarSpeed;' : ''}`,
       )
       .replace(
         '#include <begin_vertex>',

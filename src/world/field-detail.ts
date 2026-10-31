@@ -4,7 +4,7 @@ import { START } from '../config';
 import type { Heightfield } from '../geo/elevation';
 import { mulberry32, pointInPolygon } from '../geo/geo';
 import type { Area, BuildingIndex, RoadIndex } from '../geo/osm';
-import { windUniforms } from '../gfx/wind';
+import { vehiclePassSnippet, vehiclePassUniforms, windUniforms } from '../gfx/wind';
 import { StreamedCells, type CellStreamStats, type CellWriter } from './cell-stream';
 import { COVER_CROP, COVER_DRY, COVER_MEADOW, COVER_WOOD, type CoverClass } from './ground-mask';
 import { AreaLookup, LocalGround } from './local-ground';
@@ -96,15 +96,20 @@ function wheatGeometry(): THREE.BufferGeometry {
 
 function applyWheatWind(material: THREE.MeshLambertMaterial): void {
   const { uTime, uWind } = windUniforms();
+  const passUniforms = vehiclePassUniforms();
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = uTime;
     shader.uniforms.uWind = uWind;
+    Object.assign(shader.uniforms, passUniforms);
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
         `#include <common>
         uniform float uTime;
         uniform vec2 uWind;
+        uniform vec2 uCarPos;
+        uniform vec2 uCarVel;
+        uniform float uCarSpeed;
         attribute float aFade;`,
       )
       .replace(
@@ -119,12 +124,16 @@ function applyWheatWind(material: THREE.MeshLambertMaterial): void {
         float wheatPhase = wheatPos.x * 0.21 + wheatPos.z * 0.17;
         float wheatSway = sin( uTime * 1.35 + wheatPhase ) * 0.055 + sin( uTime * 2.7 + wheatPhase * 1.7 ) * 0.018;
         transformed.x += wheatSway * wheatBend * wheatBend * uWind.x;
-        transformed.z += wheatSway * wheatBend * wheatBend * uWind.y;
+        transformed.z += wheatSway * wheatBend * wheatBend * uWind.y;${vehiclePassSnippet(
+          'wheatPos',
+          'wheatBend',
+          WHEAT_HEIGHT.toFixed(2),
+        )}
         // dissolvenza di cella: la spiga cresce dal suolo
         transformed *= aFade;`,
       );
   };
-  material.customProgramCacheKey = () => 'wheat-field-wind-v2';
+  material.customProgramCacheKey = () => 'wheat-field-wind-v3';
   material.needsUpdate = true;
 }
 

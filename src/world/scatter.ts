@@ -612,7 +612,7 @@ function applyWind(material: THREE.MeshStandardMaterial, strength: number, shrub
       .replace(
         '#include <common>',
         `#include <common>\nuniform float uScatterWindTime;\nuniform vec2 uScatterWind;${
-          shrub ? '\nuniform vec2 uCarPos;\nuniform float uCarSpeed;' : ''
+          shrub ? '\nuniform vec2 uCarPos;\nuniform vec2 uCarVel;\nuniform float uCarSpeed;' : ''
         }`,
       )
       .replace(

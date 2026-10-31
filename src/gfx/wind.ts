@@ -54,10 +54,21 @@ export function setVehiclePass(x: number, z: number, vx: number, vz: number, spe
 export function vehiclePassSnippet(origin: string, bend: string, height: string): string {
   return `
         vec2 vpDelta = ${origin}.xz - uCarPos;
-        float vpDistance = length( vpDelta );
-        float vpInfluence = smoothstep( 2.6, 0.0, vpDistance ) * clamp( uCarSpeed / 7.0, 0.0, 1.0 );
-        vec2 vpDirection = vpDelta / max( 0.001, vpDistance );
-        float vpAmplitude = vpInfluence * 0.20 * ${height} * ( 0.2 + 0.8 * ${bend} );
+        float vpSpeed = length( uCarVel );
+        // rettangolo dell'auto (2,45 × 1,10 m) orientato sulla direzione di
+        // marcia: il cerchietto da 2,6 m lasciava i fili sotto i paraurti
+        vec2 vpForward = vpSpeed > 0.15 ? uCarVel / vpSpeed : vec2( 0.0, 1.0 );
+        vec2 vpSide = vec2( -vpForward.y, vpForward.x );
+        float vpAlong = abs( dot( vpDelta, vpForward ) );
+        float vpAcross = abs( dot( vpDelta, vpSide ) );
+        float vpOutside = max( max( vpAlong - 2.45, vpAcross - 1.10 ), 0.0 );
+        float vpInside = 1.0 - smoothstep( 0.0, 0.6, vpOutside );
+        // sotto la scocca l'erba si sdraia anche ad auto ferma: era il filo
+        // che bucava paraurti e cofano da fermi
+        transformed.y *= mix( 1.0, 0.16, vpInside );
+        float vpMotion = smoothstep( 0.05, 0.8, vpSpeed );
+        vec2 vpDirection = vpDelta / max( 0.001, length( vpDelta ) );
+        float vpAmplitude = vpInside * ( 0.16 + 0.5 * vpMotion ) * ${height} * ( 0.35 + 0.65 * ${bend} );
         transformed.x += vpDirection.x * vpAmplitude;
         transformed.z += vpDirection.y * vpAmplitude;`;
 }

@@ -137,7 +137,7 @@ export class GrassField {
       shader.vertexShader = shader.vertexShader
         .replace(
           '#include <common>',
-          '#include <common>\nuniform float uTime;\nuniform vec2 uWind;\nuniform vec2 uCarPos;\nuniform float uCarSpeed;\nattribute float aFade;',
+          '#include <common>\nuniform float uTime;\nuniform vec2 uWind;\nuniform vec2 uCarPos;\nuniform vec2 uCarVel;\nuniform float uCarSpeed;\nattribute float aFade;',
         )
         .replace(
           '#include <begin_vertex>',
@@ -178,7 +178,7 @@ export class GrassField {
       shader.vertexShader = shader.vertexShader
         .replace(
           '#include <common>',
-          '#include <common>\nuniform float uTime;\nuniform vec2 uWind;\nuniform vec2 uCarPos;\nuniform float uCarSpeed;\nattribute float aFade;',
+          '#include <common>\nuniform float uTime;\nuniform vec2 uWind;\nuniform vec2 uCarPos;\nuniform vec2 uCarVel;\nuniform float uCarSpeed;\nattribute float aFade;',
         )
         .replace(
           '#include <begin_vertex>',
