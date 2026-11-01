@@ -98,7 +98,7 @@ export function sweepArmCone(
   direction: CameraPoint,
   ideal: number,
   blocked: (x: number, y: number, z: number) => boolean,
-  spread = 0.18,
+  spread = 0.1,
   options: SweepOptions = {},
 ): number {
   const center = sweepArm(origin, direction, ideal, blocked, options);

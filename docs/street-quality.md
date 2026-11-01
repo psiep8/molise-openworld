@@ -43,8 +43,9 @@ Ora `src/gfx/camera-arm.ts`:
 
 - `sweepArm` misura lo spazio libero lungo il raggio (passo 35 cm, margine
   45 cm);
-- `sweepArmCone` controlla anche ±10°: in curva il muro entra di lato e il
-  braccio si ritira **prima** che tagli la linea di vista;
+- `sweepArmCone` controlla anche ±6°: in curva il muro entra di lato e il
+  braccio si ritira **prima** che tagli la linea di vista, senza però arrivare
+  alle facciate ai lati di una via stretta;
 - `springArmLength` accorcia a 10 /s e riallunga a 2,2 /s (camminata 13 / 2,4),
   senza mai superare lo spazio libero né scendere sotto 0,55–0,8 m;
 - near plane adattivo: 4,5 cm sotto 1,3 m di braccio, 10 cm sopra 1,9 m.

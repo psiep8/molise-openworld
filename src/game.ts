@@ -4654,14 +4654,15 @@ export class Game {
     const axis = armAxis(target, desired);
     if (!(axis.length > 0)) return;
     const min = kind === 'drive' ? 0.8 : 0.55;
-    // ±0,18 rad (~10°): il muro che entra di lato in curva si vede prima che
-    // tagli la linea di vista, e il braccio ha il tempo di ritirarsi
+    // ±0,1 rad (~6°): il muro che entra di lato in curva si vede prima che
+    // tagli la linea di vista, ma su una via stretta il cono non arriva alle
+    // facciate di lato e la camera non si ritira a ogni casa
     const allowed = sweepArmCone(
       target,
       axis.direction,
       axis.length,
       (x, y, z) => this.cameraBlocked(x, y, z),
-      0.18,
+      0.1,
       { step: 0.35, clearance: 0.45, min },
     );
     const rates = kind === 'drive'
