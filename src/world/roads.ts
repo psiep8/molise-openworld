@@ -1064,6 +1064,14 @@ function applyRoadWear(material: THREE.MeshStandardMaterial): void {
     // il materiale del kit ha già il suo onBeforeCompile (vento, bagnato,
     // neve dei GLB): si concatena invece di sovrascriverlo
     previousCompile?.call(material, shader, renderer);
+    // L'asfalto del kit dichiara già `uRoadWet` per la sua bagnatura: se resta,
+    // il blocco qui sotto la ridichiara e il programma non compila più
+    // ("uRoadWet: redefinition"), lasciando le strade senza materiale. Si
+    // tolgono le dichiarazioni preesistenti: le nostre arrivano subito dopo.
+    shader.fragmentShader = shader.fragmentShader.replace(
+      /uniform\s+float\s+uRoad(Wet|Snow|Rain|Time)\s*;[ \t]*\n?/g,
+      '',
+    );
     shader.uniforms.uRoadWet = roadWeatherUniforms.wet;
     shader.uniforms.uRoadSnow = roadWeatherUniforms.snow;
     shader.uniforms.uRoadRain = roadWeatherUniforms.rain;

@@ -1,14 +1,20 @@
 import { HOME, latLonToWorld, VILLAGES, WORLD } from '../config';
+import type { Heightfield } from '../geo/elevation';
 import type { Pt } from '../geo/geo';
 import type { OsmData } from '../geo/osm';
 import { OPEN_WORLD_IMAGERY, type TileProvider } from '../world/imagery';
 import { SatelliteBasemap, SatelliteTiles } from './satellite';
-import { minimapMeters } from './map-scale';
+import { clusterByRadius, minimapMeters } from './map-scale';
 
 interface MapRoad {
   pts: number[];
   width: number;
   paved: boolean;
+  /** tag OSM (`primary`, `residential`, `track`…): decide la gerarchia */
+  type: string;
+  name: string;
+  /** 0 principale, 1 secondaria, 2 locale, 3 sterrata/sentiero */
+  rank: number;
   minX: number;
   maxX: number;
   minZ: number;
@@ -26,6 +32,16 @@ interface MapArea {
 
 interface MapBuilding {
   pts: number[];
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
+interface MapWater {
+  pts: number[];
+  /** 0 fiume, 1 torrente/canale, 2 fosso */
+  rank: number;
   minX: number;
   maxX: number;
   minZ: number;
@@ -53,8 +69,28 @@ const AREA_FILL: Record<string, string> = {
   park: 'rgba(76, 100, 58, 0.7)',
 };
 
-const ASPHALT = '#f0e8d3';
 const DIRT = '#b99d74';
+
+/** Stile per classe: più la strada è importante, più è chiara e spessa. */
+const ROAD_STYLE = [
+  { fill: '#f7efdb', casing: 'rgba(16, 19, 15, 0.88)', width: 6.0 },
+  { fill: '#e8ddc0', casing: 'rgba(18, 21, 17, 0.8)', width: 4.4 },
+  { fill: '#d5c8aa', casing: 'rgba(22, 25, 19, 0.68)', width: 3.0 },
+  { fill: '#b99d74', casing: 'rgba(26, 27, 20, 0.5)', width: 1.6 },
+] as const;
+
+/** Classifica la strada per la gerarchia visiva della mappa. */
+function roadRank(road: { type?: string; width: number; paved: boolean }): number {
+  const type = (road.type ?? '').toLowerCase();
+  if (/(motorway|trunk|primary)/.test(type)) return 0;
+  if (/(secondary|tertiary)/.test(type)) return 1;
+  if (/(residential|unclassified|living_street|service)/.test(type)) return 2;
+  if (/(track|path|footway|cycleway|bridleway|steps|pedestrian)/.test(type)) return 3;
+  // senza tag utili decide la larghezza misurata sul campo
+  if (road.width >= 6) return 0;
+  if (road.width >= 4.5) return 1;
+  return road.paved ? 2 : 3;
+}
 
 function packRoads(osm: OsmData): MapRoad[] {
   return osm.roads.map((r) => {
@@ -68,6 +104,9 @@ function packRoads(osm: OsmData): MapRoad[] {
       pts,
       width: r.width,
       paved: r.paved,
+      type: r.type,
+      name: r.name,
+      rank: roadRank(r),
       minX: r.bounds.minX,
       maxX: r.bounds.maxX,
       minZ: r.bounds.minZ,
@@ -99,11 +138,50 @@ function packBuildings(osm: OsmData): MapBuilding[] {
   return out;
 }
 
+/** Fiume, torrente o semplice fosso: decide spessore e priorità a scala larga. */
+function waterRank(type: string): number {
+  const t = type.toLowerCase();
+  if (/(river|stream|canal)/.test(t)) return /river/.test(t) ? 0 : 1;
+  return 2;
+}
+
+/**
+ * Corsi d'acqua come linee.
+ *
+ * Le aree d'acqua OSM coprono laghi e tratti larghi, ma il Biferno e i suoi
+ * affluenti sono quasi tutti mappati come `waterway` lineari: senza queste
+ * linee la valle era solo una distesa verde e non si capiva da che parte
+ * scende l'acqua — che è il primo riferimento per orientarsi in campagna.
+ */
+function packWaterways(osm: OsmData): MapWater[] {
+  const out: MapWater[] = [];
+  for (const w of osm.waterways) {
+    if (w.points.length < 2) continue;
+    const pts: number[] = [];
+    let minX = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let minZ = Number.POSITIVE_INFINITY;
+    let maxZ = Number.NEGATIVE_INFINITY;
+    for (const p of w.points) {
+      pts.push(p.x, p.z);
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.z < minZ) minZ = p.z;
+      if (p.z > maxZ) maxZ = p.z;
+    }
+    out.push({ pts, rank: waterRank(w.type), minX, maxX, minZ, maxZ });
+  }
+  return out;
+}
+
 export interface MapView {
   x: number;
   z: number;
   yaw: number;
 }
+
+/** Livelli attivabili dalla legenda della mappa (F15). */
+export type MapLayer = 'roads' | 'areas' | 'buildings' | 'pois' | 'labels';
 
 /** Luogo lontano da indicare sul bordo della minimappa (km e direzione). */
 export interface MapTarget {
@@ -129,11 +207,45 @@ export class MapRenderer {
   private readonly roads: MapRoad[];
   private readonly areas: MapArea[];
   private readonly buildings: MapBuilding[];
+  private readonly waterways: MapWater[];
   private staticMap: HTMLCanvasElement | null = null;
+  private staticKey = '';
   private readonly mapScale: number;
   private readonly mapPad = 48;
+  /** livelli visibili: la mappa vettoriale confusa si può alleggerire */
+  private readonly layers: Record<MapLayer, boolean> = {
+    roads: true,
+    areas: true,
+    buildings: true,
+    pois: true,
+    labels: true,
+  };
+  /** rettangoli delle etichette già scritte: niente sovrapposizioni */
+  private readonly labelBoxes: { x: number; y: number; w: number; h: number }[] = [];
   readonly satTiles: SatelliteTiles;
   readonly satMap: SatelliteBasemap;
+  /** attribuzione del provider, obbligatoria quando si usano tile esterne */
+  get imageryAttribution(): string {
+    return this.satTiles.attribution;
+  }
+
+  get imageryName(): string {
+    return this.satTiles.name;
+  }
+
+  get layerState(): Record<MapLayer, boolean> {
+    return { ...this.layers };
+  }
+
+  /** Accende/spegne un livello e rigenera le basi precalcolate. */
+  setLayer(layer: MapLayer, on: boolean): void {
+    if (this.layers[layer] === on) return;
+    this.layers[layer] = on;
+    this.staticMap = null;
+    this.staticKey = '';
+    this.buildStatic();
+    this.invalidateBigMap();
+  }
   /**
    * true = foto satellite, false = mappa vettoriale.
    *
@@ -150,11 +262,18 @@ export class MapRenderer {
   /** Base statica della mappa grande (satellite + strade), riusata a ogni frame. */
   private bigBase: HTMLCanvasElement | null = null;
   private bigBaseKey = '';
+  /** ombreggiatura del rilievo, calcolata una volta dal DEM */
+  private hillshadeCanvas: HTMLCanvasElement | null = null;
 
-  constructor(osm: OsmData, provider: TileProvider = OPEN_WORLD_IMAGERY) {
+  constructor(
+    osm: OsmData,
+    provider: TileProvider = OPEN_WORLD_IMAGERY,
+    private readonly heights?: Heightfield,
+  ) {
     this.roads = packRoads(osm);
     this.areas = packAreas(osm);
     this.buildings = packBuildings(osm);
+    this.waterways = packWaterways(osm);
     this.mapScale = (1600 - this.mapPad * 2) / WORLD.width;
     this.buildStatic();
     this.satTiles = new SatelliteTiles(provider, () => this.onUpdate?.());
@@ -166,6 +285,8 @@ export class MapRenderer {
   }
 
   private buildStatic(): void {
+    const key = `${this.layers.roads}|${this.layers.areas}|${this.layers.buildings}`;
+    if (this.staticMap && this.staticKey === key) return;
     const w = 1600;
     const h = Math.ceil(WORLD.height * this.mapScale + this.mapPad * 2);
     const canvas = document.createElement('canvas');
@@ -177,64 +298,250 @@ export class MapRenderer {
     ctx.fillStyle = '#16201b';
     ctx.fillRect(0, 0, w, h);
 
+    // Rilievo: ombreggiatura leggera dal DEM, in coordinate pixel e sotto la
+    // carta. Dà l'orientamento delle valli senza colorare la mappa.
+    if (this.layers.areas && this.heights) {
+      const shade = this.buildHillshade();
+      if (shade) {
+        ctx.save();
+        ctx.globalAlpha = 0.5;
+        ctx.globalCompositeOperation = 'soft-light';
+        ctx.drawImage(
+          shade,
+          this.mapPad,
+          this.mapPad,
+          WORLD.width * this.mapScale,
+          WORLD.height * this.mapScale,
+        );
+        ctx.restore();
+      }
+    }
+
     ctx.save();
     ctx.translate(this.mapPad, this.mapPad);
     ctx.scale(this.mapScale, this.mapScale);
     ctx.translate(WORLD.halfWidth, WORLD.halfHeight);
     const minLine = 2.2 / this.mapScale;
 
-    for (const a of this.areas) {
-      ctx.beginPath();
-      for (let i = 0; i < a.pts.length; i += 2) {
-        const x = a.pts[i];
-        const z = a.pts[i + 1];
-        if (i === 0) ctx.moveTo(x, z);
-        else ctx.lineTo(x, z);
+    if (this.layers.areas) {
+      for (const a of this.areas) {
+        ctx.beginPath();
+        for (let i = 0; i < a.pts.length; i += 2) {
+          const x = a.pts[i];
+          const z = a.pts[i + 1];
+          if (i === 0) ctx.moveTo(x, z);
+          else ctx.lineTo(x, z);
+        }
+        ctx.closePath();
+        ctx.fillStyle = a.color;
+        ctx.fill();
       }
-      ctx.closePath();
-      ctx.fillStyle = a.color;
-      ctx.fill();
     }
 
-    // impronte degli edifici: a scala ravvicinata danno il riferimento che il
-    // satellite sfocato non riesce più a dare
-    ctx.fillStyle = 'rgba(45, 42, 37, 0.9)';
-    for (const b of this.buildings) {
-      ctx.beginPath();
-      for (let i = 0; i < b.pts.length; i += 2) {
-        const x = b.pts[i]!;
-        const z = b.pts[i + 1]!;
-        if (i === 0) ctx.moveTo(x, z);
-        else ctx.lineTo(x, z);
+    // Acqua lineare (Biferno, torrenti, fossi): sotto le strade e sopra le
+    // aree, così i campi restano leggibili ma la rete idrica dà l'orientamento.
+    if (this.layers.areas && this.waterways.length > 0) {
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      for (const w of this.waterways) {
+        ctx.beginPath();
+        for (let i = 0; i < w.pts.length; i += 2) {
+          const x = w.pts[i];
+          const z = w.pts[i + 1];
+          if (i === 0) ctx.moveTo(x, z);
+          else ctx.lineTo(x, z);
+        }
+        const width = w.rank === 0 ? 18 : w.rank === 1 ? 9 : 4.5;
+        ctx.lineWidth = Math.max(width, minLine * 0.9);
+        ctx.strokeStyle = w.rank === 0 ? 'rgba(92, 150, 172, 0.95)' : 'rgba(86, 140, 160, 0.72)';
+        ctx.globalAlpha = w.rank === 2 ? 0.55 : 0.9;
+        ctx.stroke();
       }
-      ctx.closePath();
-      ctx.fill();
+      ctx.globalAlpha = 1;
     }
 
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    for (const r of this.roads) {
-      ctx.beginPath();
-      for (let i = 0; i < r.pts.length; i += 2) {
-        const x = r.pts[i];
-        const z = r.pts[i + 1];
-        if (i === 0) ctx.moveTo(x, z);
-        else ctx.lineTo(x, z);
+    // Impronte degli edifici: presenti ma tenui. A scala grande un paese pieno
+    // di blocchi scuri diventa rumore e nasconde le strade (era la mappa
+    // "confusionaria").
+    if (this.layers.buildings) {
+      ctx.fillStyle = 'rgba(206, 194, 168, 0.52)';
+      ctx.strokeStyle = 'rgba(32, 34, 26, 0.42)';
+      ctx.lineWidth = Math.max(0.35, 0.4 / this.mapScale);
+      for (const b of this.buildings) {
+        ctx.beginPath();
+        for (let i = 0; i < b.pts.length; i += 2) {
+          const x = b.pts[i]!;
+          const z = b.pts[i + 1]!;
+          if (i === 0) ctx.moveTo(x, z);
+          else ctx.lineTo(x, z);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
       }
-      ctx.lineWidth = Math.max(r.width, minLine * (r.paved ? 1 : 0.8));
-      ctx.strokeStyle = r.paved ? ASPHALT : DIRT;
-      ctx.globalAlpha = r.paved ? 0.95 : 0.75;
-      ctx.stroke();
+    }
+
+    if (this.layers.roads) {
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      // Due passate: prima tutte le cornici, poi tutti i riempimenti. Con una
+      // passata sola la cornice di una strada copriva il riempimento della
+      // vicina e agli incroci restavano delle tacche scure.
+      for (const r of this.roads) {
+        const style = ROAD_STYLE[r.rank] ?? ROAD_STYLE[2]!;
+        ctx.beginPath();
+        for (let i = 0; i < r.pts.length; i += 2) {
+          const x = r.pts[i];
+          const z = r.pts[i + 1];
+          if (i === 0) ctx.moveTo(x, z);
+          else ctx.lineTo(x, z);
+        }
+        ctx.lineWidth = Math.max(r.width, minLine * (r.paved ? 1 : 0.8)) + Math.max(1.4, 1.2 / this.mapScale);
+        ctx.strokeStyle = style.casing;
+        ctx.globalAlpha = r.rank >= 3 ? 0.5 : 0.9;
+        ctx.setLineDash(r.rank >= 3 ? [12, 9] : []);
+        ctx.stroke();
+      }
+      for (const r of this.roads) {
+        const style = ROAD_STYLE[r.rank] ?? ROAD_STYLE[2]!;
+        ctx.beginPath();
+        for (let i = 0; i < r.pts.length; i += 2) {
+          const x = r.pts[i];
+          const z = r.pts[i + 1];
+          if (i === 0) ctx.moveTo(x, z);
+          else ctx.lineTo(x, z);
+        }
+        ctx.lineWidth = Math.max(r.width, minLine * (r.paved ? 1 : 0.75));
+        ctx.strokeStyle = r.rank >= 3 ? DIRT : style.fill;
+        ctx.globalAlpha = r.rank >= 3 ? 0.72 : r.paved ? 0.97 : 0.8;
+        ctx.setLineDash(r.rank >= 3 ? [12, 9] : []);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
     }
     ctx.globalAlpha = 1;
     ctx.restore();
     this.staticMap = canvas;
+    this.staticKey = key;
+  }
+
+  /**
+   * Ombreggiatura del rilievo a bassa risoluzione (320 px di lato lungo).
+   *
+   * Campionare il DEM a ogni pixel della mappa sarebbe costoso e inutile: il
+   * rilievo è liscio, quindi una griglia grossa viene ingrandita con smoothing
+   * e resta credibile. Luce da nord-ovest, contrasto basso.
+   */
+  private buildHillshade(): HTMLCanvasElement | null {
+    if (this.hillshadeCanvas) return this.hillshadeCanvas;
+    const heights = this.heights;
+    if (!heights) return null;
+    const width = 320;
+    const height = Math.max(1, Math.round((width * WORLD.height) / WORLD.width));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    const image = ctx.createImageData(width, height);
+    const stepX = WORLD.width / width;
+    const stepZ = WORLD.height / height;
+    // luce da nord-ovest, la convenzione cartografica
+    const lx = -0.52;
+    const ly = 0.74;
+    const lz = -0.42;
+    const llen = Math.hypot(lx, ly, lz) || 1;
+    for (let y = 0; y < height; y++) {
+      const wz = -WORLD.halfHeight + (y + 0.5) * stepZ;
+      for (let x = 0; x < width; x++) {
+        const wx = -WORLD.halfWidth + (x + 0.5) * stepX;
+        const hx = heights.heightAt(wx + stepX, wz) - heights.heightAt(wx - stepX, wz);
+        const hz = heights.heightAt(wx, wz + stepZ) - heights.heightAt(wx, wz - stepZ);
+        const nx = -hx;
+        const ny = 2 * stepX;
+        const nz = -hz;
+        const nlen = Math.hypot(nx, ny, nz) || 1;
+        const dot = (nx * lx + ny * ly + nz * lz) / (nlen * llen);
+        // 0,5 = pianura, 1 = versante in luce, 0 = versante in ombra
+        const shade = Math.max(0, Math.min(1, 0.52 + 0.48 * dot));
+        const value = Math.round(255 * shade);
+        const i = (y * width + x) * 4;
+        image.data[i] = value;
+        image.data[i + 1] = value;
+        image.data[i + 2] = value;
+        image.data[i + 3] = 210;
+      }
+    }
+    ctx.putImageData(image, 0, 0);
+    this.hillshadeCanvas = canvas;
+    return canvas;
   }
 
   private toStaticScreen(x: number, z: number, placement: { dx: number; dy: number; s: number }): { x: number; y: number } {
     const px = (x + WORLD.halfWidth) * this.mapScale + this.mapPad;
     const py = (z + WORLD.halfHeight) * this.mapScale + this.mapPad;
     return { x: placement.dx + px * placement.s, y: placement.dy + py * placement.s };
+  }
+
+  /**
+   * Strade sopra la foto: cornice scura + gerarchia di spessori.
+   *
+   * Prima erano tutte della stessa larghezza e dello stesso bianco: sulla
+   * foto diventavano un reticolo uniforme in cui non si distingueva una
+   * provinciale da una strada di campagna.
+   */
+  private paintBigRoads(
+    ctx: CanvasRenderingContext2D,
+    placement: { dx: number; dy: number; s: number },
+    dpr: number,
+    satellite: boolean,
+  ): void {
+    if (!this.layers.roads) return;
+    const unit = this.mapScale * placement.s;
+    const minLine = 0.7 * dpr;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (const r of this.roads) {
+      const style = ROAD_STYLE[r.rank] ?? ROAD_STYLE[2]!;
+      const width = Math.max(minLine, (r.rank >= 3 ? Math.min(r.width, 2.6) : r.width) * unit);
+      ctx.beginPath();
+      const a = this.toStaticScreen(r.pts[0]!, r.pts[1]!, placement);
+      ctx.moveTo(a.x, a.y);
+      for (let i = 2; i < r.pts.length; i += 2) {
+        const p = this.toStaticScreen(r.pts[i]!, r.pts[i + 1]!, placement);
+        ctx.lineTo(p.x, p.y);
+      }
+      ctx.lineWidth = width + (r.rank >= 3 ? 0.7 * dpr : 1.6 * dpr);
+      ctx.strokeStyle = satellite ? 'rgba(9, 12, 9, 0.7)' : style.casing;
+      ctx.setLineDash(r.rank >= 3 ? [4 * dpr, 3 * dpr] : []);
+      ctx.stroke();
+    }
+    for (const r of this.roads) {
+      const style = ROAD_STYLE[r.rank] ?? ROAD_STYLE[2]!;
+      const width = Math.max(minLine, (r.rank >= 3 ? Math.min(r.width, 2.6) : r.width) * unit);
+      ctx.beginPath();
+      const a = this.toStaticScreen(r.pts[0]!, r.pts[1]!, placement);
+      ctx.moveTo(a.x, a.y);
+      for (let i = 2; i < r.pts.length; i += 2) {
+        const p = this.toStaticScreen(r.pts[i]!, r.pts[i + 1]!, placement);
+        ctx.lineTo(p.x, p.y);
+      }
+      ctx.lineWidth = width;
+      ctx.strokeStyle = satellite
+        ? r.rank >= 3
+          ? 'rgba(214, 190, 146, 0.5)'
+          : r.rank === 0
+            ? 'rgba(255, 248, 226, 0.92)'
+            : 'rgba(255, 246, 220, 0.72)'
+        : r.rank >= 3
+          ? DIRT
+          : style.fill;
+      ctx.globalAlpha = r.rank >= 3 ? 0.8 : 1;
+      ctx.setLineDash(r.rank >= 3 ? [4 * dpr, 3 * dpr] : []);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
   }
 
   /** Geometria della mappa grande nel canvas (usata anche per i click). */
@@ -390,6 +697,113 @@ export class MapRenderer {
     return minimapMeters(options.mode ?? 'drive', options.speed ?? 0, options.zoomFactor ?? 1);
   }
 
+  /**
+   * Porta il canvas della minimappa alla densità dello schermo.
+   *
+   * Era fissato a 640 px per 320 CSS: su un pannello a 3× il disegno veniva
+   * ingrandito e sembrava sgranato. Ora segue il devicePixelRatio (cap 2,5) e
+   * resta nitido anche sulla mappa grande.
+   */
+  private resizeSquare(canvas: HTMLCanvasElement): number {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    const cssSize = canvas.clientWidth || 320;
+    const side = Math.max(320, Math.round(cssSize * dpr));
+    if (canvas.width !== side || canvas.height !== side) {
+      canvas.width = side;
+      canvas.height = side;
+    }
+    return side;
+  }
+
+  private overlaps(box: { x: number; y: number; w: number; h: number }): boolean {
+    for (const other of this.labelBoxes) {
+      if (
+        box.x < other.x + other.w &&
+        box.x + box.w > other.x &&
+        box.y < other.y + other.h &&
+        box.y + box.h > other.y
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Etichetta con alone e controllo collisioni: se lo spazio è già occupato la
+   * scarta invece di sovrapporla. È la parte che rende leggibile la mappa
+   * vettoriale (prima i nomi si stampavano uno sopra l'altro).
+   */
+  private drawLabel(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    x: number,
+    y: number,
+    sizePx: number,
+    font: string,
+    color: string,
+    align: CanvasTextAlign = 'center',
+  ): boolean {
+    ctx.font = font;
+    ctx.textAlign = align;
+    ctx.textBaseline = 'middle';
+    const width = ctx.measureText(text).width;
+    const padding = Math.max(2, sizePx * 0.25);
+    const height = sizePx * 1.2;
+    const left = align === 'center' ? x - width / 2 : align === 'right' ? x - width : x;
+    const box = {
+      x: left - padding,
+      y: y - height / 2 - padding,
+      w: width + padding * 2,
+      h: height + padding * 2,
+    };
+    if (this.overlaps(box)) return false;
+    this.labelBoxes.push(box);
+    ctx.lineWidth = Math.max(2, sizePx * 0.24);
+    ctx.strokeStyle = 'rgba(8, 12, 10, 0.88)';
+    ctx.strokeText(text, x, y);
+    ctx.fillStyle = color;
+    ctx.fillText(text, x, y);
+    return true;
+  }
+
+  /** Etichetta ruotata lungo la strada (nomi delle vie sulla mappa grande). */
+  private drawStreetLabel(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    x: number,
+    y: number,
+    angle: number,
+    sizePx: number,
+    color: string,
+  ): boolean {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.font = `600 ${sizePx}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const width = ctx.measureText(text).width;
+    const height = sizePx * 1.2;
+    const cos = Math.abs(Math.cos(angle));
+    const sin = Math.abs(Math.sin(angle));
+    const bw = width * cos + height * sin;
+    const bh = width * sin + height * cos;
+    const box = { x: x - bw / 2 - 3, y: y - bh / 2 - 3, w: bw + 6, h: bh + 6 };
+    if (this.overlaps(box)) {
+      ctx.restore();
+      return false;
+    }
+    this.labelBoxes.push(box);
+    ctx.lineWidth = Math.max(2, sizePx * 0.26);
+    ctx.strokeStyle = 'rgba(8, 12, 10, 0.9)';
+    ctx.strokeText(text, 0, 0);
+    ctx.fillStyle = color;
+    ctx.fillText(text, 0, 0);
+    ctx.restore();
+    return true;
+  }
+
   /** Minimappa locale (nord in alto), con scala automatica. */
   drawMinimap(
     canvas: HTMLCanvasElement,
@@ -402,7 +816,8 @@ export class MapRenderer {
   ): void {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    const size = canvas.width;
+    const size = this.resizeSquare(canvas);
+    this.labelBoxes.length = 0;
     const target = this.targetMeters(options);
     this.minimapMeters = options.snap
       ? target
@@ -419,17 +834,29 @@ export class MapRenderer {
     ctx.beginPath();
     ctx.arc(cx, cy, size / 2 - 3, 0, Math.PI * 2);
     ctx.clip();
-    // Cartografia vettoriale pura, a ogni zoom. La foto aerea dà 3,5 m per
-    // pixel: sulla minimappa da 260 px era una macchia beige sfocata su cui
-    // nemmeno le strade si leggevano. Il satellite resta solo nella mappa
-    // grande (M), dove c'è spazio per i dettagli veri.
-    // fondo carta: verde-oliva scuro, non nero. Con il nero le aree
+    // Due modi: cartografia vettoriale (default) o radar con tile vere, che
+    // sceglie lo zoom per avere 1 pixel di tile ≈ 1 pixel di canvas. Prima il
+    // radar non esisteva sulla minimappa e la foto era solo nella mappa
+    // grande, dove però il mosaico Sentinel resta la sorgente giusta.
+    // Fondo carta: verde-oliva scuro, non nero. Con il nero le aree
     // semitrasparenti (boschi, prati) sparivano e la mappa sembrava vuota.
-    ctx.fillStyle = '#2b3423';
-    ctx.fillRect(0, 0, size, size);
-
     const half = viewMeters / 2;
-    for (const a of this.areas) {
+    // Radar: tile vere con lo zoom scelto per la scala corrente. Se le tile
+    // non sono configurate (mosaico locale) o si è offline, resta il vettore.
+    const satellite = this.radar && this.satTiles.usesTiles;
+    if (satellite) {
+      this.satTiles.draw(ctx, size, view, viewMeters);
+      // velo leggero: la foto da sola nasconde cordoli e incroci
+      ctx.fillStyle = 'rgba(8, 13, 10, 0.26)';
+      ctx.fillRect(0, 0, size, size);
+    } else {
+      // fondo carta: verde-oliva scuro, non nero
+      ctx.fillStyle = '#2b3423';
+      ctx.fillRect(0, 0, size, size);
+    }
+
+    if (this.layers.areas && !satellite) {
+      for (const a of this.areas) {
       if (a.maxX < view.x - half || a.minX > view.x + half || a.maxZ < view.z - half || a.minZ > view.z + half) continue;
       ctx.beginPath();
       for (let i = 0; i < a.pts.length; i += 2) {
@@ -438,53 +865,102 @@ export class MapRenderer {
         if (i === 0) ctx.moveTo(px, py);
         else ctx.lineTo(px, py);
       }
-      ctx.closePath();
-      ctx.fillStyle = a.color;
-      ctx.fill();
+        ctx.closePath();
+        ctx.fillStyle = a.color;
+        ctx.fill();
+      }
     }
 
-    // Tinta carta topografica: edifici pieni color pietra, contorno scuro.
-    // Prima erano al 52% di opacità e la minimappa sembrava sbiadita.
-    ctx.fillStyle = 'rgba(226, 214, 188, 0.86)';
-    ctx.strokeStyle = 'rgba(28, 30, 22, 0.72)';
-    ctx.lineWidth = Math.max(0.7, 0.8 * u);
-    for (const b of this.buildings) {
-      if (b.maxX < view.x - half || b.minX > view.x + half || b.maxZ < view.z - half || b.minZ > view.z + half) continue;
-      ctx.beginPath();
-      for (let i = 0; i < b.pts.length; i += 2) {
-        const px = cx + (b.pts[i]! - view.x) * k;
-        const py = cy + (b.pts[i + 1]! - view.z) * k;
-        if (i === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
+    // Corsi d'acqua: a scala larga restano i fiumi, avvicinandosi compaiono
+    // torrenti e fossi. Come per le strade, il dettaglio cresce con lo zoom.
+    if (this.layers.areas && !satellite && this.waterways.length > 0) {
+      const waterLimit = viewMeters > 520 ? 0 : viewMeters > 330 ? 1 : 2;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      for (const w of this.waterways) {
+        if (w.rank > waterLimit) continue;
+        if (w.maxX < view.x - half || w.minX > view.x + half || w.maxZ < view.z - half || w.minZ > view.z + half) continue;
+        ctx.beginPath();
+        for (let i = 0; i < w.pts.length; i += 2) {
+          const px = cx + (w.pts[i] - view.x) * k;
+          const py = cy + (w.pts[i + 1] - view.z) * k;
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.lineWidth = (w.rank === 0 ? 2.6 : w.rank === 1 ? 1.7 : 1.1) * u;
+        ctx.strokeStyle = w.rank === 0 ? 'rgba(132, 196, 214, 0.92)' : 'rgba(120, 176, 194, 0.72)';
+        ctx.stroke();
       }
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
     }
 
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    for (const r of this.roads) {
-      if (r.maxX < view.x - half || r.minX > view.x + half || r.maxZ < view.z - half || r.minZ > view.z + half) continue;
-      ctx.beginPath();
-      for (let i = 0; i < r.pts.length; i += 2) {
-        const px = cx + (r.pts[i] - view.x) * k;
-        const py = cy + (r.pts[i + 1] - view.z) * k;
-        if (i === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
+    // Edifici solo quando si guarda da vicino: a scala larga sono rumore.
+    // Tinta tenue: riempiti a piena opacità il paese diventava un blocco
+    // beige unico e le vie ci scomparivano dentro.
+    if (this.layers.buildings && !satellite && viewMeters < 340) {
+      ctx.fillStyle = 'rgba(214, 202, 175, 0.46)';
+      ctx.strokeStyle = 'rgba(24, 26, 20, 0.42)';
+      ctx.lineWidth = Math.max(0.7, 0.7 * u);
+      for (const b of this.buildings) {
+        if (b.maxX < view.x - half || b.minX > view.x + half || b.maxZ < view.z - half || b.minZ > view.z + half) continue;
+        ctx.beginPath();
+        for (let i = 0; i < b.pts.length; i += 2) {
+          const px = cx + (b.pts[i]! - view.x) * k;
+          const py = cy + (b.pts[i + 1]! - view.z) * k;
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
       }
-      const width = Math.max(1, r.paved ? 3.4 : 1.4) * u;
-      // bordo scuro: separa la strada dai campi anche su sfondo chiaro
-      ctx.lineWidth = width + 2.2 * u;
-      ctx.strokeStyle = 'rgba(12, 16, 13, 0.78)';
+    }
+
+    // Gerarchia stradale + LOD: a scala larga restano le principali, avvicinandosi
+    // compaiono secondarie, locali e sterrate. Due passate (cornice, poi
+    // riempimento) per non spezzare gli incroci.
+    const rankLimit = viewMeters > 520 ? 1 : viewMeters > 330 ? 2 : 3;
+    if (this.layers.roads) {
+      const visible = this.roads.filter(
+        (r) =>
+          r.rank <= rankLimit &&
+          !(r.maxX < view.x - half || r.minX > view.x + half || r.maxZ < view.z - half || r.minZ > view.z + half),
+      );
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      for (const r of visible) {
+        const style = ROAD_STYLE[r.rank] ?? ROAD_STYLE[2]!;
+        const width = Math.max(1, style.width * (satellite ? 1.15 : 1)) * u;
+        ctx.beginPath();
+        for (let i = 0; i < r.pts.length; i += 2) {
+          const px = cx + (r.pts[i] - view.x) * k;
+          const py = cy + (r.pts[i + 1] - view.z) * k;
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.lineWidth = width + (r.rank >= 3 ? 1 * u : 2.4 * u);
+        ctx.strokeStyle = r.rank >= 3 ? 'rgba(24, 26, 18, 0.45)' : style.casing;
+        ctx.setLineDash(r.rank >= 3 ? [5 * u, 4 * u] : []);
+        ctx.stroke();
+      }
+      for (const r of visible) {
+        const style = ROAD_STYLE[r.rank] ?? ROAD_STYLE[2]!;
+        const width = Math.max(1, style.width) * u;
+        ctx.beginPath();
+        for (let i = 0; i < r.pts.length; i += 2) {
+          const px = cx + (r.pts[i] - view.x) * k;
+          const py = cy + (r.pts[i + 1] - view.z) * k;
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.lineWidth = width;
+        ctx.strokeStyle = r.rank >= 3 ? DIRT : style.fill;
+        ctx.globalAlpha = r.rank >= 3 ? 0.75 : 1;
+        ctx.setLineDash(r.rank >= 3 ? [5 * u, 4 * u] : []);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
       ctx.globalAlpha = 1;
-      ctx.stroke();
-      ctx.lineWidth = width;
-      ctx.strokeStyle = r.paved ? ASPHALT : DIRT;
-      ctx.globalAlpha = r.paved ? 1 : 0.8;
-      ctx.stroke();
     }
-    ctx.globalAlpha = 1;
 
     if (route && route.length > 1) {
       const project = (x: number, z: number): { x: number; y: number } => ({ x: cx + (x - view.x) * k, y: cy + (z - view.z) * k });
@@ -519,32 +995,87 @@ export class MapRenderer {
       }
     }
 
-    for (const venue of venues ?? []) {
-      const vx = cx + (venue.x - view.x) * k;
-      const vy = cy + (venue.z - view.z) * k;
-      if (Math.hypot(vx - cx, vy - cy) > size / 2 - 10) continue;
-      this.drawVenue(ctx, vx, vy, 4.2 * u, venue.color, venue.status);
+    if (this.layers.pois) {
+      for (const venue of venues ?? []) {
+        const vx = cx + (venue.x - view.x) * k;
+        const vy = cy + (venue.z - view.z) * k;
+        if (Math.hypot(vx - cx, vy - cy) > size / 2 - 10) continue;
+        this.drawVenue(ctx, vx, vy, 4.2 * u, venue.color, venue.status);
+      }
     }
 
-    // nomi dei paesi vicini (dentro il ritaglio circolare)
-    ctx.font = `600 ${11 * u}px system-ui, sans-serif`;
-    ctx.textAlign = 'center';
-    for (const v of VILLAGES) {
-      const w = latLonToWorld(v.lat, v.lon);
-      const px = cx + (w.x - view.x) * k;
-      const py = cy + (w.z - view.z) * k;
-      if (Math.hypot(px - cx, py - cy) > size / 2 - 16) continue;
-      ctx.lineWidth = 3 * u;
-      ctx.strokeStyle = 'rgba(8, 12, 10, 0.85)';
-      ctx.strokeText(v.name, px, py + 3);
-      ctx.fillStyle = '#f3e7cf';
-      ctx.fillText(v.name, px, py + 3);
+    // Nomi dei paesi con collisioni: prima i centri abitati (priorità), poi
+    // le attività solo da vicino. Senza controllo si sovrapponevano e la
+    // mappa diventava illeggibile proprio dove serviva orientarsi.
+    if (this.layers.labels) {
+      for (const v of VILLAGES) {
+        const w = latLonToWorld(v.lat, v.lon);
+        const px = cx + (w.x - view.x) * k;
+        const py = cy + (w.z - view.z) * k;
+        if (Math.hypot(px - cx, py - cy) > size / 2 - 16) continue;
+        this.drawLabel(ctx, v.name, px, py + 3 * u, 12 * u, `600 ${12 * u}px system-ui, sans-serif`, '#f3e7cf');
+      }
+    }
+    if (this.layers.pois && viewMeters < 300) {
+      for (const venue of venues ?? []) {
+        const vx = cx + (venue.x - view.x) * k;
+        const vy = cy + (venue.z - view.z) * k;
+        if (Math.hypot(vx - cx, vy - cy) > size / 2 - 14) continue;
+        this.drawLabel(
+          ctx,
+          venue.name,
+          vx,
+          vy - 8 * u,
+          10 * u,
+          `600 ${10 * u}px system-ui, sans-serif`,
+          'rgba(255, 244, 226, 0.92)',
+        );
+      }
     }
 
-    // giocatore
+    // Nomi delle vie quando si è dentro il paese: ruotati lungo la strada e
+    // con lo stesso controllo di collisione dei paesi (che hanno la priorità,
+    // essendo disegnati prima). Due al massimo: sulla minimappa circolare tre
+    // nomi coprono già mezza mappa.
+    if (this.layers.labels && this.layers.roads && viewMeters < 300) {
+      let placed = 0;
+      for (const r of this.roads) {
+        if (placed >= 2) break;
+        if (r.rank > 2 || r.name.length < 3) continue;
+        if (!/[a-zà-ù]/i.test(r.name)) continue;
+        if (r.maxX < view.x - half || r.minX > view.x + half || r.maxZ < view.z - half || r.minZ > view.z + half) continue;
+        const mid = Math.floor(r.pts.length / 4) * 2;
+        const ax = r.pts[mid];
+        const az = r.pts[mid + 1];
+        const bx = r.pts[mid + 2] ?? ax;
+        const bz = r.pts[mid + 3] ?? az;
+        if (ax === undefined || az === undefined) continue;
+        const pa = { x: cx + (ax - view.x) * k, y: cy + (az - view.z) * k };
+        const pb = { x: cx + (bx - view.x) * k, y: cy + (bz - view.z) * k };
+        let angle = Math.atan2(pb.y - pa.y, pb.x - pa.x);
+        if (Math.abs(angle) > Math.PI / 2) angle += Math.PI;
+        if (this.drawStreetLabel(
+          ctx,
+          r.name,
+          (pa.x + pb.x) / 2,
+          (pa.y + pb.y) / 2,
+          angle,
+          9.2 * u,
+          'rgba(240, 232, 214, 0.86)',
+        )) {
+          placed++;
+        }
+      }
+    }
+
+    // giocatore: freccia con ombra, bordo bianco e alone, leggibile sia sul
+    // vettore sia sulla foto
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(-view.yaw);
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
+    ctx.shadowBlur = 6 * u;
+    ctx.shadowOffsetY = 2 * u;
     ctx.beginPath();
     ctx.moveTo(0, -9 * u);
     ctx.lineTo(6 * u, 7 * u);
@@ -553,8 +1084,11 @@ export class MapRenderer {
     ctx.closePath();
     ctx.fillStyle = '#ff6b4a';
     ctx.fill();
-    ctx.strokeStyle = '#1a1512';
-    ctx.lineWidth = 1.4;
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.strokeStyle = '#fff4e2';
+    ctx.lineWidth = 1.6 * u;
     ctx.stroke();
     ctx.restore();
 
@@ -576,6 +1110,14 @@ export class MapRenderer {
     }
 
     this.drawScaleBar(ctx, cx, cy, size / 2 - 3, viewMeters, u);
+    // attribuzione quando si mostra la foto: obbligatoria per i provider
+    if (satellite) {
+      ctx.font = `500 ${8 * u}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = 'rgba(255, 244, 226, 0.55)';
+      ctx.fillText(`© ${this.satTiles.name}`, cx, cy + size / 2 - 12 * u);
+    }
     ctx.restore();
 
     // anello esterno: cornice del radar
@@ -738,20 +1280,7 @@ export class MapRenderer {
         // leggera velatura per rendere leggibili strade e nomi
         bctx.fillStyle = 'rgba(10, 16, 12, 0.18)';
         bctx.fillRect(dx, dy, map.width * s, map.height * s);
-        bctx.lineCap = 'round';
-        bctx.lineJoin = 'round';
-        for (const r of this.roads) {
-          const a = this.toStaticScreen(r.pts[0], r.pts[1], placement);
-          bctx.beginPath();
-          bctx.moveTo(a.x, a.y);
-          for (let i = 2; i < r.pts.length; i += 2) {
-            const p = this.toStaticScreen(r.pts[i], r.pts[i + 1], placement);
-            bctx.lineTo(p.x, p.y);
-          }
-          bctx.lineWidth = Math.max(0.8 * dpr, r.width * this.mapScale * s * 0.9);
-          bctx.strokeStyle = r.paved ? 'rgba(255, 246, 220, 0.75)' : 'rgba(224, 199, 152, 0.45)';
-          bctx.stroke();
-        }
+        this.paintBigRoads(bctx, placement, dpr, true);
       } else {
         bctx.drawImage(map, dx, dy, map.width * s, map.height * s);
       }
@@ -761,6 +1290,7 @@ export class MapRenderer {
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(this.bigBase, 0, 0);
+    this.labelBoxes.length = 0;
 
     if (route && route.length > 1) {
       const project = (x: number, z: number): { x: number; y: number } => this.toStaticScreen(x, z, placement);
@@ -774,12 +1304,14 @@ export class MapRenderer {
       ctx.strokeStyle = '#4ad7ff';
       ctx.lineWidth = 5 * dpr;
       ctx.stroke();
+      // frecce di marcia: dicono da che parte si va, non solo dove si passa
+      this.drawRouteArrows(ctx, route, project, 150 * dpr, 3.6 * dpr);
       const end = project(route[route.length - 1].x, route[route.length - 1].z);
       this.drawPin(ctx, end.x, end.y, 10 * dpr);
     }
 
-    ctx.font = `600 ${15 * dpr}px system-ui, sans-serif`;
-    ctx.textAlign = 'center';
+    // Nomi dei paesi: i centri abitati hanno la priorità, le vie arrivano dopo
+    // e solo se trovano spazio.
     for (const v of VILLAGES) {
       const w = latLonToWorld(v.lat, v.lon);
       const p = this.toStaticScreen(w.x, w.z, placement);
@@ -793,11 +1325,39 @@ export class MapRenderer {
         ctx.fill();
       }
       const label = isHome ? `${v.name} · casa` : v.name;
-      ctx.lineWidth = 4 * dpr;
-      ctx.strokeStyle = 'rgba(8, 12, 10, 0.9)';
-      ctx.strokeText(label, p.x, p.y - 16 * dpr);
-      ctx.fillStyle = isHome ? '#ffd479' : '#f3e7cf';
-      ctx.fillText(label, p.x, p.y - 16 * dpr);
+      if (this.layers.labels) {
+        this.drawLabel(
+          ctx,
+          label,
+          p.x,
+          p.y - 16 * dpr,
+          15 * dpr,
+          `600 ${15 * dpr}px system-ui, sans-serif`,
+          isHome ? '#ffd479' : '#f3e7cf',
+        );
+      }
+    }
+
+    // Nomi delle vie principali, ruotati lungo la strada.
+    if (this.layers.labels && this.layers.roads) {
+      let placed = 0;
+      for (const r of this.roads) {
+        if (placed >= 14) break;
+        if (r.rank > 1 || r.name.length < 3) continue;
+        if (!/[a-zà-ù]/i.test(r.name)) continue;
+        const mid = Math.floor(r.pts.length / 4) * 2;
+        const ax = r.pts[mid];
+        const az = r.pts[mid + 1];
+        const bx = r.pts[mid + 2] ?? ax;
+        const bz = r.pts[mid + 3] ?? az;
+        if (ax === undefined || az === undefined) continue;
+        const a = this.toStaticScreen(ax, az, placement);
+        const b = this.toStaticScreen(bx, bz, placement);
+        const angle = Math.atan2(b.y - a.y, b.x - a.x);
+        if (this.drawStreetLabel(ctx, r.name, (a.x + b.x) / 2, (a.y + b.y) / 2, angle, 11 * dpr, 'rgba(244, 236, 218, 0.9)')) {
+          placed++;
+        }
+      }
     }
 
     if (garage) {
@@ -813,18 +1373,7 @@ export class MapRenderer {
       ctx.font = `600 ${15 * dpr}px system-ui, sans-serif`;
     }
 
-    for (const venue of venues ?? []) {
-      const p = this.toStaticScreen(venue.x, venue.z, placement);
-      this.drawVenue(ctx, p.x, p.y - 4 * dpr, 6 * dpr, venue.color, venue.status);
-      ctx.font = `600 ${11 * dpr}px system-ui, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.lineWidth = 3.5 * dpr;
-      ctx.strokeStyle = 'rgba(8, 12, 10, 0.9)';
-      ctx.strokeText(venue.name, p.x, p.y - 15 * dpr);
-      ctx.fillStyle = '#f3e7cf';
-      ctx.fillText(venue.name, p.x, p.y - 15 * dpr);
-    }
-    ctx.font = `600 ${15 * dpr}px system-ui, sans-serif`;
+    if (this.layers.pois) this.drawVenueClusters(ctx, venues ?? [], placement, dpr);
 
     if (car) {
       const p = this.toStaticScreen(car.x, car.z, placement);
@@ -838,6 +1387,9 @@ export class MapRenderer {
     ctx.save();
     ctx.translate(pp.x, pp.y);
     ctx.rotate(-view.yaw);
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+    ctx.shadowBlur = 10 * dpr;
+    ctx.shadowOffsetY = 3 * dpr;
     ctx.beginPath();
     ctx.moveTo(0, -12 * dpr);
     ctx.lineTo(8 * dpr, 9 * dpr);
@@ -846,9 +1398,127 @@ export class MapRenderer {
     ctx.closePath();
     ctx.fillStyle = '#ff6b4a';
     ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
     ctx.strokeStyle = '#fff4e2';
     ctx.lineWidth = 2 * dpr;
     ctx.stroke();
     ctx.restore();
+  }
+
+  /**
+   * POI sulla mappa grande, raggruppati quando si sovrappongono.
+   *
+   * A scala regionale l'intera valle sta in ~1600 px: le nove attività di
+   * Palata cadono entro una trentina di pixel e i loro rombi da 15 px
+   * diventavano una macchia sola, con le etichette che si scartavano a
+   * vicenda e restava scritto un nome su nove. Qui si disegna un solo badge
+   * con il numero; quando i POI sono abbastanza distanti tornano i simboli
+   * singoli con il nome.
+   */
+  private drawVenueClusters(
+    ctx: CanvasRenderingContext2D,
+    venues: readonly { x: number; z: number; name: string; color: string; status: string }[],
+    placement: { dx: number; dy: number; s: number },
+    dpr: number,
+  ): void {
+    if (venues.length === 0) return;
+    const points = venues.map((v) => this.toStaticScreen(v.x, v.z, placement));
+    const groups = clusterByRadius(points, 22 * dpr);
+    for (const group of groups) {
+      const head = group[0]!;
+      const p = points[head]!;
+      if (group.length === 1) {
+        const venue = venues[head]!;
+        this.drawVenue(ctx, p.x, p.y - 4 * dpr, 6 * dpr, venue.color, venue.status);
+        if (this.layers.labels) {
+          this.drawLabel(
+            ctx,
+            venue.name,
+            p.x,
+            p.y - 15 * dpr,
+            11 * dpr,
+            `600 ${11 * dpr}px system-ui, sans-serif`,
+            '#f3e7cf',
+          );
+        }
+        continue;
+      }
+      this.drawVenueCluster(ctx, p.x, p.y, 9 * dpr, group.length);
+      // etichetta sotto il badge: sopra c'è quasi sempre il nome del paese
+      if (this.layers.labels) {
+        this.drawLabel(
+          ctx,
+          `${group.length} POI`,
+          p.x,
+          p.y + 17 * dpr,
+          10 * dpr,
+          `600 ${10 * dpr}px system-ui, sans-serif`,
+          'rgba(243, 231, 207, 0.92)',
+        );
+      }
+    }
+  }
+
+  /** Badge di un gruppo di POI: cerchio chiaro con il numero dentro. */
+  private drawVenueCluster(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    s: number,
+    count: number,
+  ): void {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.beginPath();
+    ctx.arc(0, 0, s, 0, Math.PI * 2);
+    ctx.fillStyle = '#e7dcc2';
+    ctx.fill();
+    ctx.lineWidth = Math.max(1.4, s * 0.22);
+    ctx.strokeStyle = 'rgba(8, 14, 12, 0.92)';
+    ctx.stroke();
+    ctx.fillStyle = '#14180f';
+    ctx.font = `700 ${s * 0.95}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(count), 0, s * 0.05);
+    ctx.restore();
+  }
+
+  /** Frecce lungo l'itinerario: una ogni `spacing` px, orientate sul tratto. */
+  private drawRouteArrows(
+    ctx: CanvasRenderingContext2D,
+    route: Pt[],
+    project: (x: number, z: number) => { x: number; y: number },
+    spacing: number,
+    sizePx: number,
+  ): void {
+    let carry = spacing * 0.5;
+    for (let i = 1; i < route.length; i++) {
+      const a = project(route[i - 1]!.x, route[i - 1]!.z);
+      const b = project(route[i]!.x, route[i]!.z);
+      const seg = Math.hypot(b.x - a.x, b.y - a.y);
+      if (seg < 0.001) continue;
+      const angle = Math.atan2(b.y - a.y, b.x - a.x);
+      let t = carry;
+      while (t < seg) {
+        const x = a.x + (b.x - a.x) * (t / seg);
+        const y = a.y + (b.y - a.y) * (t / seg);
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(angle);
+        ctx.beginPath();
+        ctx.moveTo(sizePx, 0);
+        ctx.lineTo(-sizePx, -sizePx * 0.9);
+        ctx.lineTo(-sizePx, sizePx * 0.9);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(8, 18, 22, 0.85)';
+        ctx.fill();
+        ctx.restore();
+        t += spacing;
+      }
+      carry = t - seg;
+    }
   }
 }

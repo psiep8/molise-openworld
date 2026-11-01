@@ -119,7 +119,15 @@
       <div class="map-legend">
         <strong>Mappa dei 5 comuni · Palata è casa</strong>
         <span>Palata · Montecilfone · Acquaviva Collecroce · Tavenna · Castelmauro</span>
-        <small>Immagini: Sentinel-2 CC BY 4.0 · Strade ed edifici: OpenStreetMap (ODbL) · Rilievo: AWS Terrain Tiles (SRTM/Copernicus) · <kbd>V</kbd> cambia stile</small>
+        <div class="map-layers" aria-label="Livelli della mappa">
+          <label><input type="checkbox" id="layer-roads" checked /> Strade</label>
+          <label><input type="checkbox" id="layer-areas" checked /> Aree</label>
+          <label><input type="checkbox" id="layer-buildings" checked /> Edifici</label>
+          <label><input type="checkbox" id="layer-pois" checked /> POI</label>
+          <label><input type="checkbox" id="layer-labels" checked /> Nomi</label>
+        </div>
+        <small id="map-attribution">Strade ed edifici: OpenStreetMap (ODbL)</small>
+        <small>Rilievo: AWS Terrain Tiles (SRTM/Copernicus) · <kbd>V</kbd> cambia stile</small>
         <span class="map-close">Clicca un punto per la destinazione · <kbd>Shift</kbd>+clic su una casa = garage · <kbd>X</kbd> annulla · <kbd>M</kbd> chiude</span>
       </div>
     </div>

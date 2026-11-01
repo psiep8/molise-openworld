@@ -166,7 +166,7 @@ import {
   type Needs,
 } from './sim/needs';
 import { advanceClock, formatGameClock, loadLifeSave, saveLifeSave, type LifeSave } from './sim/save';
-import { MapRenderer } from './ui/minimap';
+import { MapRenderer, type MapLayer } from './ui/minimap';
 import { nextFrameOrTimeout } from './ui/frame';
 import type { CarInput } from './sim/car';
 import { autopilotInput, followTarget } from './sim/autopilot';
@@ -1196,7 +1196,8 @@ export class Game {
         Math.min(1600, this.viewRadius),
       );
 
-      this.map = new MapRenderer(osm);
+      this.map = new MapRenderer(osm, undefined, this.heights);
+      this.bindMapLayers();
       const attribution = document.getElementById('attribution');
       if (attribution) {
         attribution.textContent = `© OpenStreetMap contributors · Paesaggio 3D da DEM, copertura del suolo e world kit`;
@@ -3333,7 +3334,13 @@ export class Game {
       case 'KeyV':
         if (!this.map) break;
         this.map.radar = !this.map.radar;
-        this.hud.toast(this.map.radar ? 'Radar: satellite reale' : 'Radar: mappa vettoriale');
+        this.hud.toast(
+          this.map.radar
+            ? this.map.satTiles.usesTiles
+              ? 'Radar: satellite reale'
+              : 'Radar: nessun provider di tile, resta la mappa vettoriale'
+            : 'Radar: mappa vettoriale',
+        );
         break;
       case 'KeyG':
         this.applyQuality(nextQuality(this.qualityLevel));
@@ -4625,6 +4632,31 @@ export class Game {
       const nearVenue = findNearestVenue(x, z, 18);
       const hint = nearVenue ? ` · ${nearVenue.name}: scendi con <kbd>F</kbd>` : '';
       this.hud.setObjective(`Premi <kbd>F</kbd> per scendere · <kbd>R</kbd> per tornare in strada${hint}`);
+    }
+  }
+
+  /** Legenda della mappa: livelli on/off e attribuzione del provider. */
+  private bindMapLayers(): void {
+    const entries: [string, MapLayer][] = [
+      ['layer-roads', 'roads'],
+      ['layer-areas', 'areas'],
+      ['layer-buildings', 'buildings'],
+      ['layer-pois', 'pois'],
+      ['layer-labels', 'labels'],
+    ];
+    for (const [id, layer] of entries) {
+      const input = document.getElementById(id) as HTMLInputElement | null;
+      if (!input) continue;
+      input.checked = this.map.layerState[layer];
+      input.addEventListener('change', () => {
+        this.map.setLayer(layer, input.checked);
+        if (this.hud.mapVisible) this.drawBigMap();
+      });
+    }
+    const attribution = document.getElementById('map-attribution');
+    if (attribution) {
+      attribution.textContent =
+        `${this.map.imageryAttribution} · Strade ed edifici: OpenStreetMap (ODbL)`;
     }
   }
 
