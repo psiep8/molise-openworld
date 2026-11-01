@@ -1164,8 +1164,9 @@ vec2 roadRippleGrad(vec2 p, float t, float density, float amount) {
 }
 
 // riflesso analitico delle luci auto: pozza del fascio + lobo speculare
-// allungato verso l'osservatore. Sempre presente, più forte sul bagnato.
-vec3 roadVehicleLights(vec3 P, vec3 N, vec3 V) {
+// allungato verso l'osservatore. Sempre presente, più forte sul bagnato e
+// quasi specchio dentro le pozzanghere (puddle = maschera dell'acqua ferma).
+vec3 roadVehicleLights(vec3 P, vec3 N, vec3 V, float puddle) {
   vec3 total = vec3(0.0);
   for (int i = 0; i < ${ROAD_LIGHT_SLOTS}; i++) {
     float power = uCarLightPower[i];
@@ -1191,7 +1192,9 @@ vec3 roadVehicleLights(vec3 P, vec3 N, vec3 V) {
     vec3 L = normalize(lp - P);
     vec3 H = normalize(L + V);
     float NdotH = clamp(dot(N, H), 0.0, 1.0);
-    float shininess = mix(36.0, 190.0, uRoadWet);
+    // l'acqua ferma è uno specchio: il lobo si stringe e si allunga molto più
+    // della strada bagnata, che resta lucida ma diffusa
+    float shininess = mix(mix(36.0, 190.0, uRoadWet), 460.0, puddle);
     float spec = pow(NdotH, shininess);
 
     // scia allungata lungo la direzione di vista proiettata sull'asfalto:
@@ -1199,14 +1202,17 @@ vec3 roadVehicleLights(vec3 P, vec3 N, vec3 V) {
     vec2 viewDir = normalize(V.xz + vec2(1e-4));
     float alongView = dot(delta, viewDir);
     float acrossView = dot(delta, vec2(-viewDir.y, viewDir.x));
-    float streakWidth = mix(0.6, 1.35, uRoadWet);
+    float streakWidth = mix(mix(0.6, 1.35, uRoadWet), 0.40, puddle);
     float streak = exp(-(acrossView * acrossView) / (streakWidth * streakWidth)) *
-      exp(-abs(alongView) / mix(5.0, 13.0, uRoadWet));
-    float specular = spec * mix(0.12, 1.0, uRoadWet) +
-      streak * 0.35 * mix(0.3, 1.0, uRoadWet);
+      exp(-abs(alongView) / mix(mix(5.0, 13.0, uRoadWet), 26.0, puddle));
+    float specular = spec * mix(0.12, 1.0, uRoadWet) * (1.0 + 1.6 * puddle) +
+      streak * 0.35 * mix(0.3, 1.0, uRoadWet) * (1.0 + 1.1 * puddle);
 
-    float response = mix(0.55, 1.15, uRoadWet) * (1.0 - uRoadSnow * 0.55);
-    total += lc * power * (pool * 0.32 + specular * 0.5) * response;
+    // la pozza prende anche il fascio diffuso più del catrame: è il "pozzo di
+    // luce" che si vede per terra quando l'auto passa su una pozzanghera
+    float response = mix(0.55, 1.15, uRoadWet) * (1.0 + 0.4 * puddle) *
+      (1.0 - uRoadSnow * 0.55);
+    total += lc * power * (pool * 0.32 * (1.0 + 0.5 * puddle) + specular * 0.5) * response;
   }
   return total;
 }
@@ -1258,9 +1264,19 @@ float roadWetNoise;`,
   if (uRoadWet > 0.01) {
     roadWetNoise = roadNoise(vRoadWorld.xz * 0.55) * 0.6 + roadNoise(vRoadWorld.xz * 2.1) * 0.4;
     roadPuddleMask = roadPuddle(vRoadWorld.xz) * smoothstep(0.18, 0.62, uRoadWet);
+    // la strada è a schiena d'asino: l'acqua ristagna nelle tracce delle ruote
+    // e ai bordi, non al centro della corsia
+    roadPuddleMask *= 0.68 + 0.32 * wheelTracks(vRoadUv.x);
   }
   diffuseColor.rgb *= mix(1.0, 0.60 + 0.06 * roadWetNoise, uRoadWet);
   diffuseColor.rgb *= mix(1.0, 0.52, roadPuddleMask);
+  // menisco: il bordo della pozza è più scuro (acqua bassa che sporca il
+  // catrame) e il centro prende la tinta fredda del cielo
+  float puddleRim = smoothstep(0.01, 0.32, roadPuddleMask) *
+    (1.0 - smoothstep(0.55, 0.98, roadPuddleMask));
+  diffuseColor.rgb *= 1.0 - puddleRim * 0.18;
+  diffuseColor.rgb = mix(diffuseColor.rgb,
+    diffuseColor.rgb * 0.84 + vec3(0.012, 0.020, 0.030), roadPuddleMask * 0.85);
 
   // neve posata: superfici in alto, assottigliata nelle tracce delle ruote
   roadSnowMask = smoothstep(0.02, 0.5, uRoadSnow) *
@@ -1273,6 +1289,11 @@ float roadWetNoise;`,
         '#include <normal_fragment_maps>',
         `#include <normal_fragment_maps>
 {
+  // Dentro la pozza la superficie è acqua ferma: si toglie il rilievo
+  // dell'asfalto (bump e grana) e resta solo l'increspatura, aggiunta dopo.
+  // Prima si vedeva la grana del catrame anche sott'acqua, e sembrava vernice.
+  vec3 waterNormal = mat3(viewMatrix) * vRoadNormal;
+  normal = normalize(mix(normal, waterNormal, roadPuddleMask * 0.92));
   if (uRoadRain > 0.02 && uRoadWet > 0.04) {
     // le pozze riflettono le increspature molto più della strada bagnata
     // uniforme: l'ampiezza cresce dove la maschera dice "acqua ferma"
@@ -1307,13 +1328,13 @@ float roadWetNoise;`,
         `{
   vec3 roadN = normalize(vRoadNormal);
   vec3 roadV = normalize(cameraPosition - vRoadWorld);
-  outgoingLight += roadVehicleLights(vRoadWorld, roadN, roadV);
+  outgoingLight += roadVehicleLights(vRoadWorld, roadN, roadV, roadPuddleMask);
 }
 #include <opaque_fragment>`,
       );
   };
   material.customProgramCacheKey = () =>
-    `${previousKey ? previousKey() : 'road'}|road-wear-v4`;
+    `${previousKey ? previousKey() : 'road'}|road-wear-v5`;
 }
 
 /**
