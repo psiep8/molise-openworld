@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Heightfield } from '../geo/elevation';
 import { clamp, distanceToSegment2, mulberry32, type Pt } from '../geo/geo';
 import type { ObstacleIndex } from '../geo/obstacles';
-import { CURB_HEIGHT, ROAD_LIFT, type BuildingIndex, type OsmData } from '../geo/osm';
+import { CURB_HEIGHT, ROAD_LIFT, type BuildingIndex, type OsmData, type RoadIndex } from '../geo/osm';
 import { pbr } from '../gfx/textures';
 import type { CityKit } from './citykit';
 import type { QualityLevel } from '../gfx/quality';
@@ -450,30 +450,127 @@ export class StreetLights {
 
 export type SignKind = 'stop' | 'yield' | 'speed';
 
+interface RoadProjection {
+  x: number;
+  z: number;
+  /** normale sinistra della strada, unitaria */
+  nx: number;
+  nz: number;
+  halfWidth: number;
+}
+
+/** Punto più vicino sulla mezzeria di una strada asfaltata. */
+function projectToPavedRoad(x: number, z: number, osm: OsmData): RoadProjection | null {
+  let best: RoadProjection | null = null;
+  let bestDistance = Infinity;
+  for (const road of osm.roads) {
+    if (!road.paved || road.points.length < 2) continue;
+    for (let i = 1; i < road.points.length; i++) {
+      const a = road.points[i - 1]!;
+      const b = road.points[i]!;
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const length2 = dx * dx + dz * dz;
+      if (length2 < 1e-6) continue;
+      const t = clamp(((x - a.x) * dx + (z - a.z) * dz) / length2, 0, 1);
+      const qx = a.x + dx * t;
+      const qz = a.z + dz * t;
+      const distance = Math.hypot(x - qx, z - qz);
+      if (distance >= bestDistance) continue;
+      bestDistance = distance;
+      const length = Math.sqrt(length2);
+      best = {
+        x: qx,
+        z: qz,
+        nx: -dz / length,
+        nz: dx / length,
+        halfWidth: road.width / 2,
+      };
+    }
+  }
+  return best;
+}
+
+/**
+ * Porta un cartello OSM sul ciglio della strada.
+ *
+ * Il nodo di un `highway=stop` nella mappa sta **sulla mezzeria**: è il punto
+ * in cui il segnale vale, non dove sta il palo. Piazzandolo così com'era, metà
+ * dei cartelli del paese aveva il palo in carreggiata. Qui si proietta sulla
+ * strada più vicina e, se il nodo è dentro la carreggiata, lo si sposta a
+ * 85 cm oltre il ciglio, dal lato in cui già si trovava (o dal lato indicato
+ * quando si cerca un'alternativa perché lì c'è un muro).
+ */
+export function placeSignBesideRoad(
+  x: number,
+  z: number,
+  osm: OsmData,
+  forceSide?: 1 | -1,
+): { x: number; z: number; side: 1 | -1 } {
+  const near = projectToPavedRoad(x, z, osm);
+  if (!near) return { x, z, side: forceSide ?? 1 };
+  const lateral = (x - near.x) * near.nx + (z - near.z) * near.nz;
+  const side = forceSide ?? (lateral >= 0 ? 1 : -1);
+  const offset = near.halfWidth + 0.85;
+  // già sul ciglio o oltre (marciapiede, piazzola): non lo si sposta
+  if (forceSide === undefined && Math.abs(lateral) >= offset) return { x, z, side };
+  return {
+    x: near.x + near.nx * side * offset,
+    z: near.z + near.nz * side * offset,
+    side,
+  };
+}
+
 /** Segnaletica verticale: octagono STOP, triangolo dare precedenza, disco 50. */
 export function buildSigns(
   osm: OsmData,
   heights: Heightfield,
-  _buildings: BuildingIndex,
+  buildings: BuildingIndex,
   _renderer: THREE.WebGLRenderer,
   // il kit non serve più per il palo (vedi sotto): resta in firma per non
   // toccare i chiamanti
   _kit?: CityKit | null,
   // i pali sono ostacoli veri: senza, l'auto li attraversa
-  _obstacles?: ObstacleIndex,
+  obstacles?: ObstacleIndex,
 ): THREE.Group {
   const group = new THREE.Group();
   group.name = 'road-signs';
-  const placements = (osm.signs ?? []).map((sign) => ({
-    x: sign.x,
-    z: sign.z,
-    yaw: sign.directionDeg !== undefined ? Math.PI - (sign.directionDeg * Math.PI) / 180 : signYawFromRoad(sign, osm),
-    kind: sign.kind,
-    speedLimit: sign.speedLimit ?? 50,
-  }));
+  const placements: {
+    x: number;
+    z: number;
+    yaw: number;
+    kind: SignKind;
+    speedLimit: number;
+  }[] = [];
+  const taken: { x: number; z: number }[] = [];
+  for (const sign of osm.signs ?? []) {
+    // il nodo OSM è il punto in cui vale il segnale, non il palo: va portato
+    // sul ciglio, altrimenti il cartello nasce in mezzo alla carreggiata
+    let spot = placeSignBesideRoad(sign.x, sign.z, osm);
+    if (buildings.hitsCircle(spot.x, spot.z, 0.3)) {
+      // lato occupato da un muro: si prova l'altro ciglio, e se è occupato
+      // anche quello meglio nessun cartello che un palo dentro una facciata
+      const other = placeSignBesideRoad(sign.x, sign.z, osm, spot.side === 1 ? -1 : 1);
+      if (buildings.hitsCircle(other.x, other.z, 0.3)) continue;
+      spot = other;
+    }
+    // due segnali OSM sullo stesso angolo: il secondo palo finirebbe dentro il
+    // primo, e la faccia non si leggerebbe comunque
+    if (taken.some((p) => Math.hypot(p.x - spot.x, p.z - spot.z) < 0.7)) continue;
+    taken.push(spot);
+    placements.push({
+      x: spot.x,
+      z: spot.z,
+      yaw: sign.directionDeg !== undefined
+        ? Math.PI - (sign.directionDeg * Math.PI) / 180
+        : signYawFromRoad(spot, osm),
+      kind: sign.kind,
+      speedLimit: sign.speedLimit ?? 50,
+    });
+  }
 
   if (placements.length === 0) return group;
-  for (const sign of placements) _obstacles?.add(sign.x, sign.z, 0.1);
+  for (const sign of placements) obstacles?.add(sign.x, sign.z, 0.1);
 
   // Palo sempre procedurale: un cilindro zincato da 4 cm.
   //
@@ -564,6 +661,13 @@ export function buildSigns(
     if (simplePlacements[kind].length) makeFaceMesh(kind, 50, simplePlacements[kind]);
   }
   for (const [speed, signs] of speedPlacements) makeFaceMesh('speed', speed, signs);
+  // posizioni finali per la diagnosi (`__molise.furniture`): stessa quota del
+  // piede usata dai pali, non la mezzeria del nodo OSM
+  group.userData.signSpots = placements.map((sign) => ({
+    x: sign.x,
+    z: sign.z,
+    y: heights.heightAt(sign.x, sign.z) + baseLift,
+  }));
   return group;
 }
 
@@ -753,6 +857,7 @@ export function buildStreetNames(
   heights: Heightfield,
   buildings: BuildingIndex,
   obstacles?: ObstacleIndex,
+  roads?: RoadIndex,
 ): THREE.Group {
   const group = new THREE.Group();
   group.name = 'street-names';
@@ -796,6 +901,10 @@ export function buildStreetNames(
       // 1,05 m oltre il ciglio: sul marciapiede, non in carreggiata
       const x = b.x - tz * side * (road.width / 2 + 1.05);
       const z = b.z + tx * side * (road.width / 2 + 1.05);
+      // La targa sta sul marciapiede, non dentro la carreggiata di un incrocio:
+      // la perpendicolare della propria via può cadere sull'asfalto di quella
+      // laterale, e 17 targhe su 60 finivano lì. Si cerca il punto successivo.
+      if (roads?.isOnRoad(x, z, 0.2)) continue;
       if (heights.slopeAt(x, z) > 16) continue;
       if (buildings.hitsCircle(x, z, 0.6)) continue;
       if (seen.some((s) => Math.hypot(s.x - x, s.z - z) < 900)) break;
@@ -857,6 +966,9 @@ export function buildStreetNames(
   poles.instanceMatrix.needsUpdate = true;
   backs.instanceMatrix.needsUpdate = true;
   group.add(poles, backs);
+  // posizioni per la diagnosi (`__molise.world.furniture`): senza quota,
+  // perché il piede sta sul marciapiede rialzato e non sul DEM
+  group.userData.signSpots = placed.map((p) => ({ x: p.x, z: p.z }));
   return group;
 }
 

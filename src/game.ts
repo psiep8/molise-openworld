@@ -32,6 +32,7 @@ import { Landcover, monthForGameDay } from './world/landcover';
 import { FarTerrain } from './world/far-terrain';
 import { horizonPalette, type HorizonPalette } from './world/atmosphere';
 import { adaptGlare, backlightExposure, glareFactor, sunDiskStrength } from './gfx/backlight';
+import { armAxis, springArmLength, sweepArmCone } from './gfx/camera-arm';
 import { buildBuildings, setWindowGlow } from './world/buildings';
 import { StreamedWorld } from './world/streamed-world';
 import { buildChurch } from './world/church';
@@ -66,6 +67,12 @@ import type { WorldHitField } from './world/world-hits';
 import { WorldGrass, WorldShrubField, buildWorldProps } from './world/world-props';
 import { WorldFieldDetail, buildStrawBales, buildVillageScenes } from './world/field-detail';
 import { buildRoadsideKit } from './world/roadside-kit';
+import {
+  auditFurniture,
+  auditViolations,
+  type FurnitureAudit,
+  type FurnitureSpot,
+} from './world/furniture-audit';
 import { buildBridgeKit } from './world/bridge-kit';
 import { CarLibrary } from './world/car-library';
 import type { SurfaceWeather } from './sim/surfaces';
@@ -73,6 +80,7 @@ import { DEFAULT_LIGHTING, DEFAULT_SKY, DEFAULT_SUN, createSky, type SkyRig } fr
 import { CloudLayer } from './world/clouds';
 import { Precipitation } from './world/precipitation';
 import { GroundMist } from './world/mist';
+import { advanceWetness, drivingWater } from './world/wetness';
 import { GrassField } from './world/grass';
 import type { CellStreamStats } from './world/cell-stream';
 import {
@@ -289,11 +297,27 @@ export interface Diagnostics {
     /** alberi/cartelli fatti reagire a un urto dell'auto */
     hitCount: number;
     /** moduli GLB di marciapiede e cordolo piazzati fuori dal paese */
-    roadside: { sidewalks: number; curbs: number };
+    roadside: {
+      sidewalks: number;
+      curbs: number;
+      gaps: number;
+      overlaps: number;
+      quoteErrors: number;
+    };
     /** barriera: campate logiche e moduli GLB effettivamente istanziati */
     guardrails: { spans: number; modules: number; glb: boolean };
     /** impalcati GLB sui ponti OSM */
     bridge: { bridges: number; modules: number; highway: number };
+    /**
+     * Diagnosi di lampioni e cartelli: quanti finiscono in carreggiata, dentro
+     * un edificio, su una pendenza impossibile, fuori quota o addosso a un
+     * altro oggetto. `null` finché il mondo non è costruito.
+     */
+    furniture: {
+      lamps: FurnitureAudit;
+      signs: FurnitureAudit;
+      faults: number;
+    } | null;
     /** zolle fotogrammetriche `grass-hero` attorno al giocatore */
     heroGrass: number;
   } | null;
@@ -497,6 +521,9 @@ export class Game {
   private camYawOffset = 0;
   private camPitch = 0;
   private camDistance = 8.8;
+  /** lunghezza attuale del braccio a molla (0 = da inizializzare) */
+  private driveBoom = 0;
+  private walkBoom = 0;
   /** 0 inseguitrice · 1 alta da cartolina · 2 cofano */
   private driveCam = 0;
   /** Autopilota di strada (tasto O): l'auto segue la carreggiata da sola. */
@@ -594,7 +621,15 @@ export class Game {
   private strawBalesGroup: THREE.Group | null = null;
   private villageScenesGroup: THREE.Group | null = null;
   /** Moduli GLB di marciapiede/cordolo piazzati fuori dal costruito. */
-  private roadsideStats: { sidewalks: number; curbs: number } | null = null;
+  private roadsideStats: {
+    sidewalks: number;
+    curbs: number;
+    gaps: number;
+    overlaps: number;
+    quoteErrors: number;
+  } | null = null;
+  /** Diagnosi di lampioni e cartelli: nessun palo in strada, in facciata o a picco. */
+  private furnitureAudit: { lamps: FurnitureAudit; signs: FurnitureAudit } | null = null;
   private bridgeStats: { bridges: number; modules: number; highway: number } | null = null;
   private worldGrass?: WorldGrass;
   /** Zolle, campi, grano e fango di prossimità. */
@@ -644,6 +679,8 @@ export class Game {
   private roadsGroup?: THREE.Group;
   private lastWetness = -1;
   private roadWetness = 0;
+  /** acqua ferma nelle pozze: sopravvive alla pellicola quando smette di piovere */
+  private standingWater = 0;
   private snowPack = 0;
   /** Tempo continuo per increspature e crepe del manto stradale. */
   private roadClock = 0;
@@ -909,8 +946,45 @@ export class Game {
       for (const lamp of streets.lamps) this.obstacles.add(lamp.x, lamp.z, 0.16);
       this.scene.add(buildWater(osm, heights, this.renderer));
 
-      this.scene.add(buildSigns(osm, heights, this.buildingIndex, this.renderer, this.kit, this.obstacles));
-      this.scene.add(buildStreetNames(osm, heights, this.buildingIndex, this.obstacles));
+      const signGroup = buildSigns(
+        osm,
+        heights,
+        this.buildingIndex,
+        this.renderer,
+        this.kit,
+        this.obstacles,
+      );
+      this.scene.add(signGroup);
+      const streetNamesGroup = buildStreetNames(
+        osm,
+        heights,
+        this.buildingIndex,
+        this.obstacles,
+        this.roadIndex,
+      );
+      this.scene.add(streetNamesGroup);
+      // Diagnosi dell'arredo: i cartelli OSM partono dal nodo mappa (spesso in
+      // mezzeria) e vengono portati sul ciglio da `placeSignBesideRoad`; qui si
+      // controlla che nessun palo sia finito in strada, in facciata o su una
+      // scarpata, e che due oggetti non si sovrappongano. Le targhe con il nome
+      // della via sono segnaletica anche loro: entrano nello stesso controllo,
+      // senza quota (stanno sul marciapiede rialzato, non sul DEM).
+      const signSpots: FurnitureSpot[] = [
+        ...((signGroup.userData.signSpots as FurnitureSpot[] | undefined) ?? []),
+        ...((streetNamesGroup.userData.signSpots as FurnitureSpot[] | undefined) ?? []),
+      ];
+      this.furnitureAudit = {
+        lamps: auditFurniture(
+          streets.lamps,
+          { roads: this.roadIndex, buildings: this.buildingIndex, heights },
+          { maxSlope: 10, minGap: 5, groundTolerance: 0.1 },
+        ),
+        signs: auditFurniture(
+          signSpots,
+          { roads: this.roadIndex, buildings: this.buildingIndex, heights },
+          { maxSlope: 16, minGap: 0.5, groundTolerance: 0.1 },
+        ),
+      };
       this.scene.add(buildStreetProps(osm, heights, this.buildingIndex, this.renderer, this.kit, this.qualityLevel));
       // chiusini e caditoie: due InstancedMesh da ~600.000 triangoli in mappa,
       // invisibili da lontano e ininfluenti sulla guida. Sui preset leggeri non si
@@ -992,7 +1066,13 @@ export class Game {
         );
         this.scene.add(roadside.group);
         this.roadsideGroup = roadside.group;
-        this.roadsideStats = { sidewalks: roadside.sidewalks, curbs: roadside.curbs };
+        this.roadsideStats = {
+          sidewalks: roadside.sidewalks,
+          curbs: roadside.curbs,
+          gaps: roadside.diagnostics.gaps,
+          overlaps: roadside.diagnostics.overlaps,
+          quoteErrors: roadside.diagnostics.quoteErrors,
+        };
       }
       // impalcati sui ponti OSM: la carreggiata procedurale resta quella con
       // quota e fisica, il modulo GLB è la struttura sotto e ai lati
@@ -2596,6 +2676,9 @@ export class Game {
     this.snowNow = 0;
     this.cloudNow = 0;
     this.dayNow = 1;
+    // giornata serena: la strada riparte asciutta, senza pozze del meteo prima
+    this.roadWetness = 0;
+    this.standingWater = 0;
     this.clouds?.setVisible(false);
     this.precipitation?.clear();
     this.precipitation?.setAmbient(this.fogColor, 1);
@@ -2654,7 +2737,18 @@ export class Game {
       const material = mesh.material as THREE.MeshStandardMaterial | THREE.MeshStandardMaterial[];
       if (Array.isArray(material)) return;
       // la tinta base dell'asfalto non va persa: la si conserva al primo passaggio
-      const store = material.userData as { baseColor?: THREE.Color; roadWet?: { value: number } };
+      const store = material.userData as {
+        baseColor?: THREE.Color;
+        baseEnv?: number;
+        roadWet?: { value: number };
+      };
+      // Anche l'asfalto con lo shader di usura riflette il cielo attraverso
+      // `scene.environment`. Bagnato deve specchiare più dell'asciutto: le
+      // pozze hanno roughness 0,03 e senza questo boost restavano spente,
+      // perché l'intensità dell'ambiente è per materiale e valeva 0,55 anche
+      // dentro l'acqua. La maschera delle pozze decide poi dove si vede.
+      store.baseEnv ??= material.envMapIntensity ?? 1;
+      material.envMapIntensity = store.baseEnv * (1 + 0.85 * target);
       if (store.roadWet) {
         // l'asfalto si scurisce e si lucida da solo, dentro lo shader di usura;
         // gli uniform però sono condivisi e li pilota `setRoadWeather` a ogni
@@ -2841,14 +2935,21 @@ export class Game {
     this.nightFactor = night;
     this.car.setLights(night);
     const targetWetness = rain > 0 ? clamp(0.3 + w.precipitation / 24, 0.3, 0.85) : 0;
-    const wetRate = targetWetness > this.roadWetness ? 0.28 : 0.0018;
-    this.roadWetness += (targetWetness - this.roadWetness) * (1 - Math.exp(-wetRate * dt));
+    // pellicola e pozze hanno due costanti di tempo diverse: appena smette di
+    // piovere la strada si opacizza in minuti, l'acqua nelle tracce resta
+    const wetness = advanceWetness(
+      { wetness: this.roadWetness, standingWater: this.standingWater },
+      { targetWetness, rain, day, wind: windSpeed },
+      dt,
+    );
+    this.roadWetness = wetness.wetness;
+    this.standingWater = wetness.standingWater;
     const targetSnow = snowing ? clamp(0.28 + w.snowfall * 0.22, 0.35, 0.9) : 0;
     const snowRate = targetSnow > this.snowPack ? 0.08 : w.temperature > 1 ? 0.003 : 0.0004;
     this.snowPack += (targetSnow - this.snowPack) * (1 - Math.exp(-snowRate * dt));
     this.drivingWeather = {
       wetness: this.roadWetness,
-      standingWater: rain > 0 ? clamp(this.roadWetness * (0.25 + rain * 0.8), 0, 1) : this.roadWetness * 0.25,
+      standingWater: drivingWater(wetness, rain),
       snowPack: this.snowPack,
       iceRisk: w.temperature < 0 ? clamp((this.roadWetness + this.snowPack) * 0.85, 0, 1) : 0,
       temperature: w.temperature,
@@ -3027,7 +3128,13 @@ export class Game {
       const roadside = buildRoadsideKit(this.osm, this.heights, this.roadIndex, this.worldKit, this.quality.roadside);
       this.roadsideGroup = roadside.group;
       this.scene.add(roadside.group);
-      this.roadsideStats = { sidewalks: roadside.sidewalks, curbs: roadside.curbs };
+      this.roadsideStats = {
+        sidewalks: roadside.sidewalks,
+        curbs: roadside.curbs,
+        gaps: roadside.diagnostics.gaps,
+        overlaps: roadside.diagnostics.overlaps,
+        quoteErrors: roadside.diagnostics.quoteErrors,
+      };
     }
 
     this.clearWorldKitGroup(this.bridgeGroup);
@@ -4443,12 +4550,9 @@ export class Game {
     const target = this.tmp2.set(this.player.position.x, this.player.position.y + 1.45, this.player.position.z);
     const desired = this.tmp3.copy(target).addScaledVector(dir, -4.4);
     desired.y = Math.max(desired.y, this.ground.heightAt(desired.x, desired.z) + 0.75);
-    // Se il muro è dietro il giocatore, la camera si accorcia ma ci arriva con
-    // un lerp rapido (non con un teletrasporto): il salto istantaneo al punto
-    // corretto era quello che faceva "strappare" l'inquadratura.
-    const blocked = this.constrainCameraToBuildings(target, desired);
-    this.camera.position.lerp(desired, 1 - Math.exp(-(blocked ? 30 : 14) * dt));
-    this.constrainCameraToBuildings(target, this.camera.position);
+    // Il muro dietro il giocatore accorcia il braccio, non teletrasporta la
+    // camera: vedi `placeOnArm` e `gfx/camera-arm`.
+    this.placeOnArm(target, desired, 'walk', dt, false);
     this.camera.lookAt(target);
   }
 
@@ -4504,69 +4608,96 @@ export class Game {
       this.car.position.y + 1.2,
       car.z + fz * ahead,
     );
-    // Niente teletrasporto quando l'auto è contro un muro: la camera si
-    // avvicina al punto libero con un lerp molto rapido. Il vecchio "copia
-    // subito" la faceva saltare sopra il tetto e ruotare di colpo, ed era il
-    // bug che si vedeva sbattendo contro una casa.
-    const blocked = this.constrainCameraToBuildings(target, desired);
-    const rate = snap ? Infinity : blocked ? 34 : 7.5;
-    if (snap) this.camera.position.copy(desired);
-    else this.camera.position.lerp(desired, 1 - Math.exp(-rate * dt));
-    this.constrainCameraToBuildings(target, this.camera.position);
+    // Braccio a molla: si accorcia davanti al muro e si riallunga piano quando
+    // l'angolo è passato. Prima la posizione veniva interpolata e poi "corretta"
+    // dentro l'edificio: era quel salto a far strappare l'inquadratura.
+    this.placeOnArm(target, desired, 'drive', dt, snap);
 
     this.camera.lookAt(target);
   }
 
-  /**
-   * Toglie la camera da dentro i muri.
-   *
-   * Prima il test usava il punto esatto del poligono: bastava un campione ogni
-   * 0,75 m perché la camera si fermasse **dentro** il muro di facciata, e da lì
-   * si vedevano gli interni (stipiti, vetri, vani) e il "muro invisibile" della
-   * collisione. Ora il test ha un margine, il ritiro è più largo del passo e,
-   * se la camera finirebbe a ridosso dell'auto, sale sopra il tetto invece di
-   * infilarsi nella casa.
-   *
-   * Ritorna `true` quando la posizione è stata corretta: in quel caso va
-   * applicata subito, non interpolata, altrimenti il lerp la attraversa.
-   */
-  private constrainCameraToBuildings(target: THREE.Vector3, position: THREE.Vector3): boolean {
-    const dx = position.x - target.x;
-    const dy = position.y - target.y;
-    const dz = position.z - target.z;
-    const distance = Math.hypot(dx, dy, dz);
-    if (distance < 1) return false;
-    const samples = Math.ceil(distance / 0.5);
-    const margin = 0.55;
-
-    for (let i = 1; i <= samples; i++) {
-      const t = i / samples;
-      const x = target.x + dx * t;
-      const y = target.y + dy * t;
-      const z = target.z + dz * t;
-      for (const building of this.buildingIndex.near(x, z)) {
-        if (
-          x < building.bounds.minX - margin ||
-          x > building.bounds.maxX + margin ||
-          z < building.bounds.minZ - margin ||
-          z > building.bounds.maxZ + margin
-        ) continue;
-        const roof = this.ground.heightAt(x, z) + building.height;
-        if (y >= roof) continue;
-        if (!pointInPolygon(x, z, building.points) && !nearPolygon(x, z, building.points, margin)) {
-          continue;
-        }
-        const safeT = Math.max(0, t - (1.2 + margin) / distance);
-        position.set(target.x + dx * safeT, target.y + dy * safeT, target.z + dz * safeT);
-        // Se il muro è a ridosso dell'auto non si sale sul tetto (era un salto
-        // di 5-6 m con la camera che guardava giù a picco): si alza appena la
-        // camera, quanto basta a non infilarsi nella facciata.
-        const boom = safeT * distance;
-        if (boom < 2.2) position.y += 1.5 * (1 - boom / 2.2);
+  /** Vero se il punto è dentro una casa (o a meno del margine dal muro). */
+  private cameraBlocked(x: number, y: number, z: number): boolean {
+    const margin = 0.45;
+    for (const building of this.buildingIndex.near(x, z)) {
+      if (
+        x < building.bounds.minX - margin ||
+        x > building.bounds.maxX + margin ||
+        z < building.bounds.minZ - margin ||
+        z > building.bounds.maxZ + margin
+      ) continue;
+      const roof = this.ground.heightAt(x, z) + building.height;
+      if (y >= roof) continue;
+      if (pointInPolygon(x, z, building.points) || nearPolygon(x, z, building.points, margin)) {
         return true;
       }
     }
     return false;
+  }
+
+  /**
+   * Mette la camera sul braccio a molla fra pivot e posizione ideale.
+   *
+   * `allowed` è lo spazio libero *lungo il raggio*: se un muro entra fra
+   * l'auto e la camera, il braccio si accorcia subito (non si vede niente di
+   * strano, il muro è già davanti) e si riallunga piano quando l'ostacolo è
+   * passato. La posizione non viene mai "corretta" dopo l'interpolazione:
+   * sarebbe proprio quel secondo passaggio a produrre il salto.
+   */
+  private placeOnArm(
+    target: THREE.Vector3,
+    desired: THREE.Vector3,
+    kind: 'walk' | 'drive',
+    dt: number,
+    snap: boolean,
+  ): void {
+    const axis = armAxis(target, desired);
+    if (!(axis.length > 0)) return;
+    const min = kind === 'drive' ? 0.8 : 0.55;
+    // ±0,18 rad (~10°): il muro che entra di lato in curva si vede prima che
+    // tagli la linea di vista, e il braccio ha il tempo di ritirarsi
+    const allowed = sweepArmCone(
+      target,
+      axis.direction,
+      axis.length,
+      (x, y, z) => this.cameraBlocked(x, y, z),
+      0.18,
+      { step: 0.35, clearance: 0.45, min },
+    );
+    const rates = kind === 'drive'
+      ? { shorten: 10, lengthen: 2.2, min }
+      : { shorten: 13, lengthen: 2.4, min };
+    let boom = kind === 'drive' ? this.driveBoom : this.walkBoom;
+    if (snap || !(boom > 0)) boom = Math.min(axis.length, allowed);
+    else boom = springArmLength(boom, allowed, axis.length, dt, rates);
+    if (kind === 'drive') this.driveBoom = boom;
+    else this.walkBoom = boom;
+    this.camera.position.set(
+      target.x + axis.direction.x * boom,
+      target.y + axis.direction.y * boom,
+      target.z + axis.direction.z * boom,
+    );
+    // accorciandosi il braccio può finire sotto un dosso: la camera sale
+    // appena, senza cambiare direzione né look-at
+    const floor = this.ground.heightAt(this.camera.position.x, this.camera.position.z) + 0.45;
+    if (this.camera.position.y < floor) this.camera.position.y = floor;
+    this.adaptCameraNear(boom);
+  }
+
+  /**
+   * Near plane adattivo: a braccio corto la camera è a filo della facciata e un
+   * near da 10 cm la tagliava, lasciando vedere l'interno. Si abbassa solo
+   * sotto 1,3 m e si rialza sopra 1,9 m, con isteresi per non rifare la
+   * projection matrix a ogni frame.
+   */
+  private adaptCameraNear(boom: number): void {
+    let near = this.camera.near;
+    if (boom < 1.3 && near > 0.06) near = 0.045;
+    else if (boom > 1.9 && near < 0.09) near = 0.1;
+    if (near !== this.camera.near) {
+      this.camera.near = near;
+      this.camera.updateProjectionMatrix();
+    }
   }
 
   private snapWalkCamera(): void {
@@ -4580,9 +4711,7 @@ export class Game {
     const target = this.tmp2.set(this.player.position.x, this.player.position.y + 1.45, this.player.position.z);
     const desired = this.tmp3.copy(target).addScaledVector(dir, -4.4);
     desired.y = Math.max(desired.y, this.ground.heightAt(desired.x, desired.z) + 0.75);
-    this.constrainCameraToBuildings(target, desired);
-    this.camera.position.copy(desired);
-    this.constrainCameraToBuildings(target, this.camera.position);
+    this.placeOnArm(target, desired, 'walk', 0, true);
     this.camera.lookAt(target);
   }
 
@@ -4736,7 +4865,22 @@ export class Game {
               houses: 0,
             }),
             hitCount: this.worldHits?.count ?? 0,
-            roadside: this.roadsideStats ?? { sidewalks: 0, curbs: 0 },
+            roadside: this.roadsideStats ?? {
+              sidewalks: 0,
+              curbs: 0,
+              gaps: 0,
+              overlaps: 0,
+              quoteErrors: 0,
+            },
+            furniture: this.furnitureAudit
+              ? {
+                  lamps: this.furnitureAudit.lamps,
+                  signs: this.furnitureAudit.signs,
+                  faults:
+                    auditViolations(this.furnitureAudit.lamps) +
+                    auditViolations(this.furnitureAudit.signs),
+                }
+              : null,
             guardrails: this.guardrailsStats ?? { spans: 0, modules: 0, glb: false },
             bridge: this.bridgeStats ?? { bridges: 0, modules: 0, highway: 0 },
             heroGrass: this.worldGrass?.heroCount ?? 0,

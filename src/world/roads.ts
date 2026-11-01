@@ -1981,24 +1981,35 @@ export function buildRoads(
           }
         }
       }
-      // Lampioni ogni ~34 m, tutti sullo stesso lato della via: alternarli a
-      // ogni palo dava una fila a zig-zag che non esiste in nessun paese.
+      // Lampioni ogni 28–35 m, tutti sullo stesso lato della via: alternarli a
+      // ogni palo dava una fila a zig-zag che non esiste in nessun paese. Il
+      // passo varia un po' per strada (deterministico), così due vie non hanno
+      // la stessa cadenza e una via corta non resta con due pali soli.
       // Solo in strade larghe abbastanza e solo dentro il costruito.
-      if (sinceLamp > 34 && road.width >= 4.6) {
+      const lampGap = 28 + (hashInt(idx, 23) % 8);
+      if (sinceLamp > lampGap && road.width >= 4.6) {
         const side = lampSide;
-        const off = road.width / 2 + walkWidth + 0.35;
+        // Il palo sta 40 cm **oltre** il bordo esterno del marciapiede. Prima
+        // l'offset ignorava lo spessore del cordolo: il palo finiva a 13 cm
+        // dal filo delle lastre, con la base a cavallo del bordo.
+        const off = road.width / 2 + ROAD_PROFILE.curbWidth + walkWidth + 0.4;
         const lampX = b.x - tz * side * off;
         const lampZ = b.z + tx * side * off;
         // all'incrocio la perpendicolare può cadere sulla carreggiata che
         // attraversa: un lampione in mezzo all'asfalto era uno dei pali
-        // "casuali" che si vedevano in paese. Niente palo su strada o dentro
-        // un muro.
-        if (roadIndex?.isOnRoad(lampX, lampZ, 0.3, idx)) continue;
-        if (buildings?.hitsCircle(lampX, lampZ, 0.35)) continue;
+        // "casuali" che si vedevano in paese. Niente palo su strada, dentro
+        // un muro o su una scarpata dove non sta in piedi.
+        if (roadIndex?.isOnRoad(lampX, lampZ, 0.8, idx)) continue;
+        if (buildings?.hitsCircle(lampX, lampZ, 0.45)) continue;
+        if (heights.slopeAt(lampX, lampZ) > 10) continue;
+        // due strade che si toccano possono piazzare due pali a pochi metri:
+        // meglio uno solo, come nella realtà
+        if (lamps.some((lamp) => Math.hypot(lamp.x - lampX, lamp.z - lampZ) < 6)) continue;
         lamps.push({
           x: lampX,
           z: lampZ,
-          // il braccio del lampione punta verso la carreggiata
+          // il braccio del lampione punta verso la carreggiata: il palo è sul
+          // lato opposto alla normale, quindi il verso è (-tz, tx) · side
           yaw: Math.atan2(tz * side, -tx * side),
         });
         sinceLamp = 0;
