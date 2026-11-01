@@ -18,8 +18,9 @@ Ora `src/world/wetness.ts` tiene **due** stati con costanti separate:
 | pellicola | 0,30 /s | 0,0028 + 0,0045·giorno + 0,0018·vento (1/s) |
 | acqua ferma | 0,16 /s | 0,0009 /s |
 
-Con il sole a mezzogiorno la pellicola scende sotto metà in ~2 minuti; di
-notte senza vento serve mezza giornata. Le pozze restano più a lungo della
+Con il sole a mezzogiorno la pellicola scende sotto metà in ~1,5 minuti; di
+notte senza vento serve una quindicina di minuti per asciugare quasi del tutto.
+Le pozze restano più a lungo della
 pellicola e continuano a contare nell'aderenza (`drivingWater`). Il passo è
 limitato a 250 ms: un frame lungo (scheda in background, menu aperto) non
 asciuga il mondo come dieci minuti veri.

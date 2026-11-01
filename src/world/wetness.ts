@@ -36,7 +36,7 @@ export interface WetnessInput {
 
 /** Velocità di bagnatura (1/s): la pioggia bagna in fretta. */
 const SOAK_RATE = 0.3;
-/** Asciugatura minima, di notte e senza vento (1/s): circa mezz'ora. */
+/** Asciugatura minima, di notte e senza vento (1/s): quasi asciutta in ~15 min. */
 const DRY_RATE = 0.0028;
 /** Quanto il sole accelera l'asciugatura (1/s a mezzogiorno). */
 const SUN_DRY_RATE = 0.0045;
