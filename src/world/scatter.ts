@@ -49,23 +49,25 @@ const HERO_LIMIT = 48;
 /** Camera della dissolvenza LOD, condivisa da tutti i materiali dello scatter. */
 const scatterCamera = { value: new THREE.Vector2(0, 0) };
 
-const TREE_PALETTES: Record<Exclude<ScatterKind, 'shrub' | 'rock'>, number[]> = {
+/**
+ * Famiglie di sagoma, non specie: il generatore decide `broadleaf`, `olive`,
+ * `cypress` o `poplar`, e ogni famiglia raccoglie **tutti** i GLB con quella
+ * silhouette (quercia inglese, abete, albero fotogrammetrico…). Così i modelli
+ * dei nuovi pack sono davvero raggiungibili e il LOD lontano/vicino resta
+ * della stessa famiglia: il tipo di albero non cambia avvicinandosi.
+ */
+type TreeKind = 'broadleaf' | 'olive' | 'cypress' | 'poplar';
+
+const TREE_PALETTES: Record<TreeKind, number[]> = {
   broadleaf: [0x71834d, 0x82945a, 0x8c9a60, 0x667847],
   olive: [0x929a78, 0xa2a987, 0x858f6e, 0x9ca283],
   cypress: [0x263e2b, 0x304b31, 0x3a5638, 0x29432e],
   poplar: [0x617b48, 0x708750, 0x7d9157, 0x5d7545],
-  english-oak: [0x71834d, 0x82945a, 0x8c9a60, 0x667847],
-  english-oak-large: [0x5a4a32, 0x6f6050, 0x4d554a, 0x3d4535],
-  fir-large: [0x263e2b, 0x304b31, 0x3a5638, 0x29432e],
-  fir-medium: [0x1a2d25, 0x253a32, 0x1d352c, 0x152a27],
-  real-tree-a: [0x6b5b3c, 0x7e6e4f, 0x5d4d38, 0x48392e],
-  real-tree-b: [0x584a32, 0x6b5d46, 0x4a3f32, 0x383029],
 };
 const SHRUB_PALETTE = [0x65774b, 0x778452, 0x596c43, 0x87905a];
 const ROCK_PALETTE = [0x756e60, 0x827969, 0x625f55, 0x948a77];
 
-type TreeKind = keyof typeof TREE_PALETTES;
-type RenderKind = ScatterKind;
+type RenderKind = TreeKind | 'shrub' | 'rock';
 
 type ScatterMode = 'near' | 'hero' | 'far';
 
@@ -124,7 +126,7 @@ interface SourceAsset {
   parts: AssetPart[];
 }
 
-const TREE_KINDS: readonly TreeKind[] = ['broadleaf', 'olive', 'cypress', 'poplar', 'english-oak', 'english-oak-large', 'fir-large', 'fir-medium', 'real-tree-a', 'real-tree-b'];
+const TREE_KINDS: readonly TreeKind[] = ['broadleaf', 'olive', 'cypress', 'poplar'];
 const ALL_KINDS: readonly RenderKind[] = [...TREE_KINDS, 'shrub', 'rock'];
 let nextColliderTag = 0;
 
@@ -205,12 +207,13 @@ export class ScatterVegetation {
         { slug: 'birch-tree', kind: 'poplar' },
         { slug: 'arborvitae-conifer', kind: 'cypress' },
         { slug: 'lineside-pine', kind: 'cypress' },
-        { slug: 'english-oak', kind: 'english-oak' },
-        { slug: 'english-oak-large', kind: 'english-oak-large' },
-        { slug: 'fir-large', kind: 'fir-large' },
-        { slug: 'fir-medium', kind: 'fir-medium' },
-        { slug: 'tree-real-a', kind: 'real-tree-a' },
-        { slug: 'tree-real-b', kind: 'real-tree-b' },
+        // I pack nuovi: la specie resta nel nome, la famiglia decide la sagoma
+        { slug: 'english-oak', kind: 'broadleaf' },
+        { slug: 'english-oak-large', kind: 'broadleaf' },
+        { slug: 'fir-large', kind: 'cypress' },
+        { slug: 'fir-medium', kind: 'cypress' },
+        { slug: 'tree-real-a', kind: 'broadleaf' },
+        { slug: 'tree-real-b', kind: 'broadleaf' },
       ];
       for (const entry of cityNear) {
         const asset = city.bySlug(entry.slug);
@@ -290,7 +293,7 @@ export class ScatterVegetation {
     };
     for (const kind of ALL_KINDS) {
       if (!needsFallback(kind)) continue;
-      const geometry = createScatterGeometry(kind);
+      const geometry = createScatterGeometry(kind as ScatterKind);
       const material = new THREE.MeshStandardMaterial({
         color: 0xffffff,
         vertexColors: true,
@@ -483,12 +486,9 @@ export class ScatterVegetation {
   }
 
   private rebuildInstances(x: number, z: number): void {
-    const near: Record<TreeKind, ScatterInstance[]> = {
-      broadleaf: [],
-      olive: [],
-      cypress: [],
-      poplar: [],
-    };
+    const near = Object.fromEntries(
+      TREE_KINDS.map((kind) => [kind, [] as ScatterInstance[]]),
+    ) as Record<TreeKind, ScatterInstance[]>;
     const shrubs: ScatterInstance[] = [];
     const rocks: ScatterInstance[] = [];
     const far: ScatterInstance[] = [];
@@ -860,12 +860,6 @@ function nonUniformScale(kind: TreeKind): [number, number, number] {
   if (kind === 'olive') return [1.1, 0.88, 1.1];
   if (kind === 'cypress') return [0.9, 1, 0.9];
   if (kind === 'poplar') return [0.74, 1.08, 0.74];
-  if (kind === 'english-oak') return [1.05, 1, 1.05];
-  if (kind === 'english-oak-large') return [1.2, 1.1, 1.2];
-  if (kind === 'fir-large') return [0.9, 1.15, 0.9];
-  if (kind === 'fir-medium') return [0.85, 1.1, 0.85];
-  if (kind === 'real-tree-a') return [1, 1.2, 1];
-  if (kind === 'real-tree-b') return [1.1, 1.15, 1.1];
   return [1, 1, 1];
 }
 
@@ -882,7 +876,7 @@ function naturalTint(instance: ScatterInstance): number {
   return 0.9 + (hashInstance(instance, 3) % 7) / 100;
 }
 
-function colorFor(kind: ScatterKind, variation: number): number {
+function colorFor(kind: RenderKind, variation: number): number {
   if (kind === 'shrub') return SHRUB_PALETTE[variation]!;
   if (kind === 'rock') return ROCK_PALETTE[variation]!;
   return TREE_PALETTES[kind][variation]!;
@@ -892,12 +886,6 @@ function treeDimensions(kind: TreeKind): { width: number; height: number } {
   if (kind === 'olive') return { width: 4.4, height: 5.8 };
   if (kind === 'cypress') return { width: 1.8, height: 10.2 };
   if (kind === 'poplar') return { width: 2.8, height: 12.5 };
-  if (kind === 'english-oak') return { width: 6.5, height: 12.0 };
-  if (kind === 'english-oak-large') return { width: 8.0, height: 15.0 };
-  if (kind === 'fir-large') return { width: 2.5, height: 15.0 };
-  if (kind === 'fir-medium') return { width: 1.8, height: 10.0 };
-  if (kind === 'real-tree-a') return { width: 5.0, height: 14.0 };
-  if (kind === 'real-tree-b') return { width: 5.5, height: 16.0 };
   return { width: 4.5, height: 8.6 };
 }
 

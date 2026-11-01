@@ -277,11 +277,13 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     antialias: true,
     msaaSamples: 4,
     postAA: true,
-    sharpen: 0.35,
+    // stessa taratura di Alta: un ultra più "slavato" o più appuntito di
+    // Alta è il motivo per cui sembrava meno reale (vedi docs/quality-ab.md)
+    sharpen: 0.28,
     shadowMapSize: 4096,
     shadows: true,
     post: true,
-    bloom: 0.015,
+    bloom: 0.012,
     ssao: true,
     grassDensity: 1,
     groundDetail: 132,
@@ -414,4 +416,63 @@ export function saveQuality(level: QualityLevel): void {
   } catch {
     // ignora: il preset vale comunque per la sessione
   }
+}
+
+/**
+ * Override sperimentali per la matrice A/B (`?ab=bloom:0,pr:1.5,…`).
+ *
+ * Serve a isolare **una variabile alla volta** senza duplicare i preset: il
+ * report `docs/quality-ab.md` si genera con questi URL. Le chiavi sono poche e
+ * volutamente esplicite; valori non riconosciuti vengono ignorati, così un URL
+ * sbagliato non rompe la partita.
+ */
+export function applyQualityOverrides(
+  preset: QualityPreset,
+  spec: string | null | undefined,
+): QualityPreset {
+  if (!spec) return preset;
+  const next: QualityPreset = { ...preset };
+  const on = (value: string): boolean => value === '1' || value === 'true';
+  for (const entry of spec.split(',')) {
+    const [rawKey, rawValue] = entry.split(':');
+    const key = rawKey?.trim();
+    if (!key || rawValue === undefined) continue;
+    const value = Number(rawValue);
+    switch (key) {
+      case 'pr':
+        if (Number.isFinite(value)) next.pixelRatio = value;
+        break;
+      case 'bloom':
+        if (Number.isFinite(value)) next.bloom = value;
+        break;
+      case 'ssao':
+        next.ssao = on(rawValue);
+        break;
+      case 'post':
+        next.post = on(rawValue);
+        break;
+      case 'shadow':
+        if (Number.isFinite(value)) next.shadowMapSize = value;
+        break;
+      case 'sharpen':
+        if (Number.isFinite(value)) next.sharpen = value;
+        break;
+      case 'trees':
+        if (Number.isFinite(value)) next.trees = Math.max(0, Math.round(value));
+        break;
+      case 'shrubs':
+        if (Number.isFinite(value)) next.shrubs = Math.max(0, Math.round(value));
+        break;
+      case 'grass':
+        if (Number.isFinite(value)) next.grassDensity = Math.max(0, Math.min(1, value));
+        break;
+      case 'landcover':
+        if (rawValue === 'full' || rawValue === 'base' || rawValue === 'off') next.landcover = rawValue;
+        break;
+      case 'landcoverRadius':
+        if (Number.isFinite(value)) next.landcoverRadius = Math.max(0, value);
+        break;
+    }
+  }
+  return next;
 }

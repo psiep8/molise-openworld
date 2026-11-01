@@ -53,6 +53,7 @@ import {
   buildSigns,
   buildStreetNames,
   buildStreetProps,
+  setSignGlow,
 } from './world/street-furniture';
 import { buildChurchPiazza } from './world/piazza';
 import type { PavedArea } from './world/paved';
@@ -175,6 +176,7 @@ import { loadPaintSaturation, setPaintSaturation } from './gfx/car-paint';
 import { setVehiclePass, setWind, updateWind } from './gfx/wind';
 import {
   QUALITY_PRESETS,
+  applyQualityOverrides,
   isQualityLevel,
   loadQuality,
   nextQuality,
@@ -657,6 +659,8 @@ export class Game {
   private settingsVisible = false;
   private manualTime = false;
   private manualHour = 15;
+  /** `?hour=22`: parte in atmosfera manuale a quell'ora (verifiche e A/B) */
+  private startHour: number | null = null;
   private manualWeather: WeatherPreset = 'auto';
   private readonly fogColor = new THREE.Color();
   /** Meteo corrente per l'esposizione: sopravvive anche senza atmosfera manuale. */
@@ -692,6 +696,16 @@ export class Game {
     // degradazione adattiva, pose fisse. Non cambia il rendering.
     const params = new URLSearchParams(window.location.search);
     this.bench = params.get('bench') === '1';
+    // `?ab=chiave:valore,…`: override di una singola variabile per la matrice
+    // A/B di Alta vs Ultra (vedi `docs/quality-ab.md`). Va letto prima del
+    // renderer, perché pixelRatio/antialias si applicano alla creazione.
+    const ab = params.get('ab');
+    if (ab) this.quality = applyQualityOverrides(this.quality, ab);
+    const hourParam = params.get('hour');
+    if (hourParam !== null) {
+      const hour = Number(hourParam);
+      if (Number.isFinite(hour) && hour >= 0 && hour <= 24) this.startHour = hour;
+    }
     const spawn = params.get('at')?.split(',').map(Number);
     if (spawn && spawn.length === 2 && spawn.every(Number.isFinite)) {
       const [lat, lon] = spawn as [number, number];
@@ -1215,7 +1229,7 @@ export class Game {
       if (this.bench) {
         this.setManualTime(true);
         this.setManualWeather('clear');
-        this.setManualHour(16);
+        this.setManualHour(this.startHour ?? 16);
         this.hud.hideStart();
         this.hud.hideLoading();
         document.getElementById('hud')?.classList.add('hidden');
@@ -1226,6 +1240,12 @@ export class Game {
       }
 
       const params = new URLSearchParams(window.location.search);
+      // `?hour=22` entra in atmosfera manuale prima di avviare la partita:
+      // serve alle verifiche notturne (`?quality=minimal&autostart=drive&hour=22`)
+      if (this.startHour !== null) {
+        this.setManualTime(true);
+        this.setManualHour(this.startHour);
+      }
       const autostart = params.get('autostart');
       if (autostart === 'walk' || autostart === 'drive') {
         this.start(autostart);
@@ -2696,6 +2716,11 @@ export class Game {
       (1 - 0.7 * cloud) *
       (1 - 0.55 * (rain + snow));
 
+    // Sui preset senza ombre (minimal/low) la notte non ha nessuna luce
+    // dinamica oltre ai fari: alza il minimo di ambiente lunare, così la
+    // strada, i cordoli e le sagome restano leggibili invece di annegare nel
+    // nero. Su medium+ i valori restano quelli tarati a occhio.
+    const weakNight = this.qualityLevel === 'minimal' || this.qualityLevel === 'low';
     this.sky.setLighting({
       sunColor: this.sunTint.getHex(),
       sunIntensity,
@@ -2706,8 +2731,8 @@ export class Game {
       // Di notte il mondo non deve sparire: un filo di luce ambientale e la
       // luna alta tengono leggibili strada, cordoli e incroci anche senza
       // fari. Prima hemi 0,08 + ambient 0,035 facevano una notte da grotta.
-      hemiIntensity: 0.25 + 0.6 * day + 0.15 * cloud + horizon * 0.08,
-      ambientIntensity: 0.085 + 0.045 * day + 0.03 * cloud + horizon * 0.035,
+      hemiIntensity: 0.25 + 0.6 * day + 0.15 * cloud + horizon * 0.08 + (weakNight ? (1 - day) * 0.07 : 0),
+      ambientIntensity: 0.085 + 0.045 * day + 0.03 * cloud + horizon * 0.035 + (weakNight ? (1 - day) * 0.035 : 0),
       moonIntensity: sun.elevation < 0 ? 1.15 : 0,
     });
 
@@ -2805,6 +2830,8 @@ export class Game {
     setCloudShadow(cloud * day, dt, windX, windZ);
     // finestre accese: si accendono al tramonto, si spengono all'alba
     setWindowGlow(1 - day);
+    // cartelli: la pellicola retroriflettente si accende col buio
+    setSignGlow(1 - day);
     // stelle e luna
     this.sky.setNightSky(1 - day);
 
@@ -3702,9 +3729,49 @@ export class Game {
     }
   }
 
+  /**
+   * Degradazione dell'Ultra: non tocca ciò che si vede.
+   *
+   * I gradini normali spengono le ombre e alla fine scendono a 0,5× di
+   * risoluzione: su Ultra questo lo rendeva **meno definito di Alta**, che è
+   * esattamente il motivo per cui sembrava meno reale. Qui si riducono solo
+   * costi che non cambiano il look (mappa ombre 4K→2K, raggio del terreno) e
+   * l'ultimo gradino scende appena a 0,85×, dichiarandolo nell'HUD.
+   */
+  private degradeUltra(): void {
+    if (this.degradeStep >= 3) return;
+    this.degradeStep++;
+    switch (this.degradeStep) {
+      case 1:
+        this.quality = { ...this.quality, shadowMapSize: 2048 };
+        this.sky?.setShadowMapSize(2048);
+        this.hud.toast('Ultra: ombre a 2048 (aspetto invariato) per tenere il frame rate', 4000);
+        break;
+      case 2:
+        this.viewRadius = Math.min(this.viewRadius, 2200);
+        if (this.terrain) {
+          const focus = this.mode === 'walk' ? this.player.position : this.car.state;
+          this.terrain.update(focus.x, focus.z, this.viewRadius, true);
+        }
+        this.hud.toast('Ultra: raggio del terreno a 2,2 km (streaming più corto)', 4000);
+        break;
+      default:
+        this.quality = { ...this.quality, renderScaleFloor: 0.85 };
+        this.renderScale = Math.min(this.renderScale, 0.85);
+        this.applyRenderScale();
+        this.hud.toast('Ultra ridotto a 0,85× per gli fps: resta più definito di Alta', 4600);
+        break;
+    }
+  }
+
   /** Un gradino di degradazione: si chiama solo quando gli fps restano bassi. */
   private degrade(): void {
     if (this.degradeStep >= 4) return;
+    // Ultra non degrada mai l'aspetto in silenzio: solo costi non visibili.
+    if (this.qualityLevel === 'ultra') {
+      this.degradeUltra();
+      return;
+    }
     this.degradeStep++;
     switch (this.degradeStep) {
       case 1:

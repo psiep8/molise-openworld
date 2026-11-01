@@ -9,6 +9,21 @@ import type { CityKit } from './citykit';
 import type { QualityLevel } from '../gfx/quality';
 import type { WorldKit, WorldSpot } from './worldkit';
 
+/** Materiali delle facce dei cartelli: pellicola retroriflettente finta. */
+const signFaceMaterials = new Set<THREE.MeshStandardMaterial>();
+
+/**
+ * Bagliore dei cartelli di notte.
+ *
+ * La pellicola retroriflettente vera restituisce la luce dei fari: qui si
+ * simula con un emissivo caldo che sale col buio, così gli STOP e i limiti si
+ * leggono anche a minimal, dove non c'è nessuna luce dinamica oltre i fari.
+ */
+export function setSignGlow(night: number): void {
+  const value = clamp(night, 0, 1);
+  for (const material of signFaceMaterials) material.emissiveIntensity = 0.05 + 0.3 * value;
+}
+
 /** Punto di impianto di un lampione: `yaw` punta il braccio verso la strada. */
 export interface LampSpot {
   x: number;
@@ -18,17 +33,45 @@ export interface LampSpot {
 
 const POLE_HEIGHT = 6.2;
 const ARM_REACH = 1.15;
+/** Distanza oltre la quale un lampione non disegna più il suo pool di luce. */
+const GLOW_RANGE = 120;
+/** Diametro del pool a terra, in metri (una lanterna illumina ~8–9 m di strada). */
+const GLOW_SIZE = 8.8;
 
-/** Materiale per il glow del pavimento sotto i lampioni: emisione radiali con blending additivo. */
-function createGroundGlowMaterial(): THREE.MeshBasicMaterial {
-  const material = new THREE.MeshBasicMaterial({
-    color: 0xfff8e8,
-    transparent: true,
-    opacity: 0.8,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
-  return material;
+let glowTextureCache: THREE.CanvasTexture | null = null;
+
+/**
+ * Gradiente radiale morbido per pool a terra e aloni delle lanterne.
+ *
+ * Un canvas 64×64 una volta sola: il pool è un quad additivo con questa
+ * texture, l'alone un `Points` con la stessa. Nessun asset esterno e nessuna
+ * draw call per lampione.
+ */
+function glowTexture(): THREE.CanvasTexture {
+  if (glowTextureCache) return glowTextureCache;
+  const size = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    gradient.addColorStop(0, 'rgba(255,255,255,0.95)');
+    gradient.addColorStop(0.28, 'rgba(255,255,255,0.55)');
+    gradient.addColorStop(0.62, 'rgba(255,255,255,0.16)');
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, size, size);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  glowTextureCache = texture;
+  return texture;
+}
+
+function smoothstep(edge0: number, edge1: number, value: number): number {
+  const t = Math.max(0, Math.min(1, (value - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
 }
 
 /**
@@ -49,7 +92,20 @@ export class StreetLights {
   private readonly glassMaterial: THREE.MeshStandardMaterial;
   private readonly pool: THREE.PointLight[] = [];
   private readonly spots: { x: number; y: number; z: number }[] = [];
-  private readonly groundGlows: THREE.Mesh[] = [];
+  /** piede di ogni lampione, con la pendenza locale per appoggiare il pool */
+  private readonly glowSpots: { x: number; y: number; z: number; dhdx: number; dhdz: number }[] = [];
+  private readonly dummy = new THREE.Object3D();
+  private readonly up = new THREE.Vector3(0, 1, 0);
+  private readonly normal = new THREE.Vector3();
+  private readonly quat = new THREE.Quaternion();
+  private readonly tint = new THREE.Color();
+  private glowPool: THREE.InstancedMesh | null = null;
+  private haloPoints: THREE.Points | null = null;
+  private haloMaterial: THREE.PointsMaterial | null = null;
+  private lastGlowNight = -1;
+  private lastGlowX = 1e9;
+  private lastGlowZ = 1e9;
+  private glowFrame = 0;
 
   constructor(
     spots: LampSpot[],
@@ -104,6 +160,7 @@ export class StreetLights {
         this.group.add(light);
         this.pool.push(light);
       }
+      this.buildGlows(spots, heights);
       return;
     }
 
@@ -198,6 +255,144 @@ export class StreetLights {
       this.group.add(light);
       this.pool.push(light);
     }
+    this.buildGlows(spots, heights);
+  }
+
+  /**
+   * Pool di luce finti e aloni delle lanterne.
+   *
+   * Servono ai preset dove le `PointLight` sono due o tre (minimal/low): senza,
+   * i lampioni si vedevano come pali spenti in mezzo al buio. Il costo è una
+   * draw call per i pool (`InstancedMesh`, solo quelli entro 120 m) e una per
+   * gli aloni (`Points`), con istanze aggiornate solo quando la camera si
+   * sposta di qualche metro o la notte cambia.
+   */
+  private buildGlows(spots: LampSpot[], heights: Heightfield): void {
+    if (spots.length === 0) return;
+    const count = spots.length;
+
+    // --- pool a terra -------------------------------------------------------
+    this.glowSpots.length = 0;
+    for (const spot of spots) {
+      // pendenza locale: il quad si appoggia al pendio invece di tagliare l'erba
+      const e = 1.6;
+      const dhdx = (heights.heightAt(spot.x + e, spot.z) - heights.heightAt(spot.x - e, spot.z)) / (2 * e);
+      const dhdz = (heights.heightAt(spot.x, spot.z + e) - heights.heightAt(spot.x, spot.z - e)) / (2 * e);
+      this.glowSpots.push({
+        x: spot.x,
+        // sopra il piano stradale (e sopra il marciapiede, quando c'è): il
+        // gradiente è morbido, quindi 38 cm non si notano
+        y: heights.heightAt(spot.x, spot.z) + ROAD_LIFT + CURB_HEIGHT + 0.03,
+        z: spot.z,
+        dhdx,
+        dhdz,
+      });
+    }
+
+    const geometry = new THREE.PlaneGeometry(1, 1);
+    geometry.rotateX(-Math.PI / 2);
+    const material = new THREE.MeshBasicMaterial({
+      map: glowTexture(),
+      color: 0xffffff,
+      transparent: true,
+      opacity: 1,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
+      side: THREE.DoubleSide,
+    });
+    const pool = new THREE.InstancedMesh(geometry, material, count);
+    pool.name = 'street-light-pools';
+    pool.renderOrder = 1;
+    pool.frustumCulled = false;
+    pool.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    // il buffer dei colori per istanza esiste da subito: l'alpha additivo si
+    // pilota da lì (nero = spento), senza shader dedicati
+    for (let i = 0; i < count; i++) pool.setColorAt(i, this.tint.setRGB(0, 0, 0));
+    pool.count = 0;
+    this.glowPool = pool;
+    this.group.add(pool);
+
+    // --- aloni delle lanterne ----------------------------------------------
+    const haloGeometry = new THREE.BufferGeometry();
+    haloGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+    haloGeometry.setDrawRange(0, 0);
+    const haloMaterial = new THREE.PointsMaterial({
+      map: glowTexture(),
+      color: 0xffd9a2,
+      // metri: una lanterna ha un alone di ~1,8 m, non un faro da stadio
+      size: 1.8,
+      sizeAttenuation: true,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    const halos = new THREE.Points(haloGeometry, haloMaterial);
+    halos.name = 'street-light-halos';
+    halos.frustumCulled = false;
+    halos.renderOrder = 2;
+    this.haloPoints = halos;
+    this.haloMaterial = haloMaterial;
+    this.group.add(halos);
+  }
+
+  /** Riscrive pool e aloni per i lampioni entro `GLOW_RANGE` dalla camera. */
+  private refreshGlows(camera: THREE.Vector3, night: number): void {
+    const pool = this.glowPool;
+    const halos = this.haloPoints;
+    if (!pool && !halos) return;
+    const range2 = GLOW_RANGE * GLOW_RANGE;
+    let poolCount = 0;
+    let haloCount = 0;
+    const attribute = halos ? (halos.geometry.getAttribute('position') as THREE.BufferAttribute) : null;
+    const haloArray = attribute ? (attribute.array as Float32Array) : null;
+
+    for (let i = 0; i < this.glowSpots.length; i++) {
+      const spot = this.glowSpots[i]!;
+      const dx = spot.x - camera.x;
+      const dz = spot.z - camera.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 > range2) continue;
+      // bordo morbido: niente comparsa netta a 120 m
+      const fade = 1 - smoothstep(GLOW_RANGE * 0.62, GLOW_RANGE, Math.sqrt(d2));
+      const strength = night * fade;
+      if (poolCount >= this.glowSpots.length) break;
+
+      if (pool) {
+        this.normal.set(-spot.dhdx, 1, -spot.dhdz).normalize();
+        this.quat.setFromUnitVectors(this.up, this.normal);
+        this.dummy.position.set(spot.x, spot.y, spot.z);
+        this.dummy.quaternion.copy(this.quat);
+        this.dummy.scale.setScalar(GLOW_SIZE);
+        this.dummy.updateMatrix();
+        pool.setMatrixAt(poolCount, this.dummy.matrix);
+        pool.setColorAt(poolCount, this.tint.setRGB(0.62 * strength, 0.47 * strength, 0.27 * strength));
+      }
+      if (haloArray) {
+        const head = this.spots[i];
+        if (head) {
+          haloArray[haloCount * 3] = head.x;
+          haloArray[haloCount * 3 + 1] = head.y;
+          haloArray[haloCount * 3 + 2] = head.z;
+        }
+        haloCount++;
+      }
+      poolCount++;
+    }
+
+    if (pool) {
+      pool.count = poolCount;
+      pool.instanceMatrix.needsUpdate = true;
+      if (pool.instanceColor) pool.instanceColor.needsUpdate = true;
+    }
+    if (attribute) attribute.needsUpdate = true;
+    if (halos) halos.geometry.setDrawRange(0, haloCount);
+    if (this.haloMaterial) this.haloMaterial.opacity = night * 0.62;
+    this.lastGlowNight = night;
+    this.lastGlowX = camera.x;
+    this.lastGlowZ = camera.z;
   }
 
   /** `night` 0…1: alza le emissive e accende le lanterne vicine alla camera. */
@@ -208,7 +403,19 @@ export class StreetLights {
 
     if (night < 0.06) {
       for (const light of this.pool) light.visible = false;
+      if (this.glowPool) this.glowPool.count = 0;
+      if (this.haloPoints) this.haloPoints.geometry.setDrawRange(0, 0);
+      if (this.haloMaterial) this.haloMaterial.opacity = 0;
+      this.lastGlowNight = night;
       return;
+    }
+
+    // pool e aloni: si riscrivono solo quando serve (camera spostata di 5 m,
+    // notte cambiata, oppure ogni ~2 s come rete di sicurezza)
+    this.glowFrame++;
+    const moved = Math.hypot(camera.x - this.lastGlowX, camera.z - this.lastGlowZ) > 5;
+    if (moved || Math.abs(night - this.lastGlowNight) > 0.02 || this.glowFrame % 120 === 0) {
+      this.refreshGlows(camera, night);
     }
 
     // selezione parziale: i lampioni più vicini alla camera, senza ordinare tutti
@@ -323,18 +530,23 @@ export function buildSigns(
     speedLimit: number,
     signs: typeof placements,
   ): THREE.InstancedMesh => {
-    const mesh = new THREE.InstancedMesh(
-      geometries[kind],
-      new THREE.MeshStandardMaterial({
-        map: signTexture(kind, speedLimit),
-        roughness: kind === 'yield' ? 0.42 : 0.5,
-        metalness: 0.1,
-        transparent: kind === 'yield',
-        alphaTest: kind === 'yield' ? 0.4 : 0,
-        side: THREE.DoubleSide,
-      }),
-      signs.length,
-    );
+    // la stessa texture fa da `emissiveMap`: di notte si illuminano il rosso
+    // dello STOP e il bianco del limite, non tutto il triangolo in tinta unita
+    const face = signTexture(kind, speedLimit);
+    const material = new THREE.MeshStandardMaterial({
+      map: face,
+      emissiveMap: face,
+      roughness: kind === 'yield' ? 0.42 : 0.5,
+      metalness: 0.1,
+      // pellicola retroriflettente: si accende col buio (vedi `setSignGlow`)
+      emissive: 0xffffff,
+      emissiveIntensity: 0.05,
+      transparent: kind === 'yield',
+      alphaTest: kind === 'yield' ? 0.4 : 0,
+      side: THREE.DoubleSide,
+    });
+    signFaceMaterials.add(material);
+    const mesh = new THREE.InstancedMesh(geometries[kind], material, signs.length);
     signs.forEach((p, i) => {
       const y = heights.heightAt(p.x, p.z) + baseLift;
       dummy.position.set(p.x + Math.sin(p.yaw) * faceZ, y + faceY, p.z + Math.cos(p.yaw) * faceZ);

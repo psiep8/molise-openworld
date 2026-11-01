@@ -214,6 +214,11 @@ export class Vehicle {
   private readonly reverseLights: THREE.PointLight[] = [];
   private readonly lightReflections: THREE.Mesh[] = [];
   private readonly reflectionMaterials: THREE.MeshBasicMaterial[] = [];
+  /** pozza di luce finta davanti all'auto: serve quando le SpotLight sono spente */
+  private headlightPool: THREE.Mesh | null = null;
+  private headlightPoolMaterial: THREE.MeshBasicMaterial | null = null;
+  private tailPool: THREE.Mesh | null = null;
+  private tailPoolMaterial: THREE.MeshBasicMaterial | null = null;
   private readonly geometries = new Set<THREE.BufferGeometry>();
   private readonly materials = new Set<THREE.Material>();
   private lampMat = new THREE.MeshStandardMaterial();
@@ -395,6 +400,54 @@ export class Vehicle {
       this.lightReflections.push(patch);
       this.reflectionMaterials.push(material);
     }
+
+    // Pozza di luce a terra: non è un riflesso (quello dipende dal bagnato),
+    // è l'illuminazione finta del fascio. A minimal/low le SpotLight sono
+    // spente del tutto, quindi senza questo l'auto di notte non "accende"
+    // nulla; ad alta qualità resta un velo che scalda l'asfalto sotto i fari.
+    const poolMaterial = new THREE.MeshBasicMaterial({
+      map: reflectionTexture(),
+      color: 0xffe7bd,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    });
+    this.materials.add(poolMaterial);
+    const pool = new THREE.Mesh(geometry, poolMaterial);
+    pool.name = 'headlight-ground-pool';
+    pool.renderOrder = 1;
+    pool.frustumCulled = false;
+    // ellisse larga davanti al muso: 7,6 m × 15 m
+    pool.scale.set(7.6, 1, 15);
+    pool.position.set(0, 0.03, -this.spec.length * 0.5 - 6.1);
+    this.group.add(pool);
+    this.headlightPool = pool;
+    this.headlightPoolMaterial = poolMaterial;
+
+    const tailMaterial = new THREE.MeshBasicMaterial({
+      map: reflectionTexture(),
+      color: 0xff2a18,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    });
+    this.materials.add(tailMaterial);
+    const tail = new THREE.Mesh(geometry, tailMaterial);
+    tail.name = 'taillight-ground-pool';
+    tail.renderOrder = 1;
+    tail.frustumCulled = false;
+    tail.scale.set(4.2, 1, 6.4);
+    tail.position.set(0, 0.03, this.spec.length * 0.5 + 2.6);
+    this.group.add(tail);
+    this.tailPool = tail;
+    this.tailPoolMaterial = tailMaterial;
+
     this.geometries.add(geometry);
   }
 
@@ -1769,6 +1822,24 @@ export class Vehicle {
       0.8,
     );
 
+    // Luce finta a terra: indipendente dal bagnato e dalle luci dinamiche.
+    // Con le SpotLight accese resta un velo (0,45), spente è l'unica
+    // illuminazione che l'auto proietta.
+    const headOn = this.headlightOverride ? Math.max(0.55, this.nightLevel) : this.nightLevel;
+    const fake = this.dynamicLights === 'none' ? 1 : 0.45;
+    if (this.headlightPool) this.headlightPool.position.y = -bodyLift + 0.03;
+    if (this.tailPool) this.tailPool.position.y = -bodyLift + 0.03;
+    if (this.headlightPoolMaterial) {
+      this.headlightPoolMaterial.opacity = clamp(
+        headOn * (this.highBeam ? 0.42 : 0.3) * fake,
+        0,
+        0.45,
+      );
+    }
+    if (this.tailPoolMaterial) {
+      this.tailPoolMaterial.opacity = clamp((this.nightLevel * 0.5 + braking * 0.6) * 0.32 * fake, 0, 0.34);
+    }
+
     // frecce: lampeggio a 1,4 Hz, il lato scelto resta acceso finché non si
     // preme di nuovo lo stesso tasto
     this.lampClock += dt;
@@ -1882,17 +1953,12 @@ export class Vehicle {
       // l'intensità del colore varia con il grip (meno slippaggio = più scuro)
       const isAsphalt = sample.surface === 'asphalt' || sample.surface === 'concrete' || sample.surface === 'cobblestone';
       if (isAsphalt) {
-        // Bordo doppio: il segno è più scuro ai lati (0.8x la normale intensità)
-        const edgeFactor = 0.8 + 0.2 * Math.abs(wheel.side);
-        // Frenata col bloccaggio: il segno diventa più marcato
+        // Frenata col bloccaggio: il segno è leggermente più largo
         const lockedFactor = slip.load > 0.8 ? 1.3 : 1.0;
-        width *= 1.0 + (lockedFactor - 1) * 0.1; // leggermente più largo in bloccaggio
+        width *= 1.0 + (lockedFactor - 1) * 0.1;
       }
-      // Pioggia: il bagnato riduce drasticamente la visibilità dei segni
-      const wetReduction = surfaceMaterial(sample.surface).id === 'asphalt' && wetSurface
-        ? 0.4 // 60% di riduzione sul bagnato
-        : 1.0;
-      width *= wetReduction;
+      // Il bagnato riduce la visibilità del segno, non la larghezza dello
+      // pneumatico: l'opacità la governa già `shouldSkid` (vedi sim/surfaces).
       const last = this.skidTrail.get(wheel.id);
       const gap = last ? Math.hypot(x - last.x, z - last.z) : Infinity;
       if (last && last.surface === sample.surface) {
