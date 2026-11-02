@@ -60,12 +60,60 @@ function demoBuilding(id, height, south, west, dLat, dLon) {
   };
 }
 
+/** Limiti geografici di un tile XYZ. */
+function tileBounds(tile) {
+  const n = 2 ** tile.z;
+  const latAt = (y) => (Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / n))) * 180) / Math.PI;
+  return {
+    minLon: (tile.x / n) * 360 - 180,
+    maxLon: ((tile.x + 1) / n) * 360 - 180,
+    maxLat: latAt(tile.y),
+    minLat: latAt(tile.y + 1),
+  };
+}
+
+/**
+ * Quota sintetica ma continua fra tile: la stessa funzione di lat/lon, quindi
+ * i nodi sul bordo condiviso hanno lo stesso valore e non si vedono gradini.
+ * Serve a provare lo streaming delle quote senza un endpoint reale.
+ */
+function demoHeight(lat, lon) {
+  return 520 + 70 * Math.exp(-(((lat - 41.93) ** 2 + (lon - 14.8) ** 2) / 0.00009)) + 18 * Math.sin((lon - 14.7) * 90);
+}
+
+function elevationGrid(tile) {
+  const bounds = tileBounds(tile);
+  const width = 33;
+  const height = 33;
+  const values = [];
+  for (let row = 0; row < height; row++) {
+    const lat = bounds.maxLat + ((bounds.minLat - bounds.maxLat) * row) / (height - 1);
+    for (let col = 0; col < width; col++) {
+      const lon = bounds.minLon + ((bounds.maxLon - bounds.minLon) * col) / (width - 1);
+      values.push(Math.round(demoHeight(lat, lon) * 10));
+    }
+  }
+  return {
+    minLon: bounds.minLon,
+    maxLon: bounds.maxLon,
+    minLat: bounds.minLat,
+    maxLat: bounds.maxLat,
+    width,
+    height,
+    encoding: 'int16-decimeters',
+    values,
+  };
+}
+
 function bundle(tile) {
   const demo = tile.z === DEMO_TILE.z && tile.x === DEMO_TILE.x && tile.y === DEMO_TILE.y;
   return {
     schemaVersion: 1,
     tile,
     attribution: ATTRIBUTION,
+    // quota per ogni tile: fuori dal bbox il terreno ha un rilievo vero invece
+    // del solo rumore procedurale
+    elevation: elevationGrid(tile),
     roads: demo
       ? [
           demoRoad('demo/main', 'Via dello Streaming', 'secondary', 7, [
@@ -119,7 +167,7 @@ const server = createServer((request, response) => {
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`Bundle demo su http://127.0.0.1:${PORT}/{z}/{x}/{y}.json`);
-  console.log(`Tile con strada e case: ${DEMO_TILE.z}/${DEMO_TILE.x}/${DEMO_TILE.y}`);
+  console.log(`Tile con strada, case e quota: ${DEMO_TILE.z}/${DEMO_TILE.x}/${DEMO_TILE.y}`);
   console.log('');
   console.log('In un altro terminale:');
   console.log('  npm run dev:demo');

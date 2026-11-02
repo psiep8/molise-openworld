@@ -12,6 +12,7 @@
     "preview": "vite preview --host 127.0.0.1 --port 4173",
     "test": "vitest run",
     "geo": "node scripts/fetch-geodata.mjs",
+    "world:tiles": "node scripts/build-world-tiles.mjs",
     "geo:audit": "node scripts/geo-audit.mjs",
     "geo:imagery": "node scripts/fetch-world-imagery.mjs",
     "geo:imagery:hd": "node scripts/fetch-world-imagery.mjs --hd",
