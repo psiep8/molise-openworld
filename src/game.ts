@@ -173,7 +173,7 @@ import {
   sleepNeeds,
   type Needs,
 } from './sim/needs';
-import { advanceClock, formatGameClock, loadLifeSave, saveLifeSave, type LifeSave } from './sim/save';
+import { SAVE_VERSION, advanceClock, formatGameClock, loadLifeSave, saveLifeSave, type LifeSave } from './sim/save';
 import { MapRenderer, type MapLayer } from './ui/minimap';
 import { nextFrameOrTimeout } from './ui/frame';
 import type { CarInput } from './sim/car';
@@ -595,6 +595,8 @@ export class Game {
   })();
   /** raggio di streaming corrente: parte dal preset e scende se serve */
   private viewRadius = VIEW_RADIUS;
+  /** true quando il giocatore è oltre il DEM/OSM dettagliato (nessun muro: solo un avviso) */
+  private outsideDetail = false;
   /** montagne lontane oltre il DEM (null finché il mondo non è caricato) */
   private farTerrain: FarTerrain | null = null;
   private weatherFxOn = true;
@@ -1379,11 +1381,12 @@ export class Game {
   // setup
   // -------------------------------------------------------------------------
   private spawnAtStart(): void {
-    const saved = this.lifeSave?.position;
+    const saved = this.lifeSave?.geo;
     if (this.spawnOverride) {
       this.player.spawn(this.spawnOverride.x, this.spawnOverride.z, 0, this.ground);
     } else if (saved) {
-      const safe = this.buildingIndex.resolveCircle(saved.x, saved.z, 0.6);
+      const point = latLonToWorld(saved.lat, saved.lon);
+      const safe = this.buildingIndex.resolveCircle(point.x, point.z, 0.6);
       this.player.spawn(safe.x, safe.z, 0, this.ground);
     } else {
       const pose = this.findRoadPose(START.x, START.z, 0.6) ?? {
@@ -2074,17 +2077,18 @@ export class Game {
 
   private saveGame(): void {
     if (!this.loaded) return;
-    const position =
-      this.mode === 'walk'
-        ? { x: this.player.position.x, z: this.player.position.z }
-        : { x: this.car.state.x, z: this.car.state.z };
+    // coordinate geografiche, non metri locali: l'origine del mondo potrà
+    // spostarsi (floating origin) senza invalidare i salvataggi
+    const x = this.mode === 'walk' ? this.player.position.x : this.car.state.x;
+    const z = this.mode === 'walk' ? this.player.position.z : this.car.state.z;
+    const ll = worldToLatLon(x, z);
     const save: LifeSave = {
-      version: 1,
+      version: SAVE_VERSION,
       wallet: this.wallet,
       needs: this.needs,
       day: this.gameDay,
       minutes: Math.floor(this.gameMinutes),
-      position,
+      geo: { lat: ll.lat, lon: ll.lon },
       savedAt: Date.now(),
     };
     if (saveLifeSave(save)) this.lifeSave = save;
@@ -4754,8 +4758,28 @@ export class Game {
       const d = distance2(x, z, w.x, w.z);
       if (!nearest || d < nearest.d) nearest = { name: v.name, d };
     }
+    // Fuori dal rettangolo con DEM e OSM dettagliati il mondo continua (rilievo
+    // procedurale, strade ed edifici dai tile se configurati), ma non è più la
+    // valle: lo diciamo una volta, senza muri invisibili né mappa che si ferma.
+    const bounds = this.heights.bounds;
+    const outsideDetail = x < bounds.minX || x > bounds.maxX || z < bounds.minZ || z > bounds.maxZ;
+    if (outsideDetail !== this.outsideDetail) {
+      this.outsideDetail = outsideDetail;
+      this.hud.toast(
+        outsideDetail
+          ? 'Fuori dall’area dettagliata: rilievo e paesaggio procedurale'
+          : 'Di nuovo nell’area dettagliata della Valle del Biferno',
+        3600,
+      );
+    }
     this.hud.setLocation(
-      nearest && nearest.d < 6000 ? (nearest.name === HOME.name ? `${HOME.name} · casa` : nearest.name) : 'Campagna molisana',
+      outsideDetail
+        ? 'Fuori area dettagliata'
+        : nearest && nearest.d < 6000
+          ? nearest.name === HOME.name
+            ? `${HOME.name} · casa`
+            : nearest.name
+          : 'Campagna molisana',
     );
 
     if (this.mode === 'walk') {

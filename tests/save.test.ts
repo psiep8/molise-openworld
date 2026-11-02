@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { latLonToWorld } from '../src/config';
 import { createInitialWallet } from '../src/sim/economy';
 import { createInitialNeeds } from '../src/sim/needs';
 import {
@@ -67,7 +68,7 @@ describe('salvataggio della modalità vita', () => {
     save.needs = { hunger: 11, energy: 22, fun: 33 };
     save.day = 4;
     save.minutes = 13 * 60 + 25;
-    save.position = { x: 12.5, z: -80.25 };
+    save.geo = { lat: 41.8905, lon: 14.7854 };
     expect(saveLifeSave(save)).toBe(true);
 
     const loaded = loadLifeSave();
@@ -76,7 +77,28 @@ describe('salvataggio della modalità vita', () => {
     expect(loaded?.needs).toEqual({ hunger: 11, energy: 22, fun: 33 });
     expect(loaded?.day).toBe(4);
     expect(loaded?.minutes).toBe(805);
-    expect(loaded?.position).toEqual({ x: 12.5, z: -80.25 });
+    expect(loaded?.geo).toEqual({ lat: 41.8905, lon: 14.7854 });
+  });
+
+  it('migra la posizione in metri locali dei salvataggi vecchi', () => {
+    const fixed = sanitizeLifeSave({
+      wallet: { cash: 1000, account: 2000, transactions: [] },
+      needs: { hunger: 50, energy: 50, fun: 50 },
+      position: { x: 0, z: 0 },
+    });
+    expect(fixed?.geo).not.toBeNull();
+    const back = latLonToWorld(fixed!.geo!.lat, fixed!.geo!.lon);
+    expect(back.x).toBeCloseTo(0, 6);
+    expect(back.z).toBeCloseTo(0, 6);
+  });
+
+  it('scarta posizioni geografiche impossibili', () => {
+    const fixed = sanitizeLifeSave({
+      wallet: { cash: 1000, account: 2000, transactions: [] },
+      needs: { hunger: 50, energy: 50, fun: 50 },
+      geo: { lat: 120, lon: 400 },
+    });
+    expect(fixed?.geo).toBeNull();
   });
 
   it('ignora un salvataggio corrotto senza cancellarlo', () => {
@@ -91,7 +113,7 @@ describe('salvataggio della modalità vita', () => {
       needs: { hunger: 200, energy: -5, fun: 50 },
       day: -3,
       minutes: 9999,
-      position: { x: 1, z: 2 },
+      geo: { lat: 41.9, lon: 14.8 },
       savedAt: 0,
     });
     expect(fixed?.needs).toEqual({ hunger: 100, energy: 0, fun: 50 });

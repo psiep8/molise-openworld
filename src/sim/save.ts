@@ -11,10 +11,11 @@
  * usare le proprie chiavi `molise.*`, così i salvataggi vecchi restano validi.
  */
 
+import { worldToLatLon } from '../config';
 import { createInitialWallet, sanitizeWallet, type Wallet } from './economy';
 import { createInitialNeeds, sanitizeNeeds, type Needs } from './needs';
 
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 export const SAVE_KEY = 'molise.life.v1';
 
 export interface LifeSave {
@@ -25,8 +26,13 @@ export interface LifeSave {
   day: number;
   /** Minuti dalla mezzanotte (0–1439). */
   minutes: number;
-  /** Ultima posizione del giocatore a piedi, se disponibile. */
-  position: { x: number; z: number } | null;
+  /**
+   * Ultima posizione del giocatore in coordinate geografiche, se disponibile.
+   * I metri locali non sono stabili: spostando l'origine del mondo (floating
+   * origin) o estendendolo non significherebbero più nulla. I salvataggi
+   * vecchi con `position` in metri vengono convertiti al caricamento.
+   */
+  geo: { lat: number; lon: number } | null;
   savedAt: number;
 }
 
@@ -37,9 +43,34 @@ export function createNewLifeSave(): LifeSave {
     needs: createInitialNeeds(),
     day: 1,
     minutes: 8 * 60,
-    position: null,
+    geo: null,
     savedAt: 0,
   };
+}
+
+/**
+ * Posizione salvata: lat/lon (v2) oppure i vecchi metri locali convertiti una
+ * volta sola. Fuori intervallo geografico si scarta, non si indovina.
+ */
+function readGeo(
+  raw: Partial<LifeSave> & { position?: { x?: unknown; z?: unknown } | null },
+): { lat: number; lon: number } | null {
+  const geo = raw.geo;
+  if (
+    geo &&
+    Number.isFinite(geo.lat) &&
+    Number.isFinite(geo.lon) &&
+    Math.abs(geo.lat) <= 90 &&
+    Math.abs(geo.lon) <= 180
+  ) {
+    return { lat: geo.lat, lon: geo.lon };
+  }
+  const legacy = raw.position;
+  if (legacy && Number.isFinite(legacy.x) && Number.isFinite(legacy.z)) {
+    const ll = worldToLatLon(legacy.x as number, legacy.z as number);
+    if (Number.isFinite(ll.lat) && Number.isFinite(ll.lon)) return { lat: ll.lat, lon: ll.lon };
+  }
+  return null;
 }
 
 /** Convalida un oggetto caricato; `null` se non è recuperabile. */
@@ -52,17 +83,14 @@ export function sanitizeLifeSave(input: unknown): LifeSave | null {
   const minutes = Number.isFinite(raw.minutes)
     ? Math.min(1439, Math.max(0, Math.floor(raw.minutes as number)))
     : 8 * 60;
-  const position =
-    raw.position && Number.isFinite(raw.position.x) && Number.isFinite(raw.position.z)
-      ? { x: raw.position.x, z: raw.position.z }
-      : null;
+  const geo = readGeo(raw);
   return {
     version: SAVE_VERSION,
     wallet,
     needs: sanitizeNeeds(raw.needs),
     day,
     minutes,
-    position,
+    geo,
     savedAt: Number.isFinite(raw.savedAt) ? (raw.savedAt as number) : 0,
   };
 }
