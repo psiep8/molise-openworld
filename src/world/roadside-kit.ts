@@ -2,11 +2,9 @@ import * as THREE from 'three';
 import { START } from '../config';
 import type { Heightfield } from '../geo/elevation';
 import { roadLift, type OsmData, type Road, type RoadIndex } from '../geo/osm';
-import {
-  ROAD_PROFILE,
-  sidewalkWidthForRoad,
-} from './road-profile';
+import { ROAD_PROFILE, sidewalkWidthForRoad } from './road-profile';
 import { roadPolyline } from './roads';
+import { shortestFitFactor, slopeFrame, stableChoice } from './paving';
 import type { WorldAsset, WorldKit, WorldSpot } from './worldkit';
 
 /**
@@ -20,17 +18,18 @@ import type { WorldAsset, WorldKit, WorldSpot } from './worldkit';
  *
  * Regole:
  *  - solo strade asfaltate con `walkSpans` (marciapiede OSM) e fuori da ponti;
+ *  - **una sola variante per via**, scelta da un hash stabile di indice e nome:
+ *    prima si alternavano modulo-a/modulo-b lungo la stessa strada e la
+ *    pavimentazione cambiava ogni 10 m ("spezzettato");
  *  - moduli accostati lungo la tangente, su entrambi i lati, con
- *    sovrapposizione del **2% della variante corrente**: con varianti di
- *    lunghezza diversa (1,15 m / 2 m / 8 m) un passo calcolato sulla lunghezza
- *    del modulo precedente lasciava buchi di decine di centimetri;
- *  - nessun modulo cavalca un incrocio: si campiona l'intera campata e non
- *    solo il centro, altrimenti un pezzo da 12 m attraversava la via laterale;
- *  - larghezza del modulo scalata alla larghezza reale del marciapiede;
- *  - quota dal profilo stradale condiviso (DEM + velo asfalto + cordolo + 3 cm),
- *    non dal DEM nudo: era quello che li faceva sprofondare sotto il nastro;
- *  - inclinazione longitudinale dal DEM ai due estremi: su un saliscendi un
- *    modulo orizzontale affonda da un lato e vola dall'altro;
+ *    sovrapposizione del 2% del modulo corrente;
+ *  - nessun modulo cavalca un incrocio: si campiona l'intera campata;
+ *  - **piano stradale, non pitch per asse**: la pendenza longitudinale e quella
+ *    traversale danno `slopeX/slopeZ`, quindi i moduli seguono la strada anche
+ *    quando corre lungo X (era il caso che restava orizzontale e affondava);
+ *  - **niente buchi in salita**: il vecchio taglio a 12° è sparito; su curve
+ *    strette il modulo si accorcia finché resta entro 2 cm dal profilo;
+ *  - quota dal profilo stradale (DEM + velo asfalto + cordolo + 3 cm);
  *  - tetto per preset (`quality.roadside`), prima le strade più vicine al via.
  */
 
@@ -41,11 +40,11 @@ export interface RoadsideDiagnostics {
   gaps: number;
   /** sovrapposizioni oltre il 6% della campata (il 2% è voluto, in curva) */
   overlaps: number;
-  /** moduli con la superficie fuori quota di oltre 1 cm */
+  /** moduli la cui superficie si scosta dal profilo stradale oltre 2 cm */
   quoteErrors: number;
   /** campate saltate perché cadevano su un incrocio */
   junctionSkips: number;
-  /** campate saltate per pendenza o perché fuori dal costruito */
+  /** campate saltate perché fuori dal costruito */
   skipped: number;
 }
 
@@ -201,56 +200,65 @@ export function buildRoadsideKit(
     .sort((a, b) => a.priority - b.priority);
 
   /**
-   * Accosta moduli lungo un lato del marciapiede procedurale.
+   * Accosta moduli lungo un lato del marciapiede.
    *
    * L'inizio del modulo successivo è `fine precedente − 2% della lunghezza
-   * nuova`: così due varianti qualsiasi restano in continuità, mentre il vecchio
-   * passo `0,98 × lunghezza precedente` apriva un buco ogni volta che il modulo
-   * dopo era più corto (le lastre del pack vanno da 1,15 a 12 m).
+   * nuova`: così due varianti qualsiasi restano in continuità.
    */
   const laySide = (
     road: Road,
     index: number,
     sampler: PolylineSampler,
     side: 1 | -1,
-    assets: readonly WorldAsset[],
+    asset: WorldAsset,
+    variant: number,
     spots: WorldSpot[],
     cap: number,
     role: 'sidewalk' | 'curb',
   ): void => {
-    if (assets.length === 0 || spots.length >= cap) return;
+    if (spots.length >= cap) return;
     const walkWidth = role === 'sidewalk' ? sidewalkWidthForRoad(road.width) : 0;
-    const offset =
+    const lateral =
       role === 'sidewalk'
         ? road.width / 2 + ROAD_PROFILE.curbWidth + walkWidth / 2
         : road.width / 2 + ROAD_PROFILE.curbWidth / 2;
+    const acrossTarget = role === 'sidewalk' ? walkWidth : ROAD_PROFILE.curbWidth;
+    const surfaceAt = (s: number, offset = lateral): number => {
+      const p = sampler.at(s);
+      const x = p.x - p.tz * side * offset;
+      const z = p.z + p.tx * side * offset;
+      return heights.heightAt(x, z) + roadLift(index, road.paved) + ROAD_PROFILE.curbHeight + 0.03;
+    };
+
+    const baseLength = moduleLength(asset);
+    const longX = lengthAxis(asset) === 'x';
+    const acrossSize = longX ? asset.size.z : asset.size.x;
+    const across = acrossTarget / Math.max(0.01, acrossSize);
+
     let start = 0;
     let previousEnd: number | null = null;
-    let laid = 0;
     const maxModules = Math.ceil(sampler.length / 0.5) + 4;
     for (let guard = 0; guard < maxModules && spots.length < cap; guard++) {
-      const asset = role === 'curb' ? assets[0]! : assets[laid % assets.length]!;
-      const length = moduleLength(asset);
-      // 2% di sovrapposizione sulla variante corrente: in curva i due moduli
-      // rettilinei si compenetrano invece di aprire un cuneo, e con lunghezze
-      // diverse non si apre un buco.
-      if (previousEnd !== null) start = Math.max(0, previousEnd - length * 0.02);
+      if (previousEnd !== null) start = Math.max(0, previousEnd - baseLength * 0.02);
+      if (start >= sampler.length - 0.05) break;
+
+      // Curva o saliscendi stretto: accorcia il modulo (fino a 20%) invece di
+      // saltarlo. Prima si scartavano le campate con pendenza > 12° e restava
+      // un buco esattamente dove la strada saliva.
+      const factor = shortestFitFactor(baseLength, 0.02, (d) => surfaceAt(start + d));
+      const length = Math.max(0.4, baseLength * factor);
       const endS = start + length;
-      if (endS > sampler.length) break;
+      if (endS > sampler.length + 0.05) break;
       const centerS = start + length / 2;
       const point = sampler.at(centerS);
-      const x = point.x - point.tz * side * offset;
-      const z = point.z + point.tx * side * offset;
 
       // Un modulo lungo 8–12 m non può passare sopra un incrocio solo perché
-      // il suo centro è libero: si controllano inizio, quarti, centro e fine
-      // sulla linea del marciapiede. Prima bastava il centro, e le lastre
-      // attraversavano le vie laterali come un ponte.
+      // il suo centro è libero: si controllano inizio, quarti, centro e fine.
       let junction = false;
       for (const t of [0, 0.25, 0.5, 0.75, 1]) {
         const q = sampler.at(start + length * t);
-        const qx = q.x - q.tz * side * offset;
-        const qz = q.z + q.tx * side * offset;
+        const qx = q.x - q.tz * side * lateral;
+        const qz = q.z + q.tx * side * lateral;
         if (roads.isOnRoad(qx, qz, 0.35, index)) {
           junction = true;
           break;
@@ -262,8 +270,7 @@ export function buildRoadsideKit(
         inTown(road, first.x, first.z) &&
         inTown(road, point.x, point.z) &&
         inTown(road, last.x, last.z);
-      const slope = heights.slopeAt(x, z);
-      if (!town || slope > 12) {
+      if (!town) {
         diagnostics.skipped++;
         previousEnd = endS;
         continue;
@@ -274,45 +281,46 @@ export function buildRoadsideKit(
         continue;
       }
 
-      const longX = lengthAxis(asset) === 'x';
-      const acrossSize = longX ? asset.size.z : asset.size.x;
-      const targetAcross = role === 'sidewalk' ? walkWidth : ROAD_PROFILE.curbWidth;
-      const across = targetAcross / Math.max(0.01, acrossSize);
-      const surface =
-        heights.heightAt(x, z) +
-        roadLift(index, road.paved) +
-        ROAD_PROFILE.curbHeight +
-        0.03;
-      // inclinazione lungo la campata: gli estremi seguono il DEM, altrimenti
-      // su un saliscendi del 6% il modulo resta orizzontale e affonda di 35 cm
-      const half = length / 2;
-      const hBack = heights.heightAt(x - point.tx * half, z - point.tz * half);
-      const hFore = heights.heightAt(x + point.tx * half, z + point.tz * half);
-      const grade = Math.atan2(hFore - hBack, length);
-      const pitch = longX ? grade : -grade;
+      const x = point.x - point.tz * side * lateral;
+      const z = point.z + point.tx * side * lateral;
+      const surfaceStart = surfaceAt(start);
+      const surfaceEnd = surfaceAt(endS);
+      const surfaceCenter = surfaceAt(centerS);
+      const surfaceInner = surfaceAt(centerS, lateral - acrossTarget / 2);
+      const surfaceOuter = surfaceAt(centerS, lateral + acrossTarget / 2);
+      // Piano della strada: pendenza lungo la tangente e traversale. Da qui
+      // slopeX/slopeZ, che valgono per qualunque orientamento del modulo.
+      const frame = slopeFrame(
+        (surfaceEnd - surfaceStart) / length,
+        (surfaceOuter - surfaceInner) / Math.max(0.2, acrossTarget),
+        point.tx,
+        point.tz,
+      );
 
       if (previousEnd !== null) {
         const overlap = previousEnd - start;
         if (overlap < -0.05) diagnostics.gaps++;
         else if (overlap > length * 0.06) diagnostics.overlaps++;
       }
-      const y = surface - asset.size.y;
-      if (Math.abs(y + asset.size.y - surface) > 0.01) diagnostics.quoteErrors++;
+      // Il modulo è una corda: se il centro si scosta dal profilo oltre 2 cm
+      // la campata non è più "appoggiata" alla strada.
+      if (Math.abs(surfaceCenter - (surfaceStart + surfaceEnd) / 2) > 0.02) {
+        diagnostics.quoteErrors++;
+      }
 
       spots.push({
         x,
-        y,
+        y: surfaceCenter - asset.size.y,
         z,
         yaw: yawFor(asset, point.tx, point.tz),
-        pitch,
-        pitchAxis: longX ? 'z' : 'x',
+        slopeX: frame.slopeX,
+        slopeZ: frame.slopeZ,
         scale: 1,
-        scaleX: longX ? 1 : across,
-        scaleZ: longX ? across : 1,
-        variant: assets.indexOf(asset),
+        scaleX: longX ? length / baseLength : across,
+        scaleZ: longX ? across : length / baseLength,
+        variant,
       });
       diagnostics.modules++;
-      laid++;
       previousEnd = endS;
     }
   };
@@ -321,15 +329,34 @@ export function buildRoadsideKit(
     if (sidewalkSpots.length >= sidewalkCap && curbSpots.length >= curbCap) break;
     const sampler = makeSampler(roadPolyline(road));
     if (!sampler) continue;
+    // Una variante per via, sempre la stessa per tutti i moduli: prima
+    // `laid % assets.length` alternava le pavimentazioni lungo la strada.
+    const seed = [index, road.name?.length ?? 0, Math.round(road.width * 10), sampler.length];
+    const sidewalkVariant = stableChoice(seed, sidewalkAssets.length);
+    const curbVariant = stableChoice(seed, curbAssets.length);
+    const sidewalk = sidewalkAssets[sidewalkVariant];
+    const curb = curbAssets[curbVariant];
+    if (!sidewalk && !curb) continue;
     for (const side of [1, -1] as const) {
-      laySide(road, index, sampler, side, sidewalkAssets, sidewalkSpots, sidewalkCap, 'sidewalk');
-      laySide(road, index, sampler, side, curbAssets, curbSpots, curbCap, 'curb');
+      if (sidewalk) {
+        laySide(
+          road,
+          index,
+          sampler,
+          side,
+          sidewalk,
+          sidewalkVariant,
+          sidewalkSpots,
+          sidewalkCap,
+          'sidewalk',
+        );
+      }
+      if (curb) {
+        laySide(road, index, sampler, side, curb, curbVariant, curbSpots, curbCap, 'curb');
+      }
     }
   }
 
-  // `variants` esplicito: gli spot numerano l'elenco filtrato, ma senza questo
-  // `instances` rilegge tutte le varianti del ruolo e i moduli leggeri (indice
-  // 0/1) diventano gli scan pesanti da 11.000 triangoli.
   if (sidewalkSpots.length) {
     group.add(kit.instances('sidewalk', sidewalkSpots, { castShadow: true, variants: sidewalkAssets }));
   }

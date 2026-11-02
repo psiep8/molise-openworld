@@ -81,8 +81,8 @@ describe('buildRoadsideKit', () => {
     expect(result.diagnostics.overlaps).toBe(0);
   });
 
-  it('inclina i moduli lungo la pendenza, con il segno giusto per asse', () => {
-    // 5% in salita lungo +z
+  it('inclina i moduli sul piano della strada, non con un pitch per asse', () => {
+    // 5% in salita lungo +z: il piano vale slopeZ = 0,05, slopeX = 0
     const result = buildRoadsideKit(
       townRoad(),
       heights((_x, z) => 50 + z * 0.05),
@@ -92,11 +92,71 @@ describe('buildRoadsideKit', () => {
     );
     expect(result.spots.sidewalks.length).toBeGreaterThan(6);
     for (const spot of result.spots.sidewalks) {
-      expect(spot.pitch).not.toBeUndefined();
-      expect(Number.isFinite(spot.pitch!)).toBe(true);
-      if (spot.pitchAxis === 'z') expect(spot.pitch!).toBeCloseTo(0.05, 2);
-      else expect(spot.pitch!).toBeCloseTo(-0.05, 2);
+      expect(spot.pitch).toBeUndefined();
+      expect(spot.slopeZ).toBeCloseTo(0.05, 2);
+      expect(spot.slopeX).toBeCloseTo(0, 2);
     }
+  });
+
+  it('resta continuo su una strada parallela a X in salita (nessun buco)', () => {
+    const road = townRoad();
+    const points = road.roads[0]!.points.map((_p, i) => ({ x: i * 20, z: 0 }));
+    road.roads[0]!.points = points;
+    road.roads[0]!.walkSpans = new Array(points.length).fill(true);
+    const result = buildRoadsideKit(
+      road,
+      heights((x) => 50 + x * 0.08),
+      roadIndex(),
+      roadsideKit(),
+      400,
+    );
+    expect(result.spots.sidewalks.length).toBeGreaterThan(20);
+    expect(result.diagnostics.gaps).toBe(0);
+    expect(result.diagnostics.skipped).toBe(0);
+    for (const spot of result.spots.sidewalks) {
+      expect(spot.slopeX).toBeCloseTo(0.08, 2);
+      expect(spot.slopeZ).toBeCloseTo(0, 2);
+    }
+  });
+
+  it.each([
+    ['X', 1, 0],
+    ['Z', 0, 1],
+    ['diagonale', Math.SQRT1_2, Math.SQRT1_2],
+  ])('resta continuo in salita lungo %s con lo stesso piano', (_label, dx, dz) => {
+    const road = townRoad();
+    const points = road.roads[0]!.points.map((_p, i) => ({ x: i * 20 * dx, z: i * 20 * dz }));
+    road.roads[0]!.points = points;
+    road.roads[0]!.walkSpans = new Array(points.length).fill(true);
+    const grade = 0.08;
+    const result = buildRoadsideKit(
+      road,
+      heights((x, z) => 50 + (x * dx + z * dz) * grade),
+      roadIndex(),
+      roadsideKit(),
+      400,
+    );
+    expect(result.spots.sidewalks.length).toBeGreaterThan(20);
+    expect(result.diagnostics.gaps).toBe(0);
+    expect(result.diagnostics.skipped).toBe(0);
+    for (const spot of result.spots.sidewalks) {
+      expect(spot.slopeX).toBeCloseTo(grade * dx, 2);
+      expect(spot.slopeZ).toBeCloseTo(grade * dz, 2);
+    }
+  });
+
+  it('non salta le campate ripide e usa una sola variante per via', () => {
+    const result = buildRoadsideKit(
+      townRoad(),
+      heights((_x, z) => 50 + z * 0.15),
+      roadIndex(),
+      roadsideKit(),
+      200,
+    );
+    expect(result.spots.sidewalks.length).toBeGreaterThan(10);
+    expect(result.diagnostics.skipped).toBe(0);
+    expect(result.diagnostics.gaps).toBe(0);
+    expect(new Set(result.spots.sidewalks.map((s) => s.variant)).size).toBe(1);
   });
 
   it('non fa attraversare le lastre sopra un incrocio', () => {
