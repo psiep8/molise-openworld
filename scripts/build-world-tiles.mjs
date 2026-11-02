@@ -72,7 +72,18 @@ const AREA_KINDS = {
   'leisure=park': { kind: 'park', landcover: true },
   'natural=beach': { kind: 'beach', landcover: true },
 };
-const POI_TAGS = ['amenity', 'tourism', 'shop', 'historic', 'leisure', 'place', 'man_made'];
+const POI_TAGS = ['amenity', 'tourism', 'shop', 'historic', 'leisure', 'place'];
+/** Arredo minuto e impianti: non sono luoghi, riempiono solo il tile di rumore. */
+const POI_SKIP = new Set([
+  'waste_basket',
+  'bench',
+  'shelter',
+  'bicycle_parking',
+  'parking_space',
+  'vending_machine',
+  'parcel_locker',
+  'utility_pole',
+]);
 
 function areaKind(tags) {
   for (const key of ['natural', 'landuse', 'leisure', 'waterway']) {
@@ -86,7 +97,9 @@ function areaKind(tags) {
 
 function poiKind(tags) {
   for (const key of POI_TAGS) {
-    if (tags[key]) return tags[key];
+    const value = tags[key];
+    if (!value || POI_SKIP.has(value)) continue;
+    return value;
   }
   return null;
 }
