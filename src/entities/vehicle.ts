@@ -1427,7 +1427,7 @@ export class Vehicle {
   }
 
   private updateLampLights(): void {
-    const canLightRear = this.dynamicLights === 'all';
+    const canLightRear = this.dynamicLights !== 'none';
     const slip = this.state.wheelSlip;
     const stop = Math.max(this.braking, slip?.rl.locked || slip?.rr.locked ? 1 : 0);
     // lo stop dinamico si accende anche di giorno: luci posteriori rosse
