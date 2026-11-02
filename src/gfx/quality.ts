@@ -209,10 +209,10 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     roadside: 1,
     bridges: 1,
     viewRadius: 250,
-    landcover: 'off',
+    landcover: 'base',
     landcoverRadius: 0,
     skidSegments: 0,
-    vehicleLights: 'none',
+    vehicleLights: 'headlights',
   },
   low: {
     level: 'low',
@@ -250,7 +250,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
     landcover: 'base',
     landcoverRadius: 0,
     skidSegments: 400,
-    vehicleLights: 'none',
+    vehicleLights: 'headlights',
   },
   medium: {
     level: 'medium',
