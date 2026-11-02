@@ -1342,7 +1342,7 @@ float roadWetNoise;`,
       );
   };
   material.customProgramCacheKey = () =>
-    `${previousKey ? previousKey() : 'road'}|road-wear-v5`;
+    `${previousKey ? previousKey.call(material) : 'road'}|road-wear-v5`;
 }
 
 /**
