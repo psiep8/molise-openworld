@@ -180,12 +180,12 @@ export const CAR: CarTuning = {
   offroadGrip: 0.58,
   wheelbase: 2.5,
   track: 1.68,
-  maxSteer: 0.56,
+  maxSteer: 0.62,
   gravity: 9.81,
   drive: 'rwd',
   centerOfGravityHeight: 0.5,
   yawInertiaScale: 1.2,
-  brakeBias: 0.64,
+  brakeBias: 0.58,
   abs: true,
 };
 
@@ -197,9 +197,9 @@ const AIR_DENSITY = 1.2;
  * ribaltarsi. La stessa funzione serve alla grafica delle ruote anteriori, così
  * quello che si vede combacia con quello che fa la fisica.
  */
-const STEER_LOCK_FALLOFF = 0.028;
+const STEER_LOCK_FALLOFF = 0.015;
 /** Accelerazione laterale massima (m/s²): ~1,25 g su asfalto asciutto. */
-const LATERAL_GRIP = 12.5;
+const LATERAL_GRIP = 14.0;
 /** Tetto di imbardata a bassissima velocità (rad/s). */
 const MAX_YAW_RATE = 2.7;
 
