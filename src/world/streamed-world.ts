@@ -212,6 +212,7 @@ export class StreamedWorld {
     if (entry.buildings.length) {
       const buildings = buildBuildings(osm, this.options.heights, this.options.renderer, {
         detail: this.options.detail,
+        roads: entry.roadIndex ?? undefined,
       });
       buildings.group.name = `streamed-buildings-${entry.key}`;
       const windowMaterial = buildings.group.userData.windowGlowMaterial;

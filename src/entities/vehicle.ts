@@ -313,6 +313,8 @@ export class Vehicle {
   /** Urto in attesa di essere letto dal gioco (una volta sola). */
   private pendingImpact: CarImpact | null = null;
   private pendingCurbNoise = 0;
+  /** Forza dell'ultimo schianto contro un muro/edificio, 0..1. */
+  private pendingCrash = 0;
 
   constructor(spec: VehicleSpec = VEHICLES[0]) {
     this.group = new THREE.Group();
@@ -1584,8 +1586,20 @@ export class Vehicle {
     return strength;
   }
 
+  /**
+   * Schianto contro case/muri ancora da suonare, 0..1. Separato dagli urti
+   * contro alberi e cartelli: quelli hanno una posizione e un modello da
+   * piegare, un muro no, ma il colpo deve sentirsi lo stesso.
+   */
+  consumeCrash(): number {
+    const strength = this.pendingCrash;
+    this.pendingCrash = 0;
+    return strength;
+  }
+
   reset(x: number, z: number, yaw: number, ground: GroundSampler): void {
     this.pendingImpact = null;
+    this.pendingCrash = 0;
     this.state = createCarState(x, z, yaw);
     const here = ground.sampleAt(x, z);
     this.surfaceLift = here.lift;
@@ -1645,43 +1659,66 @@ export class Vehicle {
     };
     // il piano di appoggio include asfalto, marciapiede e ponte: la fisica
     // della pendenza deve sentire la stessa quota che si vede
-    const next = stepCar(
-      this.state,
-      smoothedInput,
-      {
-        onRoad,
-        surface: here.surface,
-        wheelSurfaces,
-        groundHeight: (x, z) => ground.heightAt(x, z),
-        weather,
-        gripScale,
-        vegetationDrag,
-      },
-      dt,
-      tuningFor(spec),
-    );
-
-    // Due cerchi (avantreno e retrotreno) invece di uno solo: il muso non
-    // attraversa più muri e pali mentre il centro è ancora in carreggiata.
-    // Il raggio è il mezzo ingombro trasversale, la distanza è metà passo.
-    const body = resolveBody(
-      next.x,
-      next.z,
-      next.yaw,
-      next.speed,
-      Math.min(spec.length * 0.35, spec.wheelbase * 0.62),
-      Math.min(1.05, spec.width * 0.52),
-      [buildings, obstacles],
-    );
-    next.x = body.x;
-    next.z = body.z;
-    next.speed = body.speed;
-    next.vx = body.speed;
+    const tuning = tuningFor(spec);
+    const halfLength = Math.min(spec.length * 0.35, spec.wheelbase * 0.62);
+    const halfWidth = Math.min(1.05, spec.width * 0.52);
+    // Sotto-passi di moto più corti del raggio delle sonde (0,2 m): a 120 km/h
+    // un frame da 1/30 s sposterebbe l'auto di 1,1 m e attraverserebbe un muro
+    // di 20 cm fra un test e l'altro. Con questi passi il muso tocca sempre il
+    // bordo prima di superarlo, a qualunque frame rate.
+    const motion = Math.abs(before.speed) * dt;
+    const substeps = Math.min(16, Math.max(1, Math.ceil(motion / 0.2)));
+    const subDt = dt / substeps;
+    let next = this.state;
+    let hitAnything = false;
+    for (let s = 0; s < substeps; s++) {
+      next = stepCar(
+        next,
+        smoothedInput,
+        {
+          onRoad,
+          surface: here.surface,
+          wheelSurfaces,
+          groundHeight: (x, z) => ground.heightAt(x, z),
+          weather,
+          gripScale,
+          vegetationDrag,
+        },
+        subDt,
+        tuning,
+      );
+      // Sei sonde: quattro angoli e i due fianchi. Il raggio è il mezzo
+      // ingombro trasversale, la distanza è metà passo.
+      const body = resolveBody(
+        next.x,
+        next.z,
+        next.yaw,
+        next.speed,
+        halfLength,
+        halfWidth,
+        [buildings, obstacles],
+      );
+      next.x = body.x;
+      next.z = body.z;
+      next.speed = body.speed;
+      next.vx = body.speed;
+      if (!body.hit) continue;
+      hitAnything = true;
+      next.yaw += body.yawKick;
+      if (body.impact > 0.6) {
+        this.pendingCrash = Math.max(
+          this.pendingCrash,
+          clamp(body.impact / 15, 0.12, 1),
+        );
+        // la scocca accusa il colpo: sobbalzo breve, smorzato sotto
+        this.bump = Math.max(this.bump, clamp(body.impact / 45, 0.02, 0.2));
+      }
+    }
 
     // cosa si è preso: l'indice spinge fuori ma non dice contro cosa. Si cerca
     // l'ostacolo davanti al muso, dove la collisione è appena avvenuta, così il
     // gioco può far piegare proprio quell'albero o quel cartello.
-    if (body.hit && obstacles && Math.abs(before.speed) > 3) {
+    if (hitAnything && obstacles && Math.abs(before.speed) > 3) {
       const hx = -Math.sin(next.yaw);
       const hz = -Math.cos(next.yaw);
       const nose = Math.min(1.6, spec.length * 0.4);

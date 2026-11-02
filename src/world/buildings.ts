@@ -2,10 +2,12 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Heightfield } from '../geo/elevation';
 import { hashInt, type Pt } from '../geo/geo';
-import type { Building, OsmData } from '../geo/osm';
-import { clamp } from '../geo/geo';
+import type { Building, OsmData, RoadIndex } from '../geo/osm';
+import { clamp, distanceToSegment2 } from '../geo/geo';
 import { pbr, pbrColorRepeated } from '../gfx/textures';
-import { planHipRoof, type HipRoofPlan, type Pt3 } from './roof';
+import { longestEdgeIndex, planBuildingGrounding } from './building-ground';
+import { findSharedEdges, insetSharedEdges } from './building-block';
+import { offsetPolygon, offsetPolygonVariable, planHipRoof, type HipRoofPlan, type Pt3 } from './roof';
 
 // Intonaci chiari: molti paesi molisani sono tinteggiati di bianco o crema.
 // Con la texture d'intonaco moltiplicata sopra, tinte più scure andavano a
@@ -35,6 +37,12 @@ export type BuildingDetail = 'full' | 'simple';
 
 export interface BuildingOptions {
   detail?: BuildingDetail;
+  /**
+   * Indice stradale: serve a capire quale facciata guarda la strada. Senza,
+   * il lato più lungo fa da facciata principale (vale per quasi tutte le case
+   * OSM, ma nei vicoli il lato lungo può essere quello cieco).
+   */
+  roads?: RoadIndex;
 }
 
 function facadeFamily(area: number, seed: number): FacadeFamily {
@@ -101,6 +109,62 @@ function centroid(points: Pt[]): Pt {
   return { x: x / points.length, z: z / points.length };
 }
 
+/**
+ * UV del muro a proiezione cilindrica.
+ *
+ * ExtrudeGeometry stende le UV sulle coordinate del profilo: sui lati corti la
+ * texture si stira e agli angoli il disegno salta. Qui per ogni triangolo si
+ * sceglie l'asse dominante della normale e si proietta in metri, così ogni
+ * facciata ha una coordinata orizzontale continua e una verticale con l'altezza.
+ */
+function projectWallUv(geometry: THREE.BufferGeometry): void {
+  const position = geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
+  const normal = geometry.getAttribute('normal') as THREE.BufferAttribute | undefined;
+  if (!position || !normal) return;
+  const uv = new Float32Array(position.count * 2);
+  for (let i = 0; i < position.count; i++) {
+    const x = position.getX(i);
+    const y = position.getY(i);
+    const z = position.getZ(i);
+    const ax = Math.abs(normal.getX(i));
+    const ay = Math.abs(normal.getY(i));
+    const az = Math.abs(normal.getZ(i));
+    let u: number;
+    let v: number;
+    if (ay >= ax && ay >= az) {
+      u = x;
+      v = z;
+    } else if (ax >= az) {
+      u = z;
+      v = y;
+    } else {
+      u = x;
+      v = y;
+    }
+    uv[i * 2] = u;
+    uv[i * 2 + 1] = v;
+  }
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+}
+
+/**
+ * Occlusione ambientale ai piedi del muro, cotta nel vertex color.
+ * Il muro è estruso con qualche riga intermedia: senza quelle righe il
+ * gradiente non avrebbe su cosa interpolare. Su `simple` resta una riga sola.
+ */
+function bakeWallAO(geometry: THREE.BufferGeometry, base: number, topY: number): void {
+  const color = geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
+  const position = geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
+  if (!color || !position) return;
+  const band = clamp((topY - base) * 0.22, 0.6, 1.8);
+  for (let i = 0; i < color.count; i++) {
+    const t = clamp((position.getY(i) - base) / band, 0, 1);
+    const factor = 0.72 + 0.28 * t;
+    color.setXYZ(i, color.getX(i) * factor, color.getY(i) * factor, color.getZ(i) * factor);
+  }
+  color.needsUpdate = true;
+}
+
 /** Box colorato e non indicizzato, così si fonde con le altre decorazioni. */
 function solidBox(
   w: number,
@@ -128,22 +192,24 @@ function solidBox(
 function bandGeometry(
   points: Pt[],
   center: Pt,
-  scale: number,
+  offset: number,
   y0: number,
   y1: number,
   color: THREE.Color,
+  distances?: readonly number[],
 ): THREE.BufferGeometry {
   const positions: number[] = [];
   const normals: number[] = [];
   const uvs: number[] = [];
-  const ring = points.map((p) => ({
-    x: center.x + (p.x - center.x) * scale,
-    z: center.z + (p.z - center.z) * scale,
-  }));
-  const inner = points.map((p) => ({
-    x: center.x + (p.x - center.x) * (scale - 0.035),
-    z: center.z + (p.z - center.z) * (scale - 0.035),
-  }));
+  // offset costante, non scalatura dal baricentro: la fascia deve restare
+  // parallela al muro anche su un'impronta 6×18; sui muri comuni delle schiere
+  // la distanza è zero, così la fascia non entra in casa del vicino
+  const ring = offsetPolygonVariable(points, distances ?? points.map(() => offset)) ?? points;
+  const inner =
+    offsetPolygonVariable(
+      points,
+      points.map((_, i) => Math.max(0, (distances?.[i] ?? offset) - 0.035)),
+    ) ?? points;
 
   const tri = (
     ax: number,
@@ -232,26 +298,34 @@ function buildHipGeometry(plan: HipRoofPlan, tile = 2.7): THREE.BufferGeometry {
     }
   };
 
+  const area2 = (a: Pt3, b: Pt3, c: Pt3): number =>
+    Math.abs((b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x));
+
   let uCursor = 0;
   for (const slope of plan.slopes) {
     const [a, b, c, d] = slope.corners;
     const u0 = uCursor / tile;
     const u1 = (uCursor + slope.eaveLength) / tile;
     const v1 = slope.slopeLength / tile;
-    pushTri(a, b, c, [u0, 0], [u1, 0], [u1, v1]);
-    pushTri(a, c, d, [u0, 0], [u1, v1], [u0, v1]);
+    // una testata a padiglione ha i due vertici di colmo coincidenti: il secondo
+    // triangolo sarebbe degenere e sporcherebbe le normali
+    if (area2(a, b, c) > 1e-8) pushTri(a, b, c, [u0, 0], [u1, 0], [u1, v1]);
+    if (area2(a, c, d) > 1e-8) pushTri(a, c, d, [u0, 0], [u1, v1], [u0, v1]);
     uCursor += slope.eaveLength;
   }
 
-  // colmo: superficie piana triangolata con l'utility di Three.js
-  const ring2 = plan.ridgeRing.map((p) => new THREE.Vector2(p.x, -p.z));
-  const uvFor = (p: { x: number; z: number }): [number, number] => [p.x / tile, p.z / tile];
-  const at = (p: { x: number; z: number }): Pt3 => ({ x: p.x, y: plan.ridgeY, z: p.z });
-  for (const [i, j, k] of THREE.ShapeUtils.triangulateShape(ring2, [])) {
-    const pi = plan.ridgeRing[i];
-    const pj = plan.ridgeRing[j];
-    const pk = plan.ridgeRing[k];
-    pushTri(at(pi), at(pj), at(pk), uvFor(pi), uvFor(pj), uvFor(pk));
+  // colmo: superficie piana triangolata con l'utility di Three.js. Su un tetto
+  // a capanna è una linea (due punti) e non ha superficie da triangolare.
+  if (plan.ridgeRing.length >= 3) {
+    const ring2 = plan.ridgeRing.map((p) => new THREE.Vector2(p.x, -p.z));
+    const uvFor = (p: { x: number; z: number }): [number, number] => [p.x / tile, p.z / tile];
+    const at = (p: { x: number; z: number }): Pt3 => ({ x: p.x, y: plan.ridgeY, z: p.z });
+    for (const [i, j, k] of THREE.ShapeUtils.triangulateShape(ring2, [])) {
+      const pi = plan.ridgeRing[i]!;
+      const pj = plan.ridgeRing[j]!;
+      const pk = plan.ridgeRing[k]!;
+      pushTri(at(pi), at(pj), at(pk), uvFor(pi), uvFor(pj), uvFor(pk));
+    }
   }
 
   const geometry = new THREE.BufferGeometry();
@@ -275,6 +349,8 @@ interface BuildingParts {
 interface EdgeInfo {
   a: Pt;
   b: Pt;
+  /** indice del lato nel poligono originale: serve a riconoscere la facciata */
+  index: number;
   len: number;
   ex: number;
   ez: number;
@@ -285,33 +361,59 @@ interface EdgeInfo {
   mz: number;
 }
 
+function edgeInfo(points: Pt[], center: Pt, i: number): EdgeInfo | null {
+  const a = points[i];
+  const b = points[(i + 1) % points.length];
+  const len = Math.hypot(b.x - a.x, b.z - a.z);
+  if (len < 1e-3) return null;
+  const ex = (b.x - a.x) / len;
+  const ez = (b.z - a.z) / len;
+  let nx = ez;
+  let nz = -ex;
+  const mx = (a.x + b.x) / 2;
+  const mz = (a.z + b.z) / 2;
+  if (nx * (mx - center.x) + nz * (mz - center.z) < 0) {
+    nx = -nx;
+    nz = -nz;
+  }
+  return { a, b, index: i, len, ex, ez, nx, nz, angle: Math.atan2(-ez, ex), mx, mz };
+}
+
 /** Tutti i lati dell'impronta, dal più lungo, con normale esterna. */
 function edgesOf(points: Pt[], center: Pt): EdgeInfo[] {
   const edges: EdgeInfo[] = [];
   for (let i = 0; i < points.length; i++) {
-    const a = points[i];
-    const b = points[(i + 1) % points.length];
-    const len = Math.hypot(b.x - a.x, b.z - a.z);
-    if (len < 1e-3) continue;
-    const ex = (b.x - a.x) / len;
-    const ez = (b.z - a.z) / len;
-    let nx = ez;
-    let nz = -ex;
-    const mx = (a.x + b.x) / 2;
-    const mz = (a.z + b.z) / 2;
-    if (nx * (mx - center.x) + nz * (mz - center.z) < 0) {
-      nx = -nx;
-      nz = -nz;
-    }
-    edges.push({ a, b, len, ex, ez, nx, nz, angle: Math.atan2(-ez, ex), mx, mz });
+    const edge = edgeInfo(points, center, i);
+    if (edge) edges.push(edge);
   }
   edges.sort((p, q) => q.len - p.len);
   return edges;
 }
 
-/** Lato più lungo dell'impronta, con normale esterna: è la facciata nobile. */
-function longestEdge(points: Pt[], center: Pt): EdgeInfo | null {
-  return edgesOf(points, center)[0] ?? null;
+/**
+ * Lato che guarda la strada: quello con il punto medio più vicino a un tratto
+ * pavimentato. Senza indice stradale si usa il lato più lungo.
+ */
+function streetFrontEdge(points: Pt[], roads?: RoadIndex): number {
+  if (!roads) return longestEdgeIndex(points);
+  let best = -1;
+  let bestDistance = 36;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i]!;
+    const b = points[(i + 1) % points.length]!;
+    const mx = (a.x + b.x) * 0.5;
+    const mz = (a.z + b.z) * 0.5;
+    const segment = roads.nearestSegment(mx, mz, 36);
+    if (!segment) continue;
+    const distance = Math.sqrt(
+      distanceToSegment2(mx, mz, segment.ax, segment.az, segment.bx, segment.bz),
+    );
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = i;
+    }
+  }
+  return best >= 0 ? best : longestEdgeIndex(points);
 }
 
 /**
@@ -393,33 +495,59 @@ function buildOne(
   heights: Heightfield,
   seed: number,
   detail: BuildingDetail = 'full',
+  roads?: RoadIndex,
+  sharedEdges?: readonly boolean[],
 ): BuildingParts {
   const simple = detail === 'simple';
-  const c = centroid(b.points);
-  // quota del terreno sotto tutta l'impronta: il muro parte dal punto più basso,
-  // così sul lato in discesa non resta il vuoto sotto la casa. Lo zoccolo in
-  // pietra copre il dislivello sul lato in salita.
-  let groundMin = heights.heightAt(c.x, c.z);
-  for (const p of b.points) groundMin = Math.min(groundMin, heights.heightAt(p.x, p.z));
-  const base = groundMin - 0.25;
-  const shape = new THREE.Shape(b.points.map((p) => new THREE.Vector2(p.x, -p.z)));
-  const wall = new THREE.ExtrudeGeometry(shape, { depth: b.height, bevelEnabled: false, steps: 1 });
+  // lati condivisi con la casa attaccata: lì non ci sono finestre, portone,
+  // sporto di gronda né pluviali
+  const party = sharedEdges && sharedEdges.length === b.points.length ? sharedEdges : null;
+  const isParty = (edge: number): boolean => party?.[edge] === true;
+  // 4 cm di rientro sul muro comune: due facciate coincidenti z-fightano
+  const points = party ? insetSharedEdges(b.points, party, 0.04) : b.points;
+  const c = centroid(points);
+  const heightAt = (x: number, z: number): number => heights.heightAt(x, z);
+  // La facciata verso strada detta i piani; la base resta al punto più basso
+  // per non lasciare il vuoto a valle. Vedi `building-ground.ts`: prima tutto
+  // partiva dal punto basso e il balcone finiva all'altezza del marciapiede.
+  const ground = planBuildingGrounding(points, heightAt, b.height, {
+    frontEdge: streetFrontEdge(points, roads),
+  });
+  const base = ground.base;
+  const topY = ground.topY;
+  const shape = new THREE.Shape(points.map((p) => new THREE.Vector2(p.x, -p.z)));
+  // righe intermedie solo quando servono all'occlusione ai piedi; su `simple`
+  // il muro resta una fascia sola
+  const wallHeight = topY - base;
+  const steps = simple ? 1 : clamp(Math.round(wallHeight / 1.4), 2, 6);
+  const wall = new THREE.ExtrudeGeometry(shape, { depth: wallHeight, bevelEnabled: false, steps });
   wall.rotateX(-Math.PI / 2);
   wall.translate(0, base, 0);
+  // UV vere da muro, non quelle dell'estrusione che si stirano sui lati corti
+  projectWallUv(wall);
 
-  // ExtrudeGeometry usa v = 1 - altezza: la negazione raddrizza la finestra
-  const wallUv = wall.attributes.uv as THREE.BufferAttribute;
-  for (let i = 0; i < wallUv.count; i++) wallUv.setY(i, -wallUv.getY(i));
-  wallUv.needsUpdate = true;
-
-  // tetto a falde con sporto; se l'impronta è troppo irregolare resta piatto
-  const overhang = 1.045;
-  const footprint = b.points.map((p) => ({
-    x: c.x + (p.x - c.x) * overhang,
-    z: c.z + (p.z - c.z) * overhang,
-  }));
-  const roofTop = base + b.height + 0.05;
-  const rise = clamp(Math.sqrt(Math.max(4, b.area)) * 0.16, 1, 3.2);
+  // tetto a falde con sporto costante di 45 cm; se l'impronta è troppo
+  // irregolare resta piatto
+  // sporto di 45 cm sui lati liberi, quasi zero sul muro comune: la gronda di
+  // una schiera non deve entrare nel tetto del vicino
+  const footprint =
+    offsetPolygonVariable(points, points.map((_, i) => (isParty(i) ? 0.02 : 0.45))) ??
+    points.map((p) => ({ x: p.x, z: p.z }));
+  const roofTop = topY + 0.05;
+  // pendenza ~30° sulla campata corta: è quella dei coppi molisani, non un
+  // coperchio piatto né un tetto da baita alpina
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (const p of points) {
+    minX = Math.min(minX, p.x);
+    maxX = Math.max(maxX, p.x);
+    minZ = Math.min(minZ, p.z);
+    maxZ = Math.max(maxZ, p.z);
+  }
+  const shortSide = Math.max(1, Math.min(maxX - minX, maxZ - minZ));
+  const rise = clamp(shortSide * 0.5 * Math.tan((30 * Math.PI) / 180), 1, 4.2);
   const plan = planHipRoof(footprint, roofTop, rise);
   let roof: THREE.BufferGeometry;
   let ridgeY = roofTop;
@@ -442,16 +570,22 @@ function buildOne(
   wallColor.multiplyScalar(shade);
   roofColor.multiplyScalar(shade);
   applyColor(wall, wallColor);
+  bakeWallAO(wall, base, topY);
   applyColor(roof, roofColor);
 
-  // zoccolo in pietra: fascia di ~0,5 m sopra il terreno, leggermente a sporto.
-  // Senza, le case sembrano scatole appoggiate sull'erba.
-  const plinth = b.points.map((p) => ({
-    x: c.x + (p.x - c.x) * 1.02,
-    z: c.z + (p.z - c.z) * 1.02,
-  }));
+  // Zoccolo in pietra: sul lato a valle sale fino alla quota della strada (o
+  // quasi), così il dislivello è basamento vero e non un muro nudo che affonda.
+  // Sul piano resta una fascia di ~0,8 m, leggermente a sporto.
+  const plinth =
+    offsetPolygonVariable(points, points.map((_, i) => (isParty(i) ? 0 : 0.06))) ??
+    points.map((p) => ({ x: p.x, z: p.z }));
+  const plinthTop = Math.max(base + 0.5, Math.min(topY - 1.5, ground.groundFront + 0.55));
   const plinthShape = new THREE.Shape(plinth.map((p) => new THREE.Vector2(p.x, -p.z)));
-  const plinthGeo = new THREE.ExtrudeGeometry(plinthShape, { depth: 1.15, bevelEnabled: false, steps: 1 });
+  const plinthGeo = new THREE.ExtrudeGeometry(plinthShape, {
+    depth: Math.max(0.4, plinthTop - base),
+    bevelEnabled: false,
+    steps: 1,
+  });
   plinthGeo.rotateX(-Math.PI / 2);
   plinthGeo.translate(0, base, 0);
   applyColor(plinthGeo, new THREE.Color(0x8f8579).multiplyScalar(0.9 + (hashInt(seed, 13) % 60) / 400));
@@ -462,10 +596,21 @@ function buildOne(
   const trim: THREE.BufferGeometry[] = [];
   const glass: THREE.BufferGeometry[] = [];
   const stone = new THREE.Color(0xe9e1cf).multiplyScalar(0.94 + (hashInt(seed, 7) % 60) / 500);
-  const eaveY = base + b.height + 0.02;
+  const eaveY = topY + 0.02;
 
-  // cornicione sotto la gronda: 24 cm di aggetto, quello che disegna l'ombra
-  trim.push(bandGeometry(b.points, c, 1.035, eaveY - 0.3, eaveY - 0.04, stone));
+  // cornicione sotto la gronda: 24 cm di aggetto costante, quello che disegna
+  // l'ombra sul muro
+  trim.push(
+    bandGeometry(
+      points,
+      c,
+      0.24,
+      eaveY - 0.3,
+      eaveY - 0.04,
+      stone,
+      points.map((_, i) => (isParty(i) ? 0 : 0.24)),
+    ),
+  );
 
   // -------------------------------------------------------------------------
   // profondità vera della facciata
@@ -475,12 +620,12 @@ function buildOne(
   // fasce marcapiano: una per piano, a sporto di 1,4 cm. Sono le linee
   // orizzontali che danno la scansione dei piani; con la sola normal map la
   // facciata restava un foglio di carta.
-  const floors = Math.max(1, Math.round(b.height / 3.1));
+  const floors = ground.stories;
   const floorTrim = stone.clone().multiplyScalar(0.97);
   if (!simple) {
     for (let f = 1; f < floors; f++) {
-      const y = base + (b.height * f) / floors;
-      trim.push(bandGeometry(b.points, c, 1.014, y - 0.07, y + 0.07, floorTrim));
+      const y = ground.groundFront + ground.floorH * f;
+      trim.push(bandGeometry(b.points, c, 0.045, y - 0.07, y + 0.07, floorTrim));
     }
   }
 
@@ -489,18 +634,24 @@ function buildOne(
   if (!simple && b.area > 28 && b.points.length <= 10) {
     const quoin = stone.clone().multiplyScalar(0.9);
     const half = 0.15;
-    for (const p of b.points) {
-      const qx = c.x + (p.x - c.x) * 1.006;
-      const qz = c.z + (p.z - c.z) * 1.006;
-      trim.push(solidBox(half * 2, b.height * 0.995, half * 2, qx, base + b.height * 0.4975, qz, quoin));
+    const quoinRing = offsetPolygon(points, 0.03) ?? points;
+    for (let i = 0; i < quoinRing.length; i++) {
+      // niente cantonali sul muro comune: sarebbero dentro casa del vicino
+      if (isParty(i) || isParty((i - 1 + quoinRing.length) % quoinRing.length)) continue;
+      const p = quoinRing[i]!;
+      trim.push(solidBox(half * 2, topY - base, half * 2, p.x, (topY + base) * 0.5, p.z, quoin));
     }
   }
 
   // grondaia in zinco appesa al filo della gronda, su tutti i lati
   const gutterY = eaveY + 0.01;
-  for (let i = 0; !simple && i < b.points.length; i++) {
-    const a = b.points[i];
-    const next = b.points[(i + 1) % b.points.length];
+  const gutterRing =
+    offsetPolygonVariable(points, points.map((_, i) => (isParty(i) ? 0.02 : 0.38))) ?? points;
+  for (let i = 0; !simple && i < gutterRing.length; i++) {
+    // sul muro comune la grondaia non esiste
+    if (isParty(i)) continue;
+    const a = gutterRing[i]!;
+    const next = gutterRing[(i + 1) % gutterRing.length]!;
     const len = Math.hypot(next.x - a.x, next.z - a.z);
     if (len < 2) continue;
     const ex = (next.x - a.x) / len;
@@ -520,16 +671,16 @@ function buildOne(
 
   // portone sulla facciata più lunga: stipiti, architrave, battente scuro e
   // soglia in pietra che sporge sul marciapiede
-  const edge = longestEdge(b.points, c);
-  if (edge && b.area > 26 && b.height > 3.4) {
+  const edge = edgeInfo(points, c, ground.frontEdge) ?? edgesOf(points, c)[0] ?? null;
+  if (edge && !isParty(edge.index) && b.area > 26 && topY - ground.groundFront > 2.8) {
     const doorW = 1.2;
-    const doorH = Math.min(2.25, b.height - 0.7);
+    const doorH = Math.min(2.25, Math.max(1.9, ground.floorH - 0.6));
     const dx = edge.mx + edge.nx * 0.03;
     const dz = edge.mz + edge.nz * 0.03;
-    // il portone parte dal terreno *davanti a lui*, non dalla base più bassa:
-    // sul lato in salita la base era sotto il prato e la porta spariva
-    const doorGround = heights.heightAt(edge.mx, edge.mz);
-    const doorBottom = clamp(doorGround, base, base + b.height - doorH - 0.3);
+    // il portone parte dal terreno proprio davanti alla porta: non dal punto
+    // più basso dell'impronta (finiva sotto il marciapiede) né dalla media del
+    // lato, che su una facciata in pendenza lascia la soglia a mezz'aria
+    const doorBottom = heights.heightAt(edge.mx, edge.mz) + 0.02;
     const jamb = 0.13;
     for (const side of [-1, 1] as const) {
       const px = dx + edge.ex * side * (doorW / 2 + jamb / 2);
@@ -581,15 +732,17 @@ function buildOne(
 
   if (!simple && hashInt(seed, 31) % 10 < 6) {
     // due pluviali ai vertici più esterni in x: bastano a rompere il muro liscio
-    let left = b.points[0];
-    let right = b.points[0];
-    for (const p of b.points) {
+    let left = points[0];
+    let right = points[0];
+    for (const p of points) {
       if (p.x < left.x) left = p;
       if (p.x > right.x) right = p;
     }
     const pipeTop = eaveY - 0.35;
-    const pipeBottom = base + 0.35;
     for (const p of [left, right]) {
+      // il pluviale arriva al terreno lì, non alla base più bassa: sulla
+      // salita sprofonderebbe nel prato
+      const pipeBottom = heights.heightAt(p.x, p.z) + 0.12;
       trim.push(solidBox(0.1, pipeTop - pipeBottom, 0.1, p.x, (pipeTop + pipeBottom) / 2, p.z, zinc));
     }
   }
@@ -597,24 +750,26 @@ function buildOne(
   // ---------------------------------------------------------------------------
   // finestre: vani veri, non disegnati nella texture
   // ---------------------------------------------------------------------------
-  const hasBalcony = !simple && b.area > 85 && b.height >= 6.2 && hashInt(seed, 37) % 3 < 2;
+  const hasBalcony = !simple && b.area > 85 && ground.balconyY !== null && hashInt(seed, 37) % 3 < 2;
   if (b.area >= 20 && b.height >= 2.6 && b.points.length <= 14) {
     const shutters = hashInt(seed, 41) % 10 < 7
       ? new THREE.Color([0x4c5d49, 0x5a4635, 0x67706e, 0x3f4a3d][hashInt(seed, 43) % 4]!)
       : null;
     const frame = stone.clone().multiplyScalar(1.02);
-    const floors = Math.max(1, Math.round(b.height / 3.1));
-    const floorH = b.height / floors;
+    const floors = ground.stories;
+    const floorH = ground.floorH;
     const winW = 0.95;
     const winH = Math.min(1.4, floorH * 0.47);
-    const balconyY = base + b.height * 0.46;
+    const balconyY = ground.balconyY;
     // Prima si raccolgono tutti i vani possibili, poi se ne tengono al massimo
     // MAX_WINDOWS distribuiti in modo uniforme: un tetto al numero senza
     // selezione lasciava una facciata completamente cieca.
     const MAX_WINDOWS = 16;
     const candidates: { side: EdgeInfo; off: number; y: number }[] = [];
-    edgesOf(b.points, c).forEach((side, index) => {
+    edgesOf(points, c).forEach((side, index) => {
       if (index > 3) return;
+      // sul muro comune non si aprono finestre: darebbero dentro il vicino
+      if (isParty(side.index)) return;
       const margin = 0.95;
       const usable = side.len - margin * 2;
       if (usable < 1.2) return;
@@ -628,17 +783,22 @@ function buildOne(
           const wx = side.mx + side.ex * off + side.nx * 0.02;
           const wz = side.mz + side.ez * off + side.nz * 0.02;
           const localGround = heights.heightAt(wx, wz);
+          // Il piano terra si misura dal terreno **lì**, il piano primo dalla
+          // facciata verso strada (groundFront): sulla salita una finestra a
+          // quota strada finirebbe sotto il prato, quindi si scarta.
           const wy =
             f === 0
               ? localGround + 1.6
-              : base + floorH * f + floorH * 0.56;
-          if (wy + winH / 2 > base + (f === 0 ? floorH : b.height) - 0.25) continue;
+              : ground.groundFront + floorH * f + floorH * 0.56;
+          if (f === 0 && wy + winH / 2 > ground.groundFront + floorH - 0.2) continue;
+          if (f > 0 && (wy - winH / 2 < localGround + 0.9 || wy + winH / 2 > topY - 0.3)) continue;
           // il portone sta al centro della facciata nobile: niente finestra lì
-          if (f === 0 && index === 0 && Math.abs(off) < 1.25) continue;
+          if (f === 0 && side.index === ground.frontEdge && Math.abs(off) < 1.25) continue;
           // il balcone occupa il centro della facciata al piano intermedio
           if (
             hasBalcony &&
-            index === 0 &&
+            side.index === ground.frontEdge &&
+            balconyY !== null &&
             Math.abs(wy - balconyY) < floorH * 0.55 &&
             Math.abs(off) < side.len * 0.3
           ) {
@@ -658,7 +818,7 @@ function buildOne(
 
   // balconi solo sulle case a due piani con facciata abbastanza lunga
   if (hasBalcony) {
-    if (edge && edge.len > 4) {
+    if (edge && edge.len > 4 && !isParty(edge.index)) {
       const ex = edge.ex;
       const ez = edge.ez;
       const nx = edge.nx;
@@ -668,7 +828,8 @@ function buildOne(
       const angle = edge.angle;
       const slabW = edge.len * 0.55;
       const depth = 0.95;
-      const y = base + b.height * 0.46;
+      // primo piano sopra la strada: 2,8–3,2 m di quota, mai il marciapiede
+      const y = ground.balconyY!;
       const px = mx + nx * (depth / 2 + 0.05);
       const pz = mz + nz * (depth / 2 + 0.05);
       trim.push(solidBox(slabW, 0.14, depth, px, y, pz, stone, angle));
@@ -718,11 +879,15 @@ export function buildBuildings(
   /** finestre accese: vetro emissivo, pilotato da `setWindowGlow` */
   const glassesLit: THREE.BufferGeometry[] = [];
 
+  // muri comuni delle schiere: due case attaccate non devono avere lo sporto
+  // della gronda dentro il tetto del vicino né finestre sul muro condiviso
+  const sharedEdges = findSharedEdges(osm.buildings.map((b) => b.points));
+
   osm.buildings.forEach((b, i) => {
     if (b.points.length < 3 || b.area < 6) return;
     const seed = i * 31 + Math.round(b.height * 10);
     try {
-      const out = buildOne(b, heights, seed, detail);
+      const out = buildOne(b, heights, seed, detail, options.roads, sharedEdges[i]);
       walls.push(out.wall);
       wallsByFamily[out.family].push(out.wall);
       roofs.push(out.roof);

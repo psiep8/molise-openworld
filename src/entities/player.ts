@@ -719,8 +719,35 @@ export class Player {
     this.velocity.x += (dx * speed - this.velocity.x) * k;
     this.velocity.z += (dz * speed - this.velocity.z) * k;
 
-    this.position.x += this.velocity.x * dt;
-    this.position.z += this.velocity.z * dt;
+    // Sotto-passi corti: a piedi non si corre, ma un frame lungo (o un futuro
+    // sprint) non deve attraversare il muro di un vicolo. Il raggio del corpo
+    // è 0,42 m; passi da 0,12 m tengono sempre un punto d'appoggio fuori.
+    const stepX = this.velocity.x * dt;
+    const stepZ = this.velocity.z * dt;
+    const travel = Math.hypot(stepX, stepZ);
+    const steps = Math.min(8, Math.max(1, Math.ceil(travel / 0.12)));
+    let blockedByPole = false;
+    for (let s = 0; s < steps; s++) {
+      this.position.x += stepX / steps;
+      this.position.z += stepZ / steps;
+      const fixed = buildings.resolveCircle(this.position.x, this.position.z, RADIUS);
+      if (fixed.hit) {
+        this.position.x = fixed.x;
+        this.position.z = fixed.z;
+      }
+      if (obstacles) {
+        const pole = obstacles.resolveCircle(this.position.x, this.position.z, RADIUS);
+        if (pole.hit) {
+          this.position.x = pole.x;
+          this.position.z = pole.z;
+          blockedByPole = true;
+        }
+      }
+    }
+    if (blockedByPole) {
+      this.velocity.x *= 0.2;
+      this.velocity.z *= 0.2;
+    }
 
     if (input.jump && this.grounded) {
       this.velocity.y = GAME.jumpSpeed;
@@ -740,22 +767,6 @@ export class Player {
         this.position.y = groundY;
         this.velocity.y = 0;
         this.grounded = true;
-      }
-    }
-
-    const fixed = buildings.resolveCircle(this.position.x, this.position.z, RADIUS);
-    if (fixed.hit) {
-      this.position.x = fixed.x;
-      this.position.z = fixed.z;
-    }
-    // un palo è solido anche a piedi: ci si appoggia, non lo si attraversa
-    if (obstacles) {
-      const pole = obstacles.resolveCircle(this.position.x, this.position.z, RADIUS);
-      if (pole.hit) {
-        this.position.x = pole.x;
-        this.position.z = pole.z;
-        this.velocity.x *= 0.2;
-        this.velocity.z *= 0.2;
       }
     }
 

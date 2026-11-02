@@ -1,6 +1,6 @@
 import { latLonToWorld, WORLD } from '../config';
 import type { Heightfield } from './elevation';
-import { boundsOf, distanceToSegment2, pointInPolygon, type Bounds, type Pt } from './geo';
+import { boundsOf, distanceToSegment2, hashInt, pointInPolygon, type Bounds, type Pt } from './geo';
 import { terrainMeshHeightAt } from './terrain-surface';
 import {
   createRoadProfile,
@@ -349,18 +349,29 @@ function ringArea(points: Pt[]): number {
 }
 
 /**
- * Altezza minima per classe di superficie.
+ * Altezza plausibile per una casa molisana quando OSM non dice i piani.
  *
- * Il generatore dei dati, quando OSM non ha `height` né `building:levels`,
- * assegna 2,8–4,2 m alle impronte sotto i 45 m²: nel gioco diventano case di un
- * piano con il portone che sembra interrato. In un centro molisano una casa è
- * di due o tre piani; i garage restano bassi.
+ * Prima c'erano soglie per area (6,4 / 7,6 / 8,6 m): tutte le case di 60 m²
+ * erano alte uguali e sembravano stampate, e un palazzo dichiarato a 12 m
+ * veniva comunque schiacciato. Ora l'altezza dichiarata sopra i 5,6 m si
+ * rispetta, e sotto quella soglia si stima dai piani con una variazione
+ * deterministica di ±1 piano, così due case uguali non sono gemelle.
  */
-function minBuildingHeight(area: number, height: number): number {
-  if (area < 24) return Math.max(height, 3.4);
-  if (area < 70) return Math.max(height, 6.4);
-  if (area < 160) return Math.max(height, 7.6);
-  return Math.max(height, 8.6);
+function plausibleBuildingHeight(area: number, height: number, seed: number): number {
+  // dichiarata (o già credibile): non si tocca
+  if (Number.isFinite(height) && height >= 5.6) return height;
+  // capannoni, stalle, annessi grandi restano bassi
+  if (area > 220) return height;
+  // garage e annessi sotto i 24 m²: un piano solo, non due
+  if (area < 24) return Math.max(height, 3.0);
+  const roll = hashInt(seed, 71) % 100;
+  const extra = roll < 34 ? -1 : roll > 86 ? 1 : 0;
+  const base = area < 45 ? 2 : area < 95 ? 2.5 : 3;
+  const maxFloors = area < 45 ? 2 : 3;
+  const floors = Math.min(maxFloors, Math.max(1, Math.round(base + extra)));
+  // piano terra un filo più alto del solaio tipo
+  const estimate = 3.15 + 3.0 * (floors - 1);
+  return Math.max(height, estimate);
 }
 
 export async function loadOsm(base = './geo/'): Promise<OsmData> {
@@ -396,10 +407,15 @@ export async function loadOsm(base = './geo/'): Promise<OsmData> {
     }
   }
 
-  const buildings: Building[] = raw.buildings.map((b) => {
+  const buildings: Building[] = raw.buildings.map((b, index) => {
     const points = project(b.c);
     const area = ringArea(points);
-    return { height: minBuildingHeight(area, b.h), points, bounds: boundsOf(points), area };
+    return {
+      height: plausibleBuildingHeight(area, b.h, index * 131 + 17),
+      points,
+      bounds: boundsOf(points),
+      area,
+    };
   });
 
   const areas: Area[] = raw.areas.map((a) => {

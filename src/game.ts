@@ -1097,7 +1097,10 @@ export class Game {
       this.hud.setLoading(0.5, 'Costruisco le case…');
       await nextFrameOrTimeout();
       this.scene.add(
-        buildBuildings(osm, heights, this.renderer, { detail: this.quality.buildingDetail }).group,
+        buildBuildings(osm, heights, this.renderer, {
+          detail: this.quality.buildingDetail,
+          roads: this.roadIndex,
+        }).group,
       );
 
       this.hud.setLoading(0.64, 'Pianto alberi e uliveti…');
@@ -1366,6 +1369,8 @@ export class Game {
       this.ground,
       this.player.position,
       count,
+      1,
+      this.buildingIndex,
     );
     this.scene.add(this.pedestrians.group);
   }
@@ -4273,6 +4278,10 @@ export class Game {
       }
       const curbImpact = this.car.consumeCurbImpact();
       if (curbImpact > 0) this.audio.impact(curbImpact * 0.55);
+      // muro contro muro: il colpo si sente come per un albero, ma non c'è
+      // nessun modello da piegare
+      const crash = this.car.consumeCrash();
+      if (crash > 0) this.audio.impact(crash);
       if (impact && this.worldHits) {
         this.worldHits.hit({
           x: impact.x,
@@ -4329,7 +4338,11 @@ export class Game {
       this.lastWorldTileX = focus.x;
       this.lastWorldTileZ = focus.z;
     }
-    this.pedestrians?.update(dt, focus);
+    this.pedestrians?.update(
+      dt,
+      focus,
+      this.mode === 'drive' ? this.car.position : undefined,
+    );
     this.terrain.update(focus.x, focus.z, this.viewRadius);
     this.vegetation?.update(focus.x, focus.z);
     this.terrain.tick();

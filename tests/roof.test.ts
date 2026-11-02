@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { clamp, pointInPolygon, type Pt } from '../src/geo/geo';
 import { latLonToWorld } from '../src/config';
-import { planHipRoof } from '../src/world/roof';
+import { offsetPolygon, planHipRoof } from '../src/world/roof';
 
 const rectangle: Pt[] = [
   { x: 0, z: 0 },
@@ -70,6 +70,45 @@ describe('planHipRoof', () => {
   it('rifiuta impronte degeneri', () => {
     expect(planHipRoof([{ x: 0, z: 0 }, { x: 1, z: 0 }], 0, 2)).toBeNull();
     expect(planHipRoof(rectangle, 0, 0)).toBeNull();
+  });
+});
+
+describe('gronda e colmo veri', () => {
+  it('lo sporto ha distanza costante da ogni lato, non scalatura dal centro', () => {
+    const ring = offsetPolygon(rectangle, 0.45)!;
+    expect(ring).toHaveLength(4);
+    const distanceToEdge = (p: Pt, a: Pt, b: Pt): number => {
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const len = Math.hypot(dx, dz);
+      return Math.abs((p.x - a.x) * dz - (p.z - a.z) * dx) / len;
+    };
+    for (const p of ring) {
+      const distances = rectangle.map((a, i) => distanceToEdge(p, a, rectangle[(i + 1) % 4]!));
+      expect(Math.min(...distances)).toBeCloseTo(0.45, 6);
+    }
+    // su un 10×20 lo sporto non è più lungo sui lati corti
+    expect(ring[1]!.x - ring[0]!.x).toBeCloseTo(10.9, 6);
+    expect(ring[2]!.z - ring[1]!.z).toBeCloseTo(20.9, 6);
+  });
+
+  it('il colmo corre lungo l’asse lungo, non è un anello scalato', () => {
+    const plan = planHipRoof(rectangle, 0, 2.9)!;
+    expect(plan.ridgeRing).toHaveLength(2);
+    // rettangolo 10 × 20: asse lungo z, colmo a x = 5
+    for (const p of plan.ridgeRing) expect(p.x).toBeCloseTo(5, 6);
+    const [a, b] = plan.ridgeRing;
+    expect(Math.abs(b!.z - a!.z)).toBeGreaterThan(5);
+    // due falde lunghe + due testate a padiglione
+    expect(plan.slopes).toHaveLength(4);
+    expect(plan.slopes[2]!.corners[2]).toEqual(plan.slopes[2]!.corners[3]);
+  });
+
+  it('l’offset negativo non degenera né produce NaN', () => {
+    const inner = offsetPolygon(rectangle, -0.6)!;
+    expect(inner.every((p) => Number.isFinite(p.x) && Number.isFinite(p.z))).toBe(true);
+    expect(inner[0]!.x).toBeCloseTo(0.6, 6);
+    expect(inner[0]!.z).toBeCloseTo(0.6, 6);
   });
 });
 
