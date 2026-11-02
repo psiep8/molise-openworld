@@ -9,9 +9,16 @@ export interface OsmWay {
   refs: number[];
 }
 
+export interface OsmTaggedNode extends GeoPoint {
+  id: number;
+  tags: Record<string, string>;
+}
+
 export interface OsmExtract {
   nodes: Map<number, GeoPoint>;
   ways: OsmWay[];
+  /** nodi con tag (POI), presenti anche nell'estratto XML */
+  taggedNodes?: OsmTaggedNode[];
 }
 
 export interface TileCoordinate {
@@ -21,7 +28,7 @@ export interface TileCoordinate {
 }
 
 export interface TileBundle {
-  schemaVersion: 1;
+  schemaVersion: 2;
   tile: TileCoordinate;
   attribution: string;
   roads: {
@@ -40,6 +47,9 @@ export interface TileBundle {
     maxspeed?: number;
   }[];
   buildings: { id: string; height: number; points: GeoPoint[] }[];
+  areas: { id: string; kind: string; name?: string; points: GeoPoint[] }[];
+  landcover: { id: string; kind: string; name?: string; points: GeoPoint[] }[];
+  pois: { id: string; kind: string; name?: string; lat: number; lon: number }[];
 }
 
 export interface BBox {

@@ -126,11 +126,12 @@ function readPackedUnsigned(buffer) {
   return values;
 }
 
-function decodeDenseNodes(buffer, table, nodes, keepNode, granularity, latOffset, lonOffset) {
+function decodeDenseNodes(buffer, table, nodes, keepNode, granularity, latOffset, lonOffset, keepTaggedNode, taggedNodes) {
   const reader = new Proto(buffer);
   let ids = null;
   let lats = null;
   let lons = null;
+  let keysVals = null;
   while (!reader.done) {
     const key = reader.varint();
     const field = key >>> 3;
@@ -138,12 +139,14 @@ function decodeDenseNodes(buffer, table, nodes, keepNode, granularity, latOffset
     if (field === 1 && wire === 2) ids = readPackedSigned(reader.bytes());
     else if (field === 8 && wire === 2) lats = readPackedSigned(reader.bytes());
     else if (field === 9 && wire === 2) lons = readPackedSigned(reader.bytes());
+    else if (field === 10 && wire === 2) keysVals = readPackedUnsigned(reader.bytes());
     else reader.skip(wire);
   }
   if (!ids || !lats || !lons || ids.length !== lats.length || ids.length !== lons.length) return;
   let id = 0;
   let lat = 0;
   let lon = 0;
+  let cursor = 0;
   for (let i = 0; i < ids.length; i++) {
     id += ids[i];
     lat += lats[i];
@@ -152,21 +155,37 @@ function decodeDenseNodes(buffer, table, nodes, keepNode, granularity, latOffset
       lat: (latOffset + granularity * lat) * NANO,
       lon: (lonOffset + granularity * lon) * NANO,
     };
+    const tags = {};
+    if (keysVals) {
+      while (cursor < keysVals.length && keysVals[cursor] !== 0) {
+        const name = table[keysVals[cursor]];
+        const value = table[keysVals[cursor + 1]];
+        if (name !== undefined && value !== undefined) tags[name] = value;
+        cursor += 2;
+      }
+      cursor++;
+    }
+    if (keepTaggedNode && Object.keys(tags).length > 0 && keepTaggedNode(tags, point)) {
+      taggedNodes.push({ id, tags, ...point });
+    }
     if (!keepNode || keepNode(point)) nodes.set(id, point);
   }
-  void table;
 }
 
-function decodeNode(buffer, table, nodes, keepNode, granularity, latOffset, lonOffset) {
+function decodeNode(buffer, table, nodes, keepNode, granularity, latOffset, lonOffset, keepTaggedNode, taggedNodes) {
   const reader = new Proto(buffer);
   let id = 0;
   let lat = 0;
   let lon = 0;
+  let keys = null;
+  let vals = null;
   while (!reader.done) {
     const key = reader.varint();
     const field = key >>> 3;
     const wire = key & 7;
-    if (field === 1 && wire === 0) id = reader.sint();
+    if (field === 1 && wire === 0) id = reader.varint();
+    else if (field === 2 && wire === 2) keys = readPackedUnsigned(reader.bytes());
+    else if (field === 3 && wire === 2) vals = readPackedUnsigned(reader.bytes());
     else if (field === 8 && wire === 0) lat = reader.sint();
     else if (field === 9 && wire === 0) lon = reader.sint();
     else reader.skip(wire);
@@ -175,8 +194,18 @@ function decodeNode(buffer, table, nodes, keepNode, granularity, latOffset, lonO
     lat: (latOffset + granularity * lat) * NANO,
     lon: (lonOffset + granularity * lon) * NANO,
   };
+  const tags = {};
+  if (keys && vals) {
+    for (let i = 0; i < keys.length && i < vals.length; i++) {
+      const name = table[keys[i]];
+      const value = table[vals[i]];
+      if (name !== undefined && value !== undefined) tags[name] = value;
+    }
+  }
+  if (keepTaggedNode && Object.keys(tags).length > 0 && keepTaggedNode(tags, point)) {
+    taggedNodes.push({ id, tags, ...point });
+  }
   if (!keepNode || keepNode(point)) nodes.set(id, point);
-  void table;
 }
 
 function decodeWay(buffer, table, ways, keepWay, nodes) {
@@ -215,7 +244,7 @@ function decodeWay(buffer, table, ways, keepWay, nodes) {
   ways.push({ id, tags, refs: resolved });
 }
 
-function decodePrimitiveBlock(buffer, nodes, ways, keepNode, keepWay) {
+function decodePrimitiveBlock(buffer, nodes, ways, keepNode, keepWay, keepTaggedNode, taggedNodes) {
   const reader = new Proto(buffer);
   let table = [];
   const groups = [];
@@ -241,9 +270,15 @@ function decodePrimitiveBlock(buffer, nodes, ways, keepNode, keepWay) {
       const field = key >>> 3;
       const wire = key & 7;
       if (field === 1 && wire === 2) {
-        decodeNode(groupReader.bytes(), table, nodes, keepNode, granularity, latOffset, lonOffset);
+        decodeNode(
+          groupReader.bytes(), table, nodes, keepNode, granularity, latOffset, lonOffset,
+          keepTaggedNode, taggedNodes,
+        );
       } else if (field === 2 && wire === 2) {
-        decodeDenseNodes(groupReader.bytes(), table, nodes, keepNode, granularity, latOffset, lonOffset);
+        decodeDenseNodes(
+          groupReader.bytes(), table, nodes, keepNode, granularity, latOffset, lonOffset,
+          keepTaggedNode, taggedNodes,
+        );
       } else if (field === 3 && wire === 2) {
         decodeWay(groupReader.bytes(), table, ways, keepWay, nodes);
       } else {
@@ -258,13 +293,17 @@ function decodePrimitiveBlock(buffer, nodes, ways, keepNode, keepWay) {
  *
  * - `keepNode(point)`: scarta i nodi fuori dall'area di interesse (fondamentale
  *   su un estratto regionale: sono decine di milioni);
- * - `keepWay(tags)`: tiene solo le way che servono (strade, edifici).
+ * - `keepWay(tags)`: tiene solo le way che servono (strade, edifici, aree);
+ * - `keepTaggedNode(tags, point)`: raccoglie i nodi con tag utili (POI) senza
+ *   tenerli tutti in memoria.
  */
 export function decodeOsmPbf(buffer, options = {}) {
   const nodes = new Map();
   const ways = [];
+  const taggedNodes = [];
   const keepNode = options.keepNode;
   const keepWay = options.keepWay;
+  const keepTaggedNode = options.keepTaggedNode;
   let offset = 0;
   let blocks = 0;
   while (offset + 4 <= buffer.length) {
@@ -279,7 +318,9 @@ export function decodeOsmPbf(buffer, options = {}) {
     blocks++;
     if (header.type !== 'OSMData') continue;
     try {
-      decodePrimitiveBlock(readBlob(blob), nodes, ways, keepNode, keepWay);
+      decodePrimitiveBlock(
+        readBlob(blob), nodes, ways, keepNode, keepWay, keepTaggedNode, taggedNodes,
+      );
     } catch (error) {
       // file troncato (download parziale o estratto tagliato): ci si ferma al
       // ultimo blocco completo invece di restituire dati a metà
@@ -287,5 +328,5 @@ export function decodeOsmPbf(buffer, options = {}) {
       break;
     }
   }
-  return { nodes, ways, blocks };
+  return { nodes, ways, blocks, taggedNodes };
 }

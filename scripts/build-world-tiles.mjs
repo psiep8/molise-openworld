@@ -17,8 +17,9 @@
  * regola di `ownsFeature` nel client: così i bundle possono contenere la stessa
  * way su più tile senza che venga disegnata due volte.
  *
- * Solo strade e edifici: aree, copertura del suolo e POI richiedono lo schema
- * v2 e il supporto di rendering, che arriveranno dopo.
+ * Schema v2: oltre a strade ed edifici scrive aree (acqua, abitato, cave),
+ * copertura del suolo (boschi, prati, coltivi) e POI dai nodi con tag.
+ * Il client accetta anche i vecchi bundle v1 (senza i tre nuovi elenchi).
  */
 import { mkdir, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
@@ -48,6 +49,47 @@ const ROAD_WIDTH = {
   cycleway: 2.5,
   bridleway: 2.5,
 };
+
+/** Tag OSM che diventano superfici. `landcover` = tinta del terreno. */
+const AREA_KINDS = {
+  'natural=water': { kind: 'water', landcover: false },
+  'waterway=riverbank': { kind: 'water', landcover: false },
+  'landuse=reservoir': { kind: 'water', landcover: false },
+  'landuse=basin': { kind: 'water', landcover: false },
+  'landuse=residential': { kind: 'residential', landcover: false },
+  'landuse=industrial': { kind: 'industrial', landcover: false },
+  'landuse=cemetery': { kind: 'cemetery', landcover: false },
+  'landuse=quarry': { kind: 'quarry', landcover: false },
+  'natural=wood': { kind: 'wood', landcover: true },
+  'landuse=forest': { kind: 'forest', landcover: true },
+  'natural=scrub': { kind: 'scrub', landcover: true },
+  'natural=heath': { kind: 'heath', landcover: true },
+  'natural=grassland': { kind: 'grassland', landcover: true },
+  'landuse=meadow': { kind: 'meadow', landcover: true },
+  'landuse=farmland': { kind: 'farmland', landcover: true },
+  'landuse=orchard': { kind: 'orchard', landcover: true },
+  'landuse=vineyard': { kind: 'vineyard', landcover: true },
+  'leisure=park': { kind: 'park', landcover: true },
+  'natural=beach': { kind: 'beach', landcover: true },
+};
+const POI_TAGS = ['amenity', 'tourism', 'shop', 'historic', 'leisure', 'place', 'man_made'];
+
+function areaKind(tags) {
+  for (const key of ['natural', 'landuse', 'leisure', 'waterway']) {
+    const value = tags[key];
+    if (!value) continue;
+    const found = AREA_KINDS[`${key}=${value}`];
+    if (found) return found;
+  }
+  return null;
+}
+
+function poiKind(tags) {
+  for (const key of POI_TAGS) {
+    if (tags[key]) return tags[key];
+  }
+  return null;
+}
 
 const PAVED_SURFACES = new Set(['asphalt', 'concrete', 'concrete:plates', 'paved', 'paving_stones', 'cobblestone']);
 const UNPAVED_SURFACES = new Set(['unpaved', 'gravel', 'fine_gravel', 'dirt', 'earth', 'grass', 'ground', 'sand']);
@@ -93,6 +135,7 @@ function attributes(text) {
  */
 export function parseOsmXml(xml) {
   const nodes = new Map();
+  const taggedNodes = [];
   const nodeRe = /<node\b([^>]*?)\/?>/g;
   let match;
   while ((match = nodeRe.exec(xml))) {
@@ -103,6 +146,24 @@ export function parseOsmXml(xml) {
     if (Number.isFinite(id) && Number.isFinite(lat) && Number.isFinite(lon)) {
       nodes.set(id, { lat, lon });
     }
+  }
+
+  // nodi con tag (POI): nell'XML hanno figli <tag>, non sono self-closing
+  const nodeBlockRe = /<node\b([^>]*)>([\s\S]*?)<\/node>/g;
+  while ((match = nodeBlockRe.exec(xml))) {
+    const a = attributes(match[1]);
+    const id = Number(a.id);
+    const lat = Number(a.lat);
+    const lon = Number(a.lon);
+    if (!Number.isFinite(id) || !Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    const tags = {};
+    const tagRe = /<tag\b([^>]*?)\/?>/g;
+    let tag;
+    while ((tag = tagRe.exec(match[2]))) {
+      const t = attributes(tag[1]);
+      if (t.k) tags[t.k] = t.v ?? '';
+    }
+    if (Object.keys(tags).length > 0) taggedNodes.push({ id, tags, lat, lon });
   }
 
   const ways = [];
@@ -127,7 +188,7 @@ export function parseOsmXml(xml) {
     const id = Number(head.id);
     if (Number.isFinite(id) && refs.length >= 2) ways.push({ id, tags, refs });
   }
-  return { nodes, ways };
+  return { nodes, ways, taggedNodes };
 }
 
 function inside(point, bbox) {
@@ -212,7 +273,16 @@ export function buildTiles(extract, options = {}) {
     const key = `${tile.z}/${tile.x}/${tile.y}`;
     let bundle = tiles.get(key);
     if (!bundle) {
-      bundle = { schemaVersion: 1, tile, attribution, roads: [], buildings: [] };
+      bundle = {
+        schemaVersion: 2,
+        tile,
+        attribution,
+        roads: [],
+        buildings: [],
+        areas: [],
+        landcover: [],
+        pois: [],
+      };
       tiles.set(key, bundle);
     }
     return bundle;
@@ -232,7 +302,8 @@ export function buildTiles(extract, options = {}) {
     const tags = way.tags;
     const isBuilding = Boolean(tags.building) && tags.building !== 'no';
     const isRoad = Boolean(tags.highway) && ROAD_WIDTH[tags.highway] !== undefined;
-    if (!isBuilding && !isRoad) continue;
+    const area = areaKind(tags);
+    if (!isBuilding && !isRoad && !area) continue;
     const points = coordsOf(way);
     if (!points) continue;
 
@@ -249,10 +320,34 @@ export function buildTiles(extract, options = {}) {
         height: buildingHeight(tags),
         points,
       });
-    } else {
+    } else if (isRoad) {
       if (bbox && !inside(points[0], bbox)) continue;
       tileFor(points[0]).roads.push(roadFeature(way, points));
+    } else if (area) {
+      if (points.length < 4) continue;
+      const first = points[0];
+      const last = points[points.length - 1];
+      if (first.lat !== last.lat || first.lon !== last.lon) continue;
+      points.pop();
+      if (points.length < 3 || ringArea(points) < 6) continue;
+      // le superfici grandi possono entrare nel bbox con un angolo: si tengono
+      // se almeno un vertice è dentro, l'owner resta il tile del primo punto
+      if (bbox && !points.some((point) => inside(point, bbox))) continue;
+      const feature = { id: `way/${way.id}`, kind: area.kind, points };
+      if (tags.name) feature.name = tags.name;
+      const bundle = tileFor(first);
+      (area.landcover ? bundle.landcover : bundle.areas).push(feature);
     }
+  }
+
+  for (const node of extract.taggedNodes ?? []) {
+    const kind = poiKind(node.tags);
+    if (!kind) continue;
+    const point = { lat: node.lat, lon: node.lon };
+    if (bbox && !inside(point, bbox)) continue;
+    const feature = { id: `node/${node.id}`, kind, lat: node.lat, lon: node.lon };
+    if (node.tags.name) feature.name = node.tags.name;
+    tileFor(point).pois.push(feature);
   }
 
   return tiles;
@@ -307,12 +402,15 @@ export function readExtract(file, bbox = null) {
     keepNode: keep ? (point) => inside(point, keep) : undefined,
     keepWay: (tags, refs, nodes) => {
       const useful =
-        (Boolean(tags.building) && tags.building !== 'no') || Boolean(tags.highway);
+        (Boolean(tags.building) && tags.building !== 'no') ||
+        Boolean(tags.highway) ||
+        areaKind(tags) !== null;
       if (!useful) return false;
       if (!bbox) return true;
       // senza almeno un nodo tenuto la way è fuori dall'area: scartarla subito
       return refs.some((ref) => nodes.has(ref));
     },
+    keepTaggedNode: (tags) => poiKind(tags) !== null,
   });
 }
 
@@ -344,10 +442,14 @@ async function main() {
   const tiles = buildTiles(extract, options);
   const outDir = typeof args.out === 'string' ? args.out : path.join('public', 'world-tiles');
   const result = await writeTiles(tiles, outDir);
-  const roads = [...tiles.values()].reduce((sum, tile) => sum + tile.roads.length, 0);
-  const buildings = [...tiles.values()].reduce((sum, tile) => sum + tile.buildings.length, 0);
+  const sum = (field) => [...tiles.values()].reduce((total, tile) => total + tile[field].length, 0);
+  const roads = sum('roads');
+  const buildings = sum('buildings');
+  const areas = sum('areas');
+  const landcover = sum('landcover');
+  const pois = sum('pois');
   console.log(
-    `nodi ${extract.nodes.size} · way ${extract.ways.length} · strade ${roads} · edifici ${buildings}`,
+    `nodi ${extract.nodes.size} · way ${extract.ways.length} · strade ${roads} · edifici ${buildings} · aree ${areas} · landcover ${landcover} · POI ${pois}`,
   );
   if (extract.blocks !== undefined) console.log(`blocchi PBF ${extract.blocks}`);
   console.log(`scritti ${result.files} tile (${(result.bytes / 1024 / 1024).toFixed(1)} MB) in ${outDir}`);

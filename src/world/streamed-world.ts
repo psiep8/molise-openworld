@@ -20,6 +20,7 @@ import {
   type WorldTileCoordinate,
 } from '../geo/world-tiles';
 import { buildBuildings, releaseWindowGlowMaterial } from './buildings';
+import { buildStreamedAreas, type StreamedAreaStats } from './streamed-areas';
 import type { CityKit } from './citykit';
 import { buildRoads, roadPolyline } from './roads';
 
@@ -34,6 +35,9 @@ export interface StreamedWorldStats {
   tiles: number;
   roads: number;
   buildings: number;
+  areas: number;
+  landcover: number;
+  pois: number;
   enabled: boolean;
 }
 
@@ -58,6 +62,7 @@ interface StreamedTile {
   group: THREE.Group | null;
   roadIndex: RoadIndex | null;
   windowMaterial: THREE.MeshStandardMaterial | null;
+  areaStats: StreamedAreaStats | null;
 }
 
 /**
@@ -84,11 +89,17 @@ export class StreamedWorld {
   get stats(): StreamedWorldStats {
     let roads = 0;
     let buildings = 0;
+    let areas = 0;
+    let landcover = 0;
+    let pois = 0;
     for (const tile of this.tiles.values()) {
       roads += tile.roads.length;
       buildings += tile.buildings.length;
+      areas += tile.areaStats?.areas ?? 0;
+      landcover += tile.areaStats?.landcover ?? 0;
+      pois += tile.tile.pois.length;
     }
-    return { tiles: this.tiles.size, roads, buildings, enabled: this.enabled };
+    return { tiles: this.tiles.size, roads, buildings, areas, landcover, pois, enabled: this.enabled };
   }
 
   addTile(tile: WorldDataTile): void {
@@ -121,6 +132,7 @@ export class StreamedWorld {
       group: null,
       roadIndex: null,
       windowMaterial: null,
+      areaStats: null,
     };
     this.tiles.set(key, entry);
     if (this.enabled) this.attach(entry);
@@ -180,7 +192,14 @@ export class StreamedWorld {
   }
 
   private build(entry: StreamedTile): void {
-    if (entry.roads.length === 0 && entry.buildings.length === 0) return;
+    if (
+      entry.roads.length === 0 &&
+      entry.buildings.length === 0 &&
+      entry.tile.areas.length === 0 &&
+      entry.tile.landcover.length === 0
+    ) {
+      return;
+    }
     prepareRoadElevations(entry.roads, this.options.heights);
 
     const osm: OsmData = {
@@ -218,6 +237,11 @@ export class StreamedWorld {
       const windowMaterial = buildings.group.userData.windowGlowMaterial;
       if (windowMaterial instanceof THREE.MeshStandardMaterial) entry.windowMaterial = windowMaterial;
       group.add(buildings.group);
+    }
+    if (entry.tile.areas.length || entry.tile.landcover.length) {
+      const surfaces = buildStreamedAreas(entry.tile, this.options.heights, this.localBounds);
+      entry.areaStats = surfaces.stats;
+      group.add(surfaces.group);
     }
     entry.group = group;
   }

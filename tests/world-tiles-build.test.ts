@@ -39,6 +39,25 @@ const xml = `<?xml version="1.0" encoding="UTF-8"?>
     <tag k="highway" v="track"/>
     <tag k="surface" v="gravel"/>
   </way>
+
+  <way id="15">
+    <nd ref="1"/><nd ref="2"/><nd ref="3"/><nd ref="4"/><nd ref="1"/>
+    <tag k="landuse" v="farmland"/>
+  </way>
+
+  <way id="16">
+    <nd ref="1"/><nd ref="2"/><nd ref="4"/><nd ref="1"/>
+    <tag k="natural" v="water"/>
+  </way>
+
+  <node id="7" lat="41.8906" lon="14.7856">
+    <tag k="amenity" v="cafe"/>
+    <tag k="name" v="Bar Centrale"/>
+  </node>
+  <node id="8" lat="41.8907" lon="14.7857">
+    <tag k="place" v="village"/>
+    <tag k="name" v="Palata"/>
+  </node>
 </osm>`;
 
 const attribution = '© OpenStreetMap contributors (ODbL)';
@@ -46,8 +65,9 @@ const attribution = '© OpenStreetMap contributors (ODbL)';
 describe('generatore di tile geografici', () => {
   it('legge nodi, way e tag dell’estratto OSM', () => {
     const extract = parseOsmXml(xml);
-    expect(extract.nodes.size).toBe(6);
-    expect(extract.ways).toHaveLength(5);
+    expect(extract.nodes.size).toBe(8);
+    expect(extract.taggedNodes).toHaveLength(2);
+    expect(extract.ways).toHaveLength(7);
     expect(extract.ways[0]?.tags.highway).toBe('secondary');
     expect(extract.ways[0]?.refs).toEqual([1, 2]);
   });
@@ -56,7 +76,22 @@ describe('generatore di tile geografici', () => {
     const tiles = buildTiles(parseOsmXml(xml), { zoom: 14, attribution });
     expect(tiles.size).toBe(2);
     const bundles = [...tiles.values()];
-    expect(bundles.every((bundle) => bundle.schemaVersion === 1)).toBe(true);
+    expect(bundles.every((bundle) => bundle.schemaVersion === 2)).toBe(true);
+  });
+
+  it('scrive aree, copertura del suolo e POI nello schema 2', () => {
+    const tiles = buildTiles(parseOsmXml(xml), { zoom: 14, attribution });
+    const bundles = [...tiles.values()];
+    expect(bundles.flatMap((tile) => tile.areas).map((area) => area.kind)).toEqual(['water']);
+    expect(bundles.flatMap((tile) => tile.landcover).map((area) => area.kind)).toEqual([
+      'farmland',
+    ]);
+    const pois = bundles.flatMap((tile) => tile.pois);
+    expect(pois.map((poi) => poi.kind).sort()).toEqual(['cafe', 'village']);
+    expect(pois.find((poi) => poi.kind === 'cafe')?.name).toBe('Bar Centrale');
+    for (const bundle of bundles) {
+      expect(() => parseWorldDataTile(JSON.stringify(bundle), bundle.tile)).not.toThrow();
+    }
   });
 
   it('mappa classi stradali, larghezze e superfici', () => {

@@ -39,6 +39,22 @@ export interface GeoBuildingFeature {
   points: GeoPoint[];
 }
 
+export interface GeoAreaFeature {
+  id: string;
+  kind: string;
+  name?: string;
+  /** anello esterno in WGS84, senza punto di chiusura duplicato */
+  points: GeoPoint[];
+}
+
+export interface GeoPoiFeature {
+  id: string;
+  kind: string;
+  name?: string;
+  lat: number;
+  lon: number;
+}
+
 export interface GeoElevationGrid {
   minLon: number;
   maxLon: number;
@@ -51,12 +67,16 @@ export interface GeoElevationGrid {
 }
 
 export interface WorldDataTile {
-  schemaVersion: 1;
+  /** 1 = solo strade/edifici; 2 = aggiunge aree, copertura del suolo e POI */
+  schemaVersion: 1 | 2;
   tile: WorldTileCoordinate;
   attribution: string;
   elevation?: GeoElevationGrid;
   roads: GeoRoadFeature[];
   buildings: GeoBuildingFeature[];
+  areas: GeoAreaFeature[];
+  landcover: GeoAreaFeature[];
+  pois: GeoPoiFeature[];
 }
 
 export interface WorldDataTileProvider {
@@ -286,9 +306,10 @@ export function parseWorldDataTile(json: string, expected: WorldTileCoordinate):
   } catch (error) {
     throw new Error(`tile ${tileKey(expected)}: JSON non valido`, { cause: error });
   }
-  if (!isRecord(value) || value.schemaVersion !== 1 || !isRecord(value.tile)) {
-    throw new Error(`tile ${tileKey(expected)}: schemaVersion 1 richiesto`);
+  if (!isRecord(value) || (value.schemaVersion !== 1 && value.schemaVersion !== 2) || !isRecord(value.tile)) {
+    throw new Error(`tile ${tileKey(expected)}: schemaVersion 1 o 2 richiesto`);
   }
+  const schemaVersion = value.schemaVersion;
   const actual = value.tile;
   if (actual.z !== expected.z || actual.x !== expected.x || actual.y !== expected.y) {
     throw new Error(`tile ${tileKey(expected)}: coordinate tile discordanti`);
@@ -302,17 +323,72 @@ export function parseWorldDataTile(json: string, expected: WorldTileCoordinate):
 
   const roads = value.roads.map((road, index) => parseRoad(road, expected, index));
   const buildings = value.buildings.map((building, index) => parseBuilding(building, expected, index));
+  const areas = featureArray(value.areas, 'areas', expected).map((area, index) =>
+    parseArea(area, expected, index, 'area'),
+  );
+  const landcover = featureArray(value.landcover, 'landcover', expected).map((area, index) =>
+    parseArea(area, expected, index, 'landcover'),
+  );
+  const pois = featureArray(value.pois, 'pois', expected).map((poi, index) =>
+    parsePoi(poi, expected, index),
+  );
   const elevation =
     value.elevation === undefined ? undefined : parseElevation(value.elevation, expected);
 
   return {
-    schemaVersion: 1,
+    schemaVersion,
     tile: { z: expected.z, x: expected.x, y: expected.y },
     attribution: value.attribution,
     roads,
     buildings,
+    areas,
+    landcover,
+    pois,
     ...(elevation ? { elevation } : {}),
   };
+}
+
+function featureArray(value: unknown, field: string, tile: WorldTileCoordinate): unknown[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new Error(`tile ${tileKey(tile)}: ${field} deve essere un array`);
+  }
+  return value;
+}
+
+function parseArea(
+  value: unknown,
+  tile: WorldTileCoordinate,
+  index: number,
+  label: string,
+): GeoAreaFeature {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== 'string' ||
+    typeof value.kind !== 'string' ||
+    value.kind.trim() === '' ||
+    !Array.isArray(value.points) ||
+    value.points.length < 3
+  ) {
+    throw new Error(`tile ${tileKey(tile)}: ${label} ${index} non valida`);
+  }
+  const area: GeoAreaFeature = {
+    id: value.id,
+    kind: value.kind,
+    points: value.points.map((point) => parseGeoPoint(point, tile)),
+  };
+  if (typeof value.name === 'string') area.name = value.name;
+  return area;
+}
+
+function parsePoi(value: unknown, tile: WorldTileCoordinate, index: number): GeoPoiFeature {
+  if (!isRecord(value) || typeof value.id !== 'string' || typeof value.kind !== 'string') {
+    throw new Error(`tile ${tileKey(tile)}: POI ${index} non valido`);
+  }
+  const point = parseGeoPoint(value, tile);
+  const poi: GeoPoiFeature = { id: value.id, kind: value.kind, lat: point.lat, lon: point.lon };
+  if (typeof value.name === 'string') poi.name = value.name;
+  return poi;
 }
 
 function parseRoad(value: unknown, tile: WorldTileCoordinate, index: number): GeoRoadFeature {

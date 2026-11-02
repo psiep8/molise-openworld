@@ -147,6 +147,54 @@ describe('parseWorldDataTile', () => {
     elevation.values[0] = 32_768;
     expect(() => parseWorldDataTile(JSON.stringify(invalid), tile)).toThrow('griglia DEM non valida');
   });
+
+  it('legge aree, copertura del suolo e POI dello schema 2', () => {
+    const base = JSON.parse(payload(tile)) as Record<string, unknown>;
+    const ring = [
+      { lat: 41.9, lon: 14.7 },
+      { lat: 41.9, lon: 14.701 },
+      { lat: 41.901, lon: 14.701 },
+      { lat: 41.901, lon: 14.7 },
+    ];
+    const parsed = parseWorldDataTile(
+      JSON.stringify({
+        ...base,
+        schemaVersion: 2,
+        areas: [{ id: 'way/10', kind: 'water', points: ring }],
+        landcover: [{ id: 'way/11', kind: 'wood', name: 'Bosco', points: ring }],
+        pois: [{ id: 'node/7', kind: 'cafe', name: 'Bar', lat: 41.9, lon: 14.7 }],
+      }),
+      tile,
+    );
+    expect(parsed.schemaVersion).toBe(2);
+    expect(parsed.areas[0]?.kind).toBe('water');
+    expect(parsed.landcover[0]?.name).toBe('Bosco');
+    expect(parsed.pois[0]?.kind).toBe('cafe');
+  });
+
+  it('accetta ancora i bundle v1 e li completa con elenchi vuoti', () => {
+    const parsed = parseWorldDataTile(payload(tile), tile);
+    expect(parsed.schemaVersion).toBe(1);
+    expect(parsed.areas).toEqual([]);
+    expect(parsed.landcover).toEqual([]);
+    expect(parsed.pois).toEqual([]);
+  });
+
+  it('rifiuta aree senza anello e POI senza coordinate', () => {
+    const base = JSON.parse(payload(tile)) as Record<string, unknown>;
+    expect(() =>
+      parseWorldDataTile(
+        JSON.stringify({ ...base, schemaVersion: 2, areas: [{ id: 'x', kind: '', points: [] }] }),
+        tile,
+      ),
+    ).toThrow('area 0 non valida');
+    expect(() =>
+      parseWorldDataTile(
+        JSON.stringify({ ...base, schemaVersion: 2, pois: [{ id: 'node/1', kind: 'cafe' }] }),
+        tile,
+      ),
+    ).toThrow('coordinata WGS84 non valida');
+  });
 });
 
 describe('WorldTileManager', () => {
