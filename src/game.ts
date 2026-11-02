@@ -14,7 +14,7 @@ function nearPolygon(x: number, z: number, points: readonly Pt[], margin: number
 }
 import { loadCanopy, type CanopyField } from './geo/canopy';
 import { loadHeightfield, type Heightfield } from './geo/elevation';
-import { OPEN_WORLD_DATA_PROVIDER, tileKey, WorldTileManager } from './geo/world-tiles';
+import { OPEN_WORLD_DATA_PROVIDER, prefetchPoint, tileKey, WorldTileManager } from './geo/world-tiles';
 import { WorldGround } from './geo/ground';
 import {
   BuildingIndex,
@@ -597,6 +597,12 @@ export class Game {
   private viewRadius = VIEW_RADIUS;
   /** true quando il giocatore è oltre il DEM/OSM dettagliato (nessun muro: solo un avviso) */
   private outsideDetail = false;
+  /**
+   * Refresh del terreno chiesto dalle quote in arrivo: uno solo ogni 250 ms.
+   * Un refresh per tile arrivata ricostruiva tutte le normal map quattro volte
+   * di fila e si sentiva come uno scatto.
+   */
+  private elevationRefreshDue = 0;
   /** montagne lontane oltre il DEM (null finché il mondo non è caricato) */
   private farTerrain: FarTerrain | null = null;
   private weatherFxOn = true;
@@ -1245,7 +1251,7 @@ export class Game {
           onLoad: (tile) => {
             if (tile.elevation) {
               this.heights.setStreamedTile(tileKey(tile.tile), tile.elevation);
-              this.terrain.refreshElevation();
+              this.requestElevationRefresh();
             }
             try {
               this.streamedWorld?.addTile(tile);
@@ -1259,7 +1265,7 @@ export class Game {
           },
           onUnload: (tile) => {
             this.streamedWorld?.removeTile(tile);
-            if (this.heights.removeStreamedTile(tileKey(tile))) this.terrain.refreshElevation();
+            if (this.heights.removeStreamedTile(tileKey(tile))) this.requestElevationRefresh();
           },
           onError: (tile, error) => {
             this.tileErrors++;
@@ -2073,6 +2079,11 @@ export class Game {
       if (document.pointerLockElement) document.exitPointerLock();
       this.hud.setBalance(this.wallet);
     }
+  }
+
+  /** Uno solo refresh del terreno per raffica di tile: vedi `elevationRefreshDue`. */
+  private requestElevationRefresh(): void {
+    if (this.elevationRefreshDue === 0) this.elevationRefreshDue = performance.now() + 250;
   }
 
   private saveGame(): void {
@@ -4335,10 +4346,21 @@ export class Game {
     if (
       this.worldTileManager &&
       (Number.isNaN(this.lastWorldTileX) ||
-        Math.hypot(focus.x - this.lastWorldTileX, focus.z - this.lastWorldTileZ) >= 600)
+        Math.hypot(focus.x - this.lastWorldTileX, focus.z - this.lastWorldTileZ) >= 500)
     ) {
-      const location = worldToLatLon(focus.x, focus.z);
-      this.worldTileManager.update(location.lat, location.lon, 1700, 14);
+      // si chiedono i tile davanti al giocatore, non solo intorno: a 100 km/h
+      // il bordo del mondo caricato arrivava prima del terreno
+      const vx =
+        this.mode === 'drive'
+          ? -Math.sin(this.car.state.yaw) * this.car.state.speed
+          : this.player.velocity.x;
+      const vz =
+        this.mode === 'drive'
+          ? -Math.cos(this.car.state.yaw) * this.car.state.speed
+          : this.player.velocity.z;
+      const ahead = prefetchPoint(focus.x, focus.z, vx, vz);
+      const location = worldToLatLon(ahead.x, ahead.z);
+      this.worldTileManager.update(location.lat, location.lon, 2200, 14);
       this.lastWorldTileX = focus.x;
       this.lastWorldTileZ = focus.z;
     }
@@ -4350,6 +4372,10 @@ export class Game {
     this.terrain.update(focus.x, focus.z, this.viewRadius);
     this.vegetation?.update(focus.x, focus.z);
     this.terrain.tick();
+    if (this.elevationRefreshDue !== 0 && performance.now() >= this.elevationRefreshDue) {
+      this.elevationRefreshDue = 0;
+      this.terrain.refreshElevation();
+    }
     // l'anello lontano parte appena fuori dai chunk caricati
     this.farTerrain?.setInnerRadius(this.viewRadius * 0.7);
     this.farTerrain?.update(focus.x, focus.z);

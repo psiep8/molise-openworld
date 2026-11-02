@@ -3,12 +3,36 @@ import { OpenRasterTileCache } from '../src/world/tile-cache';
 import {
   createWorldDataTileProvider,
   parseWorldDataTile,
+  prefetchPoint,
   tileAt,
   tileKey,
   tilesAround,
   WorldTileManager,
   type WorldTileCoordinate,
 } from '../src/geo/world-tiles';
+
+describe('prefetchPoint', () => {
+  it('da fermo resta sul giocatore', () => {
+    expect(prefetchPoint(10, 20, 0, 0)).toEqual({ x: 10, z: 20 });
+  });
+
+  it('precede il moto della distanza percorsa nell’orizzonte', () => {
+    const point = prefetchPoint(0, 0, 30, 0, 2, 900);
+    expect(point.x).toBeCloseTo(60, 6);
+    expect(point.z).toBeCloseTo(0, 6);
+  });
+
+  it('limita l’anticipo massimo', () => {
+    // 50 m/s per 20 s sarebbero 1 km: il tetto lo ferma a 400 m
+    const point = prefetchPoint(0, 0, 0, -50, 20, 400);
+    expect(point.z).toBeCloseTo(-400, 6);
+    expect(point.x).toBeCloseTo(0, 6);
+  });
+
+  it('ignora velocità non finite', () => {
+    expect(prefetchPoint(1, 2, Number.NaN, 3)).toEqual({ x: 1, z: 2 });
+  });
+});
 
 function payload(tile: WorldTileCoordinate): string {
   return JSON.stringify({

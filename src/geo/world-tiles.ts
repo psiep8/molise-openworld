@@ -106,6 +106,28 @@ export function tileKey(tile: WorldTileCoordinate): string {
   return `${tile.z}/${tile.x}/${tile.y}`;
 }
 
+/**
+ * Centro verso cui chiedere i tile: spostato in avanti lungo il moto.
+ *
+ * Chiedendo i tile intorno al giocatore, a 100 km/h il caricamento arriva
+ * sempre "dietro" l'auto e il bordo del mondo caricato si vede. Con un
+ * orizzonte di pochi secondi il prefetch precede il veicolo, con un tetto in
+ * metri per non scaricare mezza provincia quando si viaggia in autostrada.
+ */
+export function prefetchPoint(
+  x: number,
+  z: number,
+  vx: number,
+  vz: number,
+  horizonSeconds = 3,
+  maxLead = 900,
+): { x: number; z: number } {
+  const speed = Math.hypot(vx, vz);
+  if (!Number.isFinite(speed) || speed < 0.5) return { x, z };
+  const lead = Math.min(Math.max(0, maxLead), speed * Math.max(0, horizonSeconds));
+  return { x: x + (vx / speed) * lead, z: z + (vz / speed) * lead };
+}
+
 export function tilesAround(
   lat: number,
   lon: number,
