@@ -32,10 +32,10 @@
 
 - **Casa / garage** (`T` oppure dal menu): scegli un edificio reale del paese come base; il segnalibro resta su minimappa e mappa grande, l'auto si parcheggia lì e con `L` ci torni quando vuoi.
 - **Colore carrozzeria**: dieci tinte, ricordate veicolo per veicolo; si cambiano dal menu o dal garage.
-- **Personaggio personalizzabile** (`P`): sesso, altezza 1,50–2,00 m, corporatura, carnagione, capelli (stile e colore), barba e outfit — casual, elegante, formale, tuta, campagna, sportivo, hippie — con tre varianti di tono. Il rig si ricostruisce al volo mantenendo posizione e animazioni.
+- **Personaggio** (`P`): X Bot riggato, con altezza e corporatura configurabili. Le varianti GLB di capelli maschili/femminili vengono scelte casualmente per personaggio; il modello X Bot è condiviso dalle selezioni uomo/donna.
 - **Stereo affiancato** (`Y`): due viewport con camere separate di 6,5 cm, per visori o visione incrociata.
 - **Erba a istanze** intorno al giocatore: fino a 180.000 ciuffi con lame sottili, dimensioni variabili e sterpaglia alta in macchia e sui margini rurali (densità legata al preset, strade ed edifici esclusi).
-- **Personaggio con scheletro**: rig umanoide a 21 ossa, clip idle/camminata/corsa e due clip additive (salto e caduta) sommate alla camminata. Testa a misura umana con zigomi, palpebre, occhi con iride e pupilla, capelli con attaccatura sulla fronte, colletto, cintura, polsini, bottoni, tasche e lacci; pelle e tessuto con normal map procedurali.
+- **Personaggio con scheletro**: X Bot con scheletro Mixamo e clip FBX di idle, camminata/corse, strafe, salite, svolte, salto, ingresso/uscita dall'auto e guida, collegate al movimento e alle transizioni di gioco. Le FBX e i GLB dei capelli sono versionati nel repository e arrivano con `git pull`.
 - **Radar satellite reale** in minimappa e mappa grande, con strade OSM evidenziate sopra la foto aerea (`V` per passare alla mappa vettoriale).
 - **Strade** ricostruite da OpenStreetMap e drappeggiate sul rilievo (asfalto e sterrati, larghezze per tipo), con curve **smussate in continuo** (`smoothPolyline`), tratteggio di mezzeria, **attraversamenti pedonali** con linea di arresto, marciapiedi larghi 1,15–1,45 m e **cordolo a 18 cm** con faccia verticale.
 - **Segnaletica e arredo urbano**: STOP, dare precedenza e limite 50 su palo zincato (facce disegnate su canvas, nessun asset), panche in legno e ferro.
@@ -340,11 +340,12 @@ npm run worldkit -- --file=grass # un solo file sorgente
 - **Immagini stradali (opzionale)** — non ancora usate. `npm run streets` conta quante strade dei cinque comuni hanno una foto entro 50 m: interroga **Panoramax** (API pubblica, nessun account) e, se impostato `MAPILLARY_TOKEN` (gratuito, CC BY-SA 4.0), anche Mapillary. Al 21/10/2026 Panoramax non ha foto nel bbox: la copertura Mapillary è l'unica da verificare.
 - **Meteo** — Open-Meteo, dati CC BY 4.0, senza chiave API. Usato solo se attivi
   "Meteo reale"; il sole è calcolato in locale e non dipende dal servizio.
-- **Personaggi** — corpi e animazioni da [Ready Player Me Animation Library](https://github.com/readyplayerme/animation-library):
+- **Anteprima Posecode** — corpi e animazioni da [Ready Player Me Animation Library](https://github.com/readyplayerme/animation-library):
   corpi di riferimento `Masculine_TPose` / `Feminine_TPose` e clip di motion capture
   (idle, camminata, corsa). La licenza concede uso personale e commerciale **con avatar
   Ready Player Me**, vieta di ridistribuire le animazioni come asset a sé stanti.
-  Dettagli in `public/models/ATTRIBUTION.md`.
+  Il corpo animato in gioco usa invece X Bot e le clip FBX fornite dal proprietario
+  dal Locomotion Pack Mixamo; dettagli e avvertenze in `public/models/ATTRIBUTION.md`.
 - **World kit** — vegetazione, sassi, cartelli e una casa di campagna forniti dal proprietario: 36 modelli Sketchfab **CC BY 4.0**, **CC BY-SA 4.0** e (uno solo, non piazzato) **CC BY-NC 4.0**, ottimizzati e **versionati** in `public/worldkit/`. Crediti per modello in [`public/worldkit/ATTRIBUTION.md`](public/worldkit/ATTRIBUTION.md), generati dai metadati dei GLB. Tre file dello zip usano **Sketchfab Standard** e non sono nel repository. Se il progetto diventa commerciale va sostituito *Via S. Gemini* (BY-NC). Dettagli: [docs/WORLDKIT.md](docs/WORLDKIT.md).
 - **City kit (threejsassets.com)** — 38 modelli free del pack *Realistic City* e dei pack
   low-poly (strade, arredo, alberi, case coloniche, auto). Licenza **Free Commercial**:

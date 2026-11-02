@@ -5,7 +5,7 @@ import type { ObstacleIndex } from '../geo/obstacles';
 import type { BuildingIndex } from '../geo/osm';
 import { clamp } from '../geo/geo';
 import { fabricNormal, skinNormal } from '../gfx/detail-textures';
-import { HumanBody, type HumanAssets } from './human-model';
+import { HumanBody, type HumanAction, type HumanAssets } from './human-model';
 import {
   blendLocomotion,
   footHeights,
@@ -74,7 +74,7 @@ export class Player {
   /** corpo umano rigged; finché è null vale il rig procedurale */
   private body: HumanBody | null = null;
   private humanAssets: HumanAssets | null = null;
-  /** true quando in scena c'è il rig procedurale, da smaltire al primo GLB */
+  /** true quando in scena c'è il rig procedurale, da smaltire al primo modello rigged */
   private proceduralBuilt = false;
   private walkPhase = 0;
   private bob = 0;
@@ -82,6 +82,9 @@ export class Player {
   private weights: LocomotionWeights = { idle: 1, walk: 0, run: 0 };
   private tiltPitch = 0;
   private tiltRoll = 0;
+  private lastAnimationYaw = 0;
+  private turnAccum = 0;
+  private turnQuiet = 0;
   /** quanto la media dei due piedi sta sotto/sopra la quota al centro */
   private footOffset = 0;
   private seat = 0;
@@ -104,7 +107,7 @@ export class Player {
   }
 
   /**
-   * Passa dal rig procedurale al corpo umano vero (GLB con skinning).
+   * Passa dal rig procedurale al corpo umano rigged.
    * Chiamato durante il caricamento: se i modelli non arrivano, resta il rig
    * di primitive invece di un personaggio invisibile.
    */
@@ -156,7 +159,7 @@ export class Player {
   }
 
   private disposeAvatar(): void {
-    // solo il rig procedurale possiede le sue geometrie: quelle dei GLB sono
+    // solo il rig procedurale possiede le sue geometrie: quelle del modello sono
     // condivise tra tutte le istanze e non vanno liberate qui
     if (this.body) return;
     this.avatar.traverse((obj) => {
@@ -681,6 +684,9 @@ export class Player {
     this.velocity.set(0, 0, 0);
     this.yaw = yaw;
     this.pitch = 0;
+    this.lastAnimationYaw = yaw;
+    this.turnAccum = 0;
+    this.turnQuiet = 0;
     this.grounded = true;
     this.walkPhase = 0;
     this.bob = 0;
@@ -771,7 +777,7 @@ export class Player {
     }
 
     const horizontalSpeed = Math.hypot(this.velocity.x, this.velocity.z);
-    this.updateAnimation(dt, horizontalSpeed, ground);
+    this.updateAnimation(dt, horizontalSpeed, ground, input);
     this.syncMesh();
   }
 
@@ -781,13 +787,49 @@ export class Player {
     this.body?.setSeatProgress(this.seat);
   }
 
+  playAnimation(action: HumanAction, duration?: number): void {
+    this.body?.playAction(action, duration);
+  }
+
   get seatProgress(): number {
     return this.seat;
   }
 
-  private updateAnimation(dt: number, horizontalSpeed: number, ground: GroundSampler): void {
+  private updateAnimation(
+    dt: number,
+    horizontalSpeed: number,
+    ground: GroundSampler,
+    input: MoveInput,
+  ): void {
     this.walkPhase += dt * (2.4 + horizontalSpeed * 0.9);
     this.bob = this.grounded ? Math.abs(Math.sin(this.walkPhase)) * 0.022 * clamp(horizontalSpeed / GAME.runSpeed, 0, 1) : 0;
+    const yawDelta = Math.atan2(
+      Math.sin(this.yaw - this.lastAnimationYaw),
+      Math.cos(this.yaw - this.lastAnimationYaw),
+    );
+    this.lastAnimationYaw = this.yaw;
+    if (Math.abs(yawDelta) > 0.002) {
+      this.turnAccum += yawDelta;
+      this.turnQuiet = 0;
+      if (this.grounded && this.seat === 0 && Math.abs(this.turnAccum) >= 0.85) {
+        const direction = this.turnAccum > 0 ? 'Left' : 'Right';
+        const action =
+          Math.abs(this.turnAccum) >= 2.4
+            ? 'turn180'
+            : horizontalSpeed > 0.45
+              ? direction === 'Left'
+                ? 'walkTurn'
+                : 'turnRight'
+              : direction === 'Left'
+                ? 'turnLeft'
+                : 'turnRight';
+        this.body?.playAction(action, action === 'turn180' ? 1 : 0.85);
+        this.turnAccum = 0;
+      }
+    } else {
+      this.turnQuiet += Math.max(0, dt);
+      if (this.turnQuiet > 0.3) this.turnAccum = 0;
+    }
 
     // Adattamento al terreno: inclinazione misurata sui due piedi e quota media
     // usata per appoggiare il corpo, non per farlo sprofondare a metà pendio.
@@ -817,7 +859,11 @@ export class Player {
     if (this.body) {
       this.body.setGroundTilt(this.tiltPitch, this.tiltRoll);
       this.body.setSeatProgress(this.seat);
-      this.body.update(dt, horizontalSpeed);
+      this.body.update(dt, horizontalSpeed, !this.grounded, {
+        forward: input.forward,
+        strafe: input.strafe,
+        uphill: this.grounded && this.tiltPitch > 0.28 && input.forward > 0.1,
+      });
       return;
     }
 

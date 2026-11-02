@@ -3620,7 +3620,7 @@ export class Game {
     this.carTransition = {
       kind: 'enter',
       elapsed: 0,
-      duration: 0.6,
+      duration: 1.8,
       fromX: this.player.position.x,
       fromZ: this.player.position.z,
       toX,
@@ -3629,6 +3629,7 @@ export class Game {
       toYaw: Math.atan2(-(this.car.state.x - toX), -(this.car.state.z - toZ)),
     };
     this.player.setSeatProgress(0);
+    this.player.playAnimation('enterCar', 1.8);
     this.hud.toast("Salgo in auto…", 900);
   }
 
@@ -3666,12 +3667,13 @@ export class Game {
     z = fixed.z;
     this.player.spawn(x, z, this.car.state.yaw, this.ground);
     this.player.setSeatProgress(1);
+    this.player.playAnimation('exitCar', 1.8);
     this.player.avatar.visible = this.thirdPerson;
     // Un passo fuori dalla portiera, così non si compenetra con la carrozzeria.
     this.carTransition = {
       kind: 'exit',
       elapsed: 0,
-      duration: 0.65,
+      duration: 1.8,
       fromX: x,
       fromZ: z,
       toX: x + rx * 0.9,

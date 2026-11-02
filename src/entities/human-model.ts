@@ -1,8 +1,9 @@
 import * as THREE from 'three';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { GAME } from '../config';
-import { BUILD_GIRTH, type Appearance } from './appearance';
+import { BUILD_GIRTH, outfitColors, type Appearance } from './appearance';
 import {
   blendLocomotion,
   locomotionWeights,
@@ -16,11 +17,9 @@ export { syncStridePhase } from './locomotion';
 /**
  * Personaggi umani veri.
  *
- * Niente più cilindri e sfere: qui si caricano due corpi con skinning e texture
- * da foto (scheletro Ready Player Me, ~15–20 k triangoli, pelle, capelli e
- * vestiti dipinti sulla mappa) e sei clip di motion capture — idle, camminata e
- * corsa per uomo e donna — riprese da attori veri e già ritargettizzate sulla
- * stessa riga scheletrica dei corpi.
+ * Il gioco usa il corpo X Bot con scheletro Mixamo e le clip del Locomotion
+ * Pack. Un solo rig viene condiviso come prototipo; ogni personaggio riceve
+ * una copia indipendente dello scheletro.
  *
  * Un `HumanBody` è un'istanza indipendente (scheletro clonato): geometrie e
  * texture restano una copia sola in memoria anche con venti pedoni in scena.
@@ -29,7 +28,67 @@ export { syncStridePhase } from './locomotion';
 export interface AnimSet {
   idle: THREE.AnimationClip;
   walk: THREE.AnimationClip;
+  walkVariants: readonly THREE.AnimationClip[];
   run: THREE.AnimationClip;
+  jog: THREE.AnimationClip;
+  jump: THREE.AnimationClip;
+  stairs: THREE.AnimationClip;
+  strafeLeft: THREE.AnimationClip;
+  strafeRight: THREE.AnimationClip;
+  turnLeft: THREE.AnimationClip;
+  turnRight: THREE.AnimationClip;
+  walkTurn: THREE.AnimationClip;
+  turn180: THREE.AnimationClip;
+  startWalking: THREE.AnimationClip;
+  stopWalking: THREE.AnimationClip;
+  enterCar: THREE.AnimationClip;
+  exitCar: THREE.AnimationClip;
+  driving: THREE.AnimationClip;
+}
+
+export type HumanAction =
+  | 'jump'
+  | 'turnLeft'
+  | 'turnRight'
+  | 'walkTurn'
+  | 'turn180'
+  | 'startWalking'
+  | 'stopWalking'
+  | 'enterCar'
+  | 'exitCar';
+
+export interface HumanMotion {
+  forward?: number;
+  strafe?: number;
+  uphill?: boolean;
+  driving?: boolean;
+}
+
+interface HumanFileSet {
+  body: string;
+  idle: string;
+  walk: string;
+  walkVariants: string[];
+  run: string;
+  jog: string;
+  jump: string;
+  stairs: string;
+  strafeLeft: string;
+  strafeRight: string;
+  turnLeft: string;
+  turnRight: string;
+  walkTurn: string;
+  turn180: string;
+  startWalking: string;
+  stopWalking: string;
+  enterCar: string;
+  exitCar: string;
+  driving: string;
+}
+
+interface HairAssets {
+  male: readonly THREE.Object3D[];
+  female: readonly THREE.Object3D[];
 }
 
 export interface BodySize {
@@ -44,19 +103,40 @@ export interface HumanAssets {
   readonly female: THREE.Object3D;
   readonly size: { male: BodySize; female: BodySize };
   readonly clips: { male: AnimSet; female: AnimSet };
+  readonly hair: HairAssets;
 }
 
-export const HUMAN_FILES = {
-  male: { body: 'uomo.glb', idle: 'uomo-idle.glb', walk: 'uomo-walk.glb', run: 'uomo-run.glb' },
-  female: { body: 'donna.glb', idle: 'donna-idle.glb', walk: 'donna-walk.glb', run: 'donna-run.glb' },
-} as const;
+export const HUMAN_FILES: HumanFileSet = {
+  body: 'xbot.fbx',
+  idle: 'locomotion-pack/idle.fbx',
+  walk: 'locomotion-pack/walking.fbx',
+  walkVariants: ['Walking (1).fbx', 'Walking (2).fbx', 'Walking (3).fbx', 'Walking (4).fbx'].map(
+    (file) => `locomotion-pack/${file}`,
+  ),
+  run: 'locomotion-pack/running.fbx',
+  jog: 'locomotion-pack/Jogging.fbx',
+  jump: 'locomotion-pack/Jump (2).fbx',
+  stairs: 'locomotion-pack/Walking Up The Stairs.fbx',
+  strafeLeft: 'locomotion-pack/left strafe.fbx',
+  strafeRight: 'locomotion-pack/right strafe walking.fbx',
+  turnLeft: 'locomotion-pack/left turn 90.fbx',
+  turnRight: 'locomotion-pack/Right Turn (2).fbx',
+  walkTurn: 'locomotion-pack/Walking Left Turn.fbx',
+  turn180: 'locomotion-pack/Walking Turn 180.fbx',
+  startWalking: 'locomotion-pack/Start Walking.fbx',
+  stopWalking: 'locomotion-pack/Stop Walking.fbx',
+  enterCar: 'locomotion-pack/Entering Car.fbx',
+  exitCar: 'locomotion-pack/Exiting Car.fbx',
+  driving: 'locomotion-pack/Driving.fbx',
+};
 
 const PATH_RE = /^(.+)\.(position|quaternion|scale)$/;
 
+type AnimatedFbx = THREE.Group & { animations: THREE.AnimationClip[] };
+
 /**
- * Nome osso confrontabile: il loader glTF toglie i due punti, quindi
- * "mixamorig:Hips" e "mixamorigHips" diventano "mixamorighips"; il prefisso
- * Mixamo viene eliminato per far combaciare rig diversi.
+ * Nome osso confrontabile: FBX/glTF possono rappresentare il prefisso Mixamo
+ * con o senza due punti; la normalizzazione li rende confrontabili.
  */
 function boneKey(name: string): string {
   return name
@@ -73,6 +153,42 @@ function indexBones(root: THREE.Object3D): Map<string, THREE.Object3D> {
     if (!bones.has(key)) bones.set(key, obj);
   });
   return bones;
+}
+
+function makeHair(source: THREE.Object3D, hairColor: number, materialsOwned: THREE.Material[]): THREE.Group {
+  const model = cloneSkeleton(source) as THREE.Object3D;
+  model.updateMatrixWorld(true);
+  const bounds = new THREE.Box3().setFromObject(model);
+  const size = bounds.getSize(new THREE.Vector3());
+  if (bounds.isEmpty() || size.x < 1e-4 || size.y < 1e-4 || size.z < 1e-4) {
+    throw new Error(`variante capelli non valida: ${source.name}`);
+  }
+  const center = bounds.getCenter(new THREE.Vector3());
+  const fit = new THREE.Group();
+  fit.name = `hair-${source.name}`;
+  fit.scale.set(0.25 / size.x, 0.28 / size.y, 0.24 / size.z);
+  fit.position.y = 0.015;
+  const centered = new THREE.Group();
+  centered.position.set(-center.x, -bounds.min.y, -center.z);
+  centered.add(model);
+  fit.add(centered);
+
+  model.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.frustumCulled = false;
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    const cloned = materials.map((material) => {
+      const copy = material.clone();
+      if (copy instanceof THREE.MeshStandardMaterial || copy instanceof THREE.MeshPhongMaterial) {
+        copy.color.multiply(new THREE.Color(hairColor));
+      }
+      materialsOwned.push(copy);
+      return copy;
+    });
+    mesh.material = Array.isArray(mesh.material) ? cloned : cloned[0]!;
+  });
+  return fit;
 }
 
 /**
@@ -128,56 +244,132 @@ export function bindClip(clip: THREE.AnimationClip, root: THREE.Object3D): THREE
   return new THREE.AnimationClip(clip.name, clip.duration, tracks);
 }
 
-async function loadGltf(loader: GLTFLoader, url: string): Promise<Awaited<ReturnType<GLTFLoader['loadAsync']>>> {
+async function loadFbx(loader: FBXLoader, url: string): Promise<AnimatedFbx> {
   try {
-    return await loader.loadAsync(url);
+    const asset = await loader.loadAsync(url);
+    const withAnimations = asset as THREE.Group & { animations?: unknown };
+    if (!Array.isArray(withAnimations.animations)) {
+      throw new Error('il file non contiene la lista delle animazioni');
+    }
+    return withAnimations as AnimatedFbx;
   } catch (err) {
     throw new Error(`modello ${url} non caricato: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
-function firstClip(gltf: Awaited<ReturnType<GLTFLoader['loadAsync']>>): THREE.AnimationClip | null {
-  return gltf.animations[0] ?? null;
+function firstClip(fbx: AnimatedFbx): THREE.AnimationClip | null {
+  return fbx.animations.find((clip) => clip.tracks.length > 0) ?? null;
 }
 
 async function loadRig(
-  loader: GLTFLoader,
+  loader: FBXLoader,
   base: string,
-  files: { body: string; idle: string; walk: string; run: string },
+  files: HumanFileSet,
 ): Promise<{ body: THREE.Object3D; clips: AnimSet }> {
-  const [body, idle, walk, run] = await Promise.all([
-    loadGltf(loader, base + files.body),
-    loadGltf(loader, base + files.idle),
-    loadGltf(loader, base + files.walk),
-    loadGltf(loader, base + files.run),
+  const keys: Array<Exclude<keyof HumanFileSet, 'body' | 'walkVariants'>> = [
+    'idle',
+    'walk',
+    'run',
+    'jog',
+    'jump',
+    'stairs',
+    'strafeLeft',
+    'strafeRight',
+    'turnLeft',
+    'turnRight',
+    'walkTurn',
+    'turn180',
+    'startWalking',
+    'stopWalking',
+    'enterCar',
+    'exitCar',
+    'driving',
+  ];
+  const [body, loadedMotions, loadedWalkVariants] = await Promise.all([
+    loadFbx(loader, base + files.body),
+    Promise.all(keys.map(async (key) => [key, await loadFbx(loader, base + files[key])] as const)),
+    Promise.all(files.walkVariants.map((file) => loadFbx(loader, base + file))),
   ]);
-  const bind = (gltf: Awaited<ReturnType<GLTFLoader['loadAsync']>>, fallback?: THREE.AnimationClip): THREE.AnimationClip => {
-    const source = firstClip(gltf) ?? fallback;
-    if (!source) throw new Error(`clip mancante in ${files.idle}`);
-    return bindClip(source, body.scene) ?? source;
+  const motions = new Map(loadedMotions);
+  const bind = (fbx: AnimatedFbx, name: string): THREE.AnimationClip => {
+    const source = firstClip(fbx);
+    if (!source) throw new Error(`clip mancante in ${name}`);
+    const clip = bindClip(source, body);
+    if (!clip) throw new Error(`nessuna traccia della clip ${name} corrisponde allo scheletro X Bot`);
+    return clip;
   };
-  const idleClip = bind(idle);
+  const clip = (key: (typeof keys)[number]): THREE.AnimationClip => {
+    const fbx = motions.get(key);
+    if (!fbx) throw new Error(`clip mancante: ${key}`);
+    return bind(fbx, files[key]);
+  };
   return {
-    body: body.scene,
+    body,
     clips: {
-      idle: idleClip,
-      walk: bind(walk, idleClip),
-      run: bind(run, idleClip),
+      idle: clip('idle'),
+      walk: clip('walk'),
+      walkVariants: loadedWalkVariants.map((fbx, index) => bind(fbx, files.walkVariants[index]!)),
+      run: clip('run'),
+      jog: clip('jog'),
+      jump: clip('jump'),
+      stairs: clip('stairs'),
+      strafeLeft: clip('strafeLeft'),
+      strafeRight: clip('strafeRight'),
+      turnLeft: clip('turnLeft'),
+      turnRight: clip('turnRight'),
+      walkTurn: clip('walkTurn'),
+      turn180: clip('turn180'),
+      startWalking: clip('startWalking'),
+      stopWalking: clip('stopWalking'),
+      enterCar: clip('enterCar'),
+      exitCar: clip('exitCar'),
+      driving: clip('driving'),
     },
   };
 }
 
+async function loadHairVariants(base: string, file: string, sex: keyof HairAssets): Promise<THREE.Object3D[]> {
+  let gltf: Awaited<ReturnType<GLTFLoader['loadAsync']>>;
+  try {
+    gltf = await new GLTFLoader().loadAsync(base + file);
+  } catch (err) {
+    throw new Error(`capelli ${base + file} non caricati: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  gltf.scene.updateMatrixWorld(true);
+
+  const variants =
+    sex === 'male'
+      ? (gltf.scene.getObjectByName('basemesh22')?.children.filter((child) => (child as THREE.Mesh).isMesh) ?? [])
+      : (gltf.scene.getObjectByName('GLTF_SceneRootNode')?.children.filter((child) =>
+          /^Hair\d+_ARM_/.test(child.name),
+        ) ?? []);
+  if (variants.length === 0) throw new Error(`nessuna variante capelli ${sex} trovata in ${file}`);
+
+  return variants.map((source) => {
+    const variant = new THREE.Group();
+    variant.name = source.name;
+    if (source.parent) {
+      variant.matrix.copy(source.parent.matrixWorld);
+      variant.matrixAutoUpdate = false;
+    }
+    variant.add(cloneSkeleton(source) as THREE.Object3D);
+    return variant;
+  });
+}
+
 export async function loadHumanAssets(base = `${import.meta.env.BASE_URL}models/`): Promise<HumanAssets> {
-  const loader = new GLTFLoader();
-  const [male, female] = await Promise.all([
-    loadRig(loader, base, HUMAN_FILES.male),
-    loadRig(loader, base, HUMAN_FILES.female),
+  const [rig, maleHair, femaleHair] = await Promise.all([
+    loadRig(new FBXLoader(), base, HUMAN_FILES),
+    loadHairVariants(base.replace(/models\/$/, 'characters/'), 'free_male_fashion_hair_collection_01_lowpoly.glb', 'male'),
+    loadHairVariants(base.replace(/models\/$/, 'characters/'), 'hair_pack_part_2.glb', 'female'),
   ]);
+  const size = measureBody(rig.body);
   return {
-    male: male.body,
-    female: female.body,
-    size: { male: measureBody(male.body), female: measureBody(female.body) },
-    clips: { male: male.clips, female: female.clips },
+    male: rig.body,
+    female: rig.body,
+    size: { male: size, female: size },
+    clips: { male: rig.clips, female: rig.clips },
+    hair: { male: maleHair, female: femaleHair },
   };
 }
 
@@ -207,8 +399,16 @@ export class HumanBody {
   readonly group = new THREE.Group();
   private readonly mixer: THREE.AnimationMixer;
   private readonly actions: Record<'idle' | 'walk' | 'run', THREE.AnimationAction>;
+  private readonly directionalActions: Record<'stairs' | 'strafeLeft' | 'strafeRight', THREE.AnimationAction>;
+  private readonly oneShotActions: Record<HumanAction, THREE.AnimationAction>;
+  private readonly drivingAction: THREE.AnimationAction;
   private readonly ownMaterials: THREE.Material[] = [];
   private readonly model: THREE.Object3D;
+  private airborne = false;
+  private driving = false;
+  private wasMoving = false;
+  private currentAction: HumanAction | null = null;
+  private actionTimeLeft = 0;
   /** Ossa della posa seduta, con la rotazione di riposo da ripristinare. */
   private readonly seatRig: Array<{
     bone: THREE.Object3D;
@@ -228,9 +428,20 @@ export class HumanBody {
     const model = cloneSkeleton(proto) as THREE.Object3D;
     this.model = model;
 
-    // La riga Ready Player Me/Mixamo non ha una clip "seduto": si piegano le
+    // Il rig Mixamo non ha una clip "seduto": si piegano le
     // ossa di coscia, polpaccio e braccio con la funzione pura `seatPose`.
     const bones = indexBones(model);
+    const head = bones.get('head');
+    const hairVariants = female ? assets.hair.female : assets.hair.male;
+    if (head && hairVariants.length > 0) {
+      head.add(
+        makeHair(
+          hairVariants[Math.floor(Math.random() * hairVariants.length)]!,
+          appearance.hairColor,
+          this.ownMaterials,
+        ),
+      );
+    }
     // L'asse di flessione non è lo stesso per tutte le ossa: nelle gambe la
     // rotazione X porta il ginocchio in avanti, nei bracci del rig Mixamo l'osso
     // sta lungo X e ruotare su X lo avvita soltanto. Per portare le mani al
@@ -274,6 +485,7 @@ export class HumanBody {
     inner.add(model);
     this.group.add(inner);
 
+    const colors = outfitColors(appearance);
     model.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       if (!mesh.isMesh) return;
@@ -287,6 +499,8 @@ export class HumanBody {
         const copy = mat.clone() as THREE.MeshStandardMaterial;
         this.ownMaterials.push(copy);
         copy.envMapIntensity = Math.max(copy.envMapIntensity ?? 1, 0.55);
+        if (copy.name.toLowerCase().includes('highlimbs')) copy.color.setHex(colors.top);
+        else if (copy.name.toLowerCase().includes('joints')) copy.color.setHex(appearance.skin);
         if (options.tint) copy.color.multiply(options.tint);
         return copy;
       });
@@ -304,9 +518,38 @@ export class HumanBody {
     };
     this.actions = {
       idle: prepare(clips.idle, 1),
-      walk: prepare(clips.walk, 0),
-      run: prepare(clips.run, 0),
+      walk: prepare(clips.walkVariants[Math.floor(Math.random() * clips.walkVariants.length)] ?? clips.walk, 0),
+      run: prepare(Math.random() < 0.3 ? clips.jog : clips.run, 0),
     };
+    this.directionalActions = {
+      stairs: prepare(clips.stairs, 0),
+      strafeLeft: prepare(clips.strafeLeft, 0),
+      strafeRight: prepare(clips.strafeRight, 0),
+    };
+    const eventClips: Record<HumanAction, THREE.AnimationClip> = {
+      jump: clips.jump,
+      turnLeft: clips.turnLeft,
+      turnRight: clips.turnRight,
+      walkTurn: clips.walkTurn,
+      turn180: clips.turn180,
+      startWalking: clips.startWalking,
+      stopWalking: clips.stopWalking,
+      enterCar: clips.enterCar,
+      exitCar: clips.exitCar,
+    };
+    this.oneShotActions = Object.fromEntries(
+      Object.entries(eventClips).map(([name, clip]) => {
+        const action = this.mixer.clipAction(clip);
+        action.setLoop(THREE.LoopOnce, 1);
+        action.clampWhenFinished = true;
+        action.setEffectiveWeight(0);
+        return [name, action];
+      }),
+    ) as Record<HumanAction, THREE.AnimationAction>;
+    this.drivingAction = this.mixer.clipAction(clips.driving);
+    this.drivingAction.setLoop(THREE.LoopRepeat, Infinity);
+    this.drivingAction.setEffectiveWeight(0);
+    this.drivingAction.play();
     this.mixer.setTime(options.phase ?? 0);
   }
 
@@ -320,7 +563,53 @@ export class HumanBody {
    * I pesi vengono poi rinormalizzati a 1, altrimenti durante la transizione
    * la posa di riposo traspare e il corpo sembra afflosciarsi.
    */
-  update(dt: number, speed: number): void {
+  playAction(name: HumanAction, duration?: number): void {
+    if (this.currentAction) {
+      const priority: Record<HumanAction, number> = {
+        startWalking: 1,
+        stopWalking: 1,
+        turnLeft: 2,
+        turnRight: 2,
+        walkTurn: 2,
+        turn180: 3,
+        jump: 4,
+        enterCar: 5,
+        exitCar: 5,
+      };
+      if (priority[name] <= priority[this.currentAction]) return;
+      this.stopAction(this.currentAction);
+    }
+
+    const action = this.oneShotActions[name];
+    const playFor = Number.isFinite(duration) && duration! > 0 ? duration! : action.getClip().duration;
+    action.reset();
+    action.timeScale = action.getClip().duration / playFor;
+    action.setEffectiveWeight(1).play();
+    this.currentAction = name;
+    this.actionTimeLeft = playFor;
+  }
+
+  setDriving(driving: boolean): void {
+    this.driving = driving;
+  }
+
+  update(dt: number, speed: number, airborne = false, motion: HumanMotion = {}): void {
+    if (airborne && !this.airborne) this.playAction('jump', 0.65);
+    if (!airborne && this.airborne && this.currentAction === 'jump') this.stopAction('jump');
+    this.airborne = airborne;
+
+    const moving = speed > 0.25;
+    if (!this.driving && !airborne && !this.currentAction) {
+      if (moving && !this.wasMoving) this.playAction('startWalking', 0.55);
+      else if (!moving && this.wasMoving) this.playAction('stopWalking', 0.55);
+    }
+    this.wasMoving = moving;
+
+    if (this.currentAction) {
+      this.actionTimeLeft -= Math.max(0, dt);
+      if (this.actionTimeLeft <= 0) this.stopAction(this.currentAction);
+    }
+
     const target = locomotionWeights(speed, GAME.walkSpeed, GAME.runSpeed);
     const current = {
       idle: this.actions.idle.getEffectiveWeight(),
@@ -328,11 +617,32 @@ export class HumanBody {
       run: this.actions.run.getEffectiveWeight(),
     };
     const weights = blendLocomotion(current, target, dt);
-    this.actions.idle.setEffectiveWeight(weights.idle);
-    this.actions.walk.setEffectiveWeight(weights.walk);
-    this.actions.run.setEffectiveWeight(weights.run);
+    const strafe = motion.strafe ?? 0;
+    const direction =
+      motion.uphill && (motion.forward ?? 0) > 0.1
+        ? 'stairs'
+        : Math.abs(strafe) > 0.35
+          ? strafe < 0
+            ? 'strafeLeft'
+            : 'strafeRight'
+          : null;
+    const eventActive = this.currentAction !== null;
+    const driving = motion.driving ?? this.driving;
+    const suppressLocomotion = airborne || eventActive || driving;
+    this.actions.idle.setEffectiveWeight(suppressLocomotion ? 0 : weights.idle);
+    this.actions.walk.setEffectiveWeight(suppressLocomotion || direction ? 0 : weights.walk);
+    this.actions.run.setEffectiveWeight(suppressLocomotion ? 0 : weights.run);
+    for (const key of ['stairs', 'strafeLeft', 'strafeRight'] as const) {
+      this.directionalActions[key].setEffectiveWeight(
+        suppressLocomotion || direction !== key ? 0 : weights.walk,
+      );
+    }
     this.actions.walk.timeScale = strideTimeScale('walk', speed, GAME.walkSpeed, GAME.runSpeed);
     this.actions.run.timeScale = strideTimeScale('run', speed, GAME.walkSpeed, GAME.runSpeed);
+    this.directionalActions.stairs.timeScale = strideTimeScale('walk', speed, GAME.walkSpeed, GAME.runSpeed);
+    this.directionalActions.strafeLeft.timeScale = strideTimeScale('walk', speed, GAME.walkSpeed, GAME.runSpeed);
+    this.directionalActions.strafeRight.timeScale = strideTimeScale('walk', speed, GAME.walkSpeed, GAME.runSpeed);
+    this.drivingAction.setEffectiveWeight(driving && !eventActive ? 1 : 0);
 
     // passo sincronizzato: quando camminata e corsa si sovrappongono, la clip
     // che pesa meno segue la fase di quella che pesa di più (altrimenti durante
@@ -358,7 +668,7 @@ export class HumanBody {
     for (const entry of this.seatRig) entry.bone.quaternion.copy(entry.rest);
     this.mixer.update(dt);
 
-    if (this.seatProgress > 0.001 && this.seatRig.length > 0) {
+    if (!driving && !eventActive && this.seatProgress > 0.001 && this.seatRig.length > 0) {
       const pose = seatPose(this.seatProgress);
       for (const entry of this.seatRig) {
         const angle = pose[entry.role];
@@ -378,6 +688,16 @@ export class HumanBody {
   /** 0 = in piedi, 1 = seduto: blend additivo usato da ingresso/uscita auto. */
   setSeatProgress(progress: number): void {
     this.seatProgress = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
+  }
+
+  private stopAction(name: HumanAction): void {
+    const action = this.oneShotActions[name];
+    action.stop();
+    action.setEffectiveWeight(0);
+    if (this.currentAction === name) {
+      this.currentAction = null;
+      this.actionTimeLeft = 0;
+    }
   }
 
   /** Pendenza sotto i piedi, in radianti (vedi `terrainTilt`). */

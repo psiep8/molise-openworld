@@ -135,54 +135,6 @@ function wheelTag(name: string): 'fl' | 'fr' | 'rl' | 'rr' | null {
   return `${long[1][0]}${long[2][0]}`.toLowerCase() as 'fl' | 'fr' | 'rl' | 'rr';
 }
 
-function riderBoneKey(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '')
-    .replace(/^mixamorig/, '');
-}
-
-/**
- * Posa seduta per il pilota. Le rotazioni sono applicate nello spazio del
- * genitore e non in quello locale dell'osso: Ready Player Me usa un bind
- * ruotato di 180 gradi sulle cosce, quindi `rotation.x` da sola darebbe un
- * risultato imprevedibile.
- */
-function poseSeatedRider(root: THREE.Object3D): void {
-  const bones = new Map<string, THREE.Object3D>();
-  root.traverse((object) => {
-    if (!object.name) return;
-    const key = riderBoneKey(object.name);
-    if (!bones.has(key)) bones.set(key, object);
-  });
-  const xAxis = new THREE.Vector3(1, 0, 0);
-  const zAxis = new THREE.Vector3(0, 0, 1);
-  const turn = (key: string, axis: THREE.Vector3, angle: number): void => {
-    const bone = bones.get(key);
-    if (!bone) return;
-    bone.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(axis, angle));
-  };
-
-  // busto raccolto e testa che guarda avanti
-  turn('spine', xAxis, -0.12);
-  turn('spine1', xAxis, -0.1);
-  turn('spine2', xAxis, 0.04);
-  turn('neck', xAxis, 0.12);
-  turn('head', xAxis, 0.1);
-
-  for (const side of ['left', 'right']) {
-    // coscia in avanti, ginocchio piegato, piede appoggiato sulla pedana
-    turn(`${side}upleg`, xAxis, -1.12);
-    turn(`${side}leg`, xAxis, 1.25);
-    turn(`${side}foot`, xAxis, -0.38);
-    // braccia lungo i fianchi e poi in avanti verso il manubrio
-    turn(`${side}arm`, zAxis, side === 'left' ? 0.98 : -0.98);
-    turn(`${side}arm`, xAxis, -0.56);
-    turn(`${side}forearm`, xAxis, -0.78);
-    turn(`${side}hand`, xAxis, -0.12);
-  }
-}
-
 /**
  * Fari: candela e portata pensate per guidare di notte a 90–100 km/h.
  * Con `decay` 1 la luce arriva lontano senza bruciare l'asfalto davanti al
@@ -520,7 +472,7 @@ export class Vehicle {
     this.build();
   }
 
-  /** Fornisce il corpo del giocatore da usare come pilota delle due ruote. */
+  /** Fornisce il corpo del giocatore da usare come conducente del veicolo. */
   setRider(assets: HumanAssets | null, appearance: Appearance | null): void {
     this.riderAssets = assets;
     this.riderAppearance = appearance;
@@ -1140,34 +1092,30 @@ export class Vehicle {
     this.buildRider();
   }
 
-  /**
-   * Pilota sulle due ruote.
-   *
-   * Il corpo e' lo stesso `HumanBody` del giocatore (scheletro e texture
-   * condivisi, quindi una sola copia in memoria). La posa seduta si costruisce
-   * sulle ossa standard Ready Player Me: cosce in avanti, ginocchia piegate,
-   * busto leggermente inclinato e mani verso il manubrio. Non e' una clip:
-   * la moto non ha una seduta animata e un'idle in piedi sembrerebbe un
-   * passeggero fantasma.
-   */
+  /** Pilota sulla moto o conducente nell'abitacolo, animato dalla clip di guida. */
   private buildRider(): void {
     this.riderBody?.dispose();
     this.riderBody = null;
     this.riderRoot = null;
-    const mount = this.spec.rider;
-    if (!mount || !this.riderAssets || !this.riderAppearance) return;
+    if (!this.riderAssets || !this.riderAppearance) return;
+    const mount = this.spec.rider ?? {
+      seatY: this.spec.height * 0.4,
+      seatZ: -this.spec.length * 0.12,
+    };
 
     const body = new HumanBody(this.riderAssets, this.riderAppearance, { shadow: true });
-    // applica la posa di riposo dell'idle una volta: da qui in poi il mixer non
-    // avanza e le rotazioni delle ossa restano quelle della seduta
-    body.update(0, 0);
-    poseSeatedRider(body.root);
+    body.setDriving(true);
+    body.update(0, 0, false, { driving: true });
 
     const root = new THREE.Group();
     root.name = 'vehicle-rider';
-    // il GLB umano guarda verso +Z; il veicolo gioca con il muso a -Z
+    // Il corpo guarda verso +Z; il veicolo gioca con il muso a -Z.
     root.rotation.y = Math.PI;
-    root.position.set(0, mount.seatY - 0.56 * this.riderAppearance.height, mount.seatZ);
+    root.position.set(
+      this.spec.rider ? 0 : -this.spec.width * 0.18,
+      mount.seatY - 0.56 * this.riderAppearance.height,
+      mount.seatZ,
+    );
     root.add(body.group);
     this.bodyGroup.add(root);
     this.riderRoot = root;
@@ -1807,6 +1755,7 @@ export class Vehicle {
 
     this.group.position.set(next.x, groundY + bodyLift, next.z);
     this.group.rotation.set(this.tiltPitch + this.leanPitch, next.yaw, this.tiltRoll + this.leanRoll);
+    this.riderBody?.update(dt, Math.abs(next.speed), false, { driving: true });
     const skidding = next.sliding > 0.2 || next.wheelspin ||
       (input.handbrake && Math.abs(next.speed) > 3);
     this.updateWheelSpray(dt, sprayIntensity, Math.abs(next.speed), contact.surface, input.throttle, skidding);
