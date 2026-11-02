@@ -185,7 +185,7 @@ export const CAR: CarTuning = {
   drive: 'rwd',
   centerOfGravityHeight: 0.5,
   yawInertiaScale: 1.2,
-  brakeBias: 0.58,
+  brakeBias: 0.65,
   abs: true,
 };
 
@@ -199,7 +199,7 @@ const AIR_DENSITY = 1.2;
  */
 const STEER_LOCK_FALLOFF = 0.015;
 /** Accelerazione laterale massima (m/s²): ~1,25 g su asfalto asciutto. */
-const LATERAL_GRIP = 14.0;
+const LATERAL_GRIP = 18.5;
 /** Tetto di imbardata a bassissima velocità (rad/s). */
 const MAX_YAW_RATE = 2.7;
 
