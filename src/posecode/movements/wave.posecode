@@ -1,0 +1,38 @@
+// Saluto con la mano destra: spalla, gomito e polso non partono insieme.
+// Il ritardo fra i giunti è quello che rende il gesto umano e non meccanico.
+posecode posture "Saluto con la mano"
+  rig humanoid
+  pose start = standing
+
+  step "Alza il braccio" 1.1s drive:
+    shoulder_right: abduct 92
+    elbow_right: flex 52
+    wrist_right: flex 6
+    head: twist-left 9
+    chest: twist-left 4
+    ground-lock: feet
+    cue "Il gomito arriva dopo la spalla"
+
+  step "Apri la mano" 0.4s flow:
+    elbow_right: flex 78
+    wrist_right: flex 14
+
+  step "Saluta" 0.42s snap:
+    elbow_right: flex 50
+    wrist_right: flex 2
+
+  step "Saluta ancora" 0.42s flow:
+    elbow_right: flex 78
+    wrist_right: flex 14
+
+  step "Saluta ancora" 0.42s snap:
+    elbow_right: flex 50
+    wrist_right: flex 2
+
+  step "Rilascia" 1.4s settle:
+    shoulder_right: abduct 0
+    elbow_right: flex 8
+    wrist_right: flex 0
+    head: twist-left 0
+    chest: twist-left 0
+    ground-lock: feet

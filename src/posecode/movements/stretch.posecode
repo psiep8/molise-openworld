@@ -1,0 +1,40 @@
+// Allungamento laterale: braccia sopra la testa, bacino fermo e costole che si aprono.
+posecode stretch "Allungamento laterale"
+  rig humanoid
+  pose start = standing
+
+  step "Braccia in alto" 1.7s drive:
+    shoulders: abduct 168
+    elbows: flex 12
+    chest: flex 4
+    neck: extend 6
+    ground-lock: feet
+    cue "Respira, non trattenere l'aria"
+
+  step "Inclina a sinistra" 1.5s flow:
+    spine: abduct 16
+    hips: abduct 3
+    head: twist-left 6
+    ground-lock: feet
+
+  step "Torna al centro" 1.3s settle:
+    spine: abduct 0
+    hips: abduct 0
+    head: twist-left 0
+    ground-lock: feet
+
+  step "Inclina a destra" 1.5s flow:
+    spine: adduct 15
+    hips: adduct 3
+    head: twist-right 5
+    ground-lock: feet
+
+  step "Torna giù" 1.8s settle:
+    spine: abduct 0
+    hips: abduct 0
+    head: twist-right 0
+    shoulders: abduct 0
+    elbows: flex 6
+    chest: flex 0
+    neck: extend 0
+    ground-lock: feet

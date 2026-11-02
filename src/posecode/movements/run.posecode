@@ -1,0 +1,76 @@
+// Corsa in place: busto leggermente avanti, braccia a 90°, ginocchia alte.
+// Come la camminata, la posa iniziale è il contatto sinistro per chiudere il ciclo.
+posecode exercise "Corsa naturale"
+  rig humanoid
+  pose start = standing:
+    pelvis: hinge 6
+    spine: flex 8
+    neck: extend 4
+    hip_left: flex 38
+    knee_left: flex 24
+    ankle_left: dorsiflex 6
+    hip_right: extend 20
+    knee_right: flex 52
+    ankle_right: plantarflex 16
+    shoulder_left: extend 32
+    elbow_left: flex 70
+    shoulder_right: flex 38
+    elbow_right: flex 75
+    chest: twist-left 5
+    head: twist-right 3
+
+  step "Sospensione sinistra" 0.28s flow:
+    hip_left: flex 12
+    knee_left: flex 34
+    ankle_left: dorsiflex 4
+    hip_right: flex 34
+    knee_right: flex 82
+    ankle_right: dorsiflex 10
+    shoulder_left: flex 6
+    shoulder_right: flex 8
+    elbow_left: flex 72
+    elbow_right: flex 72
+    chest: twist-left 0
+    head: twist-right 0
+
+  step "Contatto destro" 0.28s flow:
+    hip_right: flex 38
+    knee_right: flex 24
+    ankle_right: dorsiflex 6
+    hip_left: extend 20
+    knee_left: flex 52
+    ankle_left: plantarflex 16
+    shoulder_right: extend 32
+    elbow_right: flex 70
+    shoulder_left: flex 38
+    elbow_left: flex 75
+    chest: twist-right 5
+    head: twist-left 3
+
+  step "Sospensione destra" 0.28s flow:
+    hip_right: flex 12
+    knee_right: flex 34
+    ankle_right: dorsiflex 4
+    hip_left: flex 34
+    knee_left: flex 82
+    ankle_left: dorsiflex 10
+    shoulder_right: flex 6
+    shoulder_left: flex 8
+    elbow_right: flex 72
+    elbow_left: flex 72
+    chest: twist-right 0
+    head: twist-left 0
+
+  step "Contatto sinistro" 0.28s flow:
+    hip_left: flex 38
+    knee_left: flex 24
+    ankle_left: dorsiflex 6
+    hip_right: extend 20
+    knee_right: flex 52
+    ankle_right: plantarflex 16
+    shoulder_left: extend 32
+    elbow_left: flex 70
+    shoulder_right: flex 38
+    elbow_right: flex 75
+    chest: twist-left 5
+    head: twist-right 3

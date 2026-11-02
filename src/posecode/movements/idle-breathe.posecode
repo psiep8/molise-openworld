@@ -1,0 +1,22 @@
+// Respiro a riposo: micro-movimenti di torace, spalle e testa.
+// Non è una posa statica: il corpo "vive" anche quando il personaggio aspetta.
+posecode posture "Respiro a riposo"
+  rig humanoid
+  pose start = standing
+
+  step "Inspiro" 2.6s settle:
+    chest: flex 1.5
+    spine: flex 0.8
+    shoulders: abduct 1.2
+    neck: extend 0.6
+    ground-lock: feet
+    cue "Il peso resta sui piedi, le spalle salgono appena"
+
+  step "Espiro" 3.2s settle:
+    chest: flex 0
+    spine: flex 0
+    shoulders: abduct 0
+    neck: extend 0
+    ground-lock: feet
+
+  repeat 4

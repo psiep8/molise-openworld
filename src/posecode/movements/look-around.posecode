@@ -1,0 +1,36 @@
+// Si guarda intorno: la testa guida, collo e torace seguono con un ritardo naturale.
+posecode posture "Guardarsi intorno"
+  rig humanoid
+  pose start = standing
+
+  step "Sguardo a sinistra" 1.5s flow:
+    head: twist-left 38
+    neck: twist-left 20
+    chest: twist-left 8
+    ground-lock: feet
+
+  step "Sosta" 0.9s settle:
+    head: twist-left 38
+    ground-lock: feet
+
+  step "Al centro" 1.6s settle:
+    head: twist-left 0
+    neck: twist-left 0
+    chest: twist-left 0
+    ground-lock: feet
+
+  step "Sguardo a destra" 1.5s flow:
+    head: twist-right 34
+    neck: twist-right 18
+    chest: twist-right 7
+    ground-lock: feet
+
+  step "Sosta" 0.8s settle:
+    head: twist-right 38
+    ground-lock: feet
+
+  step "Al centro" 1.7s settle:
+    head: twist-right 0
+    neck: twist-right 0
+    chest: twist-right 0
+    ground-lock: feet

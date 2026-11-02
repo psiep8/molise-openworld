@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b1218" />
+    <title>Studio del personaggio — Molise Open World</title>
+    <meta
+      name="description"
+      content="Studio dei personaggi: movimenti Posecode sui corpi con scheletro e galleria delle sculture umane fornite dal progetto."
+    />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+  </head>
+  <body>
+    <div id="app">
+      <main id="stage">
+        <div class="stage-head">
+          <p class="eyebrow">Studio del personaggio</p>
+          <h1 id="stage-title">Movimento umano</h1>
+          <p id="stage-lede">
+            Otto movimenti scritti in Posecode e recitati da corpi con scheletro Mixamo: respiro,
+            sguardo, saluto, passo, corsa e gesti quotidiani.
+          </p>
+        </div>
+
+        <div id="anim-host"></div>
+        <div id="static-host" hidden></div>
+
+        <div id="phase-badge" class="phase-badge" aria-live="polite">
+          <b id="phase-name">Fase</b>
+          <span id="phase-cue"></span>
+        </div>
+
+        <div id="stage-loading" class="loading" role="status">
+          <div>
+            <div class="spinner"></div>
+            <span id="loading-text">Carico il corpo…</span>
+          </div>
+        </div>
+
+        <div id="credits" class="credits">
+          Corpi: Ready Player Me · Movimento:
+          <a href="https://www.posecode.org/">Posecode</a> ·
+          <a href="ATTRIBUTION.md">Attribuzioni</a>
+        </div>
+      </main>
+
+      <aside id="panel">
+        <div class="panel-head">
+          <div class="row">
+            <h2>Studio umano</h2>
+            <a class="back" href="./index.html">← Torna al gioco</a>
+          </div>
+          <div class="tabs" role="tablist" aria-label="Viste dello studio">
+            <button id="tab-motion" type="button" role="tab" aria-selected="true" aria-controls="panel-motion">
+              Movimento
+            </button>
+            <button id="tab-sculpt" type="button" role="tab" aria-selected="false" aria-controls="panel-sculpt">
+              Sculture
+            </button>
+          </div>
+        </div>
+
+        <div id="panel-motion" class="panel-body" role="tabpanel" aria-labelledby="tab-motion">
+          <div class="section">
+            <h3>Corpo</h3>
+            <div id="sex-switch" class="segmented">
+              <button type="button" data-sex="donna" class="active">Donna</button>
+              <button type="button" data-sex="uomo">Uomo</button>
+            </div>
+          </div>
+
+          <div class="section">
+            <h3>Movimento</h3>
+            <div id="move-list" class="moves"></div>
+          </div>
+
+          <div class="section">
+            <h3>Riproduzione</h3>
+            <div class="transport">
+              <button id="play-btn" class="play" type="button" aria-label="Metti in pausa">❚❚</button>
+              <div>
+                <input id="scrub" class="scrub" type="range" min="0" max="1" step="0.01" value="0" aria-label="Posizione nel movimento" />
+                <div class="time-row">
+                  <span id="time-now">0,0 s</span>
+                  <span id="time-total">0,0 s</span>
+                </div>
+              </div>
+            </div>
+            <label class="field">
+              <span>Velocità</span>
+              <input id="speed" type="range" min="0.25" max="1.5" step="0.05" value="1" />
+              <output id="speed-out">1,00×</output>
+            </label>
+          </div>
+
+          <p id="motion-status" class="status"></p>
+        </div>
+
+        <div id="panel-sculpt" class="panel-body" role="tabpanel" aria-labelledby="tab-sculpt" hidden>
+          <div class="section">
+            <h3>Modelli</h3>
+            <div id="asset-list" class="asset-list"></div>
+          </div>
+
+          <div class="section">
+            <div id="asset-meta" class="asset-meta">Nessun modello selezionato.</div>
+            <p class="warn">
+              I corpi, le teste e i capelli forniti sono sculture senza scheletro: si possono
+              ammirare e ruotare, ma non animare. I movimenti della scheda accanto girano sui
+              corpi riggati Ready Player Me, che hanno le stesse proporzioni umane.
+            </p>
+          </div>
+
+          <p id="sculpt-status" class="status"></p>
+        </div>
+
+        <div class="panel-foot">
+          Movimento: <a href="https://www.posecode.org/#developers" target="_blank" rel="noreferrer">Posecode</a>
+          (parser Apache-2.0, renderer AGPL-3.0). Sculture: Sketchfab, CC BY 4.0. Dettagli in
+          <a href="ATTRIBUTION.md">ATTRIBUTION.md</a> e <a href="docs/CHARACTERS.md">docs/CHARACTERS.md</a>.
+        </div>
+      </aside>
+    </div>
+
+    <script type="module" src="/src/character-studio.ts"></script>
+  </body>
+</html>

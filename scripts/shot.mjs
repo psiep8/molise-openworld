@@ -15,7 +15,9 @@ const CHROME =
   process.env.CHROME_PATH ??
   (existsSync('C:/Program Files/Google/Chrome/Application/chrome.exe')
     ? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
-    : 'google-chrome');
+    : existsSync('C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe')
+      ? 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
+      : 'google-chrome');
 
 const arg = (name, fallback) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -58,7 +60,7 @@ class CDP {
 }
 
 async function main() {
-  const profile = path.join(ROOT, 'captures', `shot-profile-${PORT}`);
+  const profile = process.env.SHOT_PROFILE ?? path.join(ROOT, 'captures', `shot-profile-${PORT}`);
   await rm(profile, { recursive: true, force: true });
   await mkdir(path.dirname(OUT), { recursive: true });
   const chrome = spawn(
@@ -111,6 +113,15 @@ async function main() {
       }
     });
     await sleep(WAIT);
+    // `--window-size` è solo la finestra del browser: il target creato via
+    // DevTools nasce con il viewport di default. Qui lo si porta alla misura
+    // richiesta, altrimenti le catture escono sempre 800×600.
+    await cdp.send('Emulation.setDeviceMetricsOverride', {
+      width: WIDTH,
+      height: HEIGHT,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
     if (READY) {
       for (let i = 0; i < 60; i++) {
         const res = await cdp.send('Runtime.evaluate', {

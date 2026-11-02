@@ -1,0 +1,46 @@
+// Raccolta da terra: squat profondo e mano destra verso il pavimento.
+// `reach` muove il braccio con IK, non il corpo: è il gesto che manca a un
+// ciclo di camminata e fa sembrare il personaggio consapevole dello spazio.
+posecode exercise "Raccogliere da terra"
+  rig humanoid
+  pose start = standing
+
+  step "Mi abbasso" 1.5s settle:
+    pelvis: hinge 26
+    hips: flex 84
+    knees: flex 104
+    ankles: dorsiflex 14
+    spine: flex 16
+    chest: flex 8
+    neck: extend 10
+    ground-lock: feet
+    cue "Il bacino va indietro, la schiena resta lunga"
+
+  step "Prendo" 1.0s settle:
+    shoulders: flex 34
+    elbows: flex 28
+    reach: hand_right floor
+    ground-lock: feet
+
+  step "Mi rialzo" 1.7s drive:
+    pelvis: hinge 20
+    hips: flex 46
+    knees: flex 56
+    ankles: dorsiflex 8
+    spine: flex 8
+    chest: flex 4
+    shoulders: flex 16
+    elbows: flex 20
+    ground-lock: feet
+
+  step "In piedi" 1.3s settle:
+    pelvis: hinge 0
+    hips: flex 0
+    knees: flex 0
+    ankles: dorsiflex 0
+    spine: flex 0
+    chest: flex 0
+    shoulders: flex 0
+    elbows: flex 8
+    neck: extend 0
+    ground-lock: feet

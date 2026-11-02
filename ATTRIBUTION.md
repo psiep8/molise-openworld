@@ -68,6 +68,39 @@ i ruoli sono in [docs/WORLDKIT.md](docs/WORLDKIT.md).
   sono **Sketchfab Standard** e non sono ridistribuibili: restano fuori dal repo.
 - Se il progetto diventa commerciale, l'asset BY-NC va rimosso o sostituito.
 
+## Sculture umane (`public/characters/`)
+
+Corpi, teste e capelli forniti dal proprietario del progetto per lo **studio del
+personaggio** (`characters.html`). Sono sculture statiche, senza skin né
+scheletro: non possono essere animate senza un rigging manuale. I GLB non sono
+versionati (~190 MB); autori, fonti, licenze e hash sono in
+[`public/characters/manifest.json`](public/characters/manifest.json), rigenerabile
+con `npm run characters`. La pipeline è descritta in
+[`docs/CHARACTERS.md`](docs/CHARACTERS.md).
+
+| Modello | Autore | Fonte | Licenza |
+| --- | --- | --- | --- |
+| Female body base mesh | [gus_thewise](https://sketchfab.com/gus_thewise) | [Sketchfab](https://skfb.ly/orzAs) | [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/) |
+| Male Body | [Alexander Antipov](https://sketchfab.com/AlexanderAntipov) | [Sketchfab](https://skfb.ly/6zuQA) | [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/) |
+| Male and Female Basemeshes - 3D Study Pack | [ronildo.facanha](https://sketchfab.com/ronildo.facanha) | [Sketchfab](https://skfb.ly/p86JI) | [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/) |
+| Female Head Sculpt | [Aconear](https://sketchfab.com/Aconear) | [Sketchfab](https://skfb.ly/oGBKK) | [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/) |
+| Realistic Male head | [Ouail](https://sketchfab.com/Ouail) | [Sketchfab](https://skfb.ly/oNoGX) | [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/) |
+| Hair Pack (part 2) | [rendysix](https://sketchfab.com/rendysix) | [Sketchfab](https://skfb.ly/pENtH) | [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/) |
+| FREE Male Fashion Hair collection 01 lowpoly | [Vincent Freelance](https://sketchfab.com/vincentfreelance) | [Sketchfab](https://skfb.ly/oVrKr) | [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/) |
+
+I corpi animati nello studio restano gli avatar Ready Player Me del gioco: la
+loro licenza è in [`public/models/ATTRIBUTION.md`](public/models/ATTRIBUTION.md).
+
+### Movimento: Posecode
+
+I movimenti in `src/posecode/movements/` sono scritti in
+[Posecode](https://www.posecode.org/), formato aperto con parser e renderer
+open source:
+
+- `posecode-parser` 0.6.0 — **Apache-2.0**;
+- `posecode-render` 0.6.0 — **AGPL-3.0-only** (se il progetto diventa un servizio
+  di rete, l'AGPL richiede di offrire il sorgente corrispondente).
+
 ## Dati geografici e copertura del suolo
 
 - **OpenStreetMap** — dati di strade, edifici, aree e corsi d'acqua in

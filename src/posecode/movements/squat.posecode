@@ -1,0 +1,36 @@
+// Squat a corpo libero: discesa controllata, ginocchia in linea con i piedi,
+// risalita che parte dal bacino. I piedi restano piantati per tutta la durata.
+posecode exercise "Squat a corpo libero"
+  rig humanoid
+  pose start = standing
+
+  step "Scendo" 1.6s settle:
+    pelvis: hinge 18
+    hips: flex 78
+    knees: flex 96
+    ankles: dorsiflex 13
+    spine: flex 10
+    chest: flex 4
+    shoulders: flex 12
+    ground-lock: feet
+    cue "Siediti indietro, petto alto"
+
+  step "Fondo" 0.5s settle:
+    pelvis: hinge 20
+    hips: flex 82
+    knees: flex 100
+    ankles: dorsiflex 14
+    ground-lock: feet
+
+  step "Risalgo" 1.5s drive:
+    pelvis: hinge 0
+    hips: flex 0
+    knees: flex 0
+    ankles: dorsiflex 0
+    spine: flex 0
+    chest: flex 0
+    shoulders: flex 0
+    ground-lock: feet
+    cue "Spingi il pavimento con i talloni"
+
+  repeat 3

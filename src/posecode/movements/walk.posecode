@@ -1,0 +1,74 @@
+// Camminata in place, quattro fasi. La posa di partenza è già il contatto
+// sinistro: così il ciclo si chiude esattamente dove è iniziato e non c'è
+// nessuno scatto al riavvio.
+posecode posture "Camminata naturale"
+  rig humanoid
+  pose start = standing:
+    hip_left: flex 24
+    knee_left: flex 8
+    ankle_left: dorsiflex 4
+    hip_right: extend 16
+    knee_right: flex 18
+    ankle_right: plantarflex 10
+    shoulder_left: extend 14
+    elbow_left: flex 12
+    shoulder_right: flex 18
+    elbow_right: flex 20
+    chest: twist-left 3
+    head: twist-right 2
+
+  step "Appoggio sinistro" 0.45s flow:
+    hip_left: flex 6
+    knee_left: flex 12
+    ankle_left: dorsiflex 2
+    hip_right: flex 12
+    knee_right: flex 44
+    ankle_right: dorsiflex 10
+    shoulder_left: flex 2
+    shoulder_right: flex 4
+    elbow_left: flex 14
+    elbow_right: flex 14
+    chest: twist-left 0
+    head: twist-right 0
+
+  step "Contatto destro" 0.45s flow:
+    hip_right: flex 24
+    knee_right: flex 8
+    ankle_right: dorsiflex 4
+    hip_left: extend 16
+    knee_left: flex 18
+    ankle_left: plantarflex 10
+    shoulder_right: extend 14
+    elbow_right: flex 12
+    shoulder_left: flex 18
+    elbow_left: flex 20
+    chest: twist-right 3
+    head: twist-left 2
+
+  step "Appoggio destro" 0.45s flow:
+    hip_right: flex 6
+    knee_right: flex 12
+    ankle_right: dorsiflex 2
+    hip_left: flex 12
+    knee_left: flex 44
+    ankle_left: dorsiflex 10
+    shoulder_right: flex 2
+    shoulder_left: flex 4
+    elbow_right: flex 14
+    elbow_left: flex 14
+    chest: twist-right 0
+    head: twist-left 0
+
+  step "Contatto sinistro" 0.45s flow:
+    hip_left: flex 24
+    knee_left: flex 8
+    ankle_left: dorsiflex 4
+    hip_right: extend 16
+    knee_right: flex 18
+    ankle_right: plantarflex 10
+    shoulder_left: extend 14
+    elbow_left: flex 12
+    shoulder_right: flex 18
+    elbow_right: flex 20
+    chest: twist-left 3
+    head: twist-right 2
