@@ -6,12 +6,12 @@
  * pubblici a runtime. Si scarica un estratto una volta, si converte in tile e
  * si serve come file statici `{z}/{x}/{y}.json`.
  *
- * Ingresso: OSM XML (`.osm`). Il formato PBF non viene letto da questo script
- * perché non c'è nessuna dipendenza protobuf nel progetto: si converte prima,
- * una volta sola, con uno strumento standard:
+ * Ingresso: `.osm.pbf` (letto dal decoder del progetto, senza dipendenze) oppure
+ * OSM XML (`.osm`). Su un estratto regionale il PBF va sempre accompagnato da
+ * `--bbox`: senza filtro si terrebbero in memoria decine di milioni di nodi.
  *
- *   osmium cat molise.osm.pbf -o molise.osm
- *   node scripts/build-world-tiles.mjs --input molise.osm --out public/world-tiles
+ *   node scripts/build-world-tiles.mjs --input sud.osm.pbf \
+ *     --bbox 41.70,14.55,42.00,15.05 --out public/world-tiles
  *
  * Il tile che possiede una feature è quello del suo **primo punto**, la stessa
  * regola di `ownsFeature` nel client: così i bundle possono contenere la stessa
@@ -24,6 +24,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { decodeOsmPbf } from './lib/osm-pbf.mjs';
 
 /** Larghezza di carreggiata per classe, in metri (come `roadWidth` del client). */
 const ROAD_WIDTH = {
@@ -288,6 +289,33 @@ function parseArgs(argv) {
   return args;
 }
 
+/** `bbox` allargato di `margin` gradi: i nodi ai bordi servono alle way che entrano. */
+function expandBbox(bbox, margin) {
+  return {
+    minLat: bbox.minLat - margin,
+    maxLat: bbox.maxLat + margin,
+    minLon: bbox.minLon - margin,
+    maxLon: bbox.maxLon + margin,
+  };
+}
+
+/** Vecchia forma di `buildTiles`: accetta anche `readExtract` nei test. */
+export function readExtract(file, bbox = null) {
+  if (!String(file).endsWith('.pbf')) return parseOsmXml(readFileSync(file, 'utf8'));
+  const keep = bbox ? expandBbox(bbox, 0.02) : null;
+  return decodeOsmPbf(readFileSync(file), {
+    keepNode: keep ? (point) => inside(point, keep) : undefined,
+    keepWay: (tags, refs, nodes) => {
+      const useful =
+        (Boolean(tags.building) && tags.building !== 'no') || Boolean(tags.highway);
+      if (!useful) return false;
+      if (!bbox) return true;
+      // senza almeno un nodo tenuto la way è fuori dall'area: scartarla subito
+      return refs.some((ref) => nodes.has(ref));
+    },
+  });
+}
+
 function parseBbox(text) {
   const parts = String(text).split(',').map(Number);
   if (parts.length !== 4 || parts.some((value) => !Number.isFinite(value))) {
@@ -303,21 +331,15 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-  if (String(args.input).endsWith('.pbf')) {
-    console.error(
-      'PBF non letto direttamente (nessuna dipendenza protobuf nel progetto).\n' +
-        'Convertilo una volta con uno strumento standard, poi rilancia:\n' +
-        `  osmium cat ${args.input} -o estratto.osm`,
-    );
-    process.exitCode = 1;
-    return;
+  const bbox = args.bbox ? parseBbox(args.bbox) : null;
+  if (String(args.input).endsWith('.pbf') && !bbox) {
+    console.warn('PBF senza --bbox: si terranno in memoria tutti i nodi dell\'estratto.');
   }
-  const xml = readFileSync(args.input, 'utf8');
-  const extract = parseOsmXml(xml);
+  const extract = readExtract(args.input, bbox);
   const options = {
     zoom: args.zoom ? Number(args.zoom) : 14,
     attribution: typeof args.attribution === 'string' ? args.attribution : '© OpenStreetMap contributors (ODbL)',
-    bbox: args.bbox ? parseBbox(args.bbox) : null,
+    bbox,
   };
   const tiles = buildTiles(extract, options);
   const outDir = typeof args.out === 'string' ? args.out : path.join('public', 'world-tiles');
@@ -327,6 +349,7 @@ async function main() {
   console.log(
     `nodi ${extract.nodes.size} · way ${extract.ways.length} · strade ${roads} · edifici ${buildings}`,
   );
+  if (extract.blocks !== undefined) console.log(`blocchi PBF ${extract.blocks}`);
   console.log(`scritti ${result.files} tile (${(result.bytes / 1024 / 1024).toFixed(1)} MB) in ${outDir}`);
   console.log('Servi la cartella come statica e imposta VITE_OPEN_WORLD_DATA_TILE_URL.');
 }
