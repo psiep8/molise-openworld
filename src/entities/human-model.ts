@@ -112,8 +112,8 @@ export interface HumanFiles extends HumanFileSet {
 }
 
 export const HUMAN_FILES: HumanFiles = {
-  maleBody: 'uomo.glb',
-  femaleBody: 'donna.glb',
+  maleBody: 'uomo-real.glb',
+  femaleBody: 'donna-real.glb',
   idle: 'donna-idle.glb',
   walk: 'donna-walk.glb',
   run: 'donna-run.glb',
@@ -123,6 +123,7 @@ export const HUMAN_FILES: HumanFiles = {
 function boneKey(name: string): string {
   return name
     .toLowerCase()
+    .replace(/^mixamorig[:_-]?/, '')
     .replace(/[^a-z0-9]/g, '');
 }
 
@@ -130,7 +131,7 @@ function boneKey(name: string): string {
 function indexBones(root: THREE.Object3D): Map<string, THREE.Object3D> {
   const bones = new Map<string, THREE.Object3D>();
   root.traverse((obj) => {
-    if (!obj.name) return;
+    if (!obj.name || !(obj as THREE.Bone).isBone) return;
     const key = boneKey(obj.name);
     if (!bones.has(key)) bones.set(key, obj);
   });
@@ -213,7 +214,12 @@ async function loadBody(base: string, file: string, sex: keyof HairAssets): Prom
   if (!bones.has('hips') || !bones.has('head')) {
     throw new Error(`corpo ${sex} (${file}) senza scheletro RPM (Hips/Head)`);
   }
-  await upgradeBodyMaterials(gltf, root);
+  // I GLB MakeHuman hanno già capelli, occhi e vestiti cotti nella gerarchia.
+  // Evita di sovrapporre i vecchi ciuffi RPM separati e di applicare la normal
+  // map RPM (unica e globale) a pelle, capelli e tessuti MakeHuman.
+  const bakedHair = /-real\.glb$/i.test(file);
+  root.userData.bakedHair = bakedHair;
+  if (!bakedHair) await upgradeBodyMaterials(gltf, root);
   return root;
 }  /** Crea un gruppo capelli dai source mesh, colorandoli in base all'hairColor. */
 function makeHair(
@@ -269,17 +275,20 @@ function makeHair(
   return fit;
 }
 
-/** Misura l'altezza del corpo dalle ossa nella posa di riposo. */
+/** Misura l'altezza del corpo dalla geometria nella posa di riposo.
+ *
+ * Le ossa non bastano: il rig MakeHuman non ha le punte HeadTop_End/Toe_End,
+ * quindi la loro estensione sarebbe molto minore dell'altezza reale. I limiti
+ * delle mesh includono testa, capelli e piedi e danno la scala corretta.
+ */
 function measureBody(root: THREE.Object3D): BodySize {
   root.updateWorldMatrix(true, true);
-  const bones = new THREE.Box3();
-  const point = new THREE.Vector3();
-  root.traverse((obj) => {
-    if ((obj as THREE.Bone).isBone) bones.expandByPoint(obj.getWorldPosition(point));
-  });
-  const span = bones.max.y - bones.min.y;
-  if (!Number.isFinite(span) || span < 0.2) return { height: 1.8, minY: 0 };
-  return { height: span * 1.1, minY: bones.min.y - span * 0.02 };
+  const bounds = new THREE.Box3().setFromObject(root);
+  const size = bounds.getSize(new THREE.Vector3());
+  if (bounds.isEmpty() || !Number.isFinite(size.y) || size.y < 0.2) {
+    return { height: 1.8, minY: 0 };
+  }
+  return { height: size.y, minY: bounds.min.y };
 }
 
 /** Retargeta una clip da uno scheletro sorgente a uno destinatario, mappando
@@ -1078,7 +1087,7 @@ export class HumanBody {
     const bones = indexBones(model);
 
     // Aggiungi capelli se disponibili
-    const hairVariants = female ? assets.hair.female : assets.hair.male;
+    const hairVariants = model.userData.bakedHair ? [] : female ? assets.hair.female : assets.hair.male;
     const head = bones.get('head');
     if (head && hairVariants.length > 0) {
       // Variante stabile per istanza: niente capelli che cambiano a ogni

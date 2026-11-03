@@ -72,4 +72,22 @@ describe('Animazioni GLB RPM', () => {
     expect(bound).not.toBeNull();
     expect(bound!.tracks.length).toBeGreaterThan(0);
   });
+
+  it('riconosce le ossa Mixamo con prefisso dei corpi MakeHuman', () => {
+    const body = new THREE.Group();
+    const hips = new THREE.Bone();
+    hips.name = 'mixamorig:Hips';
+    body.add(hips);
+    const head = new THREE.Bone();
+    head.name = 'mixamorig:Head';
+    body.add(head);
+    const clip = new THREE.AnimationClip('walk', 1, [
+      new THREE.QuaternionKeyframeTrack('Hips.quaternion', [0, 1], [0, 0, 0, 1, 0, 0, 0, 1]),
+    ]);
+
+    const bound = bindClip(clip, body);
+
+    expect(bound).not.toBeNull();
+    expect(bound!.tracks.map((track) => track.name)).toEqual(['mixamorig:Hips.quaternion']);
+  });
 });
