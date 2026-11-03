@@ -540,6 +540,8 @@ export class Game {
   private keys = new Set<string>();
   private pointerLocked = false;
   private thirdPerson = false;
+  /** Rotazione orbitale della vista a piedi, indipendente dallo yaw del corpo. */
+  private walkOrbit = 0;
   private camYawOffset = 0;
   private camPitch = 0;
   private camDistance = 8.8;
@@ -3581,8 +3583,13 @@ export class Game {
         if (this.mode === 'walk') {
           this.thirdPerson = !this.thirdPerson;
           this.player.avatar.visible = this.thirdPerson;
+          if (this.thirdPerson) this.walkOrbit = 0;
           this.snapWalkCamera();
-          this.hud.toast(this.thirdPerson ? 'Visuale in terza persona' : 'Visuale in prima persona');
+          this.hud.toast(
+            this.thirdPerson
+              ? 'Visuale in terza persona · [ ] ruota camera'
+              : 'Visuale in prima persona',
+          );
         } else {
           this.driveCam = (this.driveCam + 1) % 3;
           this.snapDriveCamera();
@@ -4785,10 +4792,28 @@ export class Game {
     return this.keys.has(code);
   }
 
+  /** Direzione della vista a piedi: il corpo resta sullo yaw, la camera può orbitare. */
+  private walkViewDirection(out: THREE.Vector3): THREE.Vector3 {
+    const dir = this.player.forward(out);
+    if (Math.abs(this.walkOrbit) < 1e-5) return dir;
+    const cos = Math.cos(this.walkOrbit);
+    const sin = Math.sin(this.walkOrbit);
+    const x = dir.x * cos + dir.z * sin;
+    const z = -dir.x * sin + dir.z * cos;
+    return dir.set(x, dir.y, z);
+  }
+
   private updateWalkCamera(dt: number): void {
     const speed = Math.hypot(this.player.velocity.x, this.player.velocity.z);
     this.bobPhase += speed * dt * 2.6;
     const bob = this.player.grounded ? Math.sin(this.bobPhase) * 0.038 * Math.min(1, speed / 5) : 0;
+
+    if (this.thirdPerson) {
+      const orbitInput = (this.key('BracketRight') ? 1 : 0) - (this.key('BracketLeft') ? 1 : 0);
+      if (orbitInput !== 0) {
+        this.walkOrbit = clamp(this.walkOrbit + orbitInput * dt * 1.9, -Math.PI, Math.PI);
+      }
+    }
 
     if (!this.thirdPerson) {
       const eye = this.player.eyePosition(this.tmp1);
@@ -4798,7 +4823,7 @@ export class Game {
       return;
     }
 
-    const dir = this.player.forward(this.tmp1);
+    const dir = this.walkViewDirection(this.tmp1);
     const target = this.tmp2.set(this.player.position.x, this.player.position.y + 1.45, this.player.position.z);
     const desired = this.tmp3.copy(target).addScaledVector(dir, -4.4);
     desired.y = Math.max(desired.y, this.ground.heightAt(desired.x, desired.z) + 0.75);
@@ -4960,7 +4985,7 @@ export class Game {
       this.camera.rotation.set(this.player.pitch, this.player.yaw, 0);
       return;
     }
-    const dir = this.player.forward(this.tmp1);
+    const dir = this.walkViewDirection(this.tmp1);
     const target = this.tmp2.set(this.player.position.x, this.player.position.y + 1.45, this.player.position.z);
     const desired = this.tmp3.copy(target).addScaledVector(dir, -4.4);
     desired.y = Math.max(desired.y, this.ground.heightAt(desired.x, desired.z) + 0.75);
@@ -5086,7 +5111,11 @@ export class Game {
       const debugWindow = window as unknown as {
         __moliseDebug?: {
           teleport(x: number, z: number): boolean;
+          orbit(angle: number): void;
+          hair(visible: boolean): void;
+          pose(): Record<string, unknown>;
           avatar(): Array<Record<string, unknown>>;
+          view(): Record<string, unknown>;
         };
       };
       if (!debugWindow.__moliseDebug) {
@@ -5100,6 +5129,60 @@ export class Game {
             this.snapWalkCamera();
             this.terrain?.update(x, z, this.viewRadius, true);
             return true;
+          },
+          orbit: (angle) => {
+            if (!this.loaded) return;
+            this.thirdPerson = true;
+            this.player.avatar.visible = true;
+            this.walkOrbit = clamp(Number.isFinite(angle) ? angle : 0, -Math.PI, Math.PI);
+            this.snapWalkCamera();
+          },
+          hair: (visible) => {
+            this.player.avatar.traverse((object) => {
+              if (object.name.startsWith('hair-')) object.visible = visible;
+            });
+          },
+          view: () => {
+            const avatar = this.player.avatar;
+            avatar.updateMatrixWorld(true);
+            const avatarPos = new THREE.Vector3();
+            avatar.getWorldPosition(avatarPos);
+            const quaternion = new THREE.Quaternion();
+            avatar.getWorldQuaternion(quaternion);
+            const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(quaternion).normalize();
+            const face = avatar.getObjectByName('imported-face');
+            const facePos = new THREE.Vector3();
+            face?.getWorldPosition(facePos);
+            const cameraDelta = new THREE.Vector3().subVectors(this.camera.position, avatarPos);
+            const faceDelta = new THREE.Vector3().subVectors(facePos, avatarPos);
+            return {
+              orbit: Number(this.walkOrbit.toFixed(3)),
+              thirdPerson: this.thirdPerson,
+              avatarYaw: Number(this.player.yaw.toFixed(3)),
+              avatarRotationY: Number(avatar.rotation.y.toFixed(3)),
+              modelForward: { x: Number(forward.x.toFixed(3)), z: Number(forward.z.toFixed(3)) },
+              cameraSide: Number(cameraDelta.dot(forward).toFixed(3)),
+              faceSide: Number(faceDelta.dot(forward).toFixed(3)),
+              camera: { x: Number(this.camera.position.x.toFixed(2)), y: Number(this.camera.position.y.toFixed(2)), z: Number(this.camera.position.z.toFixed(2)) },
+            };
+          },
+          pose: () => {
+            const bones: Record<string, number[]> = {};
+            this.player.avatar.traverse((object) => {
+              if (!(object as THREE.Bone).isBone) return;
+              const name = object.name.toLowerCase();
+              if (!/(arm|leg|head|hips|spine|neck)/.test(name)) return;
+              bones[object.name] = [
+                Number(object.quaternion.x.toFixed(3)),
+                Number(object.quaternion.y.toFixed(3)),
+                Number(object.quaternion.z.toFixed(3)),
+                Number(object.quaternion.w.toFixed(3)),
+              ];
+            });
+            return {
+              speed: Number(Math.hypot(this.player.velocity.x, this.player.velocity.z).toFixed(2)),
+              bones,
+            };
           },
           avatar: () => {
             const result: Array<Record<string, unknown>> = [];

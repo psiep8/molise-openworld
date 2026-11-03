@@ -1111,7 +1111,10 @@ export class Vehicle {
       seatZ: -this.spec.length * 0.12,
     };
 
-    const body = new HumanBody(this.riderAssets, this.riderAppearance, { shadow: true });
+    const body = new HumanBody(this.riderAssets, this.riderAppearance, {
+      shadow: true,
+      importedBody: true,
+    });
     body.setDriving(true);
     body.update(0, 0, false, { driving: true });
 

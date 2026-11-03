@@ -921,7 +921,10 @@ export class Player {
       this.position.y + this.bob + this.footOffset,
       this.position.z,
     );
-    this.avatar.rotation.set(-this.tiltPitch * 0.4, this.yaw, this.tiltRoll * 0.4);
+    // Il modello umano (RPM e scultura importata) guarda verso +Z locale,
+    // mentre il movimento del giocatore usa -Z. Senza questo mezzo giro il
+    // corpo cammina all'indietro e la telecamera lo inquadra in faccia.
+    this.avatar.rotation.set(-this.tiltPitch * 0.4, this.yaw + Math.PI, this.tiltRoll * 0.4);
   }
 
   eyePosition(out = new THREE.Vector3()): THREE.Vector3 {

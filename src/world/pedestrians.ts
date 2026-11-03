@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { Appearance } from '../entities/appearance';
+import { HAIR_COLORS, SKINS, type Appearance, type HairStyle } from '../entities/appearance';
 import { HumanBody, type HumanAssets } from '../entities/human-model';
 import { footHeights, terrainTilt } from '../entities/locomotion';
 import type { Pt } from '../geo/geo';
@@ -134,19 +134,28 @@ function sampleRoute(route: Route, s: number): { x: number; z: number; dx: numbe
   };
 }
 
+const FEMALE_HAIR: readonly HairStyle[] = ['coda', 'lunghi', 'chignon', 'riccio', 'corto'];
+const MALE_HAIR: readonly HairStyle[] = ['raso', 'corto', 'riccio', 'corto'];
+
 /** Aspetto casuale ma credibile: più gente di mezza età che ventenni a caso. */
 function randomLook(rng: () => number): Appearance {
-  const female = rng() < 0.5;
+  const female = rng() < 0.52;
   const build = rng() < 0.25 ? 'robusto' : rng() < 0.5 ? 'snello' : 'normale';
   const height = female ? 1.55 + rng() * 0.25 : 1.62 + rng() * 0.28;
+  const skin = SKINS[Math.floor(rng() * SKINS.length)]!.color;
+  const hairColor = HAIR_COLORS[Math.floor(rng() * HAIR_COLORS.length)]!.color;
+  const hairStyles = female ? FEMALE_HAIR : MALE_HAIR;
+  const hairStyle = hairStyles[Math.floor(rng() * hairStyles.length)]!;
   return {
     sex: female ? 'donna' : 'uomo',
     height,
     build,
-    skin: 0xd7a07c,
-    hairStyle: 'corto',
-    hairColor: 0x53382a,
-    beard: false,
+    skin,
+    hairStyle,
+    hairColor,
+    // Il viso e i capelli sono già vari; il vestiario resta neutro finché non
+    // arrivano i capi definitivi. Così il paese non è una fila di cloni.
+    beard: !female && rng() < 0.32,
     outfit: 'casual',
     tone: 'classico',
   };
@@ -195,6 +204,7 @@ export class Pedestrians {
       const body = new HumanBody(assets, look, {
         phase: this.rng() * 3,
         tint,
+        importedBody: true,
       });
       this.group.add(body.group);
       const walker: Walker = {

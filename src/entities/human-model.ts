@@ -112,6 +112,8 @@ export interface HumanAssets {
   readonly hair: HairAssets;
   /** Corpo femminile Sketchfab (statico) usato come pelle del rig RPM. */
   readonly importedFemale?: THREE.Object3D;
+  /** Corpo maschile Sketchfab (statico) usato come pelle del rig RPM. */
+  readonly importedMale?: THREE.Object3D;
   /** File opzionali mancanti (capelli, riga sorgente): non bloccano il gioco. */
   readonly diagnostics: { warnings: readonly string[] };
 }
@@ -194,10 +196,14 @@ async function loadBody(base: string, file: string, sex: keyof HairAssets): Prom
     throw new Error(`corpo ${sex} (${file}) senza scheletro Mixamo (Hips/Head)`);
   }
   return root;
-}
-
-/** Crea un gruppo capelli dai source mesh, colorandoli in base all'hairColor. */
-function makeHair(source: THREE.Object3D, hairColor: number, materialsOwned: THREE.Material[]): THREE.Group {
+}  /** Crea un gruppo capelli dai source mesh, colorandoli in base all'hairColor. */
+function makeHair(
+  source: THREE.Object3D,
+  hairColor: number,
+  materialsOwned: THREE.Material[],
+  head: THREE.Object3D,
+  bodyFront: 1 | -1,
+): THREE.Group {
   const model = cloneSkeleton(source) as THREE.Object3D;
   model.updateMatrixWorld(true);
   const bounds = new THREE.Box3().setFromObject(model);
@@ -208,8 +214,19 @@ function makeHair(source: THREE.Object3D, hairColor: number, materialsOwned: THR
   const center = bounds.getCenter(new THREE.Vector3());
   const fit = new THREE.Group();
   fit.name = `hair-${source.name}`;
-  fit.scale.set(0.25 / size.x, 0.28 / size.y, 0.24 / size.z);
-  fit.position.y = 0.015;
+  // Il pack capelli è centrato sull'origine dell'osso Head, che sta alla base
+  // del cranio: senza alzarlo di ~9 cm il caschetto copre occhi e volto.
+  fit.scale.set(0.22 / size.x, 0.26 / size.y, 0.22 / size.z);
+  fit.position.y = 0.105;
+  // L'osso Head ha l'origine alla base del cranio, non al centro del viso:
+  // sposta il ciuffo anche indietro, altrimenti la frangia copre gli occhi.
+  head.updateWorldMatrix(true, false);
+  const headWorldInverse = new THREE.Quaternion();
+  head.getWorldQuaternion(headWorldInverse).invert();
+  const back = new THREE.Vector3(0, 0, bodyFront)
+    .applyQuaternion(headWorldInverse)
+    .multiplyScalar(-0.10);
+  fit.position.add(back);
   const centered = new THREE.Group();
   centered.position.set(-center.x, -bounds.min.y, -center.z);
   centered.add(model);
@@ -424,15 +441,23 @@ async function loadHairVariants(base: string, file: string, sex: keyof HairAsset
 export async function loadHumanAssets(base = `${import.meta.env.BASE_URL}models/`): Promise<HumanAssets> {
   const warnings: string[] = [];
   const characterBase = base.replace(/models\/$/, 'characters/');
-  const [animationResult, maleResult, femaleResult, importedFemaleResult, maleHairResult, femaleHairResult] =
-    await Promise.allSettled([
-      loadAnimationSource(base, warnings),
-      loadBody(base, HUMAN_FILES.maleBody, 'male'),
-      loadBody(base, HUMAN_FILES.femaleBody, 'female'),
-      loadImportedFemale(characterBase),
-      loadHairVariants(characterBase, 'free_male_fashion_hair_collection_01_lowpoly.glb', 'male'),
-      loadHairVariants(characterBase, 'hair_pack_part_2.glb', 'female'),
-    ]);
+  const [
+    animationResult,
+    maleResult,
+    femaleResult,
+    importedFemaleResult,
+    importedMaleResult,
+    maleHairResult,
+    femaleHairResult,
+  ] = await Promise.allSettled([
+    loadAnimationSource(base, warnings),
+    loadBody(base, HUMAN_FILES.maleBody, 'male'),
+    loadBody(base, HUMAN_FILES.femaleBody, 'female'),
+    loadImportedBody(characterBase, 'female_body_base_mesh.glb', 'femminile'),
+    loadImportedBody(characterBase, 'male_body.glb', 'maschile'),
+    loadHairVariants(characterBase, 'free_male_fashion_hair_collection_01_lowpoly.glb', 'male'),
+    loadHairVariants(characterBase, 'hair_pack_part_2.glb', 'female'),
+  ]);
   const failures: string[] = [];
   let animation: Awaited<ReturnType<typeof loadAnimationSource>> | null = null;
   if (animationResult.status === 'fulfilled') animation = animationResult.value;
@@ -446,7 +471,12 @@ export async function loadHumanAssets(base = `${import.meta.env.BASE_URL}models/
   let importedFemale: THREE.Object3D | null = null;
   if (importedFemaleResult.status === 'fulfilled') importedFemale = importedFemaleResult.value;
   else warnings.push(`corpo importato femminile: ${String(importedFemaleResult.reason)}`);
-  console.info(`[personaggi] asset corpo importato: ${importedFemale ? 'caricato' : 'non disponibile'}`);
+  let importedMale: THREE.Object3D | null = null;
+  if (importedMaleResult.status === 'fulfilled') importedMale = importedMaleResult.value;
+  else warnings.push(`corpo importato maschile: ${String(importedMaleResult.reason)}`);
+  console.info(
+    `[personaggi] corpi importati: femminile ${importedFemale ? 'caricato' : 'non disponibile'}, maschile ${importedMale ? 'caricato' : 'non disponibile'}`,
+  );
   const hairOf = (result: PromiseSettledResult<THREE.Object3D[]>): THREE.Object3D[] => {
     if (result.status === 'fulfilled') return result.value;
     warnings.push(`capelli: ${String(result.reason)}`);
@@ -469,6 +499,7 @@ export async function loadHumanAssets(base = `${import.meta.env.BASE_URL}models/
     },
     hair: { male: maleHair, female: femaleHair },
     ...(importedFemale ? { importedFemale } : {}),
+    ...(importedMale ? { importedMale } : {}),
     diagnostics: { warnings },
   };
 }
@@ -484,24 +515,24 @@ export interface HumanBodyOptions {
   /** Indice deterministico della variante capelli (pedoni) */
   hairVariant?: number;
   /**
-   * Sostituisce la pelle RPM con il corpo femminile importato, mantenendo
-   * scheletro e clip Mixamo. Usato dal giocatore, non dai pedoni.
+   * Sostituisce la pelle RPM con il corpo importato dello stesso sesso,
+   * mantenendo scheletro e clip Mixamo. Usato da giocatore e pedoni.
    */
   importedBody?: boolean;
 }
 
 /**
- * Carica il corpo femminile importato (Sketchfab). È una scultura statica:
- * qui serve solo la geometria, che viene allineata allo scheletro RPM e pesata
- * sui suoi vertici. Se manca, il giocatore resta sul corpo RPM.
+ * Carica un corpo umano importato (Sketchfab). È una scultura statica: qui
+ * serve solo la geometria, che viene allineata allo scheletro RPM e pesata sui
+ * suoi vertici. Se manca, quel sesso resta sul corpo RPM.
  */
-async function loadImportedFemale(base: string): Promise<THREE.Object3D> {
-  const gltf = await new GLTFLoader().loadAsync(base + 'female_body_base_mesh.glb');
+async function loadImportedBody(base: string, file: string, label: string): Promise<THREE.Object3D> {
+  const gltf = await new GLTFLoader().loadAsync(base + file);
   const scene = gltf.scene ?? gltf.scenes[0];
-  if (!scene) throw new Error('corpo importato senza scena');
+  if (!scene) throw new Error(`corpo importato ${label} senza scena`);
   let meshes = 0;
   scene.traverse((object) => { if ((object as THREE.Mesh).isMesh) meshes++; });
-  if (meshes === 0) throw new Error('corpo importato senza mesh');
+  if (meshes === 0) throw new Error(`corpo importato ${label} senza mesh`);
   return scene;
 }
 
@@ -652,6 +683,22 @@ function alignImportedGeometry(
     (sourceBox.min.z + sourceBox.max.z) / 2,
   );
   geometry.computeBoundingBox();
+  // La scultura può essere esportata girata di 180° rispetto alla mesh RPM.
+  // Se i piedi indicano un fronte diverso, la giro attorno al proprio centro
+  // PRIMA di trasferire i pesi, così mani e piedi finiscono sulle ossa giuste
+  // e il viso guarda nella stessa direzione delle clip Mixamo.
+  const sourceFront = frontFromFeet(sourceMesh.geometry);
+  const importedFront = frontFromFeet(geometry);
+  if (sourceFront !== importedFront) {
+    const rotatedBox = geometry.boundingBox;
+    if (!rotatedBox) return null;
+    const centerX = (rotatedBox.min.x + rotatedBox.max.x) / 2;
+    const centerZ = (rotatedBox.min.z + rotatedBox.max.z) / 2;
+    geometry.translate(-centerX, 0, -centerZ);
+    geometry.rotateY(Math.PI);
+    geometry.translate(centerX, 0, centerZ);
+  }
+  geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
   return geometry;
 }
@@ -675,81 +722,231 @@ function frontFromFeet(geometry: THREE.BufferGeometry): 1 | -1 {
   return maxZ - (minZ + maxZ) / 2 >= (minZ + maxZ) / 2 - minZ ? 1 : -1;
 }
 
-/** Colora la scultura per zone: vestito, pelle e scarpe, senza texture UV. */
-function importedBodyMaterial(appearance: Appearance, geometry: THREE.BufferGeometry): THREE.MeshStandardMaterial {
+/** Osso dominante di ogni vertice, già normalizzato per il confronto. */
+function dominantBoneNames(geometry: THREE.BufferGeometry, skeleton: THREE.Skeleton): string[] {
+  const index = geometry.getAttribute('skinIndex');
+  const weight = geometry.getAttribute('skinWeight');
+  const bones = skeleton.bones.map((bone) => boneKey(bone.name));
+  const out: string[] = [];
+  if (!index || !weight) return out;
+  for (let i = 0; i < index.count; i++) {
+    let best = -1;
+    let bestWeight = -1;
+    for (let k = 0; k < 4; k++) {
+      const value = weight.getComponent(i, k);
+      if (value > bestWeight) {
+        bestWeight = value;
+        best = index.getComponent(i, k);
+      }
+    }
+    out.push(best >= 0 ? bones[best] ?? '' : '');
+  }
+  return out;
+}
+
+/**
+ * Colora la scultura per zone usando le ossa che la muovono, non la sola
+ * altezza: così mani e avambracci restano pelle e non diventano maniche di
+ * vestito. Il seno e le cosce sono coperti dal vestito; le gambe sotto il
+ * ginocchio restano pelle. Il corpo maschile usa maglietta e pantaloni.
+ */
+function importedBodyMaterial(
+  appearance: Appearance,
+  geometry: THREE.BufferGeometry,
+  female: boolean,
+  dominantBones: readonly string[],
+): THREE.MeshStandardMaterial {
   const position = geometry.getAttribute('position');
   const box = geometry.boundingBox;
   if (!position || !box) {
     return new THREE.MeshStandardMaterial({ color: appearance.skin, roughness: 0.7 });
   }
   const height = Math.max(1e-4, box.max.y - box.min.y);
+  const colors = outfitColors(appearance);
   const skin = new THREE.Color(appearance.skin);
-  const dress = new THREE.Color(0x934b50);
-  const shoes = new THREE.Color(0x1d1a1a);
-  const colors = new Float32Array(position.count * 3);
+  const dress = new THREE.Color(0x8f4650);
+  const top = new THREE.Color(colors.top);
+  const pants = new THREE.Color(colors.bottom);
+  const shoes = new THREE.Color(female ? 0x1d1a1a : colors.shoes);
+  const values = new Float32Array(position.count * 3);
   for (let i = 0; i < position.count; i++) {
+    const bone = dominantBones[i] ?? '';
     const y = (position.getY(i) - box.min.y) / height;
-    const color = y < 0.07 ? shoes : y < 0.35 ? skin : y < 0.89 ? dress : skin;
-    colors[i * 3] = color.r;
-    colors[i * 3 + 1] = color.g;
-    colors[i * 3 + 2] = color.b;
+    let color: THREE.Color;
+    if (/(foot|toe)/.test(bone)) {
+      color = shoes;
+    } else if (y > 0.90 || /(hand|forearm|upperarm|arm)/.test(bone)) {
+      // Testa, mani e braccia restano pelle; il corpetto copre il busto.
+      color = skin;
+    } else if (female) {
+      color = y < 0.35 ? skin : y < 0.89 ? dress : skin;
+    } else if (y < 0.07) {
+      color = shoes;
+    } else if (y < 0.42) {
+      color = pants;
+    } else if (y < 0.89) {
+      color = top;
+    } else {
+      color = skin;
+    }
+    values[i * 3] = color.r;
+    values[i * 3 + 1] = color.g;
+    values[i * 3 + 2] = color.b;
   }
-  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(values, 3));
   return new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.72, metalness: 0 });
 }
 
-/** Aggiunge gonna, cintura, occhi e labbra alla scultura importata. */
+/** Aggiunge gonna, cintura, occhi, sopracciglia e labbra alla scultura. */
 function addImportedDetails(
   model: THREE.Object3D,
   mesh: THREE.SkinnedMesh,
   materials: THREE.Material[],
   geometries: THREE.BufferGeometry[],
+  female: boolean,
+  appearance: Appearance,
 ): void {
   const box = mesh.geometry.boundingBox;
   if (!box) return;
   const height = box.max.y - box.min.y;
   const front = frontFromFeet(mesh.geometry) * height * 0.055;
+  const sign = Math.sign(front) || 1;
   const hipY = box.min.y + height * 0.53;
-  const dress = new THREE.MeshStandardMaterial({ color: 0x934b50, roughness: 0.82, side: THREE.DoubleSide });
+  const dressColor = 0x8f4650;
+  const dress = new THREE.MeshStandardMaterial({
+    color: dressColor,
+    roughness: 0.82,
+    side: THREE.DoubleSide,
+  });
   const leather = new THREE.MeshStandardMaterial({ color: 0x251b18, roughness: 0.55 });
   const white = new THREE.MeshStandardMaterial({ color: 0xe9e3da, roughness: 0.28 });
   const iris = new THREE.MeshStandardMaterial({ color: 0x4b3422, roughness: 0.22 });
   const pupil = new THREE.MeshStandardMaterial({ color: 0x090807, roughness: 0.2 });
-  const lips = new THREE.MeshStandardMaterial({ color: 0x8f4b4a, roughness: 0.6 });
-  materials.push(dress, leather, white, iris, pupil, lips);
+  const lips = new THREE.MeshStandardMaterial({
+    color: female ? 0x8f4b4a : new THREE.Color(appearance.skin).multiplyScalar(0.72),
+    roughness: 0.6,
+  });
+  const brows = new THREE.MeshStandardMaterial({ color: appearance.hairColor, roughness: 0.7 });
+  const faceSkin = new THREE.MeshStandardMaterial({ color: appearance.skin, roughness: 0.66 });
+  const hairMaterial = new THREE.MeshStandardMaterial({
+    color: appearance.hairColor,
+    roughness: 0.8,
+    metalness: 0,
+  });
+  materials.push(dress, leather, white, iris, pupil, lips, brows, faceSkin, hairMaterial);
 
-  const skirtGeometry = new THREE.CylinderGeometry(height * 0.075, height * 0.16, height * 0.28, 24, 1, true);
-  const skirt = new THREE.Mesh(skirtGeometry, dress);
-  skirt.position.set(0, hipY - height * 0.14, 0);
-  skirt.castShadow = true;
-  model.add(skirt);
-  geometries.push(skirtGeometry);
+  let bodice: THREE.Mesh | null = null;
+  let skirt: THREE.Mesh | null = null;
+  let belt: THREE.Mesh | null = null;
+  if (female) {
+    // Corpetto sagomato a macchie di raggio (lathe), non un cilindro dritto:
+    // segue vita, seno e spalle e copre anche la schiena senza effetto scatola.
+    const profile = [
+      new THREE.Vector2(height * 0.095, 0),
+      new THREE.Vector2(height * 0.105, height * 0.08),
+      new THREE.Vector2(height * 0.115, height * 0.18),
+      new THREE.Vector2(height * 0.118, height * 0.26),
+      new THREE.Vector2(height * 0.10, height * 0.33),
+      new THREE.Vector2(height * 0.085, height * 0.36),
+    ];
+    const bodiceGeometry = new THREE.LatheGeometry(profile, 32);
+    bodice = new THREE.Mesh(bodiceGeometry, dress);
+    bodice.position.set(0, hipY, 0);
+    bodice.scale.z = 0.78;
+    bodice.castShadow = true;
+    bodice.receiveShadow = true;
+    model.add(bodice);
+    geometries.push(bodiceGeometry);
+    // Gonna a campana: il vecchio cilindro stretto tagliava i fianchi e
+    // sembrava un grembiule rigido. Questo profilo parte dal bacino e si apre.
+    const skirtGeometry = new THREE.CylinderGeometry(
+      height * 0.105, height * 0.18, height * 0.30, 32, 1, true,
+    );
+    skirt = new THREE.Mesh(skirtGeometry, dress);
+    skirt.position.set(0, hipY - height * 0.15, 0);
+    skirt.scale.z = 0.78;
+    skirt.castShadow = true;
+    model.add(skirt);
+    geometries.push(skirtGeometry);
 
-  const beltGeometry = new THREE.CylinderGeometry(height * 0.078, height * 0.081, height * 0.022, 24, 1, true);
-  const belt = new THREE.Mesh(beltGeometry, leather);
-  belt.position.set(0, hipY, 0);
-  belt.castShadow = true;
-  model.add(belt);
-  geometries.push(beltGeometry);
+    const beltGeometry = new THREE.CylinderGeometry(
+      height * 0.083, height * 0.086, height * 0.022, 32, 1, true,
+    );
+    belt = new THREE.Mesh(beltGeometry, leather);
+    belt.position.set(0, hipY + height * 0.005, 0);
+    belt.scale.z = 0.78;
+    belt.castShadow = true;
+    model.add(belt);
+    geometries.push(beltGeometry);
+  }
+
+  // La scultura importata è una base senza testa: senza un cranio il volto
+  // resterebbe un collo mozzato e i dettagli finirebbero dentro la gola.
+  // Costruiamo una testa ellissoidale proporzionata al corpo, la attacchiamo
+  // all'osso Head e vi appoggiamo sopra occhi, naso e bocca.
+  const headRadiusX = height * 0.058;
+  const headRadiusY = height * 0.075;
+  const headRadiusZ = height * 0.063;
+  const headCenterY = box.max.y + height * 0.045;
+  const headGeometry = new THREE.SphereGeometry(1, 24, 18);
+  headGeometry.scale(headRadiusX, headRadiusY, headRadiusZ);
+  const headMesh = new THREE.Mesh(headGeometry, faceSkin);
+  headMesh.name = 'imported-head';
+  headMesh.position.set(0, headCenterY, 0);
+  headMesh.castShadow = true;
+  headMesh.receiveShadow = true;
+  headMesh.frustumCulled = false;
 
   const face = new THREE.Group();
   face.name = 'imported-face';
-  const eyeY = box.min.y + height * 0.91;
-  const eyeX = height * 0.026;
-  const eyeZ = front;
+  face.add(headMesh);
+  // Calotta sulla fronte: i capelli importati restano dietro la nuca, ma da
+  // soli lasciano la testa calva davanti. La calotta dà l'attaccatura e lascia
+  // occhi e bocca scoperti; il ciuffo resta sopra le sopracciglia.
+  if (appearance.hairStyle !== 'raso') {
+    const capGeometry = new THREE.SphereGeometry(1, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.36);
+    capGeometry.scale(headRadiusX * 1.04, headRadiusY * 1.03, headRadiusZ * 1.04);
+    const hairCap = new THREE.Mesh(capGeometry, hairMaterial);
+    hairCap.name = 'imported-hair-cap';
+    hairCap.position.set(0, headCenterY + height * 0.004, 0);
+    hairCap.castShadow = true;
+    face.add(hairCap);
+    const fringeGeometry = new THREE.SphereGeometry(1, 16, 8);
+    fringeGeometry.scale(headRadiusX * 0.9, headRadiusY * 0.2, headRadiusZ * 0.25);
+    const fringe = new THREE.Mesh(fringeGeometry, hairMaterial);
+    fringe.name = 'imported-hair-fringe';
+    fringe.position.set(0, headCenterY + height * 0.047, sign * headRadiusZ * 1.01);
+    fringe.castShadow = true;
+    face.add(fringe);
+  }
+  const eyeY = headCenterY + height * 0.012;
+  const eyeX = height * 0.024;
+  const eyeZ = sign * headRadiusZ * 0.98;
   for (const side of [-1, 1] as const) {
-    const sclera = new THREE.Mesh(new THREE.SphereGeometry(height * 0.009, 10, 8), white);
+    const sclera = new THREE.Mesh(new THREE.SphereGeometry(height * 0.0095, 10, 8), white);
     sclera.position.set(side * eyeX, eyeY, eyeZ);
     face.add(sclera);
-    const pupilMesh = new THREE.Mesh(new THREE.SphereGeometry(height * 0.004, 8, 6), pupil);
-    pupilMesh.position.set(side * eyeX, eyeY, eyeZ + Math.sign(front) * height * 0.006);
-    face.add(pupilMesh);
-    const irisMesh = new THREE.Mesh(new THREE.SphereGeometry(height * 0.006, 8, 6), iris);
-    irisMesh.position.set(side * eyeX, eyeY, eyeZ + Math.sign(front) * height * 0.004);
+    const irisMesh = new THREE.Mesh(new THREE.SphereGeometry(height * 0.0062, 8, 6), iris);
+    irisMesh.position.set(side * eyeX, eyeY, eyeZ + sign * height * 0.0035);
     face.add(irisMesh);
+    const pupilMesh = new THREE.Mesh(new THREE.SphereGeometry(height * 0.0032, 8, 6), pupil);
+    pupilMesh.position.set(side * eyeX, eyeY, eyeZ + sign * height * 0.0065);
+    face.add(pupilMesh);
+    const brow = new THREE.Mesh(
+      new THREE.BoxGeometry(height * 0.020, height * 0.004, height * 0.004),
+      brows,
+    );
+    brow.position.set(side * eyeX, eyeY + height * 0.022, eyeZ + sign * height * 0.002);
+    brow.rotation.z = side * 0.12;
+    face.add(brow);
   }
-  const lipMesh = new THREE.Mesh(new THREE.BoxGeometry(height * 0.035, height * 0.009, height * 0.006), lips);
-  lipMesh.position.set(0, box.min.y + height * 0.875, front * 1.05);
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(height * 0.011, 8, 6), faceSkin);
+  nose.position.set(0, headCenterY - height * 0.006, sign * headRadiusZ * 1.10);
+  face.add(nose);
+  const lipMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(height * 0.038, height * 0.009, height * 0.006), lips,
+  );
+  lipMesh.position.set(0, headCenterY - height * 0.037, sign * headRadiusZ * 1.02);
   face.add(lipMesh);
   model.add(face);
   face.traverse((object) => {
@@ -765,37 +962,42 @@ function addImportedDetails(
   const hips = bones.get('hips');
   if (head) head.attach(face);
   if (hips) {
-    hips.attach(skirt);
-    hips.attach(belt);
+    if (bodice) hips.attach(bodice);
+    if (skirt) hips.attach(skirt);
+    if (belt) hips.attach(belt);
   }
-
 }
 
 /** Sostituisce la pelle della mesh RPM con la scultura importata. */
-function wearImportedFemaleBody(
+function wearImportedBody(
   model: THREE.Object3D,
   imported: THREE.Object3D,
   appearance: Appearance,
   materials: THREE.Material[],
   geometries: THREE.BufferGeometry[],
+  female: boolean,
 ): THREE.SkinnedMesh | null {
   const source = firstSkinnedMesh(model);
   if (!source) return null;
-  console.info('[personaggi] import: allineo la scultura al rig RPM');
+  const label = female ? 'femminile' : 'maschile';
+  console.info(`[personaggi] import ${label}: allineo la scultura al rig RPM`);
   const geometry = alignImportedGeometry(model, source, imported);
   if (!geometry) {
-    console.warn('[personaggi] import: geometria importata non allineabile');
+    console.warn(`[personaggi] import ${label}: geometria non allineabile`);
     return null;
   }
   if (!transferSkinWeights(geometry, source.geometry)) {
-    console.warn('[personaggi] import: trasferimento pesi rifiutato');
+    console.warn(`[personaggi] import ${label}: trasferimento pesi rifiutato`);
     geometry.dispose();
     return null;
   }
-  console.info(`[personaggi] import: pesi trasferiti su ${geometry.getAttribute('position').count} vertici`);
-  const material = importedBodyMaterial(appearance, geometry);
+  console.info(
+    `[personaggi] import ${label}: pesi trasferiti su ${geometry.getAttribute('position').count} vertici`,
+  );
+  const dominant = dominantBoneNames(geometry, source.skeleton);
+  const material = importedBodyMaterial(appearance, geometry, female, dominant);
   const mesh = new THREE.SkinnedMesh(geometry, material);
-  mesh.name = 'imported-female-body';
+  mesh.name = female ? 'imported-female-body' : 'imported-male-body';
   mesh.bind(source.skeleton, source.bindMatrix);
   mesh.bindMode = source.bindMode;
   mesh.castShadow = true;
@@ -803,17 +1005,27 @@ function wearImportedFemaleBody(
   mesh.frustumCulled = false;
   source.parent?.add(mesh);
   source.visible = false;
-  // Nasconde anche eventuali cloni della pelle RPM rimasti nello stesso ramo;
-  // i capelli (altro ramo, sotto Head) restano visibili.
-  model.traverse((object) => {
-    const skinned = object as THREE.SkinnedMesh;
-    if (skinned !== mesh && skinned.isSkinnedMesh && skinned.parent === source.parent) {
-      skinned.visible = false;
+  // Nasconde tutta la pelle e tutti i vestiti RPM rimasti nel modello, non
+  // soltanto il corpo principale: l'outfit originale (maniche comprese) era
+  // ancora disegnato sopra la scultura e faceva sembrare vestito anche le
+  // braccia. I capelli, che vivono sotto un gruppo `hair-*`, restano visibili.
+  const insideHair = (object: THREE.Object3D): boolean => {
+    let node: THREE.Object3D | null = object;
+    while (node) {
+      if (node.name.startsWith('hair-')) return true;
+      node = node.parent;
     }
+    return false;
+  };
+  model.traverse((object) => {
+    const rendered = object as THREE.Mesh;
+    if (!rendered.isMesh || rendered === mesh) return;
+    if (insideHair(rendered) || rendered.name.startsWith('imported-')) return;
+    rendered.visible = false;
   });
   materials.push(material);
   geometries.push(geometry);
-  addImportedDetails(model, mesh, materials, geometries);
+  addImportedDetails(model, mesh, materials, geometries, female, appearance);
   return mesh;
 }
 
@@ -867,7 +1079,10 @@ export class HumanBody {
       const seed = options.hairVariant ??
         Math.abs(Math.round(appearance.height * 100) + appearance.hairColor + (female ? 7 : 0));
       const index = Math.abs(Math.floor(seed)) % hairVariants.length;
-      head.add(makeHair(hairVariants[index]!, appearance.hairColor, this.ownMaterials));
+      const body = firstSkinnedMesh(model);
+      body?.geometry.computeBoundingBox();
+      const bodyFront = body ? frontFromFeet(body.geometry) : 1;
+      head.add(makeHair(hairVariants[index]!, appearance.hairColor, this.ownMaterials, head, bodyFront));
     }
 
     // Scala del corpo: altezza scelta dall'utente, larghezza dalla corporatura
@@ -916,12 +1131,15 @@ export class HumanBody {
       mesh.material = Array.isArray(mesh.material) ? cloned : cloned[0]!;
     });
 
-    if (female && options.importedBody && assets.importedFemale) {
-      const imported = wearImportedFemaleBody(
-        model, assets.importedFemale, appearance, this.ownMaterials, this.ownGeometries,
+    const importedAsset = female ? assets.importedFemale : assets.importedMale;
+    if (options.importedBody && importedAsset) {
+      const imported = wearImportedBody(
+        model, importedAsset, appearance, this.ownMaterials, this.ownGeometries, female,
       );
       this.importedBodyActive = imported !== null;
-      console.info(`[personaggi] corpo importato: ${this.importedBodyActive ? 'attivo' : 'fallito, resta RPM'}`);
+      console.info(
+        `[personaggi] corpo importato ${female ? 'femminile' : 'maschile'}: ${this.importedBodyActive ? 'attivo' : 'fallito, resta RPM'}`,
+      );
     }
 
     // Carica e prepara le clip di animazione
