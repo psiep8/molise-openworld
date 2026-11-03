@@ -418,6 +418,8 @@ export class StreetLights {
       this.refreshGlows(camera, night);
     }
 
+    if (this.pool.length === 0) return;
+
     // selezione parziale: i lampioni più vicini alla camera, senza ordinare tutti
     const chosen: { index: number; d: number }[] = [];
     for (let i = 0; i < this.spots.length; i++) {
