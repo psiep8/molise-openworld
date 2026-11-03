@@ -90,4 +90,24 @@ describe('Animazioni GLB RPM', () => {
     expect(bound).not.toBeNull();
     expect(bound!.tracks.map((track) => track.name)).toEqual(['mixamorig:Hips.quaternion']);
   });
+
+  it('ignora le tracce animate delle dita', () => {
+    const body = new THREE.Group();
+    for (const name of ['Hips', 'LeftHandIndex1', 'mixamorig:RightHandPinky3']) {
+      const bone = new THREE.Bone();
+      bone.name = name;
+      body.add(bone);
+    }
+    const rotation = [0, 0, 0, 1, 0, 0, 0, 1];
+    const clip = new THREE.AnimationClip('walk', 1, [
+      new THREE.QuaternionKeyframeTrack('Hips.quaternion', [0, 1], rotation),
+      new THREE.QuaternionKeyframeTrack('LeftHandIndex1.quaternion', [0, 1], rotation),
+      new THREE.QuaternionKeyframeTrack('mixamorig:RightHandPinky3.quaternion', [0, 1], rotation),
+    ]);
+
+    const bound = bindClip(clip, body);
+
+    expect(bound).not.toBeNull();
+    expect(bound!.tracks.map((track) => track.name)).toEqual(['Hips.quaternion']);
+  });
 });

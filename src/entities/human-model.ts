@@ -197,11 +197,11 @@ async function upgradeBodyMaterials(
 }
 
 /**
- * Le sfere oculari del GLB MakeHuman hanno una texture che, con le UV cotte,
- * si legge come un guscio biancastro con l'iride fuori posto; rimpicciolirle
- * attorno al centro della coppia le avvicinava e lasciava intravedere il rosso
- * della palpebra. Qui la sclera resta piena (copre l'orbita) e la pupilla è una
- * sfera scura agganciata all'osso testa, così non si stacca dal viso.
+ * I bulbi cotti del GLB sono sfere troppo grandi e troppo in alto: bianche
+ * sembrano occhi spiritati e lasciano intravedere il rosso dell'orbita. Li
+ * nascondiamo e disegniamo due occhi piatti (sclera, iride, pupilla, riflesso)
+ * nelle orbite vere, agganciati all'osso testa. Il centro dell'orbita è la bbox
+ * dei bulbi abbassata di 1,3 cm, la posizione verificata a schermo.
  */
 function fitBakedEyes(root: THREE.Object3D): void {
   const eyes: THREE.Mesh[] = [];
@@ -215,28 +215,13 @@ function fitBakedEyes(root: THREE.Object3D): void {
     }
   });
   const eyeMesh = eyes[0];
-  if (!eyeMesh) return;
-
-  const materials = Array.isArray(eyeMesh.material) ? eyeMesh.material : [eyeMesh.material];
-  for (const material of materials) {
-    const standard = material as THREE.MeshStandardMaterial;
-    standard.map = null;
-    standard.color.setHex(0xf4efe6);
-    standard.roughness = 0.34;
-    standard.metalness = 0;
-    standard.needsUpdate = true;
-  }
+  const head = heads[0];
+  if (!eyeMesh || !head) return;
+  eyeMesh.visible = false;
 
   const geometry = eyeMesh.geometry;
   const position = geometry.getAttribute('position');
   if (!position) return;
-  // Le sfere cotte stanno ~1,3 cm sopra l'apertura della palpebra: senza lo
-  // spostamento coprono la fronte e lasciano scoperto il rosso dell'orbita.
-  for (let i = 0; i < position.count; i++) position.setY(i, position.getY(i) - 0.013);
-  position.needsUpdate = true;
-  geometry.computeVertexNormals();
-  geometry.computeBoundingBox();
-  // Due orbite separate: il centro va preso per occhio, non sulla coppia.
   const sides = [new THREE.Box3(), new THREE.Box3()];
   const point = new THREE.Vector3();
   for (let i = 0; i < position.count; i++) {
@@ -244,31 +229,67 @@ function fitBakedEyes(root: THREE.Object3D): void {
     sides[point.x < 0 ? 0 : 1]!.expandByPoint(point);
   }
 
-  const head = heads[0];
-  if (!head) return;
   root.updateMatrixWorld(true);
-  const pupilGeometry = new THREE.SphereGeometry(0.004, 10, 8);
-  const pupilMaterial = new THREE.MeshStandardMaterial({ color: 0x241a13, roughness: 0.35 });
-  const headScale = new THREE.Vector3();
-  head.getWorldScale(headScale);
-  const inverseScale = new THREE.Vector3(
-    1 / Math.max(1e-4, headScale.x),
-    1 / Math.max(1e-4, headScale.y),
-    1 / Math.max(1e-4, headScale.z),
-  );
+  const inverseHead = new THREE.Matrix4().copy(head.matrixWorld).invert();
+  const forward = new THREE.Vector3(0, 0, 1).transformDirection(root.matrixWorld).transformDirection(inverseHead);
+  const up = new THREE.Vector3(0, 1, 0).transformDirection(root.matrixWorld).transformDirection(inverseHead);
+  const right = new THREE.Vector3(1, 0, 0).transformDirection(root.matrixWorld).transformDirection(inverseHead);
+  const scleraGeometry = new THREE.SphereGeometry(1, 16, 12);
+  const irisGeometry = new THREE.SphereGeometry(1, 14, 10);
+  const pupilGeometry = new THREE.SphereGeometry(1, 10, 8);
+  const glintGeometry = new THREE.SphereGeometry(1, 8, 6);
+  const scleraMaterial = new THREE.MeshStandardMaterial({ color: 0xeee7da, roughness: 0.3, metalness: 0 });
+  const irisMaterial = new THREE.MeshStandardMaterial({ color: 0x4a3322, roughness: 0.25, metalness: 0 });
+  const pupilMaterial = new THREE.MeshStandardMaterial({ color: 0x0c0805, roughness: 0.2, metalness: 0 });
+  const glintMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    emissive: 0xffffff,
+    emissiveIntensity: 0.35,
+    roughness: 0.1,
+  });
+  const addPart = (
+    partGeometry: THREE.BufferGeometry,
+    material: THREE.Material,
+    at: THREE.Vector3,
+    scale: { x: number; y: number; z: number },
+  ): void => {
+    const part = new THREE.Mesh(partGeometry, material);
+    part.position.copy(at);
+    part.scale.set(scale.x, scale.y, scale.z);
+    part.castShadow = false;
+    part.receiveShadow = false;
+    head.add(part);
+  };
   for (const side of sides) {
     if (side.isEmpty()) continue;
     const center = side.getCenter(new THREE.Vector3());
-    const at = new THREE.Vector3(center.x, center.y, side.max.z - 0.001);
+    center.y -= 0.013;
+    const at = new THREE.Vector3(center.x, center.y, side.max.z - 0.0145);
     eyeMesh.localToWorld(at);
-    head.worldToLocal(at);
-    const pupil = new THREE.Mesh(pupilGeometry, pupilMaterial);
-    pupil.name = 'eye-pupil';
-    pupil.position.copy(at);
-    pupil.scale.copy(inverseScale);
-    pupil.castShadow = false;
-    pupil.receiveShadow = false;
-    head.add(pupil);
+    at.applyMatrix4(inverseHead);
+    addPart(scleraGeometry, scleraMaterial, at, { x: 0.017, y: 0.0065, z: 0.0026 });
+    addPart(
+      irisGeometry,
+      irisMaterial,
+      at.clone().addScaledVector(forward, 0.0034),
+      { x: 0.006, y: 0.006, z: 0.0016 },
+    );
+    addPart(
+      pupilGeometry,
+      pupilMaterial,
+      at.clone().addScaledVector(forward, 0.005),
+      { x: 0.0026, y: 0.0026, z: 0.0009 },
+    );
+    addPart(
+      glintGeometry,
+      glintMaterial,
+      at
+        .clone()
+        .addScaledVector(forward, 0.006)
+        .addScaledVector(up, 0.0022)
+        .addScaledVector(right, -0.0018),
+      { x: 0.0008, y: 0.0008, z: 0.0008 },
+    );
   }
 }
 
@@ -418,6 +439,7 @@ export function bindClip(
     const match = /^(.+?)\.(position|quaternion|scale)$/.exec(track.name);
     if (!match) continue;
     const key = boneKey(match[1] ?? '');
+    if (/^(?:left|right)hand(?:thumb|index|middle|ring|pinky)\d$/.test(key)) continue;
     const bone = bones.get(key);
     if (!bone) continue;
     const path = match[2];
@@ -696,17 +718,6 @@ function firstMesh(root: THREE.Object3D): THREE.Mesh | null {
   let found: THREE.Mesh | null = null;
   root.traverse((object) => {
     if (!found && (object as THREE.Mesh).isMesh) found = object as THREE.Mesh;
-  });
-  return found;
-}
-
-function firstBodyMesh(root: THREE.Object3D): THREE.SkinnedMesh | null {
-  let found: THREE.SkinnedMesh | null = null;
-  root.traverse((object) => {
-    const mesh = object as THREE.SkinnedMesh;
-    if (!mesh.isSkinnedMesh) return;
-    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-    if (materials.some((material) => /\.body$/i.test(material?.name ?? ''))) found = mesh;
   });
   return found;
 }
@@ -1207,7 +1218,9 @@ export class HumanBody {
   private readonly ownMaterials: THREE.Material[] = [];
   /** Geometrie create solo per questa istanza (corpo importato e dettagli). */
   private readonly ownGeometries: THREE.BufferGeometry[] = [];
-  private readonly handBones: THREE.Object3D[] = [];
+  private readonly fingerBones: { bone: THREE.Bone; rest: THREE.Quaternion; curl: number }[] = [];
+  private static readonly CURL_AXIS = new THREE.Vector3(1, 0, 0);
+  private readonly curlQ = new THREE.Quaternion();
   private readonly model: THREE.Object3D;
   private importedBodyActive = false;
   private airborne = false;
@@ -1234,6 +1247,7 @@ export class HumanBody {
     const proto = female ? assets.female : assets.male;
     const model = cloneSkeleton(proto) as THREE.Object3D;
     this.model = model;
+    this.collectFingers(model);
 
     // Normalizza i nomi delle ossa dello scheletro RPM
     const bones = indexBones(model);
@@ -1268,13 +1282,6 @@ export class HumanBody {
     // Colori dei materiali basati sul nome (skin, vestiti, ecc.)
     const colors = outfitColors(appearance);
     const garmentColor = options.outfitTint ?? colors.top;
-    const bodyMesh = firstBodyMesh(model) ?? firstSkinnedMesh(model);
-    bodyMesh?.geometry.computeBoundingBox();
-    const bodyBox = bodyMesh?.geometry.boundingBox;
-    const bodyMin = bodyBox?.min.y ?? 0;
-    const bodyHeight = bodyBox ? bodyBox.max.y - bodyMin : 1.7;
-    const collarMin = bodyMin + bodyHeight * 0.49;
-    const collarMax = bodyMin + bodyHeight * 0.635;
     model.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       if (!mesh.isMesh) return;
@@ -1304,13 +1311,10 @@ export class HumanBody {
           copy.color.setHex(appearance.hairColor);
         }
         if (options.tint) copy.color.multiply(options.tint);
-        if (/\.body$/.test(name)) this.tintNeckFabric(copy, collarMin, collarMax, garmentColor);
         return copy;
       });
       mesh.material = Array.isArray(mesh.material) ? cloned : cloned[0]!;
     });
-
-    this.addHandCovers(model, appearance.skin, options.tint);
 
     const importedAsset = female ? assets.importedFemale : assets.importedMale;
     if (options.importedBody && importedBodyDebugEnabled() && importedAsset) {
@@ -1370,75 +1374,23 @@ export class HumanBody {
     this.mixer.setTime(options.phase ?? 0);
   }
 
-  /**
-   * Il collo MakeHuman è scoperto perché la maglietta finisce a 1,325 m e la
-   * maschera taglia il busto più in basso. Coloriamo la pelle del collo e delle
-   * spalle come tessuto nello shader del corpo: il bordo sparisce e il viso
-   * resta pelle. Non aggiungiamo un colletto 3D che finirebbe dentro il busto.
-   */
-  private tintNeckFabric(
-    material: THREE.MeshStandardMaterial,
-    minY: number,
-    maxY: number,
-    color: number,
-  ): void {
-    const fabric = new THREE.Color(color).multiplyScalar(0.34);
-    material.onBeforeCompile = (shader) => {
-      shader.uniforms.collarColor = { value: fabric };
-      shader.uniforms.collarMin = { value: minY };
-      shader.uniforms.collarMax = { value: maxY };
-      shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nvarying float vNeckY;\nvarying float vNeckX;')
-        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvNeckY = position.y;\nvNeckX = position.x;');
-      shader.fragmentShader = shader.fragmentShader
-        .replace(
-          '#include <common>',
-          '#include <common>\nvarying float vNeckY;\nvarying float vNeckX;\nuniform vec3 collarColor;\nuniform float collarMin;\nuniform float collarMax;',
-        )
-        .replace(
-          '#include <color_fragment>',
-          '#include <color_fragment>\nfloat neckBand = smoothstep(collarMin, collarMin + 0.02, vNeckY) * (1.0 - smoothstep(collarMax - 0.02, collarMax, vNeckY));\nneckBand *= 1.0 - smoothstep(0.25, 0.34, abs(vNeckX));\ndiffuseColor.rgb = mix(diffuseColor.rgb, collarColor, neckBand);',
-        );
-    };
-    material.customProgramCacheKey = () => 'makehuman-neck-fabric';
-    material.needsUpdate = true;
-  }
-
-  /**
-   * Le clip lasciano le dita aperte e la pelle del palmo si legge come un
-   * artiglio. Un pugno cutaneo chiuso, figlio dell'osso mano, copre le falangi
-   * e resta attaccato al polso: `poseHands` riduce la mano a 0,01, quindi
-   * posizione e scala del pugno compensano quella riduzione.
-   */
-  private addHandCovers(root: THREE.Object3D, skin: number, tint?: THREE.Color): void {
-    const hands: THREE.Bone[] = [];
+  private collectFingers(root: THREE.Object3D): void {
     root.traverse((object) => {
-      if ((object as THREE.Bone).isBone && /^(?:left|right)hand$/.test(boneKey(object.name))) {
-        hands.push(object as THREE.Bone);
-      }
+      const bone = object as THREE.Bone;
+      if (!bone.isBone) return;
+      const match = /^(?:left|right)hand(thumb|index|middle|ring|pinky)([123])$/.exec(boneKey(bone.name));
+      if (!match) return;
+      const base = match[1] === 'thumb' ? 0.1 : 0.22;
+      const curl = base + (Number(match[2]) - 1) * 0.12;
+      this.fingerBones.push({ bone, rest: bone.quaternion.clone(), curl });
     });
-    if (hands.length === 0) return;
-    const color = new THREE.Color(skin);
-    if (tint) color.multiply(tint);
-    const material = new THREE.MeshStandardMaterial({ color, roughness: 0.72 });
-    const geometry = new THREE.SphereGeometry(1, 12, 10);
-    this.ownMaterials.push(material);
-    this.ownGeometries.push(geometry);
-    for (const hand of hands) {
-      const fist = new THREE.Mesh(geometry, material);
-      fist.name = 'hand-cover';
-      // 4,6 cm lungo l'asse della mano, 8 x 10,4 x 6,8 cm nel mondo.
-      fist.position.set(0, 4.6, 0);
-      fist.scale.set(4.0, 5.2, 3.4);
-      fist.castShadow = true;
-      fist.receiveShadow = true;
-      hand.add(fist);
-      this.handBones.push(hand);
-    }
   }
 
-  private poseHands(): void {
-    for (const hand of this.handBones) hand.scale.setScalar(0.01);
+  private relaxHands(): void {
+    for (const finger of this.fingerBones) {
+      this.curlQ.setFromAxisAngle(HumanBody.CURL_AXIS, finger.curl);
+      finger.bone.quaternion.copy(finger.rest).multiply(this.curlQ);
+    }
   }
 
   /** Avanza la locomozione con blend continuo idle → camminata → corsa. */
@@ -1544,7 +1496,7 @@ export class HumanBody {
     // Ripristina la posa di riposo prima del mixer
     for (const entry of this.seatRig) entry.bone.quaternion.copy(entry.rest);
     this.mixer.update(dt);
-    this.poseHands();
+    this.relaxHands();
 
     if (!driving && !eventActive && this.seatProgress > 0.001 && this.seatRig.length > 0) {
       const pose = seatPose(this.seatProgress);
