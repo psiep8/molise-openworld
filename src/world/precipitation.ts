@@ -48,6 +48,7 @@ interface Budget {
 }
 
 const BUDGETS: Record<QualityLevel, Budget> = {
+  potato: { rain: 200, snow: 60 },
   minimal: { rain: 2_400, snow: 900 },
   low: { rain: 3_800, snow: 1_400 },
   medium: { rain: 6_400, snow: 2_400 },

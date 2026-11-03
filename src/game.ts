@@ -128,6 +128,7 @@ import {
 import { Player, type MoveInput } from './entities/player';
 import { transitionProgress } from './entities/locomotion';
 import { loadHumanAssets, type HumanAssets } from './entities/human-model';
+import { HIGH_RES_IMAGERY } from './world/imagery';
 import { Pedestrians } from './world/pedestrians';
 import {
   BUILD_LABEL,
@@ -174,13 +175,13 @@ import {
   type Needs,
 } from './sim/needs';
 import { SAVE_VERSION, advanceClock, formatGameClock, loadLifeSave, saveLifeSave, type LifeSave } from './sim/save';
-import { MapRenderer, type MapLayer } from './ui/minimap';
+import { BIG_MAP_MAX_ZOOM, MapRenderer, type BigMapView, type MapLayer } from './ui/minimap';
 import { nextFrameOrTimeout } from './ui/frame';
 import type { CarInput } from './sim/car';
 import { autopilotInput, followTarget } from './sim/autopilot';
 import { buildRoadGraph, planRoute, type RoadGraph, type RouteResult } from './sim/routing';
 import { PostPipeline } from './gfx/post';
-import { loadPaintSaturation, setPaintSaturation } from './gfx/car-paint';
+import { PAINT_FINISHES, isPaintFinish, loadPaintFinish, loadPaintSaturation, setPaintSaturation } from './gfx/car-paint';
 import { setVehiclePass, setWind, updateWind } from './gfx/wind';
 import {
   QUALITY_PRESETS,
@@ -206,6 +207,19 @@ export interface Diagnostics {
   ready: boolean;
   running: boolean;
   mode: Mode;
+  /** Corpo realmente in scena: GLB, rig di debug o nessuno. */
+  playerModel: 'glb' | 'debug-rig' | 'empty';
+  /** Pelle del corpo: scultura importata o fallback RPM. */
+  playerBody: 'imported' | 'rpm' | 'none';
+  humanAssetsLoaded: boolean;
+  map: {
+    base: 'remote' | 'local' | 'vector';
+    hasLocal: boolean;
+    usesTiles: boolean;
+    local: { width: number; height: number } | null;
+    bigReady: boolean;
+    zoom: number;
+  } | null;
   chunks: number;
   covered: number;
   fps: number;
@@ -468,6 +482,12 @@ export class Game {
   });
   /** fattore di zoom manuale della minimappa (rotella del mouse) */
   private mapZoom = 1;
+  /** Mappa grande: zoom e centro indipendenti dalla minimappa. */
+  private bigMapZoom = 1;
+  private bigMapCenterX = 0;
+  private bigMapCenterZ = 0;
+  /** Il click che chiude un trascinamento non deve scegliere una destinazione. */
+  private bigMapDragged = false;
   private minimapLabel = '';
   private roadGraph?: RoadGraph;
   private route: RouteResult | null = null;
@@ -478,6 +498,8 @@ export class Game {
   private lastRouteTime = 0;
   private garage: Property | null = loadProperty();
   private humanAssets: HumanAssets | null = null;
+  /** Tentativi di caricamento personaggi: il fallimento è visibile e riprovato. */
+  private characterLoadAttempts = 0;
   private pedestrians: Pedestrians | null = null;
 
   // --- modalità vita: denaro solo virtuale, bisogni, orologio --------------
@@ -1287,7 +1309,7 @@ export class Game {
         Math.min(1600, this.viewRadius),
       );
 
-      this.map = new MapRenderer(osm, undefined, this.heights);
+      this.map = new MapRenderer(osm, HIGH_RES_IMAGERY, this.heights);
       this.bindMapLayers();
       const attribution = document.getElementById('attribution');
       if (attribution) {
@@ -1299,7 +1321,7 @@ export class Game {
       }
       // su `minimal` il radar parte vettoriale: niente tile satellitari da
       // scaricare e decodificare su una macchina che sta già a 20 fps
-      if (this.quality.level === 'minimal') this.map.radar = false;
+      if (this.quality.level === 'potato' || this.quality.level === 'minimal') this.map.radar = false;
       this.map.onUpdate = () => {
         if (this.running && this.hud.mapVisible) this.drawBigMap();
       };
@@ -1358,12 +1380,26 @@ export class Game {
     try {
       const base = `${import.meta.env.BASE_URL}models/`;
       this.humanAssets = await loadHumanAssets(base);
+      this.characterLoadAttempts = 0;
       this.player.useHumanModel(this.humanAssets);
       this.car.setRider(this.humanAssets, this.player.appearance);
+      const warnings = this.humanAssets.diagnostics.warnings;
+      if (warnings.length > 0) {
+        console.warn(`Personaggi caricati con ${warnings.length} avvisi:`, warnings);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.errors.push(`personaggi: ${message}`);
-      console.warn('personaggi non caricati', err);
+      console.error('personaggi non caricati', err);
+      // Mai un fallback silenzioso: il giocatore vede cosa manca e il gioco
+      // riprova da solo, senza costruire un manichino.
+      this.hud.toast(`Personaggi non caricati: ${message}`, 7000);
+      if (this.characterLoadAttempts < 3) {
+        this.characterLoadAttempts++;
+        window.setTimeout(() => {
+          if (!this.humanAssets) void this.loadCharacters();
+        }, 6000);
+      }
     }
   }
 
@@ -1670,6 +1706,18 @@ export class Game {
       const label = document.getElementById('paint-sat-value');
       if (label) label.textContent = `${Math.round(value * 100)}%`;
     });
+    // colore libero: stesso percorso della palette, con anteprima immediata
+    const paintColor = document.getElementById('paint-color') as HTMLInputElement | null;
+    paintColor?.addEventListener('input', () => {
+      const value = Number.parseInt(paintColor.value.replace('#', ''), 16);
+      if (Number.isFinite(value)) this.setPaint(value);
+    });
+    const paintFinishSelect = document.getElementById('paint-finish') as HTMLSelectElement | null;
+    paintFinishSelect?.addEventListener('change', () => {
+      if (!isPaintFinish(paintFinishSelect.value)) return;
+      this.car.setFinish(paintFinishSelect.value);
+      this.hud.toast(`Finitura: ${PAINT_FINISHES[paintFinishSelect.value].label}`, 1800);
+    });
 
     const carImport = document.getElementById('car-import') as HTMLInputElement | null;
     carImport?.addEventListener('change', () => {
@@ -1774,6 +1822,10 @@ export class Game {
     const host = document.getElementById('paint-swatches');
     if (!host) return;
     host.textContent = '';
+    const colorInput = document.getElementById('paint-color') as HTMLInputElement | null;
+    const finishInput = document.getElementById('paint-finish') as HTMLSelectElement | null;
+    if (colorInput) colorInput.disabled = !this.car.paintable;
+    if (finishInput) finishInput.disabled = !this.car.paintable;
     if (!this.car.paintable) {
       const note = document.createElement('small');
       note.className = 'settings-hint';
@@ -1805,6 +1857,10 @@ export class Game {
     const host = document.getElementById('paint-swatches');
     if (!host) return;
     const current = loadPaintFor(this.car.spec.id, this.car.spec.paint);
+    const colorInput = document.getElementById('paint-color') as HTMLInputElement | null;
+    if (colorInput) colorInput.value = `#${current.toString(16).padStart(6, '0')}`;
+    const finishInput = document.getElementById('paint-finish') as HTMLSelectElement | null;
+    if (finishInput) finishInput.value = loadPaintFinish();
     for (const node of Array.from(host.children)) {
       const button = node as HTMLButtonElement;
       button.classList.toggle('active', Number(button.dataset.color) === current);
@@ -1909,6 +1965,8 @@ export class Game {
     if (paintSat) paintSat.value = String(Math.round(loadPaintSaturation() * 100));
     const paintSatValue = document.getElementById('paint-sat-value');
     if (paintSatValue) paintSatValue.textContent = `${Math.round(loadPaintSaturation() * 100)}%`;
+    const paintFinishSelect = document.getElementById('paint-finish') as HTMLSelectElement | null;
+    if (paintFinishSelect) paintFinishSelect.value = loadPaintFinish();
     const qualityCopy = document.getElementById('quality-copy');
     if (qualityCopy) {
       const auto = this.degradeStep > 0 ? ' · ridotta automaticamente per gli fps' : '';
@@ -2497,7 +2555,16 @@ export class Game {
   // -------------------------------------------------------------------------
   private pickDestination(event: MouseEvent): void {
     if (!this.map || !this.hud.mapVisible) return;
-    const world = this.map.worldFromBigMap(event.currentTarget as HTMLCanvasElement, event.clientX, event.clientY);
+    if (this.bigMapDragged) {
+      this.bigMapDragged = false;
+      return;
+    }
+    const world = this.map.worldFromBigMap(
+      event.currentTarget as HTMLCanvasElement,
+      event.clientX,
+      event.clientY,
+      this.bigMapView(),
+    );
     if (!world) return;
     // Shift+clic sulla mappa = scegli quella casa come garage
     if (event.shiftKey) {
@@ -2835,7 +2902,7 @@ export class Game {
     // dinamica oltre ai fari: alza il minimo di ambiente lunare, così la
     // strada, i cordoli e le sagome restano leggibili invece di annegare nel
     // nero. Su medium+ i valori restano quelli tarati a occhio.
-    const weakNight = this.qualityLevel === 'minimal' || this.qualityLevel === 'low';
+    const weakNight = this.qualityLevel === 'potato' || this.qualityLevel === 'minimal' || this.qualityLevel === 'low';
     this.sky.setLighting({
       sunColor: this.sunTint.getHex(),
       sunIntensity,
@@ -3344,6 +3411,95 @@ export class Game {
       },
       { passive: false },
     );
+
+    // Mappa grande: rotella centrata sul cursore, trascinamento, pinch.
+    const bigmap = document.getElementById('bigmap') as HTMLCanvasElement | null;
+    if (bigmap) {
+      const pointers = new Map<number, { x: number; y: number }>();
+      let dragging = false;
+      let moved = 0;
+      let lastX = 0;
+      let lastY = 0;
+      let pinch = 0;
+      bigmap.addEventListener('wheel', (e) => {
+        if (!this.map || !this.hud.mapVisible) return;
+        e.preventDefault();
+        this.zoomBigMap(Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY);
+      }, { passive: false });
+      bigmap.addEventListener('pointerdown', (e) => {
+        if (!this.hud.mapVisible) return;
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (pointers.size === 1) {
+          dragging = true;
+          moved = 0;
+          lastX = e.clientX;
+          lastY = e.clientY;
+          bigmap.setPointerCapture(e.pointerId);
+        } else if (pointers.size === 2) {
+          const [a, b] = [...pointers.values()];
+          pinch = Math.hypot(a!.x - b!.x, a!.y - b!.y);
+        }
+      });
+      bigmap.addEventListener('pointermove', (e) => {
+        if (!pointers.has(e.pointerId)) return;
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (pointers.size === 2) {
+          const [a, b] = [...pointers.values()];
+          const distance = Math.hypot(a!.x - b!.x, a!.y - b!.y);
+          if (pinch > 0 && distance > 0) {
+            this.zoomBigMap(distance / pinch, (a!.x + b!.x) / 2, (a!.y + b!.y) / 2);
+          }
+          pinch = distance;
+          return;
+        }
+        if (!dragging || !this.map) return;
+        const dx = e.clientX - lastX;
+        const dy = e.clientY - lastY;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        moved += Math.abs(dx) + Math.abs(dy);
+        const scale = this.map.bigMapPixelsPerMeter(bigmap, this.bigMapView());
+        this.bigMapCenterX -= dx / scale;
+        this.bigMapCenterZ -= dy / scale;
+        this.drawBigMap();
+      });
+      const end = (e: PointerEvent): void => {
+        pointers.delete(e.pointerId);
+        if (pointers.size < 2) pinch = 0;
+        if (pointers.size === 0) {
+          dragging = false;
+          this.bigMapDragged = moved > 6;
+        }
+      };
+      bigmap.addEventListener('pointerup', end);
+      bigmap.addEventListener('pointercancel', end);
+    }
+    document.getElementById('map-zoom-in')?.addEventListener('click', () => this.zoomBigMap(1.25));
+    document.getElementById('map-zoom-out')?.addEventListener('click', () => this.zoomBigMap(0.8));
+    document.getElementById('map-recenter')?.addEventListener('click', () => this.recenterBigMap());
+
+    // Modalità di guida: Facile è il default, la scelta resta salvata.
+    const driveSelect = document.getElementById('drive-mode-select') as HTMLSelectElement | null;
+    if (driveSelect) {
+      let stored = 'facile';
+      try {
+        stored = window.localStorage.getItem('molise.drive.mode') ?? 'facile';
+      } catch {
+        // localStorage disabilitato: resta il default
+      }
+      if (!['facile', 'normale', 'simulazione'].includes(stored)) stored = 'facile';
+      driveSelect.value = stored;
+      this.car.setDriveMode(stored);
+      driveSelect.addEventListener('change', () => {
+        this.car.setDriveMode(driveSelect.value);
+        try {
+          window.localStorage.setItem('molise.drive.mode', driveSelect.value);
+        } catch {
+          // sessione corrente soltanto
+        }
+        this.hud.toast(`Guida: ${driveSelect.options[driveSelect.selectedIndex]?.text ?? driveSelect.value}`, 2000);
+      });
+    }
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
@@ -3376,6 +3532,24 @@ export class Game {
     if (e.repeat || !this.running) return;
 
     switch (e.code) {
+      case 'Equal':
+      case 'NumpadAdd':
+        if (this.hud.mapVisible) {
+          e.preventDefault();
+          this.zoomBigMap(1.25);
+        }
+        break;
+      case 'Minus':
+      case 'NumpadSubtract':
+        if (this.hud.mapVisible) {
+          e.preventDefault();
+          this.zoomBigMap(0.8);
+        }
+        break;
+      case 'Digit0':
+      case 'Home':
+        if (this.hud.mapVisible) this.recenterBigMap();
+        break;
       case 'KeyE':
         // in auto E non ha un'attività da aprire: fa scorrere il giorno, come
         // il ciclo giorno/notte di Slow Roads. A piedi resta "interagisci".
@@ -3464,8 +3638,8 @@ export class Game {
         this.hud.toast(
           this.map.radar
             ? this.map.satTiles.usesTiles
-              ? 'Radar: satellite reale'
-              : 'Radar: nessun provider di tile, resta la mappa vettoriale'
+              ? 'Radar: satellite remoto'
+              : 'Radar: satellite locale (Sentinel-2)'
             : 'Radar: mappa vettoriale',
         );
         break;
@@ -3744,6 +3918,39 @@ export class Game {
     }
     this.hud.toast('Riportato in strada');
     if (this.routeDestination) this.recomputeRoute();
+  }
+
+  private bigMapView(): BigMapView {
+    return { zoom: this.bigMapZoom, centerX: this.bigMapCenterX, centerZ: this.bigMapCenterZ };
+  }
+
+  /** Zoom della mappa grande, ancorato al cursore (o al centro). */
+  private zoomBigMap(factor: number, clientX?: number, clientY?: number): void {
+    const canvas = document.getElementById('bigmap') as HTMLCanvasElement | null;
+    if (!canvas || !this.map) return;
+    const next = clamp(this.bigMapZoom * factor, 1, BIG_MAP_MAX_ZOOM);
+    if (Math.abs(next - this.bigMapZoom) < 1e-4) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = clientX ?? rect.left + rect.width / 2;
+    const y = clientY ?? rect.top + rect.height / 2;
+    const before = this.map.worldFromBigMap(canvas, x, y, this.bigMapView());
+    this.bigMapZoom = next;
+    const after = this.map.worldFromBigMap(canvas, x, y, this.bigMapView());
+    if (before && after) {
+      this.bigMapCenterX += before.x - after.x;
+      this.bigMapCenterZ += before.z - after.z;
+    }
+    this.drawBigMap();
+  }
+
+  /** Ricentra la mappa grande sul giocatore/auto. */
+  private recenterBigMap(): void {
+    const focus = this.mode === 'walk' ? this.player.position : this.car.position;
+    this.bigMapZoom = Math.max(this.bigMapZoom, 1.8);
+    this.bigMapCenterX = focus.x;
+    this.bigMapCenterZ = focus.z;
+    this.drawBigMap();
+    this.hud.toast('Mappa ricentrata sul giocatore', 1400);
   }
 
   private toggleMap(): void {
@@ -4868,16 +5075,63 @@ export class Game {
       this.route?.points,
       this.garage,
       VENUES,
+      this.bigMapView(),
     );
   }
 
   private publishDiagnostics(): void {
     const focus = this.mode === 'walk' ? this.player.position : this.car.position;
     const w = window as unknown as { __molise?: Diagnostics };
+    if (import.meta.env.DEV) {
+      const debugWindow = window as unknown as {
+        __moliseDebug?: {
+          teleport(x: number, z: number): boolean;
+          avatar(): Array<Record<string, unknown>>;
+        };
+      };
+      if (!debugWindow.__moliseDebug) {
+        debugWindow.__moliseDebug = {
+          teleport: (x, z) => {
+            if (!this.loaded) return false;
+            this.player.spawn(x, z, 0, this.ground);
+            this.mode = 'walk';
+            this.hud.setMode('walk');
+            this.player.avatar.visible = this.thirdPerson;
+            this.snapWalkCamera();
+            this.terrain?.update(x, z, this.viewRadius, true);
+            return true;
+          },
+          avatar: () => {
+            const result: Array<Record<string, unknown>> = [];
+            const point = new THREE.Vector3();
+            this.player.avatar.traverse((object) => {
+              const mesh = object as THREE.Mesh;
+              if (!mesh.isMesh) return;
+              mesh.getWorldPosition(point);
+              result.push({
+                name: mesh.name,
+                type: mesh.type,
+                visible: mesh.visible,
+                parent: mesh.parent?.name ?? '',
+                x: Number(point.x.toFixed(2)),
+                y: Number(point.y.toFixed(2)),
+                z: Number(point.z.toFixed(2)),
+                material: (mesh.material as THREE.Material | undefined)?.name ?? '',
+              });
+            });
+            return result;
+          },
+        };
+      }
+    }
     w.__molise = {
       ready: this.loaded,
       running: this.running,
       mode: this.mode,
+      playerModel: this.player.modelKind,
+      playerBody: this.player.bodyKind,
+      humanAssetsLoaded: this.humanAssets !== null,
+      map: this.map ? this.map.satelliteInfo : null,
       chunks: this.terrain?.loadedChunks ?? 0,
       covered: this.terrain?.coveredChunks ?? 0,
       fps: this.fps,

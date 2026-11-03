@@ -1097,7 +1097,7 @@ export function buildStreetProps(
   if (kit?.has('bench')) {
     // panchina del kit: 21k triangoli l'una. Il tetto per preset evita che un
     // paese con 90 case diventi 1,9 milioni di triangoli solo di panchine.
-    const limit: Record<QualityLevel, number> = { minimal: 0, low: 6, medium: 12, high: 24, ultra: 32 };
+    const limit: Record<QualityLevel, number> = { potato: 0, minimal: 0, low: 6, medium: 12, high: 24, ultra: 32 };
     const visible = benches.slice(0, limit[quality]);
     group.add(
       kit.instances(

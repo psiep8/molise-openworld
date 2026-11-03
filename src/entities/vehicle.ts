@@ -10,6 +10,8 @@ import {
   stepCar,
   type CarInput,
   type CarState,
+  assistFor,
+  type DriveAssist,
 } from '../sim/car';
 import { resolveBody } from '../sim/collision';
 import { shouldSkid, skidIntensity, surfaceMaterial, type SurfaceWeather } from '../sim/surfaces';
@@ -24,10 +26,13 @@ import {
 } from '../sim/vehicle-catalog';
 import {
   applyPaintFinish,
+  applyPaintLook,
   choosePaintMaterials,
   isPaintMaterial,
   paintMaterialFrom,
+  setPaintFinish as persistPaintFinish,
   tintPaint,
+  type PaintFinish,
 } from '../gfx/car-paint';
 import type { GroundSampler } from '../geo/ground';
 import type { ObstacleIndex } from '../geo/obstacles';
@@ -242,6 +247,8 @@ export class Vehicle {
   /** 0 = giorno, 1 = notte piena: serve a non azzerare il freno quando cambia la luce */
   private nightLevel = 0;
   private dynamicLights: 'none' | 'headlights' | 'all' = 'headlights';
+  /** Assistenza di guida scelta nelle impostazioni (Facile di default). */
+  private assist: DriveAssist = assistFor('facile');
   private roadWetness = 0;
   private highBeam = false;
   private throttleInput = 0;
@@ -578,6 +585,7 @@ export class Vehicle {
     // anche la vernice procedurale passa dal ritocco di saturazione: la palette
     // e i GLB devono mostrare lo stesso colore
     applyPaintFinish(paint);
+    applyPaintLook(paint);
     const trim = this.tune(this.material({ color: spec.accent, roughness: 0.72, metalness: 0.25, clearcoat: 0.6, clearcoatRoughness: 0.25 }), 1.4);
     const plastic = this.material({ color: 0x1a1c1e, roughness: 0.92, metalness: 0.05 });
     const chrome = this.tune(this.material({ color: 0xd8dcdf, roughness: 0.22, metalness: 1, clearcoat: 1.0, clearcoatRoughness: 0.1 }), 1.9);
@@ -1266,6 +1274,13 @@ export class Vehicle {
     if (steerable) this.frontPivots.push(pivot);
   }
 
+  /** Cambia la finitura della carrozzeria senza ricostruire il modello. */
+  setFinish(finish: PaintFinish): void {
+    persistPaintFinish(finish);
+    if (this.paintMat) applyPaintLook(this.paintMat);
+    for (const target of this.paintTargets) applyPaintLook(target.material);
+  }
+
   /** Cambia la tinta della carrozzeria senza ricostruire il modello. */
   setPaint(color: number): void {
     if (this.paintMat) {
@@ -1418,6 +1433,11 @@ export class Vehicle {
     this.tailMat.emissiveIntensity = 0.3 + 1.2 * on;
     this.applyLenses(on);
     this.updateLampLights();
+  }
+
+  /** Cambia modalità di guida: stessa fisica, assistenze diverse. */
+  setDriveMode(mode: string): void {
+    this.assist = assistFor(mode);
   }
 
   setQuality(level: QualityLevel): void {
@@ -1627,6 +1647,7 @@ export class Vehicle {
           onRoad,
           surface: here.surface,
           wheelSurfaces,
+          assist: this.assist,
           groundHeight: (x, z) => ground.heightAt(x, z),
           weather,
           gripScale,

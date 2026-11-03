@@ -180,6 +180,32 @@ export interface MapView {
   yaw: number;
 }
 
+/** Inquadratura della mappa grande: zoom e centro in metri di mondo. */
+export interface BigMapView {
+  zoom: number;
+  centerX: number;
+  centerZ: number;
+}
+
+export const BIG_MAP_MAX_ZOOM = 8;
+
+/** Base della minimappa: tile remote, mosaico locale o carta vettoriale. */
+export type SatelliteBase = 'remote' | 'local' | 'vector';
+
+export function satelliteBase(usesTiles: boolean, hasLocal: boolean): SatelliteBase {
+  if (usesTiles) return 'remote';
+  return hasLocal ? 'local' : 'vector';
+}
+
+export interface SatelliteInfo {
+  base: SatelliteBase;
+  hasLocal: boolean;
+  usesTiles: boolean;
+  local: { width: number; height: number } | null;
+  bigReady: boolean;
+  zoom: number;
+}
+
 /** Livelli attivabili dalla legenda della mappa (F15). */
 export type MapLayer = 'roads' | 'areas' | 'buildings' | 'pois' | 'labels';
 
@@ -229,6 +255,18 @@ export class MapRenderer {
     return this.satTiles.attribution;
   }
 
+  /** Stato reale della base: dice se il mosaico locale è in memoria e a che zoom. */
+  get satelliteInfo(): SatelliteInfo {
+    return {
+      base: satelliteBase(this.satTiles.usesTiles, this.satTiles.hasLocal),
+      hasLocal: this.satTiles.hasLocal,
+      usesTiles: this.satTiles.usesTiles,
+      local: this.satTiles.localSize,
+      bigReady: this.satMap.ready,
+      zoom: this.satTiles.stats.zoom,
+    };
+  }
+
   get imageryName(): string {
     return this.satTiles.name;
   }
@@ -249,14 +287,11 @@ export class MapRenderer {
   /**
    * true = foto satellite, false = mappa vettoriale.
    *
-   * La minimappa parte dalla mappa vettoriale: il mosaico locale più fine è
-   * 4096 px sull'intera area di gioco (~3,4 m/px) e a 380 m di scala veniva
-   * ingrandito quasi sei volte, quindi sfocato e con i colori della foto
-   * Sentinel. La cartografia vettoriale è disegnata alla risoluzione del
-   * canvas, resta nitida a ogni zoom e mostra strade, case, boschi e acqua.
-   * `V` riporta la foto, che resta utile per riconoscere i campi dall'alto.
+   * Il radar parte acceso: con un provider di tile usa le immagini remote,
+   * senza provider usa il mosaico Sentinel-2 locale (la stessa base della
+   * mappa grande). `V` alterna radar e cartografia vettoriale.
    */
-  radar = false;
+  radar = true;
   /** Chiamata quando arrivano nuove tile: il gioco ridisegna le mappe. */
   onUpdate?: () => void;
   /** Base statica della mappa grande (satellite + strade), riusata a ogni frame. */
@@ -544,28 +579,47 @@ export class MapRenderer {
     ctx.globalAlpha = 1;
   }
 
-  /** Geometria della mappa grande nel canvas (usata anche per i click). */
-  private placementFor(canvas: HTMLCanvasElement, map: HTMLCanvasElement): { dx: number; dy: number; s: number } {
+  /** Geometria della mappa grande nel canvas (zoom e centro inclusi). */
+  private placementFor(
+    canvas: HTMLCanvasElement,
+    map: HTMLCanvasElement,
+    view: BigMapView = { zoom: 1, centerX: 0, centerZ: 0 },
+  ): { dx: number; dy: number; s: number } {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const s = Math.min((canvas.width - 80 * dpr) / map.width, (canvas.height - 80 * dpr) / map.height);
-    return { dx: (canvas.width - map.width * s) / 2, dy: (canvas.height - map.height * s) / 2, s };
+    const zoom = Math.max(1, Math.min(BIG_MAP_MAX_ZOOM, view.zoom || 1));
+    const s = Math.min((canvas.width - 80 * dpr) / map.width, (canvas.height - 80 * dpr) / map.height) * zoom;
+    const px = ((view.centerX + WORLD.halfWidth) * this.mapScale + this.mapPad) * s;
+    const py = ((view.centerZ + WORLD.halfHeight) * this.mapScale + this.mapPad) * s;
+    return { dx: canvas.width / 2 - px, dy: canvas.height / 2 - py, s };
   }
 
   /** Da un click sulla mappa grande alle coordinate del mondo (metri). */
-  worldFromBigMap(canvas: HTMLCanvasElement, clientX: number, clientY: number): Pt | null {
+  worldFromBigMap(
+    canvas: HTMLCanvasElement,
+    clientX: number,
+    clientY: number,
+    view: BigMapView = { zoom: 1, centerX: 0, centerZ: 0 },
+  ): Pt | null {
     const map = this.staticMap;
     if (!map) return null;
     const rect = canvas.getBoundingClientRect();
     if (rect.width < 1 || rect.height < 1) return null;
     const px = (clientX - rect.left) * (canvas.width / rect.width);
     const py = (clientY - rect.top) * (canvas.height / rect.height);
-    const { dx, dy, s } = this.placementFor(canvas, map);
+    const { dx, dy, s } = this.placementFor(canvas, map, view);
     const staticX = (px - dx) / s;
     const staticY = (py - dy) / s;
     return {
       x: (staticX - this.mapPad) / this.mapScale - WORLD.halfWidth,
       z: (staticY - this.mapPad) / this.mapScale - WORLD.halfHeight,
     };
+  }
+
+  /** Pixel di schermo per metro alla vista corrente (per il trascinamento). */
+  bigMapPixelsPerMeter(canvas: HTMLCanvasElement, view: BigMapView): number {
+    const map = this.staticMap;
+    if (!map) return 1;
+    return this.placementFor(canvas, map, view).s * this.mapScale;
   }
 
   /** Traccia una polilinea proiettata sul canvas (percorso). */
@@ -843,7 +897,20 @@ export class MapRenderer {
     const half = viewMeters / 2;
     // Radar: tile vere con lo zoom scelto per la scala corrente. Se le tile
     // non sono configurate (mosaico locale) o si è offline, resta il vettore.
-    const satellite = this.radar && this.satTiles.usesTiles;
+    // La base è la stessa della mappa grande: tile remote se configurate,
+    // altrimenti il mosaico Sentinel locale. Prima qui contava solo
+    // `usesTiles`, quindi senza provider la minimappa restava vettoriale
+    // mentre la mappa grande mostrava correttamente la foto.
+    // Con il mosaico locale a ~3,4 m/px una vista da 380 m viene ingrandita
+    // quasi 6×: la foto è sgranata per costruzione, non per il canvas. Sotto
+    // 1,1 km si usa quindi la carta vettoriale, che resta nitida; la mappa
+    // grande continua a usare il satellite. Con tile remote ad alta
+    // risoluzione il limite non serve.
+    const localPhotoHasDetail = this.satTiles.usesTiles || viewMeters >= 1100;
+    const satellite =
+      this.radar &&
+      localPhotoHasDetail &&
+      satelliteBase(this.satTiles.usesTiles, this.satTiles.hasLocal) !== 'vector';
     if (satellite) {
       this.satTiles.draw(ctx, size, view, viewMeters);
       // velo leggero: la foto da sola nasconde cordoli e incroci
@@ -1116,7 +1183,10 @@ export class MapRenderer {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'alphabetic';
       ctx.fillStyle = 'rgba(255, 244, 226, 0.55)';
-      ctx.fillText(`© ${this.satTiles.name}`, cx, cy + size / 2 - 12 * u);
+      const credit = this.satTiles.usesTiles
+        ? `© ${this.satTiles.name}`
+        : 'Sentinel-2 cloudless © EOX · locale';
+      ctx.fillText(credit, cx, cy + size / 2 - 12 * u);
     }
     ctx.restore();
 
@@ -1237,6 +1307,7 @@ export class MapRenderer {
     route?: Pt[],
     garage?: { x: number; z: number } | null,
     venues?: readonly { x: number; z: number; name: string; color: string; status: string }[],
+    bigView: BigMapView = { zoom: 1, centerX: 0, centerZ: 0 },
   ): void {
     const ctx = canvas.getContext('2d');
     const map = this.staticMap;
@@ -1251,7 +1322,7 @@ export class MapRenderer {
     }
     if (cw < 2 || ch < 2) return;
 
-    const { dx, dy, s } = this.placementFor(canvas, map);
+    const { dx, dy, s } = this.placementFor(canvas, map, bigView);
     const placement = { dx, dy, s };
     const useSat = this.radar && this.satMap.ready;
 
@@ -1259,7 +1330,7 @@ export class MapRenderer {
     // costava decine di millisecondi a ogni frame con la mappa aperta. Qui
     // viene rasterizzata una volta sola e poi copiata; sopra si muovono solo
     // i marker, l'itinerario e il giocatore.
-    const key = `${canvas.width}x${canvas.height}:${useSat ? 1 : 0}`;
+    const key = `${canvas.width}x${canvas.height}:${useSat ? 1 : 0}:${bigView.zoom.toFixed(3)}:${bigView.centerX.toFixed(1)}:${bigView.centerZ.toFixed(1)}`;
     if (key !== this.bigBaseKey || !this.bigBase) {
       const base = this.bigBase ?? document.createElement('canvas');
       base.width = canvas.width;

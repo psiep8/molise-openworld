@@ -1,12 +1,16 @@
 import * as THREE from 'three';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  PAINT_FINISHES,
   applyPaintFinish,
+  applyPaintLook,
   choosePaintMaterials,
   isPaintMaterial,
+  loadPaintFinish,
   loadPaintSaturation,
   paintMaterialFrom,
   paintSaturation,
+  setPaintFinish,
   setPaintSaturation,
   tintPaint,
 } from '../src/gfx/car-paint';
@@ -202,6 +206,36 @@ describe('finitura della vernice', () => {
     expect(paint.color.getHex()).toBe(0x0000ff);
     expect(paint.userData.paintTintOn.value).toBe(1);
     expect((paint.userData.paintTint.value as THREE.Color).getHex()).toBe(0xa6332c);
+  });
+
+  it('la finitura scelta cambia solo la vernice e resta salvata', () => {
+    const stored: Record<string, string> = {};
+    vi.stubGlobal('window', {
+      localStorage: {
+        getItem: (key: string) => stored[key] ?? null,
+        setItem: (key: string, value: string) => { stored[key] = value; },
+      },
+    });
+    setPaintFinish('opaca');
+    expect(loadPaintFinish()).toBe('opaca');
+    expect(stored['molise.paint.finish']).toBe('opaca');
+
+    const paint = paintMaterialFrom(new THREE.MeshStandardMaterial({ name: 'Body Paint', color: 0xff0000 }));
+    applyPaintLook(paint);
+    expect(paint.roughness).toBeCloseTo(PAINT_FINISHES.opaca.roughness, 5);
+    expect(paint.clearcoat).toBeCloseTo(PAINT_FINISHES.opaca.clearcoat, 5);
+
+    // un vetro non passa da `applyPaintLook`: il test fissa che la finitura sia
+    // applicata ai soli materiali di carrozzeria
+    const glass = new THREE.MeshPhysicalMaterial({ name: 'M_Glass_Windows', roughness: 0.05, metalness: 0.5 });
+    expect(glass.roughness).toBe(0.05);
+
+    setPaintFinish('perla');
+    applyPaintLook(paint);
+    expect(paint.clearcoat).toBe(1);
+    expect(paint.clearcoatRoughness).toBeCloseTo(PAINT_FINISHES.perla.clearcoatRoughness, 5);
+    setPaintFinish('metallizzata');
+    vi.unstubAllGlobals();
   });
 
   it('non applica la finitura due volte allo stesso materiale', () => {

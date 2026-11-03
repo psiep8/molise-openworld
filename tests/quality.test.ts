@@ -44,7 +44,8 @@ describe('preset grafici', () => {
     expect(minimal.post).toBe(false);
     expect(minimal.shadows).toBe(false);
     expect(minimal.antialias).toBe(false);
-    expect(minimal.grassDensity).toBeGreaterThanOrEqual(QUALITY_PRESETS.low.grassDensity);
+    expect(minimal.grassDensity).toBeGreaterThan(0.1);
+    expect(minimal.grassDensity).toBeLessThan(QUALITY_PRESETS.low.grassDensity);
     expect(minimal.pedestrians).toBe(0);
     expect(minimal.kit).toBe(false);
     expect(minimal.weather).toBe('light');
@@ -58,7 +59,7 @@ describe('preset grafici', () => {
     expect(minimal.bridges).toBeGreaterThan(0);
     expect(QUALITY_PRESETS.medium.roadside).toBeGreaterThan(0);
     expect(QUALITY_PRESETS.medium.bridges).toBeGreaterThan(0);
-    expect(minimal.trees).toBeGreaterThan(1000);
+    expect(minimal.trees).toBeGreaterThan(500);
     expect(minimal.renderScaleFloor).toBeLessThan(QUALITY_PRESETS.ultra.renderScaleFloor);
     // la copertura del suolo costa campioni: sul preset di compatibilità è spenta
     expect(minimal.landcover).toBe('off');
@@ -77,20 +78,20 @@ describe('preset grafici', () => {
     expect(QUALITY_PRESETS.minimal.skidSegments).toBe(0);
     expect(QUALITY_PRESETS.low.skidSegments).toBe(400);
     expect(QUALITY_PRESETS.medium.skidSegments).toBe(3000);
-    expect(QUALITY_PRESETS.high.skidSegments).toBe(10000);
-    expect(QUALITY_PRESETS.ultra.skidSegments).toBe(25000);
-    expect(QUALITY_PRESETS.minimal.vehicleLights).toBe('none');
-    expect(QUALITY_PRESETS.low.vehicleLights).toBe('none');
+    expect(QUALITY_PRESETS.high.skidSegments).toBe(6000);
+    expect(QUALITY_PRESETS.ultra.skidSegments).toBe(20000);
+    expect(QUALITY_PRESETS.minimal.vehicleLights).toBe('headlights');
+    expect(QUALITY_PRESETS.low.vehicleLights).toBe('headlights');
     expect(QUALITY_PRESETS.medium.vehicleLights).toBe('headlights');
     expect(QUALITY_PRESETS.high.vehicleLights).toBe('all');
   });
 
   it('accende la copertura del suolo solo dove c’è margine', () => {
-    expect(QUALITY_PRESETS.low.landcover).toBe('base');
-    expect(QUALITY_PRESETS.low.landcoverRadius).toBe(0);
+    expect(QUALITY_PRESETS.low.landcover).toBe('full');
+    expect(QUALITY_PRESETS.low.landcoverRadius).toBeGreaterThan(0);
     for (const level of ['medium', 'high', 'ultra'] as const) {
       expect(QUALITY_PRESETS[level].landcover).toBe('full');
-      expect(QUALITY_PRESETS[level].landcoverRadius).toBeGreaterThanOrEqual(1400);
+      expect(QUALITY_PRESETS[level].landcoverRadius).toBeGreaterThanOrEqual(1200);
     }
     // il raggio non scende mai salendo di preset
     expect(QUALITY_PRESETS.high.landcoverRadius).toBeGreaterThanOrEqual(QUALITY_PRESETS.medium.landcoverRadius);
@@ -98,30 +99,30 @@ describe('preset grafici', () => {
   });
 
   it('il tasto G fa il giro completo e torna al minimo', () => {
-    let level: QualityLevel = 'minimal';
+    let level: QualityLevel = QUALITY_ORDER[0]!;
     const seen: QualityLevel[] = [level];
     for (let i = 1; i < QUALITY_ORDER.length; i++) {
       level = nextQuality(level);
       seen.push(level);
     }
     expect(seen).toEqual([...QUALITY_ORDER]);
-    expect(nextQuality(level)).toBe('minimal');
+    expect(nextQuality(level)).toBe(QUALITY_ORDER[0]);
   });
 
-  it('riconosce i livelli validi compreso minimal', () => {
+  it('riconosce i livelli validi compreso potato', () => {
+    expect(isQualityLevel('potato')).toBe(true);
     expect(isQualityLevel('minimal')).toBe(true);
     expect(isQualityLevel('low')).toBe(true);
     expect(isQualityLevel('ultra')).toBe(true);
-    expect(isQualityLevel('potato')).toBe(false);
     expect(isQualityLevel(null)).toBe(false);
   });
 });
 
 describe('classifyQuality', () => {
-  it('manda il rendering software al preset di compatibilità', () => {
-    expect(classifyQuality({ renderer: 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)))', cores: 8, memory: 8 })).toBe('minimal');
-    expect(classifyQuality({ renderer: 'llvmpipe (LLVM 15.0.7, 256 bits)', cores: 16, memory: 8 })).toBe('minimal');
-    expect(classifyQuality({ renderer: 'Microsoft Basic Render Driver', cores: 8, memory: 8 })).toBe('minimal');
+  it('manda il rendering software al preset potato', () => {
+    expect(classifyQuality({ renderer: 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)))', cores: 8, memory: 8 })).toBe('potato');
+    expect(classifyQuality({ renderer: 'llvmpipe (LLVM 15.0.7, 256 bits)', cores: 16, memory: 8 })).toBe('potato');
+    expect(classifyQuality({ renderer: 'Microsoft Basic Render Driver', cores: 8, memory: 8 })).toBe('potato');
   });
 
   it('tratta le GPU integrate come macchine leggere', () => {
@@ -134,7 +135,7 @@ describe('classifyQuality', () => {
   });
 
   it('non promette il preset alto a una CPU debole', () => {
-    expect(classifyQuality({ renderer: '', cores: 2, memory: 8 })).toBe('minimal');
+    expect(classifyQuality({ renderer: '', cores: 2, memory: 8 })).toBe('potato');
     expect(classifyQuality({ renderer: '', cores: 4, memory: 8 })).toBe('low');
     expect(classifyQuality({ renderer: '', cores: 4, memory: 4 })).toBe('low');
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blinkOn, bodyLean, createCarState, curbImpact, stepCar, type CarEnv, type CarInput, type CarState } from '../src/sim/car';
+import { DRIVE_MODES, assistFor, blinkOn, bodyLean, createCarState, curbImpact, steerLock, stepCar, type CarEnv, type CarInput, type CarState } from '../src/sim/car';
 import { VEHICLES, tuningFor, vehicleLabel, type VehicleSpec } from '../src/sim/vehicle-catalog';
 
 const road: CarEnv = { onRoad: true, groundHeight: () => 100 };
@@ -257,5 +257,60 @@ describe('cambio, partenza e frenata', () => {
     const a = drive(spec, gas, 40);
     const b = drive(spec, gas, 40);
     expect(a).toEqual(b);
+  });
+});
+
+describe('frenata e sterzata senza sbandare (B3)', () => {
+  const punto = VEHICLES.find((v) => v.id === 'fiat-punto-2011')!;
+  const tuning = tuningFor(punto);
+
+  function brakeFrom(kmh: number, curve: number, seconds: number): CarState {
+    let state: CarState = { ...createCarState(0, 0, 0), speed: kmh / 3.6, gear: 4 };
+    for (let i = 0; i < 60 * 2; i++) {
+      state = stepCar(state, { throttle: 0.25, brake: 0, steer: curve, handbrake: false }, road, dt, tuning);
+    }
+    for (let i = 0; i < 60 * seconds; i++) {
+      state = stepCar(state, { throttle: 0, brake: 0.5, steer: curve, handbrake: false }, road, dt, tuning);
+    }
+    return state;
+  }
+
+  it('frena da 100 km/h in rettilineo senza deviare', () => {
+    let state: CarState = { ...createCarState(0, 0, 0), speed: 100 / 3.6, gear: 5 };
+    for (let i = 0; i < 60 * 8; i++) {
+      state = stepCar(state, { throttle: 0, brake: 0.55, steer: 0, handbrake: false }, road, dt, tuning);
+    }
+    expect(state.speed).toBeLessThan(0.3);
+    expect(Math.abs(state.x)).toBeLessThan(0.3);
+    expect(Math.abs(state.yaw)).toBeLessThan(0.02);
+  });
+
+  it('frena in curva a 50 e 70 km/h senza perdere il posteriore', () => {
+    for (const kmh of [50, 70]) {
+      const state = brakeFrom(kmh, 0.35, 2);
+      const rear = Math.max(Math.abs(state.wheelSlip.rl.lat), Math.abs(state.wheelSlip.rr.lat));
+      expect(rear, `${kmh} km/h`).toBeLessThan(0.22);
+      expect(Math.abs(state.yawRate)).toBeGreaterThan(0.01);
+      expect(state.sliding).toBeLessThan(0.85);
+    }
+  });
+
+  it('sterzata decisa a 60 km/h resta nel cerchio, senza sovrasterzo', () => {
+    let state: CarState = { ...createCarState(0, 0, 0), speed: 60 / 3.6, gear: 3 };
+    let maxYaw = 0;
+    for (let i = 0; i < 60 * 2; i++) {
+      state = stepCar(state, { throttle: 0, brake: 0, steer: 0.7, handbrake: false }, road, dt, tuning);
+      maxYaw = Math.max(maxYaw, Math.abs(state.yawRate));
+    }
+    const target = Math.abs((60 / 3.6 / tuning.wheelbase) * Math.tan(steerLock(tuning.maxSteer, 60 / 3.6) * 0.7));
+    expect(maxYaw).toBeLessThan(target * 1.5 + 0.2);
+    expect(Math.abs(state.vy)).toBeLessThan(2.8);
+  });
+
+  it('Facile ha più aderenza e più ESC di Simulazione', () => {
+    expect(DRIVE_MODES.facile.grip).toBeGreaterThan(DRIVE_MODES.normale.grip);
+    expect(DRIVE_MODES.facile.esc).toBeGreaterThan(DRIVE_MODES.normale.esc);
+    expect(assistFor('facile').mode).toBe('facile');
+    expect(assistFor('sconosciuta').mode).toBe('normale');
   });
 });

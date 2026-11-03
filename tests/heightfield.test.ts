@@ -64,6 +64,23 @@ describe('Heightfield', () => {
     expect(h.heightAt(120, 0)).not.toBeCloseTo(7, 3);
   });
 
+  it('raccorda il DEM oltre il bordo per 500 m senza gradini', () => {
+    const h = grid(new Array(16).fill(7));
+    // continuità al bordo: nessun salto di quota nel passaggio DEM -> fBm
+    expect(Math.abs(h.heightAt(15.01, 0) - h.heightAt(14.99, 0))).toBeLessThan(0.05);
+    let previous = h.heightAt(14.5, 0);
+    let maxStep = 0;
+    for (let x = 15; x <= 520; x += 0.5) {
+      const y = h.heightAt(x, 0);
+      maxStep = Math.max(maxStep, Math.abs(y - previous));
+      previous = y;
+    }
+    // nemmeno un muro a 90°: il raccordo è distribuito su tutto il tratto
+    expect(maxStep).toBeLessThan(1);
+    // oltre i 500 m il terreno è procedurale, non più il DEM piatto
+    expect(h.heightAt(520, 0)).not.toBeCloseTo(7, 2);
+  });
+
   it('normale verticale su terreno piatto', () => {
     const h = grid(new Array(16).fill(5));
     const n = h.normalAt(0, 0);

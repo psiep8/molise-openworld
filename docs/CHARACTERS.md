@@ -22,27 +22,44 @@ Le sculture **non hanno skin né scheletro**: sono state controllate con
 possono animare senza un rigging manuale (Blender + pesi) e restano nella scheda
 statica. Questa galleria di anteprima non cambia il corpo usato nel gioco.
 
-## Corpo animato in gioco: X Bot
+## Corpo animato in gioco: GLB realistico
 
-Giocatore, pedoni e conducente usano X Bot con scheletro Mixamo. Le clip caricate
-direttamente da `public/models/locomotion-pack/` vengono associate per nome osso:
-idle, camminata (con varianti), corsa/jogging, salto, strafe, salite, svolte,
-avvio/arresto della camminata, ingresso/uscita dall'auto e guida. Il giocatore
-seleziona scale e svolte dai movimenti e dall'inclinazione del terreno; la
-transizione dell'auto riproduce le clip dedicate. Il conducente viene mostrato
-anche nell'abitacolo durante la guida.
+Giocatore, pedoni e conducente usano un avatar GLB con pelle e scheletro
+Mixamo-compatibile: `public/models/uomo.glb` e `donna.glb`. Le clip del Locomotion
+Pack Mixamo vengono associate per nome osso (idle, camminata con varianti,
+corsa/jogging, salto, strafe, salite, svolte, avvio/arresto, ingresso/uscita
+dall'auto, guida). Le due selezioni di sesso hanno corpi diversi.
 
-I capelli maschili e femminili sono scelti casualmente, per ogni istanza del
-personaggio, dalle due librerie GLB in `public/characters/`; colore, scala e
-aggancio all'osso della testa vengono applicati al caricamento. Gli asset GLB
-Sketchfab e le FBX del Locomotion Pack sono versionati, così sono inclusi nei
-pull e nella build senza passaggi d'import manuali.
+Misure verificate sullo scheletro in T-pose: **uomo 1,690 m / 58 ossa**,
+**donna 1,610 m / 60 ossa**. Tutte le **52 ossa** richieste dalla clip di
+camminata (`walking.fbx`) esistono su entrambi i corpi; il test
+`tests/human-model-fbx.test.ts` fallisce se un osso sparisce o l'altezza cambia
+di più di 2 cm.
 
-X Bot è lo stesso corpo usato per entrambe le selezioni di sesso; la mesh non
-separa abbastanza regioni per applicare tutti i tagli e gli outfit. I GLB
-anatomici importati restano statici nella galleria: per animarli serve rigging e
-skinning dedicato, perché la conversione di formato da sola non crea uno
-scheletro.
+**X Bot non è più visibile.** Il suo FBX resta soltanto come riga sorgente
+invisibile per calcolare le rotazioni relative del retarget; non viene aggiunto
+alla scena. Il vecchio rig procedurale ("umano custom") è stato rimosso dal
+percorso di produzione: si può vedere solo con `?debugrig=1`.
+
+### Caricamento robusto
+
+`loadHumanAssets` usa `Promise.allSettled` per asset:
+
+- corpi: obbligatori; se manca un GLB il gioco mostra un errore esplicito e
+  riprova dopo 6 secondi (fino a tre tentativi), senza costruire un manichino;
+- clip: una FBX mancante ricade sulla clip di riposo;
+- capelli: opzionali; se il pack da 20 MB non si carica, il personaggio resta
+  senza capelli ma il resto funziona;
+- la riga sorgente Mixamo è opzionale.
+
+I capelli maschili e femminili sono scelti in modo deterministico per istanza
+dalle due librerie GLB in `public/characters/` e agganciati all'osso Head;
+colore e scala vengono applicati al caricamento.
+
+I GLB anatomici di `public/characters/` restano sculture statiche (nessuna skin,
+nessuno scheletro) e vivono nella scheda **Sculture** dello studio. Per animarli
+servirebbe un rigging con trasferimento pesi (Mixamo auto-rigger o Blender):
+`docs/CHARACTERS.md` e `public/models/ATTRIBUTION.md` annotano il limite.
 
 ## Asset forniti
 
@@ -138,7 +155,8 @@ può caricare un file da 80 MB senza bloccare il corpo animato.
 | Componente | Licenza | Note |
 | --- | --- | --- |
 | Anteprima Posecode | Ready Player Me | vedi `public/models/ATTRIBUTION.md` |
-| Corpo e locomozione in gioco | Mixamo X Bot | file FBX forniti dal proprietario; rispettare le condizioni Mixamo |
+| Corpo in gioco | Ready Player Me (`uomo.glb`, `donna.glb`) | verifica dei termini RPM prima della ridistribuzione |
+| Locomozione | Mixamo Locomotion Pack | X Bot usato solo come riga di retarget, mai disegnato; verificare i termini Mixamo |
 | `posecode-parser` 0.6.0 | Apache-2.0 | parsing e validazione del DSL |
 | `posecode-render` 0.6.0 | **AGPL-3.0-only** | se il progetto viene esposto come servizio di rete, l'AGPL richiede di offrire il sorgente corrispondente |
 | Sculture Sketchfab | CC BY 4.0 | autori e fonti in `ATTRIBUTION.md` e nel manifest |

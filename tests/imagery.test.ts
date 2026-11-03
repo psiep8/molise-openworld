@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { createOpenImageryProvider, zoomForDistance } from '../src/world/imagery';
+import { createOpenImageryProvider, HIGH_RES_IMAGERY, zoomForDistance } from '../src/world/imagery';
 import { OpenRasterTileCache } from '../src/world/tile-cache';
+import { satelliteBase } from '../src/ui/minimap';
 
 describe('zoomForDistance', () => {
   it('usa z18 vicino al giocatore, dove campi e tennis devono leggersi', () => {
@@ -24,6 +25,12 @@ describe('createOpenImageryProvider', () => {
     expect(() => provider.url(16, 2, 3)).toThrow('non fornisce tile XYZ');
   });
 
+  it('usa la base ad alta risoluzione Esri per le mappe', () => {
+    expect(HIGH_RES_IMAGERY.localOnly).toBe(false);
+    expect(HIGH_RES_IMAGERY.url(18, 141841, 97422)).toContain('/tile/18/97422/141841');
+    expect(HIGH_RES_IMAGERY.attribution).toContain('Esri');
+  });
+
   it('espande i segnaposto del provider remoto configurato', () => {
     const provider = createOpenImageryProvider(
       'https://tiles.example/{z}/{x}/{y}.png',
@@ -40,6 +47,15 @@ describe('createOpenImageryProvider', () => {
     expect(() => createOpenImageryProvider('https://tiles.example/{z}/{x}.png', 'Attribuzione')).toThrow(
       'segnaposto',
     );
+  });
+});
+
+describe('base satellite della minimappa', () => {
+  it('usa il mosaico locale quando il provider remoto non è configurato', () => {
+    expect(satelliteBase(false, false)).toBe('vector');
+    expect(satelliteBase(false, true)).toBe('local');
+    expect(satelliteBase(true, false)).toBe('remote');
+    expect(satelliteBase(true, true)).toBe('remote');
   });
 });
 

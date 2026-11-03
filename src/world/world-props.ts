@@ -45,6 +45,7 @@ export interface WorldPropBudget {
 }
 
 const BUDGETS: Record<QualityLevel, WorldPropBudget> = {
+  potato: { tree: 1, shrub: 30, distantTree: 60, rock: 2, sign: 1, house: 0, grass: 20 },
   minimal: { tree: 3, shrub: 90, distantTree: 160, rock: 8, sign: 2, house: 0, grass: 50 },
   low: { tree: 8, shrub: 150, distantTree: 340, rock: 22, sign: 4, house: 0, grass: 110 },
   // Sagome lontane: 9-10 m, poche centinaia di triangoli l'una. Riempono i

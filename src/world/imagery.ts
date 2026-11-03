@@ -12,6 +12,26 @@ const BASE_IMAGERY_URL = `${import.meta.env.BASE_URL}geo/world-imagery.jpg`;
 const OPEN_TILE_TEMPLATE = import.meta.env.VITE_OPEN_IMAGERY_TILE_URL?.trim();
 const OPEN_TILE_ATTRIBUTION = import.meta.env.VITE_OPEN_IMAGERY_ATTRIBUTION?.trim();
 
+/**
+ * Base cartografica remota per minimappa e mappa grande.
+ *
+ * Il mosaico Sentinel locale resta la base offline e la sorgente del terreno,
+ * ma a 380 m viene ingrandito di quasi 6×: sulla minimappa si vedeva sgranato.
+ * Esri World Imagery serve tile z18 (~0,45 m/px) con CORS, quindi la minimappa
+ * torna satellite vero e leggibile. Il provider resta sovrascrivibile da env.
+ */
+const ESRI_WORLD_IMAGERY_TILE =
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+const ESRI_WORLD_IMAGERY_ATTRIBUTION =
+  'Esri, Maxar, Earthstar Geographics, and the GIS User Community';
+
+const MAP_TILE_TEMPLATE =
+  import.meta.env.VITE_MAP_IMAGERY_TILE_URL?.trim() || OPEN_TILE_TEMPLATE || ESRI_WORLD_IMAGERY_TILE;
+const MAP_TILE_ATTRIBUTION =
+  import.meta.env.VITE_MAP_IMAGERY_ATTRIBUTION?.trim() ||
+  (OPEN_TILE_TEMPLATE ? OPEN_TILE_ATTRIBUTION : undefined) ||
+  ESRI_WORLD_IMAGERY_ATTRIBUTION;
+
 export interface TileProvider {
   id: string;
   name: string;
@@ -56,6 +76,9 @@ export function createOpenImageryProvider(
 }
 
 export const OPEN_WORLD_IMAGERY = createOpenImageryProvider(OPEN_TILE_TEMPLATE, OPEN_TILE_ATTRIBUTION);
+
+/** Provider ad alta risoluzione usato dalle mappe (non dal terreno 3D). */
+export const HIGH_RES_IMAGERY = createOpenImageryProvider(MAP_TILE_TEMPLATE, MAP_TILE_ATTRIBUTION);
 
 const TILE = 256;
 

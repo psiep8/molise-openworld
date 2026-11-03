@@ -31,13 +31,14 @@ capture ritargettizzate sulla riga RPM.
 
 ## Corpo e clip usati nel gioco
 
-Il giocatore, i pedoni e il conducente usano il modello X Bot e le animazioni
-del Locomotion Pack scaricato dal proprietario da Mixamo (Adobe). Le FBX originali
-sono conservate in `public/models/locomotion-pack/` e caricate direttamente da Three.js:
+Il giocatore, i pedoni e il conducente usano i corpi `uomo.glb` / `donna.glb`.
+X Bot non è disegnato: il suo FBX resta la riga sorgente invisibile del retarget.
+Le animazioni vengono dal Locomotion Pack Mixamo (Adobe), conservato in
+`public/models/locomotion-pack/` e caricato direttamente da Three.js:
 
 | File locale | File fornito | Uso |
 | --- | --- | --- |
-| `xbot.fbx` | `X Bot.fbx` | corpo riggato |
+| `xbot.fbx` | `X Bot.fbx` | riga sorgente per il retarget (non disegnata) |
 | `locomotion-pack/idle.fbx` | `idle.fbx` | riposo |
 | `locomotion-pack/walking.fbx` | `walking.fbx` | camminata |
 | `locomotion-pack/running.fbx` | `running.fbx` | corsa |
@@ -51,3 +52,22 @@ sono conservate in `public/models/locomotion-pack/` e caricate direttamente da T
 Sono incluse anche le altre FBX del pacchetto originale, comprese le varianti non
 ancora selezionate dal runtime. Verificare le condizioni Mixamo/Adobe applicabili
 alla redistribuzione del progetto.
+
+## Stato corrente del corpo visibile (B1)
+
+- **Corpo disegnato in gioco**: `uomo.glb` / `donna.glb` (avatar GLB con skin,
+  scheletro Mixamo-compatibile). Sono gli unici corpi aggiunti alla scena.
+  Misure: uomo 1,690 m / 58 ossa, donna 1,610 m / 60 ossa; le 52 ossa della
+  clip di camminata sono presenti su entrambi.
+- **X Bot** (`xbot.fbx`): conservato solo come riga sorgente invisibile per il
+  calcolo del retarget delle clip. Non viene disegnato.
+- **Corpi anatomici Sketchfab** in `public/characters/`: mesh statiche senza
+  skin; restano nella galleria Sculture. Per animarle va prodotto un GLB
+  riggato con scheletro Mixamo (auto-rigger Mixamo o trasferimento pesi in
+  Blender) e va verificata la licenza di ciascun asset.
+- **Locomotion Pack**: FBX Mixamo fornite dal proprietario del progetto. Prima
+  di una distribuzione pubblica verificare i termini Mixamo/Adobe vigenti sulla
+  ridistribuzione dei file e delle animazioni.
+
+Le teste sculpt da 59/82 MB non vengono caricate dal gioco: costano memoria e
+non sono animate. Se in futuro serviranno, vanno decimate e riggate.

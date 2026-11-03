@@ -99,6 +99,52 @@ export function setPaintSaturation(value: number): number {
   return next;
 }
 
+export type PaintFinish = 'opaca' | 'metallizzata' | 'perla';
+
+/** Finiture disponibili: valori pensati per la vernice stradale, non da editor. */
+export const PAINT_FINISHES: Record<
+  PaintFinish,
+  { label: string; roughness: number; metalness: number; clearcoat: number; clearcoatRoughness: number }
+> = {
+  opaca: { label: 'Opaca', roughness: 0.68, metalness: 0.04, clearcoat: 0.25, clearcoatRoughness: 0.45 },
+  metallizzata: { label: 'Metallizzata', roughness: 0.45, metalness: 0.18, clearcoat: 1, clearcoatRoughness: 0.16 },
+  perla: { label: 'Perla', roughness: 0.36, metalness: 0.16, clearcoat: 1, clearcoatRoughness: 0.07 },
+};
+
+const FINISH_KEY = 'molise.paint.finish';
+
+export function isPaintFinish(value: string | null | undefined): value is PaintFinish {
+  return value === 'opaca' || value === 'metallizzata' || value === 'perla';
+}
+
+function readStoredFinish(): PaintFinish | null {
+  try {
+    if (typeof window === 'undefined') return null;
+    const raw = window.localStorage.getItem(FINISH_KEY);
+    return isPaintFinish(raw) ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Finitura condivisa da tutte le carrozzerie verniciate. */
+export const paintFinish: { value: PaintFinish } = { value: readStoredFinish() ?? 'metallizzata' };
+
+export function loadPaintFinish(): PaintFinish {
+  return readStoredFinish() ?? 'metallizzata';
+}
+
+export function setPaintFinish(value: PaintFinish): PaintFinish {
+  const next = isPaintFinish(value) ? value : paintFinish.value;
+  paintFinish.value = next;
+  try {
+    if (typeof window !== 'undefined') window.localStorage.setItem(FINISH_KEY, next);
+  } catch {
+    // localStorage può essere disabilitato: il valore vale per la sessione
+  }
+  return next;
+}
+
 /**
  * Inserisce il ritocco di saturazione nello shader del materiale.
  *
@@ -145,6 +191,16 @@ export function applyPaintFinish(material: THREE.MeshStandardMaterial): void {
         ].join('\n'),
       );
   };
+  material.needsUpdate = true;
+}
+
+/** Applica la finitura scelta (opaca/metallizzata/perla) alla vernice. */
+export function applyPaintLook(material: THREE.MeshPhysicalMaterial): void {
+  const finish = PAINT_FINISHES[paintFinish.value];
+  material.roughness = finish.roughness;
+  material.metalness = finish.metalness;
+  material.clearcoat = finish.clearcoat;
+  material.clearcoatRoughness = finish.clearcoatRoughness;
   material.needsUpdate = true;
 }
 
@@ -206,6 +262,7 @@ export function paintMaterialFrom(source: THREE.MeshStandardMaterial): THREE.Mes
   // da un valore basso, così nemmeno un GLB con envMapIntensity 3 acceca
   paint.envMapIntensity = Math.min(paint.envMapIntensity ?? 1, 1);
   applyPaintFinish(paint);
+  applyPaintLook(paint);
   paint.needsUpdate = true;
   return paint;
 }

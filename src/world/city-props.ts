@@ -23,13 +23,13 @@ import type { CityKit, KitSpot } from './citykit';
 
 // `minimal` non carica nemmeno il kit (preset `kit: false`), ma le mappe
 // restano complete per non lasciare buchi se un giorno lo farà.
-const TREE_LIMIT: Record<QualityLevel, number> = { minimal: 0, low: 0, medium: 10, high: 22, ultra: 32 };
-const CAR_LIMIT: Record<QualityLevel, number> = { minimal: 0, low: 4, medium: 10, high: 18, ultra: 24 };
-const HEDGE_LIMIT: Record<QualityLevel, number> = { minimal: 0, low: 48, medium: 120, high: 220, ultra: 340 };
-const BUSH_LIMIT: Record<QualityLevel, number> = { minimal: 0, low: 30, medium: 80, high: 150, ultra: 220 };
-const REED_LIMIT: Record<QualityLevel, number> = { minimal: 0, low: 24, medium: 70, high: 130, ultra: 190 };
-const ROCK_LIMIT: Record<QualityLevel, number> = { minimal: 0, low: 24, medium: 64, high: 120, ultra: 170 };
-const BOULDER_LIMIT: Record<QualityLevel, number> = { minimal: 0, low: 2, medium: 4, high: 8, ultra: 10 };
+const TREE_LIMIT: Record<QualityLevel, number> = { potato: 0, minimal: 0, low: 0, medium: 10, high: 22, ultra: 32 };
+const CAR_LIMIT: Record<QualityLevel, number> = { potato: 0, minimal: 0, low: 4, medium: 10, high: 18, ultra: 24 };
+const HEDGE_LIMIT: Record<QualityLevel, number> = { potato: 0, minimal: 0, low: 48, medium: 120, high: 220, ultra: 340 };
+const BUSH_LIMIT: Record<QualityLevel, number> = { potato: 0, minimal: 0, low: 30, medium: 80, high: 150, ultra: 220 };
+const REED_LIMIT: Record<QualityLevel, number> = { potato: 0, minimal: 0, low: 24, medium: 70, high: 130, ultra: 190 };
+const ROCK_LIMIT: Record<QualityLevel, number> = { potato: 0, minimal: 0, low: 24, medium: 64, high: 120, ultra: 170 };
+const BOULDER_LIMIT: Record<QualityLevel, number> = { potato: 0, minimal: 0, low: 2, medium: 4, high: 8, ultra: 10 };
 const TREE_RADIUS = 760;
 const CAR_RADIUS = 560;
 const SCENERY_RADIUS = 2400;

@@ -391,6 +391,25 @@ kbd {
   box-shadow: 0 0 0 3px rgba(240, 163, 94, 0.25), inset 0 -3px 6px rgba(0, 0, 0, 0.45);
 }
 
+.paint-controls {
+  flex-wrap: wrap;
+  align-items: end;
+}
+
+.paint-controls .setting-field {
+  min-width: 132px;
+}
+
+.setting-field input[type='color'] {
+  width: 100%;
+  min-height: 38px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+}
+
 .garage-box {
   display: grid;
   gap: 10px;
@@ -1423,4 +1442,29 @@ a.text-btn,
 .wallet-empty {
   color: var(--muted);
   font-size: 11px;
+}
+
+/* Controlli zoom della mappa grande: sempre visibili, anche a mano libera. */
+.map-zoom {
+  position: absolute;
+  right: 18px;
+  top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 3;
+}
+.map-zoom button {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 244, 226, 0.22);
+  background: rgba(12, 18, 14, 0.82);
+  color: #f3e7cf;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.map-zoom button:hover {
+  background: rgba(32, 44, 34, 0.95);
 }

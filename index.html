@@ -116,6 +116,11 @@
 
     <div id="map-overlay" class="hidden">
       <canvas id="bigmap"></canvas>
+      <div class="map-zoom" role="group" aria-label="Zoom mappa">
+        <button id="map-zoom-in" type="button" title="Zoom avanti (+)">＋</button>
+        <button id="map-zoom-out" type="button" title="Zoom indietro (−)">−</button>
+        <button id="map-recenter" type="button" title="Ricentra sul giocatore (0)">◎</button>
+      </div>
       <div class="map-legend">
         <strong>Mappa dei 5 comuni · Palata è casa</strong>
         <span>Palata · Montecilfone · Acquaviva Collecroce · Tavenna · Castelmauro</span>
@@ -128,7 +133,7 @@
         </div>
         <small id="map-attribution">Strade ed edifici: OpenStreetMap (ODbL)</small>
         <small>Rilievo: AWS Terrain Tiles (SRTM/Copernicus) · <kbd>V</kbd> cambia stile</small>
-        <span class="map-close">Clicca un punto per la destinazione · <kbd>Shift</kbd>+clic su una casa = garage · <kbd>X</kbd> annulla · <kbd>M</kbd> chiude</span>
+        <span class="map-close">Clicca un punto per la destinazione · <kbd>Shift</kbd>+clic su una casa = garage · rotella/pinch per lo zoom · trascina per spostare · <kbd>+</kbd>/<kbd>−</kbd> zoom · <kbd>0</kbd> ricentra · <kbd>M</kbd> chiude</span>
       </div>
     </div>
 
@@ -159,6 +164,25 @@
               <option value="medium">Media</option>
               <option value="high">Alta</option>
               <option value="ultra">Ultra</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-copy">
+            <strong>Modalità di guida</strong>
+            <small>
+              Facile (default): ESC forte, ABS, sterzo filtrato e più aderenza. Normale è
+              intermedia; Simulazione toglie le assistenze. Il freno a mano resta per il drift
+              volontario.
+            </small>
+          </div>
+          <label class="setting-field">
+            <span>Assistenza</span>
+            <select id="drive-mode-select">
+              <option value="facile">Facile</option>
+              <option value="normale">Normale</option>
+              <option value="simulazione">Simulazione</option>
             </select>
           </label>
         </div>
@@ -280,6 +304,28 @@
           </div>
         </div>
         <div id="paint-swatches" class="paint-swatches" role="group" aria-label="Colore carrozzeria"></div>
+
+        <div class="setting-row paint-controls">
+          <div class="setting-copy">
+            <strong>Colore libero e finitura</strong>
+            <small>
+              Scegli qualsiasi tinta con il selettore, oppure una finitura opaca, metallizzata o perla.
+              La scelta si applica subito e resta salvata; vetri, fari, gomme e cromature non cambiano.
+            </small>
+          </div>
+          <label class="setting-field">
+            <span>Colore</span>
+            <input type="color" id="paint-color" value="#1b3355" />
+          </label>
+          <label class="setting-field">
+            <span>Finitura</span>
+            <select id="paint-finish">
+              <option value="metallizzata">Metallizzata</option>
+              <option value="perla">Perla</option>
+              <option value="opaca">Opaca</option>
+            </select>
+          </label>
+        </div>
 
         <div class="setting-row">
           <div class="setting-copy">
@@ -466,7 +512,7 @@
           </button>
         </div>
         <div class="attribution">
-          <span id="imagery-attribution">Immagini satellite: Sentinel-2 cloudless © EOX IT Services GmbH (CC BY 4.0)</span>
+          <span id="imagery-attribution">Immagini satellite: Esri, Maxar, Earthstar Geographics, and the GIS User Community</span>
           <span>Dati mappa: © OpenStreetMap contributors (ODbL)</span>
           <span>Elevazione: SRTM / Copernicus DEM (AWS Open Data)</span>
         </div>

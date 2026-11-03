@@ -119,3 +119,52 @@ la guida credibile.
   non sono ridistribuibili.
 - **File GLB**: non versionati; il manifest è versionato. Per ripristinarli su
   un altro PC vedi [docs/GARAGE.md](GARAGE.md).
+
+## Modalità di guida e stabilità in frenata (B3)
+
+La fisica è una sola; cambiano le assistenze, raccolte in `DRIVE_MODES`
+(`src/sim/car.ts`) e scelte da **Impostazioni → Modalità di guida**:
+
+| Modalità | Aderenza | ESC | Sterzo | Freno | Note |
+| --- | --- | --- | --- | --- | --- |
+| Facile (default) | +15% | forte (1,0) | filtrato (0,82×) | +5% | ABS, nessun sovrasterzo da input normali |
+| Normale | base | media (0,55) | base | base | comportamento di riferimento |
+| Simulazione | −2% | assente | più diretto | base | solo per chi cerca la derapata |
+
+Correzioni fisiche:
+
+- **EBD**: la frenata si ripartisce sul carico verticale effettivo di ogni asse,
+  non sul bias statico. In frenata il retrotreno non si scarica più e conserva
+  aderenza laterale.
+- **Pedale progressivo** (`brake^1.35`) e **ABS più precoce** (0,72 della
+  capacità): l'ABS riduce la richiesta longitudinale senza azzerare quella
+  laterale.
+- **Curva del pneumatico** con picco a 0,15 rad e coda meno aggressiva;
+  capacità laterale posteriore +6% (sottosterzo leggero e sicuro).
+- **Sterzo** filtrato con la velocità e lock che cala sopra i 24 km/h.
+- **ESC leggero**: se l'imbardata supera il target single-track, viene
+  riportata indietro; in Facile è più energico.
+
+I test di riproduzione stanno in `tests/vehicle-dynamics.test.ts`
+(frenata in rettilineo, frenata in curva a 50/70 km/h, sterzata a 60 km/h).
+
+
+## Vernice e finiture (B4)
+
+La carrozzeria si tinge su tutti i modelli della libreria, procedurali e GLB,
+senza toccare vetri, fari, gomme, cromature e targhe: il modulo
+`src/gfx/car-paint.ts` riconosce i materiali di vernice per nome e, quando il
+GLB usa un atlante unico, ripiega sul materiale dominante solo se copre almeno
+un terzo della scocca.
+
+- **Palette**: dieci tinte salvate per `id` veicolo.
+- **Colore libero**: selettore `input[type=color]` con anteprima immediata.
+- **Finitura**: `opaca`, `metallizzata` (default) o `perla`; cambia roughness,
+  metalness, clearcoat e clearcoatRoughness della sola vernice e viene salvata
+  in `molise.paint.finish`.
+- **Saturazione**: slider condiviso, 35–100%, salvato in
+  `molise.paint.saturation`.
+
+I test in `tests/car-paint.test.ts` verificano che la finitura non si applichi a
+vetri e altri materiali, che la tinta sopravviva a un ricaricamento e che i nomi
+dei materiali dei sei GLB siano riconosciuti correttamente.

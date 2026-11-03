@@ -239,13 +239,15 @@ export function buildRoadsideKit(
     let previousEnd: number | null = null;
     const maxModules = Math.ceil(sampler.length / 0.5) + 4;
     for (let guard = 0; guard < maxModules && spots.length < cap; guard++) {
-      if (previousEnd !== null) start = Math.max(0, previousEnd - baseLength * 0.02);
+      // 2 cm fissi, non il 2% del modulo: sui pezzi accorciati il 2% nominale
+      // diventava un accavallamento di decine di centimetri e z-fighting.
+      if (previousEnd !== null) start = Math.max(0, previousEnd - 0.02);
       if (start >= sampler.length - 0.05) break;
 
       // Curva o saliscendi stretto: accorcia il modulo (fino a 20%) invece di
       // saltarlo. Prima si scartavano le campate con pendenza > 12° e restava
       // un buco esattamente dove la strada saliva.
-      const factor = shortestFitFactor(baseLength, 0.02, (d) => surfaceAt(start + d));
+      const factor = shortestFitFactor(baseLength, 0.015, (d) => surfaceAt(start + d));
       const length = Math.max(0.4, baseLength * factor);
       const endS = start + length;
       if (endS > sampler.length + 0.05) break;

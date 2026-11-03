@@ -533,7 +533,9 @@ function buildOne(
   const footprint =
     offsetPolygonVariable(points, points.map((_, i) => (isParty(i) ? 0.02 : 0.45))) ??
     points.map((p) => ({ x: p.x, z: p.z }));
-  const roofTop = topY + 0.05;
+  // Il tetto appoggia sul muro: prima stava 5 cm sopra il cornicione e
+  // lasciava una fessura di cielo tra gronda e facciata.
+  const roofTop = topY - 0.01;
   // pendenza ~30° sulla campata corta: è quella dei coppi molisani, non un
   // coperchio piatto né un tetto da baita alpina
   let minX = Infinity;
@@ -596,10 +598,12 @@ function buildOne(
   const trim: THREE.BufferGeometry[] = [];
   const glass: THREE.BufferGeometry[] = [];
   const stone = new THREE.Color(0xe9e1cf).multiplyScalar(0.94 + (hashInt(seed, 7) % 60) / 500);
-  const eaveY = topY + 0.02;
+  const eaveY = topY + 0.04;
 
   // cornicione sotto la gronda: 24 cm di aggetto costante, quello che disegna
-  // l'ombra sul muro
+  // l'ombra sul muro. Tinta del muro, non pietra chiara: la fascia bianca
+  // sotto il tetto si leggeva come una fessura tra tetto e facciata.
+  const cornice = wallColor.clone().multiplyScalar(0.84);
   trim.push(
     bandGeometry(
       points,
@@ -607,7 +611,7 @@ function buildOne(
       0.24,
       eaveY - 0.3,
       eaveY - 0.04,
-      stone,
+      cornice,
       points.map((_, i) => (isParty(i) ? 0 : 0.24)),
     ),
   );

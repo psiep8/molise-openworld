@@ -85,9 +85,20 @@ export function shortestFitFactor(
     const length = baseLength * factor;
     if (length < 0.4) break;
     const start = sample(0);
-    const middle = sample(length / 2);
     const end = sample(length);
-    if (Math.abs(middle - (start + end) / 2) <= limit) return factor;
+    // Non basta il centro: su una S il modulo può restare dentro in mezzeria
+    // e sollevarsi ai quarti. Si controllano tutti i punti che la lastra
+    // attraversa davvero.
+    let fits = true;
+    for (const t of [0.25, 0.5, 0.75]) {
+      const surface = sample(length * t);
+      const chord = start + (end - start) * t;
+      if (Math.abs(surface - chord) > limit) {
+        fits = false;
+        break;
+      }
+    }
+    if (fits) return factor;
   }
   const shortest = factors[factors.length - 1]!;
   return Math.max(0.4 / baseLength, shortest);

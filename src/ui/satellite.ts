@@ -95,7 +95,7 @@ export class SatelliteTiles {
     private readonly provider: TileProvider = OPEN_WORLD_IMAGERY,
     private readonly onUpdate?: () => void,
   ) {
-    if (provider.localOnly) this.loadLocal('world-imagery-hd.jpg', true);
+    if (provider.localOnly) this.loadLocal('world-imagery-hd-sharp.jpg', true);
   }
 
   get name(): string {
@@ -112,6 +112,18 @@ export class SatelliteTiles {
 
   get usesTiles(): boolean {
     return !this.provider.localOnly;
+  }
+
+  /** Vero quando il mosaico Sentinel locale è già in memoria. */
+  get hasLocal(): boolean {
+    return this.localImage !== null;
+  }
+
+  /** Dimensioni reali del mosaico caricato (null se non è ancora arrivato). */
+  get localSize(): { width: number; height: number } | null {
+    const image = this.localImage;
+    if (!image) return null;
+    return { width: image.naturalWidth || image.width, height: image.naturalHeight || image.height };
   }
 
   get stats(): SatelliteStats {
@@ -136,16 +148,18 @@ export class SatelliteTiles {
     };
     image.onerror = () => {
       this.localLoading = false;
-      // La versione HD è un di più: se manca si torna al mosaico 2048.
-      if (allowFallback) this.loadLocal('world-imagery.jpg', false);
-      else this.onUpdate?.();
+      // Catena: HD nitida -> HD originale -> mosaico 2048.
+      if (allowFallback) {
+        const fallback = url.includes('-sharp') ? 'world-imagery-hd.jpg' : 'world-imagery.jpg';
+        this.loadLocal(fallback, fallback !== 'world-imagery.jpg');
+      } else this.onUpdate?.();
     };
     image.src = `${root}${url}`;
   }
 
   /** Base offline: usata sotto le tile e quando le tile non arrivano. */
   private ensureFallback(): void {
-    if (!this.localImage) this.loadLocal('world-imagery-hd.jpg', true);
+    if (!this.localImage) this.loadLocal('world-imagery-hd-sharp.jpg', true);
   }
 
   private get(z: number, x: number, y: number, priority: number): CachedTile {
@@ -438,7 +452,8 @@ export class SatelliteBasemap {
         };
         img.onerror = () => {
           if (allowFallback) {
-            loadMosaic(`${root}world-imagery.jpg`, false);
+            const fallback = url.includes('-sharp') ? `${root}world-imagery-hd.jpg` : `${root}world-imagery.jpg`;
+            loadMosaic(fallback, fallback.includes('world-imagery-hd.jpg'));
             return;
           }
           if (this.provider.localOnly) {
@@ -450,7 +465,7 @@ export class SatelliteBasemap {
         };
         img.src = url;
       };
-      loadMosaic(`${root}world-imagery-hd.jpg`, true);
+      loadMosaic(`${root}world-imagery-hd-sharp.jpg`, true);
     }
   }
 

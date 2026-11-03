@@ -76,6 +76,9 @@ export class Player {
   private humanAssets: HumanAssets | null = null;
   /** true quando in scena c'è il rig procedurale, da smaltire al primo modello rigged */
   private proceduralBuilt = false;
+  /** Il manichino procedurale è solo uno strumento di debug: `?debugrig=1`. */
+  private readonly debugRig =
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('debugrig');
   private walkPhase = 0;
   private bob = 0;
   /** pesi del blend idle/camminata/corsa, calcolati dalla funzione pura */
@@ -97,6 +100,17 @@ export class Player {
     // ruoterebbe anche la direzione di marcia.
     this.avatar.rotation.order = 'YXZ';
     this.rebuild();
+  }
+
+  /** Corpo effettivamente in scena: GLB, rig di debug o nessuno. */
+  get modelKind(): 'glb' | 'debug-rig' | 'empty' {
+    if (this.humanAssets) return 'glb';
+    return this.proceduralBuilt ? 'debug-rig' : 'empty';
+  }
+
+  /** Pelle visibile: scultura importata o fallback RPM. */
+  get bodyKind(): 'imported' | 'rpm' | 'none' {
+    return this.body?.bodyKind ?? 'none';
   }
 
   /** Cambia carnagione, capelli, corporatura o outfit senza perdere la posizione. */
@@ -130,10 +144,18 @@ export class Player {
     this.avatar.clear();
 
     if (this.humanAssets) {
-      this.body = new HumanBody(this.humanAssets, this.appearance, { phase: Math.random() * 2 });
+      this.body = new HumanBody(this.humanAssets, this.appearance, {
+        phase: Math.random() * 2,
+        importedBody: true,
+      });
       this.avatar.add(this.body.group);
       return;
     }
+
+    // In produzione un asset mancante non costruisce più un manichino: il
+    // gioco mostra l'errore e riprova. Il rig procedurale resta solo dietro
+    // `?debugrig=1` per confronti di animazione.
+    if (!this.debugRig) return;
 
     this.proceduralBuilt = true;
     const rig = this.buildRig();
@@ -867,6 +889,7 @@ export class Player {
       return;
     }
 
+    if (!this.actions || !this.mixer) return;
     for (const key of ['idle', 'walk', 'run'] as const) {
       this.actions[key].setEffectiveWeight(this.weights[key]);
     }

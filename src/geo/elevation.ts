@@ -3,7 +3,7 @@ import { clamp, mulberry32, smoothstep } from './geo';
 const PROCEDURAL_SEED = 0x4d4f4c49;
 const PROCEDURAL_SCALE = 0.0005;
 const PROCEDURAL_AMPLITUDE = 240;
-const TRANSITION_DISTANCE = 100;
+const TRANSITION_DISTANCE = 500;
 const NOISE_SIZE = 256;
 
 const PERMUTATION = (() => {

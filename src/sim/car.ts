@@ -63,6 +63,32 @@ export interface CarInput {
   boost?: boolean;
 }
 
+export type DriveMode = 'facile' | 'normale' | 'simulazione';
+
+export interface DriveAssist {
+  mode: DriveMode;
+  label: string;
+  grip: number;
+  esc: number;
+  steerRate: number;
+  steerGain: number;
+  brakePedal: number;
+  brakeFrontBias: number;
+}
+
+/** Le tre modalità in un unico oggetto documentato. */
+export const DRIVE_MODES: Record<DriveMode, DriveAssist> = {
+  facile: { mode: 'facile', label: 'Facile', grip: 1.15, esc: 1.0, steerRate: 0.82, steerGain: 0.93, brakePedal: 1.05, brakeFrontBias: 0.03 },
+  normale: { mode: 'normale', label: 'Normale', grip: 1.0, esc: 0.55, steerRate: 1.0, steerGain: 0.98, brakePedal: 1.0, brakeFrontBias: 0.015 },
+  simulazione: { mode: 'simulazione', label: 'Simulazione', grip: 0.98, esc: 0.0, steerRate: 1.1, steerGain: 1.03, brakePedal: 1.0, brakeFrontBias: 0 },
+};
+
+const DRIVE_MODE_IDS: readonly DriveMode[] = ['facile', 'normale', 'simulazione'];
+
+export function assistFor(mode: string | null | undefined): DriveAssist {
+  return DRIVE_MODES[DRIVE_MODE_IDS.includes(mode as DriveMode) ? (mode as DriveMode) : 'normale'];
+}
+
 export interface CarEnv {
   /** true se le ruote sono su asfalto */
   onRoad: boolean;
@@ -81,6 +107,8 @@ export interface CarEnv {
    * Non è una collisione: l'auto passa, ma perde velocità e allunga la frenata.
    */
   vegetationDrag?: number;
+  /** Modalità di guida: se assente vale Normale (compatibilità con i test). */
+  assist?: DriveAssist;
 }
 
 interface SurfacePhysics {
@@ -199,7 +227,7 @@ const AIR_DENSITY = 1.2;
  */
 const STEER_LOCK_FALLOFF = 0.015;
 /** Accelerazione laterale massima (m/s²): ~1,25 g su asfalto asciutto. */
-const LATERAL_GRIP = 18.5;
+const LATERAL_GRIP = 18.0;
 /** Tetto di imbardata a bassissima velocità (rad/s). */
 const MAX_YAW_RATE = 2.7;
 
@@ -277,6 +305,7 @@ export function stepCar(
   next.sliding ??= 0;
   next.speed = next.vx;
   const gearCount = tuning.gearRatios.length;
+  const assist = env.assist ?? DRIVE_MODES.normale;
   const surface = surfacePhysics(env, tuning, next.speed);
   const vegetationDrag = clamp(env.vegetationDrag ?? 0, 0, 1);
   // la spinta allunga anche il rapporto finale: +25% di velocità massima
@@ -311,7 +340,8 @@ export function stepCar(
   const gearForce = (torque * ratio * tuning.finalDrive * tuning.drivetrainEfficiency) / tuning.wheelRadius;
 
   const normalLoad = tuning.mass * tuning.gravity;
-  const gripScale = clamp(env.gripScale ?? 1, 0.15, 1.2);
+  // l'aderenza della modalità Facile si somma a quella del meteo
+  const gripScale = clamp((env.gripScale ?? 1) * assist.grip, 0.15, 1.3);
   // la spinta alza un po' l'aderenza disponibile e allunga il rapporto finale:
   // senza questo, con la coppia già oltre il limite di aderenza non cambierebbe
   // nulla fino a metà della scala di velocità
@@ -373,7 +403,9 @@ export function stepCar(
     );
     const brakePeak = tuning.grip * brakeConditions.muPeak * gripScale * tuning.gravity;
     const brakeSlide = tuning.grip * brakeConditions.muSlide * gripScale * tuning.gravity;
-    const requestedBrake = tuning.brakeDecel * input.brake;
+    // Corsa del pedale progressiva: i primi centimetri frenano poco.
+    const pedal = Math.pow(clamp(input.brake, 0, 1), 1.35) * assist.brakePedal;
+    const requestedBrake = tuning.brakeDecel * pedal;
     const deceleration = tuning.abs === false && requestedBrake > brakePeak
       ? brakeSlide
       : Math.min(requestedBrake, brakePeak);
@@ -448,10 +480,13 @@ export function stepCar(
   // Forze di pneumatico stabili a passi fissi; lo slip regolarizzato e la
   // zona quasi-statica evitano singolarità quando l'auto è quasi ferma.
   const steerTarget = clamp(input.steer, -1, 1);
-  const steerLerp = 1 - Math.exp(-10 * dt);
+  // Ad alta velocità il volante risponde più lento: una sterzata secca a
+  // 100 km/h non deve diventare un testacoda.
+  const steerRate = 10 * (1 - 0.38 * Math.min(1, Math.abs(next.speed) / 25)) * assist.steerRate;
+  const steerLerp = 1 - Math.exp(-steerRate * dt);
   next.steer += (steerTarget - next.steer) * steerLerp;
   const lock = steerLock(tuning.maxSteer, next.speed);
-  const delta = next.steer * lock;
+  const delta = next.steer * lock * assist.steerGain;
   const inertia = tuning.mass *
     (tuning.wheelbase * tuning.wheelbase + tuning.track ** 2) / 12 *
     (tuning.yawInertiaScale ?? 1.2);
@@ -495,6 +530,15 @@ export function stepCar(
       { axle: -rearAxle, side: -0.5, front: false },
       { axle: -rearAxle, side: 0.5, front: false },
     ];
+    // EBD: la frenata segue il carico verticale di ogni asse. Con il bias
+    // statico il retrotreno si scaricava, consumava aderenza e l'auto
+    // derapava proprio mentre rallentava.
+    const totalBrakeForce = Math.pow(clamp(input.brake, 0, 1), 1.35) *
+      assist.brakePedal * tuning.brakeDecel * tuning.mass;
+    const axleLoadShare = fzFront / Math.max(1, fzFront + fzRear);
+    const frontBrakeShare = clamp(
+      axleLoadShare + 0.06 + (brakeBias - 0.64) * 0.25 + assist.brakeFrontBias, 0.5, 0.84,
+    );
     let totalLateral = 0;
     let yawMoment = 0;
     let overLimit = 0;
@@ -516,14 +560,18 @@ export function stepCar(
       const isDriven = drive === 'awd' || (drive === 'fwd' && position.front) ||
         (drive === 'rwd' && !position.front);
       const wheelLongDemand = isDriven ? Math.abs(force) * driveWheelShare : 0;
-      const wheelBrakeDemand = input.brake * tuning.brakeDecel * tuning.mass *
-        (position.front ? brakeBias / 2 : (1 - brakeBias) / 2);
-      absActive ||= !!tuning.abs && input.brake > 0.15 && wheelBrakeDemand > capacity * 0.78;
+      const wheelBrakeDemand = totalBrakeForce *
+        (position.front ? frontBrakeShare / 2 : (1 - frontBrakeShare) / 2);
+      // ABS più precoce: taglia la richiesta longitudinale e lascia almeno
+      // metà del cerchio d'attrito alla sterzata.
+      const absHere = !!tuning.abs && input.brake > 0.1 && wheelBrakeDemand > capacity * 0.72;
+      absActive ||= absHere;
+      const effectiveBrake = absHere ? Math.min(wheelBrakeDemand, capacity * 0.78) : wheelBrakeDemand;
       const handbrakeLocked = input.handbrake && !position.front && Math.abs(next.speed) > 0.8;
       const brakeLocked = !tuning.abs && wheelBrakeDemand > capacity * 0.92;
       const locked = handbrakeLocked || brakeLocked;
       const longitudinalUse = locked ? 1 : clamp(
-        (wheelLongDemand + wheelBrakeDemand) / Math.max(1, capacity), 0, 0.96,
+        (wheelLongDemand + effectiveBrake) / Math.max(1, capacity), 0, 0.96,
       );
       const longitudinalSlip = handbrakeLocked
         ? -Math.sign(next.speed || 1)
@@ -536,15 +584,19 @@ export function stepCar(
       const wheelVx = Math.max(0.01, Math.abs(next.vx) - next.yawRate * position.side * (tuning.track ?? 1.68) * 0.5);
       const slipAngle = Math.atan2(axleVy, wheelVx) - (position.front ? delta : 0);
       const slipMagnitude = Math.abs(slipAngle);
-      const peakSlipAngle = 0.12;
+      // Picco a 0,15 rad e coda meno aggressiva: il passaggio dal grip allo
+      // scivolamento non è più un interruttore.
+      const peakSlipAngle = 0.15;
       const slidingRatio = slidingCapacity / Math.max(1, capacity);
       const tireCurve = slipMagnitude <= peakSlipAngle
         ? slipMagnitude / peakSlipAngle
-        : slidingRatio + (1 - slidingRatio) *
-          Math.exp(-(slipMagnitude - peakSlipAngle) * 6);
-      const rawLateral = -Math.sign(slipAngle) * capacity * tireCurve;
+        : slidingRatio + (1 - slidingRatio) * Math.exp(-(slipMagnitude - peakSlipAngle) * 4.2);
+      // Posteriore un po' più "duro": l'auto tende al sottosterzo, il
+      // comportamento sicuro su strada.
+      const lateralCapacity = capacity * (position.front ? 0.96 : 1.06);
+      const rawLateral = -Math.sign(slipAngle) * lateralCapacity * tireCurve;
       const remainingGrip = Math.sqrt(Math.max(0, 1 - longitudinalUse * longitudinalUse));
-      const lateralForce = clamp(rawLateral, -capacity * remainingGrip, capacity * remainingGrip);
+      const lateralForce = clamp(rawLateral, -lateralCapacity * remainingGrip, lateralCapacity * remainingGrip);
       const lateralRatio = Math.abs(slipAngle) / peakSlipAngle;
       const sliding = clamp(Math.max(
         (lateralRatio - 1) / 2,
@@ -571,6 +623,18 @@ export function stepCar(
     const yawAccel = yawMoment / Math.max(1, inertia);
     next.yawRate += yawAccel * h;
     next.yawRate *= Math.exp(-0.9 * h);
+    // ESC leggero: se l'imbardata supera quella del cerchio single-track,
+    // riporta l'auto sulla traiettoria invece di lasciarla girare.
+    if (assist.esc > 0 && Math.abs(next.vx) > 5) {
+      const targetYaw = (next.vx / tuning.wheelbase) * Math.tan(delta) * surface.grip;
+      if (Math.abs(targetYaw) > 0.02) {
+        const limit = Math.abs(targetYaw) * 1.22 + 0.06;
+        if (Math.abs(next.yawRate) > limit && Math.sign(next.yawRate) === Math.sign(targetYaw)) {
+          const excess = Math.abs(next.yawRate) - limit;
+          next.yawRate -= Math.sign(next.yawRate) * excess * (1 - Math.exp(-8 * assist.esc * h));
+        }
+      }
+    }
 
     if (Math.abs(next.vx) < 1.5) {
       // Quasi-statico: conserva il raggio di sterzata atteso a passo d'uomo,
@@ -594,7 +658,7 @@ export function stepCar(
       }
     }
 
-    const yawCap = Math.min(MAX_YAW_RATE, LATERAL_GRIP * surface.grip /
+    const yawCap = Math.min(MAX_YAW_RATE, LATERAL_GRIP * surface.grip * assist.grip /
       Math.max(1.5, Math.abs(next.vx)));
     next.yawRate = clamp(next.yawRate, -yawCap, yawCap);
     next.yaw += next.yawRate * h;
