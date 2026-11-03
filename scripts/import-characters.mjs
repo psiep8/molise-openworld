@@ -160,7 +160,7 @@ async function main() {
       usage:
         model.kind === 'body' || model.kind === 'body-pair'
           ? 'Scultura statica: non ha skin/scheletro, non può essere animata senza rigging.'
-          : 'Accessorio statico da mostrare o agganciare alla testa del rig Mixamo.',
+          : 'Accessorio statico da mostrare o agganciare alla testa del rig umano.',
     });
   }
 

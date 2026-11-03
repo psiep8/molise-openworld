@@ -222,7 +222,7 @@ Il giocatore usa un avatar con scheletro (`src/entities/human-model.ts`, `player
 5. **Abiti.** Ogni outfit è un insieme di materiali (e, dove serve, mesh aggiuntive: giacca, cappello, borsa). Mantenere il sistema `appearance.ts` e aggiungere solo texture e mesh, senza cambiare la struttura delle scelte salvate (il salvataggio `molise.life.v1` deve restare valido).
 6. **Ombre e occlusione.** Il personaggio proietta ombra morbida; occlusione ambientale al contatto coi piedi.
 7. **Pedoni (`src/world/pedestrians.ts`).** Più varietà con lo stesso rig: 6–8 corpi, tinte pelle e abiti diversi. Per molte persone lontane, animazione "baked" nelle texture dei vertici su `InstancedMesh` (in WebGL; l'esempio `webgpu_skinning_instancing` è solo WebGPU). Percorsi sui marciapiedi dell'OSM.
-8. **Alternativa CC0.** Modelli umani con rig compatibile da MakeHuman (le esportazioni sono rilasciate CC0, da verificare sulla versione usata) o da Quaternius/KayKit per uno stile più semplice. Le clip di Mixamo hanno termini di Adobe propri: da leggere prima di includerle nel repo.
+8. **Alternativa CC0.** Modelli umani con rig compatibile da MakeHuman (le esportazioni sono rilasciate CC0, da verificare sulla versione usata) o da Quaternius/KayKit per uno stile più semplice. Ogni clip di animazione deve avere una licenza verificata e compatibile con la distribuzione; il progetto usa le clip GLB RPM già presenti.
 
 **Criteri di accettazione**
 
@@ -278,7 +278,7 @@ La colonna "Verifica" dice cosa è stato controllato: "nel repo" = scritto nei f
 | [Sketchfab](https://sketchfab.com) | Auto e edifici realistici | diversa per ogni modello (spesso CC-BY, con attribuzione) | da leggere per ogni file |
 | Ready Player Me Animation Library | Avatar e clip di movimento | licenza propria: solo con avatar Ready Player Me, non ridistribuibile come libreria | nel repo (`public/models/ATTRIBUTION.md`) |
 | MakeHuman | Corpi umani personalizzabili | esportazioni CC0 | da verificare sulla versione usata |
-| Mixamo | Animazioni | termini Adobe | da verificare |
+| Animazioni | GLB RPM (`donna-idle/walk/run`) | licenza RPM da verificare | in uso |
 | `ez-tree` (generatore di alberi per three.js) | Alberi procedurali | da verificare | da verificare |
 | OpenStreetMap | Strade, edifici, aree | ODbL 1.0 | nel repo (`README.md`) |
 | AWS Terrain Tiles (Terrarium) | Quote del terreno | dati aperti | nel repo (`README.md`) |

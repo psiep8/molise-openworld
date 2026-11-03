@@ -158,7 +158,7 @@ Il piano di prova passo-passo usato per la verifica manuale è in
 - Il rig procedurale di fallback non ha la posa seduta (solo il corpo GLB).
 - Il busto resta nella posizione della clip di riposo (solo spalle e gomiti si
   muovono): con le mani sul volante va bene, con il sedile reclinato no.
-- Gli assi di flessione sono misurati sul rig Ready Player Me/Mixamo: gambe su X,
+- Gli assi di flessione sono misurati sul rig Ready Player Me: gambe su X,
   spalla su un asse obliquo, gomito su X. Un rig diverso richiederebbe di
   rimisurarli.
 

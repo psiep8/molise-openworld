@@ -27,6 +27,8 @@
     "check:cars": "node scripts/check-cars.mjs",
     "cars": "node scripts/cars.mjs",
     "characters": "node scripts/import-characters.mjs",
+    "characters:audit": "node scripts/character-assets.mjs audit",
+    "characters:optimize": "node scripts/character-assets.mjs optimize",
     "check:movements": "node scripts/check-movements.mjs"
   },
   "dependencies": {

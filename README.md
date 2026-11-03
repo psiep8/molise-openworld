@@ -32,10 +32,10 @@
 
 - **Casa / garage** (`T` oppure dal menu): scegli un edificio reale del paese come base; il segnalibro resta su minimappa e mappa grande, l'auto si parcheggia lì e con `L` ci torni quando vuoi.
 - **Colore carrozzeria**: dieci tinte, ricordate veicolo per veicolo; si cambiano dal menu o dal garage.
-- **Personaggio** (`P`): X Bot riggato, con altezza e corporatura configurabili. Le varianti GLB di capelli maschili/femminili vengono scelte casualmente per personaggio; il modello X Bot è condiviso dalle selezioni uomo/donna.
+- **Personaggio** (`P`): corpo RPM completo (volto, capelli e vestiti nella texture), con altezza e corporatura configurabili. La scultura Sketchfab usata negli esperimenti precedenti è disponibile solo con `?debugbody=1`; senza il flag non viene caricata. Fonti e limiti di licenza sono in [`docs/CHARACTER-SOURCES.md`](docs/CHARACTER-SOURCES.md).
 - **Stereo affiancato** (`Y`): due viewport con camere separate di 6,5 cm, per visori o visione incrociata.
 - **Erba a istanze** intorno al giocatore: fino a 180.000 ciuffi con lame sottili, dimensioni variabili e sterpaglia alta in macchia e sui margini rurali (densità legata al preset, strade ed edifici esclusi).
-- **Personaggio con scheletro**: X Bot con scheletro Mixamo e clip FBX di idle, camminata/corse, strafe, salite, svolte, salto, ingresso/uscita dall'auto e guida, collegate al movimento e alle transizioni di gioco. Le FBX e i GLB dei capelli sono versionati nel repository e arrivano con `git pull`.
+- **Personaggio animato**: corpo RPM completo con scheletro RPM e clip GLB separate di idle, camminata e corsa, collegate al movimento e alle transizioni di gioco. Le azioni non disponibili usano idle o camminata; nessun file di animazione esterno viene caricato. Vedi [`docs/CHARACTER-SOURCES.md`](docs/CHARACTER-SOURCES.md).
 - **Radar satellite reale** in minimappa e mappa grande, con strade OSM evidenziate sopra la foto aerea (`V` per passare alla mappa vettoriale).
 - **Strade** ricostruite da OpenStreetMap e drappeggiate sul rilievo (asfalto e sterrati, larghezze per tipo), con curve **smussate in continuo** (`smoothPolyline`), tratteggio di mezzeria, **attraversamenti pedonali** con linea di arresto, marciapiedi larghi 1,15–1,45 m e **cordolo a 18 cm** con faccia verticale.
 - **Segnaletica e arredo urbano**: STOP, dare precedenza e limite 50 su palo zincato (facce disegnate su canvas, nessun asset), panche in legno e ferro.
@@ -344,8 +344,10 @@ npm run worldkit -- --file=grass # un solo file sorgente
   corpi di riferimento `Masculine_TPose` / `Feminine_TPose` e clip di motion capture
   (idle, camminata, corsa). La licenza concede uso personale e commerciale **con avatar
   Ready Player Me**, vieta di ridistribuire le animazioni come asset a sé stanti.
-  Il corpo animato in gioco usa invece X Bot e le clip FBX fornite dal proprietario
-  dal Locomotion Pack Mixamo; dettagli e avvertenze in `public/models/ATTRIBUTION.md`.
+  Il corpo animato in gioco usa il personaggio RPM completo e le clip GLB RPM
+  di idle, camminata e corsa; dettagli, limiti e avvertenze in
+  [`docs/CHARACTER-SOURCES.md`](docs/CHARACTER-SOURCES.md) e
+  `public/models/ATTRIBUTION.md`.
 - **World kit** — vegetazione, sassi, cartelli e una casa di campagna forniti dal proprietario: 36 modelli Sketchfab **CC BY 4.0**, **CC BY-SA 4.0** e (uno solo, non piazzato) **CC BY-NC 4.0**, ottimizzati e **versionati** in `public/worldkit/`. Crediti per modello in [`public/worldkit/ATTRIBUTION.md`](public/worldkit/ATTRIBUTION.md), generati dai metadati dei GLB. Tre file dello zip usano **Sketchfab Standard** e non sono nel repository. Se il progetto diventa commerciale va sostituito *Via S. Gemini* (BY-NC). Dettagli: [docs/WORLDKIT.md](docs/WORLDKIT.md).
 - **City kit (threejsassets.com)** — 38 modelli free del pack *Realistic City* e dei pack
   low-poly (strade, arredo, alberi, case coloniche, auto). Licenza **Free Commercial**:

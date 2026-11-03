@@ -63,7 +63,7 @@
       "bytes": 81990836,
       "sha256": "4a5b8a71c017eda33325cbcc39f251b22ca1b01a157bed8d2133ca956494f169",
       "available": true,
-      "usage": "Accessorio statico da mostrare o agganciare alla testa del rig Mixamo."
+      "usage": "Accessorio statico da mostrare o agganciare alla testa del rig umano."
     },
     {
       "slug": "testa-uomo",
@@ -79,7 +79,7 @@
       "bytes": 59186316,
       "sha256": "ac492bd26191389ae891bde7f25bfb7fb85af2d54d9d8d4b75fd73120d5a979b",
       "available": true,
-      "usage": "Accessorio statico da mostrare o agganciare alla testa del rig Mixamo."
+      "usage": "Accessorio statico da mostrare o agganciare alla testa del rig umano."
     },
     {
       "slug": "capelli-pack",
@@ -94,7 +94,7 @@
       "bytes": 19616948,
       "sha256": "ab2d8c8b4e9849e392f25bbb3a68febb428d85ab06f46f8fae43314cf6b17f3c",
       "available": true,
-      "usage": "Accessorio statico da mostrare o agganciare alla testa del rig Mixamo."
+      "usage": "Accessorio statico da mostrare o agganciare alla testa del rig umano."
     },
     {
       "slug": "capelli-uomo-lowpoly",
@@ -110,7 +110,7 @@
       "bytes": 24392692,
       "sha256": "774cfa6dabbfe911d8cc93cd3a088ee3695f938bb66184ed9c4823c36d81dd2b",
       "available": true,
-      "usage": "Accessorio statico da mostrare o agganciare alla testa del rig Mixamo."
+      "usage": "Accessorio statico da mostrare o agganciare alla testa del rig umano."
     }
   ]
 }

@@ -11,7 +11,7 @@ import { buildTimeline, createViewer, type Viewer } from 'posecode-render';
  *
  * Due stanze nello stesso studio:
  *  - "Movimento" fa recitare i movimenti Posecode sui corpi RPM con scheletro
- *    Mixamo (gli unici animabili: le sculture fornite non hanno skin);
+ *    RPM (gli unici animabili: le sculture fornite non hanno skin);
  *  - "Sculture" mostra i GLB dell'utente come pezzi da museo, con la stessa
  *    normalizzazione (Box3 + fitHeight) per non dipendere dalle unità originali.
  *
@@ -815,7 +815,7 @@ const TAB_COPY: Record<'motion' | 'sculpt', TabCopy> = {
   motion: {
     title: 'Movimento umano',
     lede:
-      'Otto movimenti scritti in Posecode e recitati da corpi con scheletro Mixamo: ' +
+      'Otto movimenti scritti in Posecode e recitati da corpi con scheletro RPM: ' +
       'respiro, sguardo, saluto, passo, corsa e gesti quotidiani.',
     credits:
       'Corpi: Ready Player Me · Movimento: <a href="https://www.posecode.org/">Posecode</a> · ' +

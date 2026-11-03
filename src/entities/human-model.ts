@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { GAME } from '../config';
@@ -16,10 +15,9 @@ export { syncStridePhase } from './locomotion';
 
 /** Personaggi umani veri.
  *
- * Il corpo visibile è un avatar GLB realistico con skin e scheletro
- * Mixamo-compatibile (`uomo.glb` / `donna.glb`). Le clip arrivano dal Locomotion
- * Pack Mixamo. X Bot è soltanto la riga sorgente invisibile usata per calcolare
- * il retarget: non viene mai aggiunto alla scena né disegnato.
+ * Il corpo visibile è un avatar GLB con skin e scheletro RPM
+ * (`uomo.glb` / `donna.glb`). Le clip di idle, camminata e corsa sono GLB RPM
+ * separate: il percorso di caricamento non usa file esterni.
  *
  * Un `HumanBody` è un'istanza indipendente (scheletro clonato): geometrie e
  * texture restano una copia sola in memoria anche con venti pedoni in scena.
@@ -71,22 +69,7 @@ export interface HumanMotion {
 interface HumanFileSet {
   idle: string;
   walk: string;
-  walkVariants: string[];
   run: string;
-  jog: string;
-  jump: string;
-  stairs: string;
-  strafeLeft: string;
-  strafeRight: string;
-  turnLeft: string;
-  turnRight: string;
-  walkTurn: string;
-  turn180: string;
-  startWalking: string;
-  stopWalking: string;
-  enterCar: string;
-  exitCar: string;
-  driving: string;
 }
 
 /** Asset per i capelli. */
@@ -120,50 +103,27 @@ export interface HumanAssets {
 
 /** File umani di riferimento.
  *
- * `sourceRig` è la riga Mixamo originale: non viene disegnata, serve soltanto
- * a calcolare le rotazioni relative delle clip. I due corpi visibili sono GLB
- * con skin e scheletro compatibile Mixamo.
+ * I due corpi visibili sono GLB con skin e scheletro RPM. Le clip sono gli
+ * stessi GLB di animazione RPM, senza file esterni.
  */
 export interface HumanFiles extends HumanFileSet {
-  sourceRig: string;
   maleBody: string;
   femaleBody: string;
 }
 
 export const HUMAN_FILES: HumanFiles = {
-  sourceRig: 'xbot.fbx',
   maleBody: 'uomo.glb',
   femaleBody: 'donna.glb',
-  idle: 'locomotion-pack/idle.fbx',
-  walk: 'locomotion-pack/walking.fbx',
-  walkVariants: ['Walking (1).fbx', 'Walking (2).fbx', 'Walking (3).fbx', 'Walking (4).fbx'].map(
-    (file) => `locomotion-pack/${file}`,
-  ),
-  run: 'locomotion-pack/running.fbx',
-  jog: 'locomotion-pack/Jogging.fbx',
-  jump: 'locomotion-pack/Jump (2).fbx',
-  stairs: 'locomotion-pack/Walking Up The Stairs.fbx',
-  strafeLeft: 'locomotion-pack/left strafe.fbx',
-  strafeRight: 'locomotion-pack/right strafe walking.fbx',
-  turnLeft: 'locomotion-pack/left turn 90.fbx',
-  turnRight: 'locomotion-pack/Right Turn (2).fbx',
-  walkTurn: 'locomotion-pack/Walking Left Turn.fbx',
-  turn180: 'locomotion-pack/Walking Turn 180.fbx',
-  startWalking: 'locomotion-pack/Start Walking.fbx',
-  stopWalking: 'locomotion-pack/Stop Walking.fbx',
-  enterCar: 'locomotion-pack/Entering Car.fbx',
-  exitCar: 'locomotion-pack/Exiting Car.fbx',
-  driving: 'locomotion-pack/Driving.fbx',
+  idle: 'donna-idle.glb',
+  walk: 'donna-walk.glb',
+  run: 'donna-run.glb',
 };
-
-type AnimatedFbx = THREE.Group & { animations: THREE.AnimationClip[] };
 
 /** Regex per normalizzare i nomi delle ossa (rimuovere prefissi e caratteri non alfanumerici). */
 function boneKey(name: string): string {
   return name
     .toLowerCase()
-    .replace(/[^a-z0-9]/g, '')
-    .replace(/^mixamorig/, '');
+    .replace(/[^a-z0-9]/g, '');
 }
 
 /** Indica le ossa di un albero scheletrico per nome confrontabile. */
@@ -175,6 +135,64 @@ function indexBones(root: THREE.Object3D): Map<string, THREE.Object3D> {
     if (!bones.has(key)) bones.set(key, obj);
   });
   return bones;
+}
+
+/**
+ * I GLB RPM sono esportati come materiale unlit e hanno una normal map
+ * embedded che il materiale non referenzia. La texture è già allineata alle
+ * UV del corpo: la agganciamo a un MeshStandardMaterial, così pelle, viso e
+ * tessuti reagiscono alla luce invece di restare piatti. Se il file non ha
+ * una normal map, il corpo resta com'era.
+ */
+async function upgradeBodyMaterials(
+  gltf: Awaited<ReturnType<GLTFLoader['loadAsync']>>,
+  root: THREE.Object3D,
+): Promise<void> {
+  const parser = gltf.parser as unknown as {
+    json: { textures?: Array<{ name?: string }> };
+    getDependency(type: 'texture', index: number): Promise<THREE.Texture>;
+  };
+  const normalIndex = parser.json.textures?.findIndex((texture) => /normal/i.test(texture.name ?? '')) ?? -1;
+  let normalMap: THREE.Texture | null = null;
+  if (normalIndex >= 0) {
+    try {
+      normalMap = await parser.getDependency('texture', normalIndex);
+      normalMap.colorSpace = THREE.NoColorSpace;
+      normalMap.flipY = false;
+    } catch {
+      normalMap = null;
+    }
+  }
+  root.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    const upgraded = materials.map((material) => {
+      let next = material as THREE.MeshStandardMaterial;
+      if (material instanceof THREE.MeshBasicMaterial && material.map) {
+        next = new THREE.MeshStandardMaterial({
+          name: material.name,
+          map: material.map,
+          color: material.color.clone(),
+          roughness: 0.7,
+          metalness: 0,
+          side: material.side,
+          transparent: material.transparent,
+          opacity: material.opacity,
+          alphaTest: material.alphaTest,
+          depthWrite: material.depthWrite,
+          depthTest: material.depthTest,
+        });
+      }
+      if (normalMap && next.isMeshStandardMaterial) {
+        next.normalMap = normalMap;
+        next.normalScale.set(1, 1);
+        next.needsUpdate = true;
+      }
+      return next;
+    });
+    mesh.material = Array.isArray(mesh.material) ? upgraded : upgraded[0]!;
+  });
 }
 
 /** Corpo visibile con skin: se manca la pelle o le ossa chiave è un asset rotto. */
@@ -193,8 +211,9 @@ async function loadBody(base: string, file: string, sex: keyof HairAssets): Prom
   if (skinned === 0) throw new Error(`corpo ${sex} (${file}) senza mesh con skin: non è animabile`);
   const bones = indexBones(root);
   if (!bones.has('hips') || !bones.has('head')) {
-    throw new Error(`corpo ${sex} (${file}) senza scheletro Mixamo (Hips/Head)`);
+    throw new Error(`corpo ${sex} (${file}) senza scheletro RPM (Hips/Head)`);
   }
+  await upgradeBodyMaterials(gltf, root);
   return root;
 }  /** Crea un gruppo capelli dai source mesh, colorandoli in base all'hairColor. */
 function makeHair(
@@ -314,88 +333,63 @@ export function bindClip(
   return new THREE.AnimationClip(clip.name, clip.duration, tracks);
 }
 
-/** Carica un file FBX con animazioni. */
-async function loadFbx(loader: FBXLoader, url: string): Promise<AnimatedFbx> {
-  try {
-    const asset = await loader.loadAsync(url);
-    const withAnimations = asset as THREE.Group & { animations?: unknown };
-    if (!Array.isArray(withAnimations.animations)) {
-      throw new Error('il file non contiene la lista delle animazioni');
-    }
-    return withAnimations as AnimatedFbx;
-  } catch (err) {
-    throw new Error(`modello ${url} non caricato: ${err instanceof Error ? err.message : String(err)}`);
-  }
-}
+type AnimationKey = 'idle' | 'walk' | 'run';
 
-/** Restituisce la prima clip non vuota da un file FBX. */
-function firstClip(fbx: AnimatedFbx): THREE.AnimationClip | null {
-  return fbx.animations.find((clip) => clip.tracks.length > 0) ?? null;
-}
-
-const MOTION_KEYS = ['idle','walk','run','jog','jump','stairs','strafeLeft','strafeRight','turnLeft','turnRight','walkTurn','turn180','startWalking','stopWalking','enterCar','exitCar','driving'] as const;
-type MotionKey = (typeof MOTION_KEYS)[number];
-
-/** Riga sorgente Mixamo invisibile + clip, ognuna indipendente. */
+/** Carica le tre clip GLB RPM. */
 async function loadAnimationSource(base: string, warnings: string[]): Promise<{
-  sourceRig: THREE.Object3D | null;
-  motions: Map<MotionKey, AnimatedFbx>;
-  walkVariants: AnimatedFbx[];
+  clips: Map<AnimationKey, THREE.AnimationClip>;
 }> {
-  const loader = new FBXLoader();
-  const sourcePromise = loadFbx(loader, base + HUMAN_FILES.sourceRig).catch((err: unknown) => {
-    warnings.push(err instanceof Error ? err.message : String(err));
-    return null;
-  });
-  const motionResults = await Promise.allSettled(
-    MOTION_KEYS.map(async (key) => [key, await loadFbx(loader, base + HUMAN_FILES[key])] as const),
+  const loader = new GLTFLoader();
+  const keys: AnimationKey[] = ['idle', 'walk', 'run'];
+  const results = await Promise.allSettled(
+    keys.map(async (key) => {
+      const gltf = await loader.loadAsync(base + HUMAN_FILES[key]);
+      const clip = gltf.animations.find((candidate) => candidate.tracks.length > 0);
+      if (!clip) throw new Error(`animazione ${key} vuota in ${HUMAN_FILES[key]}`);
+      return [key, clip] as const;
+    }),
   );
-  const variantResults = await Promise.allSettled(
-    HUMAN_FILES.walkVariants.map((file) => loadFbx(loader, base + file)),
-  );
-  const sourceRig = await sourcePromise;
-  const motions = new Map<MotionKey, AnimatedFbx>();
-  motionResults.forEach((result, index) => {
-    const key = MOTION_KEYS[index]!;
-    if (result.status === 'fulfilled') motions.set(key, result.value[1]);
+  const clips = new Map<AnimationKey, THREE.AnimationClip>();
+  results.forEach((result, index) => {
+    const key = keys[index]!;
+    if (result.status === 'fulfilled') clips.set(key, result.value[1]);
     else warnings.push(`clip ${key}: ${String(result.reason)}`);
   });
-  const walkVariants = variantResults.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
-  variantResults.forEach((result) => {
-    if (result.status === 'rejected') warnings.push(`variante camminata: ${String(result.reason)}`);
-  });
-  if (!motions.has('idle')) throw new Error('clip di riposo (idle.fbx) non caricata: impossibile animare i personaggi');
-  return { sourceRig, motions, walkVariants };
+  if (!clips.has('idle')) throw new Error('clip di riposo GLB non caricata: impossibile animare i personaggi');
+  return { clips };
 }
 
-/** Associa le clip a un corpo; le clip mancanti ricadono sul riposo. */
-function bindAnimSet(
-  motions: Map<MotionKey, AnimatedFbx>,
-  walkVariants: AnimatedFbx[],
-  body: THREE.Object3D,
-  sourceRig: THREE.Object3D | null,
-): AnimSet {
-  const idleSource = motions.get('idle');
-  const idle = idleSource ? firstClip(idleSource) : null;
+/** Associa le clip GLB a un corpo; le azioni non disponibili ricadono su idle/walk. */
+function bindAnimSet(clips: Map<AnimationKey, THREE.AnimationClip>, body: THREE.Object3D): AnimSet {
+  const idle = clips.get('idle');
   if (!idle) throw new Error('clip di riposo vuota');
-  const idleBound = bindClip(idle, body, sourceRig ?? undefined);
+  const idleBound = bindClip(idle, body);
   if (!idleBound) throw new Error('la clip di riposo non ha tracce compatibili con lo scheletro del corpo');
-  const clip = (key: MotionKey): THREE.AnimationClip => {
-    const fbx = motions.get(key);
-    const source = fbx ? firstClip(fbx) : null;
-    if (!source) return idleBound;
-    return bindClip(source, body, sourceRig ?? undefined) ?? idleBound;
+  const clip = (key: AnimationKey): THREE.AnimationClip => {
+    const source = clips.get(key);
+    return source ? bindClip(source, body) ?? idleBound : idleBound;
   };
-  const variants = walkVariants.map((fbx) => firstClip(fbx))
-    .map((source) => (source ? bindClip(source, body, sourceRig ?? undefined) : null))
-    .filter((value): value is THREE.AnimationClip => value !== null);
+  const walk = clip('walk');
+  const run = clip('run');
   return {
-    idle: idleBound, walk: clip('walk'), walkVariants: variants.length > 0 ? variants : [clip('walk')],
-    run: clip('run'), jog: clip('jog'), jump: clip('jump'), stairs: clip('stairs'),
-    strafeLeft: clip('strafeLeft'), strafeRight: clip('strafeRight'), turnLeft: clip('turnLeft'),
-    turnRight: clip('turnRight'), walkTurn: clip('walkTurn'), turn180: clip('turn180'),
-    startWalking: clip('startWalking'), stopWalking: clip('stopWalking'),
-    enterCar: clip('enterCar'), exitCar: clip('exitCar'), driving: clip('driving'),
+    idle: idleBound,
+    walk,
+    walkVariants: [walk],
+    run,
+    jog: run,
+    jump: idleBound,
+    stairs: walk,
+    strafeLeft: walk,
+    strafeRight: walk,
+    turnLeft: idleBound,
+    turnRight: idleBound,
+    walkTurn: walk,
+    turn180: idleBound,
+    startWalking: walk,
+    stopWalking: idleBound,
+    enterCar: idleBound,
+    exitCar: idleBound,
+    driving: idleBound,
   };
 }
 
@@ -434,13 +428,13 @@ async function loadHairVariants(base: string, file: string, sex: keyof HairAsset
  *
  * - corpi: obbligatori, uno per sesso; se uno manca si lancia un errore chiaro
  *   (il gioco lo mostra e riprova) invece di sostituire un manichino;
- * - clip: una FBX mancante ricade sulla clip di riposo;
- * - capelli: opzionali, se il pack non si carica si resta senza capelli;
- * - riga sorgente Mixamo: opzionale, serve solo a migliorare il retarget.
+ * - clip: un GLB mancante ricade sulla clip di riposo;
+ * - capelli: opzionali, se il pack non si carica si resta senza capelli.
  */
 export async function loadHumanAssets(base = `${import.meta.env.BASE_URL}models/`): Promise<HumanAssets> {
   const warnings: string[] = [];
   const characterBase = base.replace(/models\/$/, 'characters/');
+  const debugBody = importedBodyDebugEnabled();
   const [
     animationResult,
     maleResult,
@@ -453,8 +447,8 @@ export async function loadHumanAssets(base = `${import.meta.env.BASE_URL}models/
     loadAnimationSource(base, warnings),
     loadBody(base, HUMAN_FILES.maleBody, 'male'),
     loadBody(base, HUMAN_FILES.femaleBody, 'female'),
-    loadImportedBody(characterBase, 'female_body_base_mesh.glb', 'femminile'),
-    loadImportedBody(characterBase, 'male_body.glb', 'maschile'),
+    debugBody ? loadImportedBody(characterBase, 'female_body_base_mesh.glb', 'femminile') : Promise.resolve(null),
+    debugBody ? loadImportedBody(characterBase, 'male_body.glb', 'maschile') : Promise.resolve(null),
     loadHairVariants(characterBase, 'free_male_fashion_hair_collection_01_lowpoly.glb', 'male'),
     loadHairVariants(characterBase, 'hair_pack_part_2.glb', 'female'),
   ]);
@@ -474,9 +468,11 @@ export async function loadHumanAssets(base = `${import.meta.env.BASE_URL}models/
   let importedMale: THREE.Object3D | null = null;
   if (importedMaleResult.status === 'fulfilled') importedMale = importedMaleResult.value;
   else warnings.push(`corpo importato maschile: ${String(importedMaleResult.reason)}`);
-  console.info(
-    `[personaggi] corpi importati: femminile ${importedFemale ? 'caricato' : 'non disponibile'}, maschile ${importedMale ? 'caricato' : 'non disponibile'}`,
-  );
+  if (debugBody) {
+    console.info(
+      `[personaggi] corpi importati (debug): femminile ${importedFemale ? 'caricato' : 'non disponibile'}, maschile ${importedMale ? 'caricato' : 'non disponibile'}`,
+    );
+  }
   const hairOf = (result: PromiseSettledResult<THREE.Object3D[]>): THREE.Object3D[] => {
     if (result.status === 'fulfilled') return result.value;
     warnings.push(`capelli: ${String(result.reason)}`);
@@ -494,14 +490,24 @@ export async function loadHumanAssets(base = `${import.meta.env.BASE_URL}models/
     female,
     size: { male: maleSize, female: femaleSize },
     clips: {
-      male: bindAnimSet(animation.motions, animation.walkVariants, male, animation.sourceRig),
-      female: bindAnimSet(animation.motions, animation.walkVariants, female, animation.sourceRig),
+      male: bindAnimSet(animation.clips, male),
+      female: bindAnimSet(animation.clips, female),
     },
     hair: { male: maleHair, female: femaleHair },
     ...(importedFemale ? { importedFemale } : {}),
     ...(importedMale ? { importedMale } : {}),
     diagnostics: { warnings },
   };
+}
+
+/**
+ * Il corpo scultura importato è un esperimento visivo, non il personaggio di
+ * produzione: non ha volto né vestiti e per animarlo usa pesi trasferiti dal
+ * corpo RPM. Resta disponibile solo con `?debugbody=1`, così il percorso normale
+ * carica il personaggio completo (RPM) e non paga nemmeno i GLB della scultura.
+ */
+function importedBodyDebugEnabled(): boolean {
+  return typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('debugbody');
 }
 
 /** Opzioni per la creazione del corpo umano. */
@@ -515,8 +521,9 @@ export interface HumanBodyOptions {
   /** Indice deterministico della variante capelli (pedoni) */
   hairVariant?: number;
   /**
-   * Sostituisce la pelle RPM con il corpo importato dello stesso sesso,
-   * mantenendo scheletro e clip Mixamo. Usato da giocatore e pedoni.
+   * Sostituisce la pelle RPM con la scultura importata dello stesso sesso.
+   * È un percorso di debug (`?debugbody=1`), non il corpo di produzione:
+   * la scultura non ha volto, vestiti o texture.
    */
   importedBody?: boolean;
 }
@@ -686,7 +693,7 @@ function alignImportedGeometry(
   // La scultura può essere esportata girata di 180° rispetto alla mesh RPM.
   // Se i piedi indicano un fronte diverso, la giro attorno al proprio centro
   // PRIMA di trasferire i pesi, così mani e piedi finiscono sulle ossa giuste
-  // e il viso guarda nella stessa direzione delle clip Mixamo.
+  // e il viso guarda nella stessa direzione delle clip RPM.
   const sourceFront = frontFromFeet(sourceMesh.geometry);
   const importedFront = frontFromFeet(geometry);
   if (sourceFront !== importedFront) {
@@ -1062,12 +1069,12 @@ export class HumanBody {
 
   constructor(assets: HumanAssets, appearance: Appearance, options: HumanBodyOptions = {}) {
     const female = appearance.sex === 'donna';
-    // Primo tenta il corpo RPM (con texture umane), poi fallback a X Bot
+    // Usa il corpo RPM del sesso scelto, con texture umane.
     const proto = female ? assets.female : assets.male;
     const model = cloneSkeleton(proto) as THREE.Object3D;
     this.model = model;
 
-    // Normalizza i nomi delle ossa per il rig Mixamo
+    // Normalizza i nomi delle ossa dello scheletro RPM
     const bones = indexBones(model);
 
     // Aggiungi capelli se disponibili
@@ -1132,7 +1139,7 @@ export class HumanBody {
     });
 
     const importedAsset = female ? assets.importedFemale : assets.importedMale;
-    if (options.importedBody && importedAsset) {
+    if (options.importedBody && importedBodyDebugEnabled() && importedAsset) {
       const imported = wearImportedBody(
         model, importedAsset, appearance, this.ownMaterials, this.ownGeometries, female,
       );

@@ -20,26 +20,34 @@ e chi vuole controllare i movimenti umani senza avviare il mondo.
 Le sculture **non hanno skin né scheletro**: sono state controllate con
 `gltf-transform` e non contengono né `JOINTS_0` né nodi osso. Per questo non si
 possono animare senza un rigging manuale (Blender + pesi) e restano nella scheda
-statica. Questa galleria di anteprima non cambia il corpo usato nel gioco.
+statica. La geometria non viene più vestita con materiali e capi procedurali nel
+percorso di produzione: il corpo visibile in gioco è il personaggio RPM
+completo. La vecchia pelle importata resta solo come confronto dietro
+`?debugbody=1`.
 
-## Corpo animato in gioco: GLB realistico
+## Corpo animato in gioco: RPM completo
 
-Giocatore, pedoni e conducente usano un avatar GLB con pelle e scheletro
-Mixamo-compatibile: `public/models/uomo.glb` e `donna.glb`. Le clip del Locomotion
-Pack Mixamo vengono associate per nome osso (idle, camminata con varianti,
-corsa/jogging, salto, strafe, salite, svolte, avvio/arresto, ingresso/uscita
-dall'auto, guida). Le due selezioni di sesso hanno corpi diversi.
+Giocatore, pedoni e conducente usano i personaggi completi
+`public/models/uomo.glb` e `donna.glb`: una sola mesh con pelle, volto, capelli e
+vestiti nella texture, più lo scheletro RPM. Le clip GLB RPM di idle, camminata
+e corsa vengono associate per nome osso; le azioni non disponibili usano idle o
+camminata. Le due selezioni di sesso hanno corpi diversi. La scultura Sketchfab
+senza testa e senza vestiti non è più il corpo di produzione: si può vedere solo
+con `?debugbody=1`.
+
+Il materiale RPM è un unlit con una normal map embedded non collegata; il
+runtime la aggancia e lo porta a `MeshStandardMaterial`, così il corpo reagisce
+alla luce. I vestiti sono ancora una texture unica (non mesh separabili) e la
+maglietta contiene il marchio RPM: per questo il corpo è un fallback, non
+l'asset finale.
 
 Misure verificate sullo scheletro in T-pose: **uomo 1,690 m / 58 ossa**,
-**donna 1,610 m / 60 ossa**. Tutte le **52 ossa** richieste dalla clip di
-camminata (`walking.fbx`) esistono su entrambi i corpi; il test
-`tests/human-model-fbx.test.ts` fallisce se un osso sparisce o l'altezza cambia
-di più di 2 cm.
+**donna 1,610 m / 60 ossa**. Il test `tests/human-model-rpm.test.ts` verifica
+che i tre GLB di animazione contengano clip e che il progetto non carichi file
+di animazione esterni.
 
-**X Bot non è più visibile.** Il suo FBX resta soltanto come riga sorgente
-invisibile per calcolare le rotazioni relative del retarget; non viene aggiunto
-alla scena. Il vecchio rig procedurale ("umano custom") è stato rimosso dal
-percorso di produzione: si può vedere solo con `?debugrig=1`.
+Il vecchio rig procedurale ("umano custom") è stato rimosso dal percorso di
+produzione: si può vedere solo con `?debugrig=1`.
 
 ### Caricamento robusto
 
@@ -47,19 +55,20 @@ percorso di produzione: si può vedere solo con `?debugrig=1`.
 
 - corpi: obbligatori; se manca un GLB il gioco mostra un errore esplicito e
   riprova dopo 6 secondi (fino a tre tentativi), senza costruire un manichino;
-- clip: una FBX mancante ricade sulla clip di riposo;
+- clip: un GLB mancante ricade sulla clip di riposo;
 - capelli: opzionali; se il pack da 20 MB non si carica, il personaggio resta
-  senza capelli ma il resto funziona;
-- la riga sorgente Mixamo è opzionale.
+  senza capelli ma il resto funziona.
 
 I capelli maschili e femminili sono scelti in modo deterministico per istanza
 dalle due librerie GLB in `public/characters/` e agganciati all'osso Head;
 colore e scala vengono applicati al caricamento.
 
-I GLB anatomici di `public/characters/` restano sculture statiche (nessuna skin,
-nessuno scheletro) e vivono nella scheda **Sculture** dello studio. Per animarli
-servirebbe un rigging con trasferimento pesi (Mixamo auto-rigger o Blender):
-`docs/CHARACTERS.md` e `public/models/ATTRIBUTION.md` annotano il limite.
+La geometria anatomica di `public/characters/` non ha skin né scheletro e vive
+nella scheda **Sculture** dello studio. Per un personaggio vero serve un rigging
+con trasferimento pesi (Blender) e, soprattutto, UV,
+texture del volto e vestiti: il solo trasferimento del vertice più vicino non è
+sufficiente. Fonti e limiti di licenza sono in
+[`CHARACTER-SOURCES.md`](CHARACTER-SOURCES.md).
 
 ## Asset forniti
 
@@ -155,8 +164,8 @@ può caricare un file da 80 MB senza bloccare il corpo animato.
 | Componente | Licenza | Note |
 | --- | --- | --- |
 | Anteprima Posecode | Ready Player Me | vedi `public/models/ATTRIBUTION.md` |
-| Corpo in gioco | Ready Player Me (`uomo.glb`, `donna.glb`) | verifica dei termini RPM prima della ridistribuzione |
-| Locomozione | Mixamo Locomotion Pack | X Bot usato solo come riga di retarget, mai disegnato; verificare i termini Mixamo |
+| Corpo in gioco | Ready Player Me (`uomo.glb`, `donna.glb`) | completo, ma con licenza RPM condizionata: fallback solo demo non commerciale; vedi [`CHARACTER-SOURCES.md`](CHARACTER-SOURCES.md) |
+| Animazioni | GLB RPM (`donna-idle/walk/run`) | clip usate con i corpi RPM; licenza RPM da verificare prima della release |
 | `posecode-parser` 0.6.0 | Apache-2.0 | parsing e validazione del DSL |
 | `posecode-render` 0.6.0 | **AGPL-3.0-only** | se il progetto viene esposto come servizio di rete, l'AGPL richiede di offrire il sorgente corrispondente |
 | Sculture Sketchfab | CC BY 4.0 | autori e fonti in `ATTRIBUTION.md` e nel manifest |
