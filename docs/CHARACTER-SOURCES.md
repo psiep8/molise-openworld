@@ -47,7 +47,14 @@ Per ciascun sesso lo script:
 2. applica una pelle `GAMEENGINE`;
 3. crea il rig `mixamo` e importa i pesi;
 4. aggiunge occhi, sopracciglia, ciglia, denti, capelli, vestiti e scarpe CC0;
-5. corregge l'altezza della calotta di capelli sulla cima reale della testa;
+   per la donna usa il completo maschile, allargato dell'8% in X/Y per ridurre
+   le aperture sulle spalle; il runtime porta la tinta tessuto fino alla base
+   del collo, copre le mani con un pugno procedurale e aggancia una pupilla
+   scura all'osso testa;
+5. allinea la calotta alla cima della testa, ingrandisce leggermente quella
+   femminile e porta occhi, sopracciglia, ciglia e denti sulla superficie del
+   viso; in gioco la texture degli occhi lascia il posto a una sclera pulita e
+   l'arcata dentale viene arretrata nella bocca;
 6. crea una copia di export, cuoce maschere/modificatori e riduce le texture a 1K;
 7. esporta un GLB con skin, materiali e texture incorporate.
 
@@ -61,6 +68,12 @@ I modelli hanno 52 ossa Mixamo e non contengono clip. Il caricamento normale
 salta i vecchi pack di capelli separati, perché i nuovi GLB hanno già capelli e
 abiti nella gerarchia. La misura dell'altezza usa i limiti delle mesh, non le
 origini delle ossa: il rig MakeHuman non ha le punte `HeadTop_End`/`Toe_End`.
+
+Il binding normalizza i nomi delle ossa e usa la posa di riposo dello scheletro
+sorgente RPM per convertire le rotazioni delle clip sul rig MakeHuman. Ogni slot
+dell'`AnimSet` riceve una copia distinta della clip: `AnimationMixer` indicizza
+le azioni per UUID, e senza copia i pesi delle azioni di ripiego si
+sovrascriverebbero a vicenda lasciando il corpo in posa di riposo.
 
 ## Candidati open source
 

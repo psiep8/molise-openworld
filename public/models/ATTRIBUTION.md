@@ -11,10 +11,18 @@ scarpe, pelle con texture e scheletro.
 | --- | --- | --- | --- |
 | Corpo base | MakeHuman base mesh | MakeHuman / MPFB2 | output CC0 |
 | Pelle | `young_caucasian_female2`, `young_caucasian_male2` | `makehuman_system_assets` | CC0 |
-| Capelli | `short03` (entrambi) | `makehuman_system_assets` | CC0 |
+| Capelli | `short03` (donna), `short01` (uomo) | `makehuman_system_assets` | CC0 |
 | Occhi / sopracciglia / ciglia / denti | `high-poly`, `eyebrow001`, `eyelashes01`, `teeth_base` | `makehuman_system_assets` | CC0 |
-| Vestiti | `female_casualsuit01`, `male_casualsuit01` | `makehuman_system_assets` | CC0 |
+| Vestiti | `male_casualsuit01` (entrambi; sulla donna allargato dell'8% in larghezza) | `makehuman_system_assets` | CC0 |
 | Scarpe | `shoes01` | `makehuman_system_assets` | CC0 |
+
+La donna usa una copia del completo maschile allargata dell'8% in larghezza per
+ridurre le aperture su collo e spalle dopo la cottura delle maschere. Il runtime
+porta la banda di tessuto fino alla base del collo, copre le mani con un pugno
+procedurale, sostituisce la texture degli occhi con una sclera pulita e una
+pupilla agganciata alla testa e arretra l'arcata dentale nella bocca. La calotta
+femminile è inoltre scalata 1.10 e gli accessori del viso sono allineati alla
+superficie del volto.
 
 Fonti:
 

@@ -196,6 +196,114 @@ async function upgradeBodyMaterials(
   });
 }
 
+/**
+ * Le sfere oculari del GLB MakeHuman hanno una texture che, con le UV cotte,
+ * si legge come un guscio biancastro con l'iride fuori posto; rimpicciolirle
+ * attorno al centro della coppia le avvicinava e lasciava intravedere il rosso
+ * della palpebra. Qui la sclera resta piena (copre l'orbita) e la pupilla è una
+ * sfera scura agganciata all'osso testa, così non si stacca dal viso.
+ */
+function fitBakedEyes(root: THREE.Object3D): void {
+  const eyes: THREE.Mesh[] = [];
+  const heads: THREE.Bone[] = [];
+  root.traverse((object) => {
+    if (!eyes.length && (object as THREE.Mesh).isMesh && /high-poly/i.test(object.name)) {
+      eyes.push(object as THREE.Mesh);
+    }
+    if (!heads.length && (object as THREE.Bone).isBone && boneKey(object.name) === 'head') {
+      heads.push(object as THREE.Bone);
+    }
+  });
+  const eyeMesh = eyes[0];
+  if (!eyeMesh) return;
+
+  const materials = Array.isArray(eyeMesh.material) ? eyeMesh.material : [eyeMesh.material];
+  for (const material of materials) {
+    const standard = material as THREE.MeshStandardMaterial;
+    standard.map = null;
+    standard.color.setHex(0xf4efe6);
+    standard.roughness = 0.34;
+    standard.metalness = 0;
+    standard.needsUpdate = true;
+  }
+
+  const geometry = eyeMesh.geometry;
+  const position = geometry.getAttribute('position');
+  if (!position) return;
+  // Le sfere cotte stanno ~1,3 cm sopra l'apertura della palpebra: senza lo
+  // spostamento coprono la fronte e lasciano scoperto il rosso dell'orbita.
+  for (let i = 0; i < position.count; i++) position.setY(i, position.getY(i) - 0.013);
+  position.needsUpdate = true;
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  // Due orbite separate: il centro va preso per occhio, non sulla coppia.
+  const sides = [new THREE.Box3(), new THREE.Box3()];
+  const point = new THREE.Vector3();
+  for (let i = 0; i < position.count; i++) {
+    point.fromBufferAttribute(position, i);
+    sides[point.x < 0 ? 0 : 1]!.expandByPoint(point);
+  }
+
+  const head = heads[0];
+  if (!head) return;
+  root.updateMatrixWorld(true);
+  const pupilGeometry = new THREE.SphereGeometry(0.004, 10, 8);
+  const pupilMaterial = new THREE.MeshStandardMaterial({ color: 0x241a13, roughness: 0.35 });
+  const headScale = new THREE.Vector3();
+  head.getWorldScale(headScale);
+  const inverseScale = new THREE.Vector3(
+    1 / Math.max(1e-4, headScale.x),
+    1 / Math.max(1e-4, headScale.y),
+    1 / Math.max(1e-4, headScale.z),
+  );
+  for (const side of sides) {
+    if (side.isEmpty()) continue;
+    const center = side.getCenter(new THREE.Vector3());
+    const at = new THREE.Vector3(center.x, center.y, side.max.z - 0.001);
+    eyeMesh.localToWorld(at);
+    head.worldToLocal(at);
+    const pupil = new THREE.Mesh(pupilGeometry, pupilMaterial);
+    pupil.name = 'eye-pupil';
+    pupil.position.copy(at);
+    pupil.scale.copy(inverseScale);
+    pupil.castShadow = false;
+    pupil.receiveShadow = false;
+    head.add(pupil);
+  }
+}
+
+/** I denti del GLB escono dalle labbra: li si stringe e li si arretra nell'arcata. */
+function fitBakedTeeth(root: THREE.Object3D): void {
+  const found: THREE.Mesh[] = [];
+  root.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    if (materials.some((material) => /teeth/i.test(material?.name ?? ''))) found.push(mesh);
+  });
+  const teeth = found[0];
+  if (!teeth) return;
+  const geometry = teeth.geometry;
+  geometry.computeBoundingBox();
+  const box = geometry.boundingBox;
+  if (!box) return;
+  const center = box.getCenter(new THREE.Vector3());
+  const position = geometry.getAttribute('position');
+  if (!position) return;
+  for (let i = 0; i < position.count; i++) {
+    position.setXYZ(
+      i,
+      center.x + (position.getX(i) - center.x) * 0.86,
+      center.y + (position.getY(i) - center.y) * 0.86,
+      center.z + (position.getZ(i) - center.z) * 0.86 - 0.006,
+    );
+  }
+  position.needsUpdate = true;
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+}
+
 /** Corpo visibile con skin: se manca la pelle o le ossa chiave è un asset rotto. */
 async function loadBody(base: string, file: string, sex: keyof HairAssets): Promise<THREE.Object3D> {
   let gltf: Awaited<ReturnType<GLTFLoader['loadAsync']>>;
@@ -220,6 +328,10 @@ async function loadBody(base: string, file: string, sex: keyof HairAssets): Prom
   const bakedHair = /-real\.glb$/i.test(file);
   root.userData.bakedHair = bakedHair;
   if (!bakedHair) await upgradeBodyMaterials(gltf, root);
+  else {
+    fitBakedEyes(root);
+    fitBakedTeeth(root);
+  }
   return root;
 }  /** Crea un gruppo capelli dai source mesh, colorandoli in base all'hairColor. */
 function makeHair(
@@ -342,11 +454,34 @@ export function bindClip(
   return new THREE.AnimationClip(clip.name, clip.duration, tracks);
 }
 
+/** Copia una clip con UUID e tracce propri.
+ *
+ * `AnimationMixer.clipAction` usa l'UUID della clip come chiave di cache: se
+ * più slot dell'AnimSet ricevono lo stesso clip di ripiego (idle o walk),
+ * finiscono tutti sulla stessa AnimationAction. I loro `setEffectiveWeight(0)`
+ * si sovrascrivono a vicenda e il personaggio resta nella posa di riposo.
+ * Una copia per slot evita l'aliasing mantenendo identici i dati animati.
+ */
+function uniqueClip(clip: THREE.AnimationClip): THREE.AnimationClip {
+  return new THREE.AnimationClip(
+    clip.name,
+    clip.duration,
+    clip.tracks.map((track) => track.clone()),
+    clip.blendMode,
+  );
+}
+
 type AnimationKey = 'idle' | 'walk' | 'run';
 
-/** Carica le tre clip GLB RPM. */
+/** Clip e scheletro di riposo da cui proviene: il secondo serve al retargeting. */
+interface AnimationSource {
+  readonly clip: THREE.AnimationClip;
+  readonly root: THREE.Object3D | null;
+}
+
+/** Carica le tre clip GLB RPM insieme al rig sorgente. */
 async function loadAnimationSource(base: string, warnings: string[]): Promise<{
-  clips: Map<AnimationKey, THREE.AnimationClip>;
+  clips: Map<AnimationKey, AnimationSource>;
 }> {
   const loader = new GLTFLoader();
   const keys: AnimationKey[] = ['idle', 'walk', 'run'];
@@ -355,10 +490,10 @@ async function loadAnimationSource(base: string, warnings: string[]): Promise<{
       const gltf = await loader.loadAsync(base + HUMAN_FILES[key]);
       const clip = gltf.animations.find((candidate) => candidate.tracks.length > 0);
       if (!clip) throw new Error(`animazione ${key} vuota in ${HUMAN_FILES[key]}`);
-      return [key, clip] as const;
+      return [key, { clip, root: gltf.scene ?? gltf.scenes[0] ?? null }] as const;
     }),
   );
-  const clips = new Map<AnimationKey, THREE.AnimationClip>();
+  const clips = new Map<AnimationKey, AnimationSource>();
   results.forEach((result, index) => {
     const key = keys[index]!;
     if (result.status === 'fulfilled') clips.set(key, result.value[1]);
@@ -369,36 +504,39 @@ async function loadAnimationSource(base: string, warnings: string[]): Promise<{
 }
 
 /** Associa le clip GLB a un corpo; le azioni non disponibili ricadono su idle/walk. */
-function bindAnimSet(clips: Map<AnimationKey, THREE.AnimationClip>, body: THREE.Object3D): AnimSet {
+function bindAnimSet(clips: Map<AnimationKey, AnimationSource>, body: THREE.Object3D): AnimSet {
   const idle = clips.get('idle');
   if (!idle) throw new Error('clip di riposo vuota');
-  const idleBound = bindClip(idle, body);
+  const idleBound = bindClip(idle.clip, body, idle.root ?? undefined);
   if (!idleBound) throw new Error('la clip di riposo non ha tracce compatibili con lo scheletro del corpo');
   const clip = (key: AnimationKey): THREE.AnimationClip => {
     const source = clips.get(key);
-    return source ? bindClip(source, body) ?? idleBound : idleBound;
+    return source ? bindClip(source.clip, body, source.root ?? undefined) ?? idleBound : idleBound;
   };
   const walk = clip('walk');
   const run = clip('run');
+  const idleSlot = (): THREE.AnimationClip => uniqueClip(idleBound);
+  const walkSlot = (): THREE.AnimationClip => uniqueClip(walk);
+  const runSlot = (): THREE.AnimationClip => uniqueClip(run);
   return {
-    idle: idleBound,
-    walk,
-    walkVariants: [walk],
-    run,
-    jog: run,
-    jump: idleBound,
-    stairs: walk,
-    strafeLeft: walk,
-    strafeRight: walk,
-    turnLeft: idleBound,
-    turnRight: idleBound,
-    walkTurn: walk,
-    turn180: idleBound,
-    startWalking: walk,
-    stopWalking: idleBound,
-    enterCar: idleBound,
-    exitCar: idleBound,
-    driving: idleBound,
+    idle: idleSlot(),
+    walk: walkSlot(),
+    walkVariants: [walkSlot()],
+    run: runSlot(),
+    jog: runSlot(),
+    jump: idleSlot(),
+    stairs: walkSlot(),
+    strafeLeft: walkSlot(),
+    strafeRight: walkSlot(),
+    turnLeft: idleSlot(),
+    turnRight: idleSlot(),
+    walkTurn: walkSlot(),
+    turn180: idleSlot(),
+    startWalking: walkSlot(),
+    stopWalking: idleSlot(),
+    enterCar: idleSlot(),
+    exitCar: idleSlot(),
+    driving: idleSlot(),
   };
 }
 
@@ -527,6 +665,8 @@ export interface HumanBodyOptions {
   phase?: number;
   /** Variazione di colore per dare varianti di carnagione e capo */
   tint?: THREE.Color;
+  /** Tinta del capo cotto (camicia/pantaloni) per variare i pedoni */
+  outfitTint?: number;
   /** Indice deterministico della variante capelli (pedoni) */
   hairVariant?: number;
   /**
@@ -556,6 +696,17 @@ function firstMesh(root: THREE.Object3D): THREE.Mesh | null {
   let found: THREE.Mesh | null = null;
   root.traverse((object) => {
     if (!found && (object as THREE.Mesh).isMesh) found = object as THREE.Mesh;
+  });
+  return found;
+}
+
+function firstBodyMesh(root: THREE.Object3D): THREE.SkinnedMesh | null {
+  let found: THREE.SkinnedMesh | null = null;
+  root.traverse((object) => {
+    const mesh = object as THREE.SkinnedMesh;
+    if (!mesh.isSkinnedMesh) return;
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    if (materials.some((material) => /\.body$/i.test(material?.name ?? ''))) found = mesh;
   });
   return found;
 }
@@ -1056,6 +1207,7 @@ export class HumanBody {
   private readonly ownMaterials: THREE.Material[] = [];
   /** Geometrie create solo per questa istanza (corpo importato e dettagli). */
   private readonly ownGeometries: THREE.BufferGeometry[] = [];
+  private readonly handBones: THREE.Object3D[] = [];
   private readonly model: THREE.Object3D;
   private importedBodyActive = false;
   private airborne = false;
@@ -1115,6 +1267,14 @@ export class HumanBody {
 
     // Colori dei materiali basati sul nome (skin, vestiti, ecc.)
     const colors = outfitColors(appearance);
+    const garmentColor = options.outfitTint ?? colors.top;
+    const bodyMesh = firstBodyMesh(model) ?? firstSkinnedMesh(model);
+    bodyMesh?.geometry.computeBoundingBox();
+    const bodyBox = bodyMesh?.geometry.boundingBox;
+    const bodyMin = bodyBox?.min.y ?? 0;
+    const bodyHeight = bodyBox ? bodyBox.max.y - bodyMin : 1.7;
+    const collarMin = bodyMin + bodyHeight * 0.49;
+    const collarMax = bodyMin + bodyHeight * 0.635;
     model.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       if (!mesh.isMesh) return;
@@ -1130,7 +1290,9 @@ export class HumanBody {
         copy.envMapIntensity = Math.max(copy.envMapIntensity ?? 1, 0.55);
         const name = copy.name.toLowerCase();
         // Colora i materiali basandosi sul nome dell'osso/mesh
-        if (/(top|shirt|coat|jacket|torso|upperbody|highlimbs)/.test(name)) {
+        if (/(casualsuit|elegantsuit|sportsuit|worksuit)/.test(name)) {
+          copy.color.setHex(garmentColor);
+        } else if (/(top|shirt|coat|jacket|torso|upperbody|highlimbs)/.test(name)) {
           copy.color.setHex(colors.top);
         } else if (/(bottom|pants|trouser|leg|skirt|lowerbody)/.test(name)) {
           copy.color.setHex(colors.bottom);
@@ -1138,14 +1300,17 @@ export class HumanBody {
           copy.color.setHex(colors.shoes);
         } else if (/(skin|face|head|hand|arm|joint|joints|body)/.test(name)) {
           copy.color.setHex(appearance.skin);
-        } else if (/(eye|brow|eyebrow|hair|capelli)/.test(name)) {
+        } else if (/(eye|brow|eyebrow|hair|capelli|short0[0-9])/.test(name)) {
           copy.color.setHex(appearance.hairColor);
         }
         if (options.tint) copy.color.multiply(options.tint);
+        if (/\.body$/.test(name)) this.tintNeckFabric(copy, collarMin, collarMax, garmentColor);
         return copy;
       });
       mesh.material = Array.isArray(mesh.material) ? cloned : cloned[0]!;
     });
+
+    this.addHandCovers(model, appearance.skin, options.tint);
 
     const importedAsset = female ? assets.importedFemale : assets.importedMale;
     if (options.importedBody && importedBodyDebugEnabled() && importedAsset) {
@@ -1203,6 +1368,77 @@ export class HumanBody {
     this.drivingAction.setEffectiveWeight(0);
     this.drivingAction.play();
     this.mixer.setTime(options.phase ?? 0);
+  }
+
+  /**
+   * Il collo MakeHuman è scoperto perché la maglietta finisce a 1,325 m e la
+   * maschera taglia il busto più in basso. Coloriamo la pelle del collo e delle
+   * spalle come tessuto nello shader del corpo: il bordo sparisce e il viso
+   * resta pelle. Non aggiungiamo un colletto 3D che finirebbe dentro il busto.
+   */
+  private tintNeckFabric(
+    material: THREE.MeshStandardMaterial,
+    minY: number,
+    maxY: number,
+    color: number,
+  ): void {
+    const fabric = new THREE.Color(color).multiplyScalar(0.34);
+    material.onBeforeCompile = (shader) => {
+      shader.uniforms.collarColor = { value: fabric };
+      shader.uniforms.collarMin = { value: minY };
+      shader.uniforms.collarMax = { value: maxY };
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying float vNeckY;\nvarying float vNeckX;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvNeckY = position.y;\nvNeckX = position.x;');
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          '#include <common>\nvarying float vNeckY;\nvarying float vNeckX;\nuniform vec3 collarColor;\nuniform float collarMin;\nuniform float collarMax;',
+        )
+        .replace(
+          '#include <color_fragment>',
+          '#include <color_fragment>\nfloat neckBand = smoothstep(collarMin, collarMin + 0.02, vNeckY) * (1.0 - smoothstep(collarMax - 0.02, collarMax, vNeckY));\nneckBand *= 1.0 - smoothstep(0.25, 0.34, abs(vNeckX));\ndiffuseColor.rgb = mix(diffuseColor.rgb, collarColor, neckBand);',
+        );
+    };
+    material.customProgramCacheKey = () => 'makehuman-neck-fabric';
+    material.needsUpdate = true;
+  }
+
+  /**
+   * Le clip lasciano le dita aperte e la pelle del palmo si legge come un
+   * artiglio. Un pugno cutaneo chiuso, figlio dell'osso mano, copre le falangi
+   * e resta attaccato al polso: `poseHands` riduce la mano a 0,01, quindi
+   * posizione e scala del pugno compensano quella riduzione.
+   */
+  private addHandCovers(root: THREE.Object3D, skin: number, tint?: THREE.Color): void {
+    const hands: THREE.Bone[] = [];
+    root.traverse((object) => {
+      if ((object as THREE.Bone).isBone && /^(?:left|right)hand$/.test(boneKey(object.name))) {
+        hands.push(object as THREE.Bone);
+      }
+    });
+    if (hands.length === 0) return;
+    const color = new THREE.Color(skin);
+    if (tint) color.multiply(tint);
+    const material = new THREE.MeshStandardMaterial({ color, roughness: 0.72 });
+    const geometry = new THREE.SphereGeometry(1, 12, 10);
+    this.ownMaterials.push(material);
+    this.ownGeometries.push(geometry);
+    for (const hand of hands) {
+      const fist = new THREE.Mesh(geometry, material);
+      fist.name = 'hand-cover';
+      // 4,6 cm lungo l'asse della mano, 8 x 10,4 x 6,8 cm nel mondo.
+      fist.position.set(0, 4.6, 0);
+      fist.scale.set(4.0, 5.2, 3.4);
+      fist.castShadow = true;
+      fist.receiveShadow = true;
+      hand.add(fist);
+      this.handBones.push(hand);
+    }
+  }
+
+  private poseHands(): void {
+    for (const hand of this.handBones) hand.scale.setScalar(0.01);
   }
 
   /** Avanza la locomozione con blend continuo idle → camminata → corsa. */
@@ -1308,6 +1544,7 @@ export class HumanBody {
     // Ripristina la posa di riposo prima del mixer
     for (const entry of this.seatRig) entry.bone.quaternion.copy(entry.rest);
     this.mixer.update(dt);
+    this.poseHands();
 
     if (!driving && !eventActive && this.seatProgress > 0.001 && this.seatRig.length > 0) {
       const pose = seatPose(this.seatProgress);

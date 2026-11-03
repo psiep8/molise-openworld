@@ -137,6 +137,13 @@ function sampleRoute(route: Route, s: number): { x: number; z: number; dx: numbe
 const FEMALE_HAIR: readonly HairStyle[] = ['coda', 'lunghi', 'chignon', 'riccio', 'corto'];
 const MALE_HAIR: readonly HairStyle[] = ['raso', 'corto', 'riccio', 'corto'];
 
+/** Palette di capi da lavoro e tempo libero: abbastanza scura da non sembrare
+ * una festa in maschera, abbastanza diversa per riconoscere le persone. */
+const OUTFIT_TINTS: readonly number[] = [
+  0x365f77, 0x7d4038, 0x506b45, 0x8a6b3f, 0x454e6b,
+  0x6b4a5f, 0x2f5e58, 0x5c5242, 0x273f52, 0x765744,
+];
+
 /** Aspetto casuale ma credibile: più gente di mezza età che ventenni a caso. */
 function randomLook(rng: () => number): Appearance {
   const female = rng() < 0.52;
@@ -201,9 +208,11 @@ export class Pedestrians {
       const look = randomLook(this.rng);
       const tone = 0.88 + this.rng() * 0.2;
       const tint = new THREE.Color(tone, tone * (0.96 + this.rng() * 0.08), tone * (0.94 + this.rng() * 0.1));
+      const outfitTint = OUTFIT_TINTS[Math.floor(this.rng() * OUTFIT_TINTS.length)]!;
       const body = new HumanBody(assets, look, {
         phase: this.rng() * 3,
         tint,
+        outfitTint,
         importedBody: true,
       });
       this.group.add(body.group);
