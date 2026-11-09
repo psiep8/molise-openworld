@@ -55,6 +55,14 @@ export interface GeoPoiFeature {
   lon: number;
 }
 
+export interface GeoSignalFeature {
+  id: string;
+  lat: number;
+  lon: number;
+  /** `forward`, `backward` o `both`: lato del way che il semaforo ferma. */
+  direction?: string;
+}
+
 export interface GeoElevationGrid {
   minLon: number;
   maxLon: number;
@@ -77,6 +85,8 @@ export interface WorldDataTile {
   areas: GeoAreaFeature[];
   landcover: GeoAreaFeature[];
   pois: GeoPoiFeature[];
+  /** semafori mappati (`highway=traffic_signals`) */
+  signals: GeoSignalFeature[];
 }
 
 export interface WorldDataTileProvider {
@@ -332,6 +342,9 @@ export function parseWorldDataTile(json: string, expected: WorldTileCoordinate):
   const pois = featureArray(value.pois, 'pois', expected).map((poi, index) =>
     parsePoi(poi, expected, index),
   );
+  const signals = featureArray(value.signals, 'signals', expected).map((signal, index) =>
+    parseSignal(signal, expected, index),
+  );
   const elevation =
     value.elevation === undefined ? undefined : parseElevation(value.elevation, expected);
 
@@ -344,6 +357,7 @@ export function parseWorldDataTile(json: string, expected: WorldTileCoordinate):
     areas,
     landcover,
     pois,
+    signals,
     ...(elevation ? { elevation } : {}),
   };
 }
@@ -389,6 +403,18 @@ function parsePoi(value: unknown, tile: WorldTileCoordinate, index: number): Geo
   const poi: GeoPoiFeature = { id: value.id, kind: value.kind, lat: point.lat, lon: point.lon };
   if (typeof value.name === 'string') poi.name = value.name;
   return poi;
+}
+
+function parseSignal(value: unknown, tile: WorldTileCoordinate, index: number): GeoSignalFeature {
+  if (!isRecord(value) || typeof value.id !== 'string') {
+    throw new Error(`tile ${tileKey(tile)}: semaforo ${index} non valido`);
+  }
+  const point = parseGeoPoint(value, tile);
+  const signal: GeoSignalFeature = { id: value.id, lat: point.lat, lon: point.lon };
+  if (value.direction === 'forward' || value.direction === 'backward' || value.direction === 'both') {
+    signal.direction = value.direction;
+  }
+  return signal;
 }
 
 function parseRoad(value: unknown, tile: WorldTileCoordinate, index: number): GeoRoadFeature {

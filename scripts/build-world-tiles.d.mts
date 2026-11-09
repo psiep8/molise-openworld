@@ -31,6 +31,16 @@ export interface TileBundle {
   schemaVersion: 2;
   tile: TileCoordinate;
   attribution: string;
+  elevation?: {
+    minLon: number;
+    maxLon: number;
+    minLat: number;
+    maxLat: number;
+    width: number;
+    height: number;
+    encoding: 'int16-decimeters';
+    values: number[];
+  };
   roads: {
     id: string;
     type: string;
@@ -47,6 +57,7 @@ export interface TileBundle {
     maxspeed?: number;
   }[];
   buildings: { id: string; height: number; points: GeoPoint[] }[];
+  signals: { id: string; lat: number; lon: number; direction?: string }[];
   areas: { id: string; kind: string; name?: string; points: GeoPoint[] }[];
   landcover: { id: string; kind: string; name?: string; points: GeoPoint[] }[];
   pois: { id: string; kind: string; name?: string; lat: number; lon: number }[];
@@ -70,3 +81,22 @@ export function writeTiles(
   tiles: Map<string, TileBundle>,
   outDir: string,
 ): Promise<{ files: number; bytes: number }>;
+
+export function terrariumHeight(r: number, g: number, b: number): number;
+
+export function elevationGridForTile(
+  tile: TileCoordinate,
+  sampleHeight: (lat: number, lon: number) => number,
+  size?: number,
+): NonNullable<TileBundle['elevation']>;
+
+export function attachElevation(
+  tiles: Map<string, TileBundle>,
+  options?: {
+    demZoom?: number;
+    demSamples?: number;
+    demCache?: string;
+    fetch?: typeof fetch;
+    log?: (message: string) => void;
+  },
+): Promise<Map<string, TileBundle>>;

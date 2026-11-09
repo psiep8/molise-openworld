@@ -67,6 +67,7 @@ import type { WorldHitField } from './world/world-hits';
 import { WorldGrass, WorldShrubField, buildWorldProps } from './world/world-props';
 import { WorldFieldDetail, buildStrawBales, buildVillageScenes } from './world/field-detail';
 import { buildRoadsideKit } from './world/roadside-kit';
+import { buildTrafficLights, type TrafficLightSystem } from './world/traffic-signals';
 import {
   auditFurniture,
   auditViolations,
@@ -635,6 +636,10 @@ export class Game {
   private mist!: GroundMist;
   private grass?: GrassField;
   private streetLights?: StreetLights;
+  /** semafori mappati del mondo locale; i bundle XYZ hanno i loro per tile */
+  private trafficLights: TrafficLightSystem | null = null;
+  /** orologio dei semafori: continua anche quando il gioco è in pausa */
+  private signalClock = 0;
   private kit: CityKit | null = null;
   /** World kit (GLB versionati): vegetazione, sassi, cartelli, case di campagna. */
   private worldKit: WorldKit | null = null;
@@ -1018,6 +1023,20 @@ export class Game {
         ),
       };
       this.scene.add(buildStreetProps(osm, heights, this.buildingIndex, this.renderer, this.kit, this.qualityLevel));
+      // Semafori mappati: il nodo OSM dice dove vale il segnale, il palo va
+      // sul ciglio. Se la mappa non ne ha (Palata non ne ha), il gruppo non
+      // viene creato e non costa nulla.
+      const trafficLights = buildTrafficLights({
+        signals: osm.signals ?? [],
+        roads: osm.roads,
+        heights,
+        buildings: this.buildingIndex,
+      });
+      if (trafficLights) {
+        this.trafficLights = trafficLights;
+        this.scene.add(trafficLights.group);
+        for (const spot of trafficLights.spots) this.obstacles.add(spot.x, spot.z, 0.14);
+      }
       // chiusini e caditoie: due InstancedMesh da ~600.000 triangoli in mappa,
       // invisibili da lontano e ininfluenti sulla guida. Sui preset leggeri non si
       // costruiscono affatto.
@@ -4438,6 +4457,9 @@ export class Game {
   }
 
   private update(dt: number): void {
+    this.signalClock += dt;
+    this.trafficLights?.update(this.signalClock);
+    this.streamedWorld?.update(this.signalClock);
     this.realWeather.update();
     const observedWind = this.realWeather.snapshot;
     if (observedWind) setWind(observedWind.windSpeed, observedWind.windDirection);

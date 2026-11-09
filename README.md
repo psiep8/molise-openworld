@@ -38,6 +38,8 @@
 - **Personaggio animato**: corpo MakeHuman con scheletro Mixamo e clip GLB separate di idle, camminata e corsa, collegate al movimento e alle transizioni di gioco. Le azioni non disponibili usano idle o camminata; nessun file FBX o Mixamo viene caricato. Vedi [`docs/CHARACTER-SOURCES.md`](docs/CHARACTER-SOURCES.md).
 - **Radar satellite reale** in minimappa e mappa grande, con strade OSM evidenziate sopra la foto aerea (`V` per passare alla mappa vettoriale).
 - **Strade** ricostruite da OpenStreetMap e drappeggiate sul rilievo (asfalto e sterrati, larghezze per tipo), con curve **smussate in continuo** (`smoothPolyline`), tratteggio di mezzeria, **attraversamenti pedonali** con linea di arresto, marciapiedi larghi 1,15–1,45 m e **cordolo a 18 cm** con faccia verticale.
+- **Rotatorie**: gli anelli di OSM diventano rotatorie con corona lastricata dentro la carreggiata e cordolo dell'isola centrale; il centro resta prato, come in una rotatoria vera. Il riconoscimento è geometrico (`src/world/roundabouts.ts`) e unisce anche le way aperte in cui OSM spezza l'anello a ogni innesto, quindi funziona pure sui bundle XYZ che non conservano il tag `junction=roundabout`.
+- **Semafori mappati**: ogni nodo `highway=traffic_signals` diventa un palo sul ciglio con la testa rivolta verso il traffico in arrivo; i semafori vicini formano un incrocio e i due assi si alternano verde/giallo/rosso con un ciclo deterministico (`src/world/traffic-signals.ts`). Vale sia per `osm.json` sia per i bundle XYZ, e se la mappa non ha semafori non viene creato nulla.
 - **Segnaletica e arredo urbano**: STOP, dare precedenza e limite 50 su palo zincato (facce disegnate su canvas, nessun asset), panche in legno e ferro.
 - **Illuminazione pubblica**: lampioni ogni ~32 m sulle strade asfaltate dei paesi, con braccio verso la carreggiata e vetro emissivo; di notte 7 luci puntuali seguono i lampioni più vicini alla camera.
 - **Paesi** con edifici estrusi dalle impronte OSM, **tetti a falde** (padiglione) in laterizio, **facciate con finestre, persiane e davanzali**, fasce marcapiano, cantonali d'angolo, grondaie e portoni con stipiti e soglia, altezze stimate o da tag.
@@ -231,6 +233,25 @@ Lo spawn è **dentro** il bbox locale (dove c'è la satellite imagery vera) e gu
 
 Per un endpoint reale, crea `.env.local` da `.env.example` e imposta `VITE_OPEN_WORLD_DATA_TILE_URL` (template `{z}/{x}/{y}`) e `VITE_OPEN_WORLD_DATA_ATTRIBUTION`. I bundle fuori dal DEM locale vengono disegnati e indicizzati; quelli dentro il bbox sono ritagliati perché lì comanda OSM locale.
 
+Per generare i bundle da un estratto Geofabrik/OSM (offline, senza Overpass a runtime):
+
+```bash
+node scripts/build-world-tiles.mjs \
+  --input .geo-cache/sud-latest.osm.pbf \
+  --bbox 41.865,14.745,41.905,14.825 \
+  --zoom 14 --dem --dem-samples 65 --out .geo-cache/palata-tiles
+```
+
+`--dem` aggiunge a ogni tile la griglia di quota (`elevation`, decimetri interi) dalle tile Terrarium, usando la cache `.geo-cache/dem` e scaricando solo quelle mancanti. Il formato di uscita è `schemaVersion: 2` (strade, edifici, aree, landcover, POI, semafori); il client accetta anche i bundle v1.
+
+Per provarli in locale, servili con CORS e punta `.env.local` all'endpoint stampato dal server:
+
+```bash
+npm run world:serve -- --dir .geo-cache/palata-tiles --port 5181
+```
+
+I bundle dentro il bbox locale vengono ritagliati: per vederli, avvia il gioco con uno spawn appena fuori dal bbox (per esempio `?autostart=walk&at=41.9237,14.7975`).
+
 ## Verifica
 
 ```bash
@@ -336,7 +357,7 @@ npm run worldkit -- --file=grass # un solo file sorgente
 - **Sentinel-2 cloudless 2025** — mosaico satellitare dell'intera area (`public/geo/world-imagery.jpg`): © EOX IT Services GmbH, licenza **CC BY 4.0**, contiene dati Copernicus Sentinel modificati ([s2maps.eu](https://s2maps.eu)). Si rigenera con `npm run geo:imagery`.
 - **Immagini satellitari** — il mosaico Sentinel-2 locale è © EOX IT Services GmbH, **CC BY 4.0**. Il provider raster remoto è disattivato per impostazione predefinita per evitare fonti con licenza proprietaria o condizioni di utilizzo non verificate. Per tile provenienti da un servizio aperto e autorizzato, configurare `VITE_OPEN_IMAGERY_TILE_URL` (template XYZ con `{z}/{x}/{y}`) e `VITE_OPEN_IMAGERY_ATTRIBUTION`; il servizio va ospitato o scelto nel rispetto della sua licenza e dei suoi limiti.
 - **Cache raster offline** — tile aperte scaricate salvate nella Cache API del browser (massimo 2.048 tile, FIFO). Per configurare un endpoint XYZ self-hosted, copiare `.env.example` in `.env.local` e impostare URL e attribuzione.
-- **Bundle geografici XYZ (sperimentale)** — `VITE_OPEN_WORLD_DATA_TILE_URL` accetta un template HTTPS/HTTP con `{z}/{x}/{y}` e `VITE_OPEN_WORLD_DATA_ATTRIBUTION` è obbligatoria. Il servizio deve fornire JSON `schemaVersion: 1` con indirizzo tile, attribuzione, `roads`, `buildings` e una griglia DEM opzionale (`minLon`, `maxLon`, `minLat`, `maxLat`, `width`, `height`, `encoding: "int16-decimeters"`, `values`). Il runtime scarica le tile vicine tramite la cache, applica il DEM al terreno e disegna strade ed edifici **fuori dal bbox locale**; le stesse feature entrano negli indici di collisione e nella quota calpestabile. Le parti dentro il DEM locale sono ritagliate via per non duplicare OSM. Ogni feature è disegnata solo dal tile del suo primo punto, così i bundle possono ripeterla su più tile. Lo streaming si spegne sui preset `minimal`/`low` e richiede l'endpoint configurato. L’endpoint va ospitato o usato nel rispetto della licenza, dell’attribuzione e dei limiti del servizio. Questa fase usa ancora le coordinate locali equirettangolari del gioco: non abilita la navigazione accurata globale.
+- **Bundle geografici XYZ (sperimentale)** — `VITE_OPEN_WORLD_DATA_TILE_URL` accetta un template HTTPS/HTTP con `{z}/{x}/{y}` e `VITE_OPEN_WORLD_DATA_ATTRIBUTION` è obbligatoria. Il servizio deve fornire JSON `schemaVersion: 1` o `2` con indirizzo tile, attribuzione, `roads`, `buildings` e una griglia DEM opzionale (`minLon`, `maxLon`, `minLat`, `maxLat`, `width`, `height`, `encoding: "int16-decimeters"`, `values`); lo schema 2 aggiunge `areas`, `landcover`, `pois` e `signals` (nodi `highway=traffic_signals`). Il runtime scarica le tile vicine tramite la cache, applica il DEM al terreno e disegna strade ed edifici **fuori dal bbox locale**; le stesse feature entrano negli indici di collisione e nella quota calpestabile. Le parti dentro il DEM locale sono ritagliate via per non duplicare OSM. Ogni feature è disegnata solo dal tile del suo primo punto, così i bundle possono ripeterla su più tile. Lo streaming si spegne sui preset `minimal`/`low` e richiede l'endpoint configurato. L’endpoint va ospitato o usato nel rispetto della licenza, dell’attribuzione e dei limiti del servizio. Questa fase usa ancora le coordinate locali equirettangolari del gioco: non abilita la navigazione accurata globale.
 - **Immagini stradali (opzionale)** — non ancora usate. `npm run streets` conta quante strade dei cinque comuni hanno una foto entro 50 m: interroga **Panoramax** (API pubblica, nessun account) e, se impostato `MAPILLARY_TOKEN` (gratuito, CC BY-SA 4.0), anche Mapillary. Al 21/10/2026 Panoramax non ha foto nel bbox: la copertura Mapillary è l'unica da verificare.
 - **Meteo** — Open-Meteo, dati CC BY 4.0, senza chiave API. Usato solo se attivi
   "Meteo reale"; il sole è calcolato in locale e non dipende dal servizio.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildTiles, parseOsmXml } from '../scripts/build-world-tiles.mjs';
+import { buildTiles, elevationGridForTile, parseOsmXml, terrariumHeight } from '../scripts/build-world-tiles.mjs';
 import { parseWorldDataTile } from '../src/geo/world-tiles';
 
 const xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -58,6 +58,10 @@ const xml = `<?xml version="1.0" encoding="UTF-8"?>
     <tag k="place" v="village"/>
     <tag k="name" v="Palata"/>
   </node>
+  <node id="9" lat="41.8906" lon="14.7855">
+    <tag k="highway" v="traffic_signals"/>
+    <tag k="traffic_signals:direction" v="forward"/>
+  </node>
 </osm>`;
 
 const attribution = '© OpenStreetMap contributors (ODbL)';
@@ -65,8 +69,8 @@ const attribution = '© OpenStreetMap contributors (ODbL)';
 describe('generatore di tile geografici', () => {
   it('legge nodi, way e tag dell’estratto OSM', () => {
     const extract = parseOsmXml(xml);
-    expect(extract.nodes.size).toBe(8);
-    expect(extract.taggedNodes).toHaveLength(2);
+    expect(extract.nodes.size).toBe(9);
+    expect(extract.taggedNodes).toHaveLength(3);
     expect(extract.ways).toHaveLength(7);
     expect(extract.ways[0]?.tags.highway).toBe('secondary');
     expect(extract.ways[0]?.refs).toEqual([1, 2]);
@@ -91,6 +95,18 @@ describe('generatore di tile geografici', () => {
     expect(pois.find((poi) => poi.kind === 'cafe')?.name).toBe('Bar Centrale');
     for (const bundle of bundles) {
       expect(() => parseWorldDataTile(JSON.stringify(bundle), bundle.tile)).not.toThrow();
+    }
+  });
+
+  it('conserva i semafori mappati nello schema 2', () => {
+    const tiles = buildTiles(parseOsmXml(xml), { zoom: 14, attribution });
+    const signals = [...tiles.values()].flatMap((tile) => tile.signals);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]!.id).toBe('node/9');
+    expect(signals[0]!.direction).toBe('forward');
+    for (const bundle of tiles.values()) {
+      const parsed = parseWorldDataTile(JSON.stringify(bundle), bundle.tile);
+      expect(parsed.signals).toHaveLength(bundle.signals.length);
     }
   });
 
@@ -138,5 +154,39 @@ describe('generatore di tile geografici', () => {
 
   it('rifiuta un’attribuzione mancante', () => {
     expect(() => buildTiles(parseOsmXml(xml), { zoom: 14, attribution: '  ' })).toThrow('attribuzione');
+  });
+
+  it('decodifica le quote Terrarium in metri', () => {
+    expect(terrariumHeight(128, 0, 0)).toBe(0);
+    expect(terrariumHeight(128, 1, 128)).toBeCloseTo(1.5, 6);
+    expect(terrariumHeight(0, 0, 0)).toBe(-32768);
+  });
+
+  it('scrive una griglia DEM che il client accetta', () => {
+    const tile = { z: 14, x: 8865, y: 6086 };
+    const grid = elevationGridForTile(tile, (lat, lon) => 500 + (lat - 41.8) * 100 + (lon - 14.7) * 10, 9);
+    expect(grid.width).toBe(9);
+    expect(grid.height).toBe(9);
+    expect(grid.values).toHaveLength(81);
+    expect(grid.minLat).toBeLessThan(grid.maxLat);
+    expect(grid.minLon).toBeLessThan(grid.maxLon);
+    // riga 0 a nord: con la quota che cresce a nord, il primo campione è più alto
+    expect(grid.values[0]!).toBeGreaterThan(grid.values[grid.values.length - 1]!);
+    expect(grid.encoding).toBe('int16-decimeters');
+
+    const bundle = {
+      schemaVersion: 2 as const,
+      tile,
+      attribution,
+      elevation: grid,
+      roads: [],
+      buildings: [],
+      areas: [],
+      landcover: [],
+      pois: [],
+    };
+    const parsed = parseWorldDataTile(JSON.stringify(bundle), tile);
+    expect(parsed.elevation?.values).toHaveLength(81);
+    expect(parsed.elevation?.values[0]).toBe(grid.values[0]);
   });
 });

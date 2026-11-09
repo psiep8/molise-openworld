@@ -36,6 +36,7 @@ interface RawOsm {
   streetLamps?: { lat: number; lon: number }[];
   controls?: { k: string; lat: number; lon: number }[];
   crossings?: { lat: number; lon: number }[];
+  signals?: { lat: number; lon: number; d?: string }[];
   roads: {
     t: string;
     n?: string;
@@ -90,6 +91,19 @@ export interface RoadControl {
 export interface RoadCrossing {
   x: number;
   z: number;
+}
+
+/**
+ * Semaforo mappato in OSM (`highway=traffic_signals`).
+ *
+ * `direction` è il valore di `traffic_signals:direction` (`forward`,
+ * `backward`, `both`): dice da quale lato dell'way arriva il traffico che il
+ * semaforo ferma. Senza, il lato del palo lo deduce dalla carreggiata.
+ */
+export interface TrafficSignalLocation {
+  x: number;
+  z: number;
+  direction?: string;
 }
 
 export interface Road {
@@ -254,6 +268,7 @@ export interface OsmData {
   streetLamps?: StreetLampLocation[];
   controls?: RoadControl[];
   crossings?: RoadCrossing[];
+  signals?: TrafficSignalLocation[];
   roads: Road[];
   buildings: Building[];
   areas: Area[];
@@ -458,6 +473,14 @@ export async function loadOsm(base = './geo/'): Promise<OsmData> {
     const world = latLonToWorld(crossing.lat, crossing.lon);
     return { x: world.x, z: world.z };
   });
+  const signals: TrafficSignalLocation[] = (raw.signals ?? []).map((signal) => {
+    const world = latLonToWorld(signal.lat, signal.lon);
+    return {
+      x: world.x,
+      z: world.z,
+      ...(signal.d ? { direction: signal.d } : {}),
+    };
+  });
 
   return {
     generatedAt: raw.generatedAt,
@@ -468,6 +491,7 @@ export async function loadOsm(base = './geo/'): Promise<OsmData> {
     streetLamps,
     controls,
     crossings,
+    signals,
     roads,
     buildings,
     areas,

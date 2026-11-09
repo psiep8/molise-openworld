@@ -8,6 +8,7 @@ import { CURB_HEIGHT, roadLift, type BuildingIndex, type OsmData, type Road, typ
 import { createTerrainSurface, type TerrainSurface } from '../geo/terrain-surface';
 import type { CityKit } from './citykit';
 import { roadRibbonColumns, roadRibbonStations } from './road-surface';
+import { buildRoundaboutAprons, detectRoundabouts, type ApronMesh } from './roundabouts';
 import {
   createRoadProfile,
   ROAD_PROFILE,
@@ -25,6 +26,16 @@ interface RibbonArrays {
 }
 
 const emptyRibbon = (): RibbonArrays => ({ positions: [], normals: [], colors: [], uvs: [], indices: [] });
+
+/** Aggiunge una mesh già costruita a un nastro, rimappando gli indici. */
+function appendMesh(target: RibbonArrays, source: ApronMesh): void {
+  const base = target.positions.length / 3;
+  for (let i = 0; i < source.positions.length; i++) target.positions.push(source.positions[i]!);
+  for (let i = 0; i < source.normals.length; i++) target.normals.push(source.normals[i]!);
+  for (let i = 0; i < source.colors.length; i++) target.colors.push(source.colors[i]!);
+  for (let i = 0; i < source.uvs.length; i++) target.uvs.push(source.uvs[i]!);
+  for (let i = 0; i < source.indices.length; i++) target.indices.push(source.indices[i]! + base);
+}
 
 /** Ricampiona una polilinea a passi regolari (metri). */
 export function resample(points: Pt[], step: number): Pt[] {
@@ -1604,6 +1615,9 @@ export function buildRoads(
   // per il granito del cordolo, e vanno dosate con repeat diversi
   const walkway = emptyRibbon();
   const kerb = emptyRibbon();
+  // corona lastricata delle rotatorie: sta sopra l'asfalto ma sotto il
+  // marciapiede, quindi ha un nastro suo con la stessa texture del marciapiede
+  const aprons = emptyRibbon();
   const markings = emptyRibbon();
   // spalla in ghiaia delle strade di campagna: senza, il bordo dell'asfalto
   // cade a picco sull'erba e si vede il taglio
@@ -2017,6 +2031,24 @@ export function buildRoads(
     }
   });
 
+  // --- rotatorie -------------------------------------------------------------
+  // In OSM sono anelli chiusi: i nastri coprono la carreggiata, qui si aggiunge
+  // la corona lastricata dentro il bordo e il cordolo dell'isola centrale.
+  // Senza questo, il centro di una rotatoria resta prato fino all'asfalto e
+  // sembra un incrocio circolare senza isola.
+  const roundabouts = detectRoundabouts(osm.roads);
+  if (roundabouts.length > 0) {
+    const built = buildRoundaboutAprons(
+      roundabouts,
+      surface,
+      pavementColor,
+      curbColor,
+      roadLift(0, true),
+    );
+    appendMesh(aprons, built.surface);
+    appendMesh(kerb, built.curb);
+  }
+
   for (const control of osm.controls ?? []) {
     const road = roadAt(osm, control);
     if (!road) continue;
@@ -2178,6 +2210,12 @@ export function buildRoads(
   if (walkway.indices.length) {
     const mesh = new THREE.Mesh(toGeometry(walkway), pavementMat);
     mesh.name = 'sidewalks';
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+  if (aprons.indices.length) {
+    const mesh = new THREE.Mesh(toGeometry(aprons), pavementMat);
+    mesh.name = 'roundabout-aprons';
     mesh.receiveShadow = true;
     group.add(mesh);
   }

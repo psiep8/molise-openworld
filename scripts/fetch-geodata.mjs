@@ -262,6 +262,7 @@ out geom;
   node["traffic_sign:backward"](${bb});
   node["highway"="street_lamp"](${bb});
   node["highway"="crossing"](${bb});
+  node["highway"="traffic_signals"](${bb});
 );
 out;`;
 }
@@ -440,6 +441,7 @@ function processOsm(json) {
   const signs = [];
   const controls = [];
   const crossings = [];
+  const signals = [];
   const streetLamps = [];
   const roads = [];
   const buildings = [];
@@ -472,6 +474,16 @@ function processOsm(json) {
       }
       if (tags.highway === 'street_lamp') {
         streetLamps.push({ lat: round6(el.lat), lon: round6(el.lon) });
+      }
+      if (tags.highway === 'traffic_signals') {
+        const direction = tags['traffic_signals:direction'];
+        signals.push({
+          lat: round6(el.lat),
+          lon: round6(el.lon),
+          ...(direction === 'forward' || direction === 'backward' || direction === 'both'
+            ? { d: direction }
+            : {}),
+        });
       }
       continue;
     }
@@ -541,6 +553,7 @@ function processOsm(json) {
     roadSigns: signs.length,
     roadControls: controls.length,
     roadCrossings: crossings.length,
+    trafficSignals: signals.length,
     streetLamps: streetLamps.length,
     roads: roads.length,
     roadPoints: roads.reduce((s, r) => s + r.c.length, 0),
@@ -564,6 +577,7 @@ function processOsm(json) {
     signs,
     controls,
     crossings,
+    signals,
     streetLamps,
     roads,
     buildings,

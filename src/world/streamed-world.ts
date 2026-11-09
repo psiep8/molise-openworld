@@ -9,6 +9,7 @@ import {
   type BuildingIndex,
   type OsmData,
   type Road,
+  type TrafficSignalLocation,
 } from '../geo/osm';
 import {
   tileAt,
@@ -23,6 +24,7 @@ import { buildBuildings, releaseWindowGlowMaterial } from './buildings';
 import { buildStreamedAreas, type StreamedAreaStats } from './streamed-areas';
 import type { CityKit } from './citykit';
 import { buildRoads, roadPolyline } from './roads';
+import { buildTrafficLights, type TrafficLightSystem } from './traffic-signals';
 
 export interface LocalBounds {
   minX: number;
@@ -38,6 +40,7 @@ export interface StreamedWorldStats {
   areas: number;
   landcover: number;
   pois: number;
+  signals: number;
   enabled: boolean;
 }
 
@@ -59,10 +62,12 @@ interface StreamedTile {
   tile: WorldDataTile;
   roads: Road[];
   buildings: Building[];
+  signals: TrafficSignalLocation[];
   group: THREE.Group | null;
   roadIndex: RoadIndex | null;
   windowMaterial: THREE.MeshStandardMaterial | null;
   areaStats: StreamedAreaStats | null;
+  trafficLights: TrafficLightSystem | null;
 }
 
 /**
@@ -92,14 +97,25 @@ export class StreamedWorld {
     let areas = 0;
     let landcover = 0;
     let pois = 0;
+    let signals = 0;
     for (const tile of this.tiles.values()) {
       roads += tile.roads.length;
       buildings += tile.buildings.length;
       areas += tile.areaStats?.areas ?? 0;
       landcover += tile.areaStats?.landcover ?? 0;
       pois += tile.tile.pois.length;
+      signals += tile.signals.length;
     }
-    return { tiles: this.tiles.size, roads, buildings, areas, landcover, pois, enabled: this.enabled };
+    return {
+      tiles: this.tiles.size,
+      roads,
+      buildings,
+      areas,
+      landcover,
+      pois,
+      signals,
+      enabled: this.enabled,
+    };
   }
 
   addTile(tile: WorldDataTile): void {
@@ -124,15 +140,30 @@ export class StreamedWorld {
       buildings.push(building);
     }
 
+    // i semafori dentro il DEM locale sono già nel mondo locale (che li
+    // disegna da osm.json): qui si tengono solo quelli fuori, come le strade
+    const signals: TrafficSignalLocation[] = [];
+    for (const signal of tile.signals) {
+      const point = projectGeoPoint(signal);
+      if (insideBounds(point, this.localBounds)) continue;
+      signals.push({
+        x: point.x,
+        z: point.z,
+        ...(signal.direction ? { direction: signal.direction } : {}),
+      });
+    }
+
     const entry: StreamedTile = {
       key,
       tile,
       roads,
       buildings,
+      signals,
       group: null,
       roadIndex: null,
       windowMaterial: null,
       areaStats: null,
+      trafficLights: null,
     };
     this.tiles.set(key, entry);
     if (this.enabled) this.attach(entry);
@@ -155,6 +186,12 @@ export class StreamedWorld {
       if (enabled) this.attach(entry);
       else this.detach(entry);
     }
+  }
+
+  /** Avanza i semafori dei tile caricati con l'orologio globale del gioco. */
+  update(elapsed: number): void {
+    if (!this.enabled) return;
+    for (const entry of this.tiles.values()) entry.trafficLights?.update(elapsed);
   }
 
   isOnRoad(x: number, z: number, reach = 1): boolean {
@@ -211,6 +248,7 @@ export class StreamedWorld {
       buildings: entry.buildings,
       areas: [],
       waterways: [],
+      signals: entry.signals,
     };
 
     const group = new THREE.Group();
@@ -227,6 +265,19 @@ export class StreamedWorld {
       );
       roads.group.name = `streamed-roads-${entry.key}`;
       group.add(roads.group);
+      if (entry.signals.length) {
+        const lights = buildTrafficLights({
+          signals: entry.signals,
+          roads: entry.roads,
+          heights: this.options.heights,
+          buildings: this.options.buildings,
+        });
+        if (lights) {
+          lights.group.name = `streamed-traffic-lights-${entry.key}`;
+          entry.trafficLights = lights;
+          group.add(lights.group);
+        }
+      }
     }
     if (entry.buildings.length) {
       const buildings = buildBuildings(osm, this.options.heights, this.options.renderer, {

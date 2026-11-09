@@ -52,6 +52,30 @@ banchina/cunetta/scarpata dagli stessi nodi del profilo che
 `RoadIndex.sampleSurface` usa per `WorldGround`. Ponti e gallerie non ricevono
 una sezione rurale sovrapposta al deck.
 
+Le **rotatorie** (`src/world/roundabouts.ts`) sono ricavate dalla geometria:
+una way chiusa quasi circolare, con raggio 4–35 m e larghezza plausibile, è un
+anello. In OSM però la rotatoria è spesso spezzata in una way aperta per ogni
+innesto: il rilevatore unisce gli estremi che si toccano entro 2,5 m e a ogni
+nodo sceglie la way che prosegue con la curvatura minore, così l'approccio
+radiale non entra nell'anello. Il centro non è coperto dai nastri stradali
+(resta il prato del DEM); sopra l'asfalto si disegna la corona lastricata che va
+dal bordo interno della carreggiata verso l'isola, con il cordolo verticale che
+scende sotto il piano stradale. Il riconoscimento non dipende dal tag
+`junction=roundabout`, che `osm.json` non conserva, quindi vale anche per i
+bundle XYZ e per le strade streamed.
+
+I **semafori** (`src/world/traffic-signals.ts`) partono dai nodi OSM
+`highway=traffic_signals`. Il nodo sta sulla linea di arresto, spesso in
+mezzeria: il palo viene spostato oltre il bordo della carreggiata più vicina e
+la testa ruota verso il traffico in arrivo, usando `traffic_signals:direction`
+quando c'è. I semafori entro 45 m formano un incrocio; l'asse di ciascuno è
+ricavato dal verso di approccio e i due assi si alternano con un ciclo fisso
+(10 s verde, 3 s giallo, 13 s rosso). Il ciclo dipende dal tempo trascorso, non
+dal frame, quindi le tile vicine restano sincronizzate; le lanterne sono
+materiali emissivi condivisi per incrocio e fase. Nel mondo locale i semafori
+vengono costruiti da `osm.json`, nei bundle XYZ da `signals` di ogni tile; le
+copie dentro il DEM locale sono ritagliate via come le strade.
+
 ## 5. Edifici
 
 Le impronte OSM vengono estrose con `ExtrudeGeometry`, con base affondata di 70 cm per non galleggiare sui pendii.

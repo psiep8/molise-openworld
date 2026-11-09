@@ -163,6 +163,10 @@ describe('parseWorldDataTile', () => {
         areas: [{ id: 'way/10', kind: 'water', points: ring }],
         landcover: [{ id: 'way/11', kind: 'wood', name: 'Bosco', points: ring }],
         pois: [{ id: 'node/7', kind: 'cafe', name: 'Bar', lat: 41.9, lon: 14.7 }],
+        signals: [
+          { id: 'node/8', lat: 41.9, lon: 14.7, direction: 'both' },
+          { id: 'node/9', lat: 41.901, lon: 14.701 },
+        ],
       }),
       tile,
     );
@@ -170,6 +174,19 @@ describe('parseWorldDataTile', () => {
     expect(parsed.areas[0]?.kind).toBe('water');
     expect(parsed.landcover[0]?.name).toBe('Bosco');
     expect(parsed.pois[0]?.kind).toBe('cafe');
+    expect(parsed.signals).toHaveLength(2);
+    expect(parsed.signals[0]?.direction).toBe('both');
+    expect(parsed.signals[1]?.direction).toBeUndefined();
+  });
+
+  it('rifiuta un semaforo senza coordinate', () => {
+    const base = JSON.parse(payload(tile)) as Record<string, unknown>;
+    expect(() =>
+      parseWorldDataTile(
+        JSON.stringify({ ...base, schemaVersion: 2, signals: [{ id: 'node/1' }] }),
+        tile,
+      ),
+    ).toThrow('coordinata WGS84 non valida');
   });
 
   it('accetta ancora i bundle v1 e li completa con elenchi vuoti', () => {
@@ -178,6 +195,7 @@ describe('parseWorldDataTile', () => {
     expect(parsed.areas).toEqual([]);
     expect(parsed.landcover).toEqual([]);
     expect(parsed.pois).toEqual([]);
+    expect(parsed.signals).toEqual([]);
   });
 
   it('rifiuta aree senza anello e POI senza coordinate', () => {

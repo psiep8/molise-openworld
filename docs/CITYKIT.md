@@ -368,11 +368,13 @@ sono anche più piccoli del vero: le scale sono decise a mano per ruolo.
   così il giocatore non ci passa attraverso e nulla ci cresce dentro. La
   disposizione è deterministica (seed fisso) e tiene conto di pendenza, acqua,
   strade ed edifici OSM. Dettagli e limiti per preset in §1.4.
-- **Non piazzati di proposito**: semaforo, lampione, incrocio, alberi da parco.
-  Sono scaricati e pronti, ma un semaforo in un paese senza semafori o un
-  lampione urbano da 8 m al posto delle lanterne da 6,2 m romperebbe la
-  coerenza. Il materiale della piazza invece si usa, per il sagrato. Le case e
-  gli alberi rurali si usano **solo fuori** dal paese.
+- **Non piazzati di proposito**: lampione, incrocio, alberi da parco.
+  Sono scaricati e pronti, ma un lampione urbano da 8 m al posto delle lanterne
+  da 6,2 m romperebbe la coerenza. Il semaforo del kit resta inutilizzato: i
+  semafori mappati in OSM usano teste procedurali (`src/world/traffic-signals.ts`)
+  perché le lanterne devono accendersi a ciclo. Il materiale della piazza invece
+  si usa, per il sagrato. Le case e gli alberi rurali si usano **solo fuori** dal
+  paese.
 
 Tutto è additivo: se `public/citykit/manifest.json` manca (macchina nuova,
 licenza non accettata, rete assente) il motore usa le mesh procedurali e non

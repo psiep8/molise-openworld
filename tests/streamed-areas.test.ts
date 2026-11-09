@@ -23,6 +23,7 @@ function tile(): WorldDataTile {
     areas: [{ id: 'way/1', kind: 'water', points: RING }],
     landcover: [{ id: 'way/2', kind: 'wood', points: RING }],
     pois: [{ id: 'node/7', kind: 'cafe', lat: CENTER.lat, lon: CENTER.lon }],
+    signals: [],
   };
 }
 

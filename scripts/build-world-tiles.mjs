@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Genera i bundle geografici XYZ (schemaVersion 1) da un estratto OSM.
+ * Genera i bundle geografici XYZ (schemaVersion 2) da un estratto OSM.
  *
  * Perché offline: il client non deve interrogare Overpass né altri servizi
  * pubblici a runtime. Si scarica un estratto una volta, si converte in tile e
@@ -18,13 +18,18 @@
  * way su più tile senza che venga disegnata due volte.
  *
  * Schema v2: oltre a strade ed edifici scrive aree (acqua, abitato, cave),
- * copertura del suolo (boschi, prati, coltivi) e POI dai nodi con tag.
- * Il client accetta anche i vecchi bundle v1 (senza i tre nuovi elenchi).
+ * copertura del suolo (boschi, prati, coltivi), POI dai nodi con tag e
+ * semafori mappati (`highway=traffic_signals`). Il client accetta anche i
+ * vecchi bundle v1 (senza questi elenchi).
+ *
+ * Con `--dem` aggiunge anche la griglia di quota Terrarium (`elevation`,
+ * decimetri interi): il client la usa per il terreno oltre il DEM locale.
  */
-import { mkdir, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { PNG } from 'pngjs';
 import { decodeOsmPbf } from './lib/osm-pbf.mjs';
 
 /** Larghezza di carreggiata per classe, in metri (come `roadWidth` del client). */
@@ -115,6 +120,178 @@ function tileAt(lat, lon, z) {
   const latRad = (lat * Math.PI) / 180;
   const y = Math.floor(((1 - Math.asinh(Math.tan(latRad)) / Math.PI) / 2) * n);
   return { z, x: ((x % n) + n) % n, y: Math.max(0, Math.min(n - 1, y)) };
+}
+
+/** Limiti geografici di un tile XYZ. */
+function tileBounds(tile) {
+  const n = 2 ** tile.z;
+  const latAt = (y) => (Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / n))) * 180) / Math.PI;
+  return {
+    minLon: (tile.x / n) * 360 - 180,
+    maxLon: ((tile.x + 1) / n) * 360 - 180,
+    maxLat: latAt(tile.y),
+    minLat: latAt(tile.y + 1),
+  };
+}
+
+/** Pixel Web Mercator (scala tile × 256) di un punto. */
+function mercatorPx(lat, lon, z) {
+  const scale = 256 * 2 ** z;
+  const latRad = (lat * Math.PI) / 180;
+  return {
+    x: ((lon + 180) / 360) * scale,
+    y: ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * scale,
+  };
+}
+
+const TERRARIUM_URL = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium';
+const DEM_ATTRIBUTION = 'Elevazione: © AWS Open Data Terrain Tiles (Terrarium)';
+
+/** Quota in metri di un pixel Terrarium (r·256 + g + b/256 − 32768). */
+export function terrariumHeight(r, g, b) {
+  return r * 256 + g + b / 256 - 32768;
+}
+
+async function exists(file) {
+  try {
+    await access(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Legge una tile Terrarium dalla cache locale e, solo se manca, la scarica.
+ *
+ * La cache è la stessa di `fetch-geodata.mjs` (`.geo-cache/dem/z/x/y.png`),
+ * così chi ha già rigenerato il DEM del mondo non riscarica nulla.
+ */
+async function loadDemTile(z, x, y, cacheDir, fetchImpl) {
+  const file = path.join(cacheDir, String(z), String(x), `${y}.png`);
+  let buf;
+  if (await exists(file)) {
+    buf = await readFile(file);
+  } else {
+    const url = `${TERRARIUM_URL}/${z}/${x}/${y}.png`;
+    const res = await fetchImpl(url);
+    if (!res.ok) throw new Error(`DEM ${z}/${x}/${y}: HTTP ${res.status} (${url})`);
+    buf = Buffer.from(await res.arrayBuffer());
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, buf);
+  }
+  const png = PNG.sync.read(buf);
+  const values = new Float32Array(png.width * png.height);
+  for (let py = 0; py < png.height; py++) {
+    for (let px = 0; px < png.width; px++) {
+      const i = (py * png.width + px) * 4;
+      values[py * png.width + px] = terrariumHeight(png.data[i], png.data[i + 1], png.data[i + 2]);
+    }
+  }
+  return { width: png.width, height: png.height, values };
+}
+
+/**
+ * Griglia DEM regolare per un tile: `size × size` campioni bilineari sui pixel
+ * Terrarium, riga 0 a nord. I valori sono decimetri interi, come li vuole
+ * `parseWorldDataTile` nel client.
+ */
+export function elevationGridForTile(tile, sampleHeight, size = 65) {
+  if (!Number.isInteger(size) || size < 2 || size > 1024) {
+    throw new Error(`demSamples non valido: ${size}`);
+  }
+  const bounds = tileBounds(tile);
+  const values = [];
+  for (let row = 0; row < size; row++) {
+    const lat = bounds.maxLat + ((bounds.minLat - bounds.maxLat) * row) / (size - 1);
+    for (let col = 0; col < size; col++) {
+      const lon = bounds.minLon + ((bounds.maxLon - bounds.minLon) * col) / (size - 1);
+      const metres = sampleHeight(lat, lon);
+      if (!Number.isFinite(metres)) throw new Error(`quota DEM non finita a ${lat},${lon}`);
+      values.push(Math.max(-32768, Math.min(32767, Math.round(metres * 10))));
+    }
+  }
+  return {
+    minLon: bounds.minLon,
+    maxLon: bounds.maxLon,
+    minLat: bounds.minLat,
+    maxLat: bounds.maxLat,
+    width: size,
+    height: size,
+    encoding: 'int16-decimeters',
+    values,
+  };
+}
+
+/**
+ * Aggiunge `elevation` a ogni bundle. Il mosaico Terrarium copre il tile con
+ * le tile del livello `demZoom` che lo contengono: si compone una volta per
+ * tile di uscita e si campiona in bilineare.
+ */
+export async function attachElevation(tiles, options = {}) {
+  const demZoom = options.demZoom ?? 15;
+  const size = options.demSamples ?? 65;
+  const cacheDir = options.demCache ?? path.join('.geo-cache', 'dem');
+  const fetchImpl = options.fetch ?? fetch;
+  const log = options.log ?? (() => {});
+  const cache = new Map();
+  let done = 0;
+
+  for (const bundle of tiles.values()) {
+    const bounds = tileBounds(bundle.tile);
+    const nw = mercatorPx(bounds.maxLat, bounds.minLon, demZoom);
+    const se = mercatorPx(bounds.minLat, bounds.maxLon, demZoom);
+    const tx0 = Math.floor(nw.x / 256);
+    const ty0 = Math.floor(nw.y / 256);
+    const tx1 = Math.floor(se.x / 256);
+    const ty1 = Math.floor(se.y / 256);
+    const cols = tx1 - tx0 + 1;
+    const rows = ty1 - ty0 + 1;
+    const mosaic = new Float32Array(cols * 256 * rows * 256);
+
+    for (let ty = ty0; ty <= ty1; ty++) {
+      for (let tx = tx0; tx <= tx1; tx++) {
+        const key = `${demZoom}/${tx}/${ty}`;
+        let dem = cache.get(key);
+        if (!dem) {
+          dem = await loadDemTile(demZoom, tx, ty, cacheDir, fetchImpl);
+          cache.set(key, dem);
+        }
+        const ox = (tx - tx0) * 256;
+        const oy = (ty - ty0) * 256;
+        for (let py = 0; py < dem.height; py++) {
+          for (let px = 0; px < dem.width; px++) {
+            mosaic[(oy + py) * (cols * 256) + ox + px] = dem.values[py * dem.width + px];
+          }
+        }
+      }
+    }
+
+    const mosaicWidth = cols * 256;
+    const mosaicHeight = rows * 256;
+    const sampleHeight = (lat, lon) => {
+      const p = mercatorPx(lat, lon, demZoom);
+      const gx = Math.max(0, Math.min(mosaicWidth - 1 - 1e-6, p.x - tx0 * 256));
+      const gy = Math.max(0, Math.min(mosaicHeight - 1 - 1e-6, p.y - ty0 * 256));
+      const x0 = Math.floor(gx);
+      const y0 = Math.floor(gy);
+      const fx = gx - x0;
+      const fy = gy - y0;
+      const h00 = mosaic[y0 * mosaicWidth + x0];
+      const h10 = mosaic[y0 * mosaicWidth + x0 + 1];
+      const h01 = mosaic[(y0 + 1) * mosaicWidth + x0];
+      const h11 = mosaic[(y0 + 1) * mosaicWidth + x0 + 1];
+      return h00 * (1 - fx) * (1 - fy) + h10 * fx * (1 - fy) + h01 * (1 - fx) * fy + h11 * fx * fy;
+    };
+
+    bundle.elevation = elevationGridForTile(bundle.tile, sampleHeight, size);
+    if (!bundle.attribution.includes(DEM_ATTRIBUTION)) {
+      bundle.attribution = `${bundle.attribution} · ${DEM_ATTRIBUTION}`;
+    }
+    done++;
+    if (done % 10 === 0) log(`DEM ${done}/${tiles.size}`);
+  }
+  return tiles;
 }
 
 function decodeEntities(value) {
@@ -295,6 +472,7 @@ export function buildTiles(extract, options = {}) {
         areas: [],
         landcover: [],
         pois: [],
+        signals: [],
       };
       tiles.set(key, bundle);
     }
@@ -354,10 +532,19 @@ export function buildTiles(extract, options = {}) {
   }
 
   for (const node of extract.taggedNodes ?? []) {
-    const kind = poiKind(node.tags);
-    if (!kind) continue;
     const point = { lat: node.lat, lon: node.lon };
     if (bbox && !inside(point, bbox)) continue;
+    if (node.tags.highway === 'traffic_signals') {
+      const direction = node.tags['traffic_signals:direction'] ?? node.tags.direction;
+      const feature = { id: `node/${node.id}`, lat: node.lat, lon: node.lon };
+      if (direction === 'forward' || direction === 'backward' || direction === 'both') {
+        feature.direction = direction;
+      }
+      tileFor(point).signals.push(feature);
+      continue;
+    }
+    const kind = poiKind(node.tags);
+    if (!kind) continue;
     const feature = { id: `node/${node.id}`, kind, lat: node.lat, lon: node.lon };
     if (node.tags.name) feature.name = node.tags.name;
     tileFor(point).pois.push(feature);
@@ -423,7 +610,7 @@ export function readExtract(file, bbox = null) {
       // senza almeno un nodo tenuto la way è fuori dall'area: scartarla subito
       return refs.some((ref) => nodes.has(ref));
     },
-    keepTaggedNode: (tags) => poiKind(tags) !== null,
+    keepTaggedNode: (tags) => poiKind(tags) !== null || tags.highway === 'traffic_signals',
   });
 }
 
@@ -438,7 +625,7 @@ function parseBbox(text) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.input || args.input === true) {
-    console.error('Uso: node scripts/build-world-tiles.mjs --input estratto.osm [--out public/world-tiles] [--zoom 14] [--bbox minLat,minLon,maxLat,maxLon]');
+    console.error('Uso: node scripts/build-world-tiles.mjs --input estratto.osm [--out public/world-tiles] [--zoom 14] [--bbox minLat,minLon,maxLat,maxLon] [--dem] [--dem-samples 65] [--dem-zoom 15] [--dem-cache .geo-cache/dem]');
     process.exitCode = 1;
     return;
   }
@@ -453,6 +640,14 @@ async function main() {
     bbox,
   };
   const tiles = buildTiles(extract, options);
+  if (args.dem) {
+    await attachElevation(tiles, {
+      demZoom: args['dem-zoom'] ? Number(args['dem-zoom']) : 15,
+      demSamples: args['dem-samples'] ? Number(args['dem-samples']) : 65,
+      demCache: typeof args['dem-cache'] === 'string' ? args['dem-cache'] : path.join('.geo-cache', 'dem'),
+      log: (message) => console.log(message),
+    });
+  }
   const outDir = typeof args.out === 'string' ? args.out : path.join('public', 'world-tiles');
   const result = await writeTiles(tiles, outDir);
   const sum = (field) => [...tiles.values()].reduce((total, tile) => total + tile[field].length, 0);
@@ -461,8 +656,9 @@ async function main() {
   const areas = sum('areas');
   const landcover = sum('landcover');
   const pois = sum('pois');
+  const signals = sum('signals');
   console.log(
-    `nodi ${extract.nodes.size} · way ${extract.ways.length} · strade ${roads} · edifici ${buildings} · aree ${areas} · landcover ${landcover} · POI ${pois}`,
+    `nodi ${extract.nodes.size} · way ${extract.ways.length} · strade ${roads} · edifici ${buildings} · aree ${areas} · landcover ${landcover} · POI ${pois} · semafori ${signals}`,
   );
   if (extract.blocks !== undefined) console.log(`blocchi PBF ${extract.blocks}`);
   console.log(`scritti ${result.files} tile (${(result.bytes / 1024 / 1024).toFixed(1)} MB) in ${outDir}`);
