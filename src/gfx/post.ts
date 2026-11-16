@@ -6,6 +6,8 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
+import { TemporalAAPass } from './taa';
+import { OutputGradePass } from './grade';
 
 export interface PostOptions {
   /** intensità del bloom (0 = spento) */
@@ -13,15 +15,16 @@ export interface PostOptions {
   /** occlusione ambientale */
   ssao?: boolean;
   /**
-   * Campioni MSAA dei render target del composer (0, 2, 4). Il contesto WebGL
-   * non si può cambiare dopo la creazione, ma i target del composer sì: con il
-   * post-processing attivo l'antialias del canvas non serve a niente perché si
-   * disegna su una texture, e senza MSAA sui target restavano scalini anche
-   * con SMAA sopra.
+   * Campioni MSAA dei render target del composer (0, 2, 4). Con TAA attivo
+   * resta 0: il temporal AA sostituisce l'MSAA e costa già un render in più.
    */
   samples?: number;
   /** nitidezza (unsharp) dopo l'antialiasing, 0…1 */
   sharpen?: number;
+  /** TAA (solo high/ultra; fallback su MSAA+SMAA se non disponibile) */
+  taa?: boolean;
+  /** intensità della LUT (0 = spenta) */
+  grade?: number;
 }
 
 /**
@@ -66,8 +69,8 @@ const SharpenShader = {
 
 /**
  * Pipeline di post-processing pensata per un look "da videogioco":
- * AA (MSAA sui target + SMAA + unsharp), bloom morbido su cielo e riflessi,
- * SSAO per l'occlusione ambientale, OutputPass per tone mapping e color space.
+ * TAA (high/ultra) o MSAA+SMAA, bloom morbido, SSAO, unsharp e
+ * OutputGradePass (tone mapping + sRGB + LUT).
  *
  * I pass costosi si accendono solo dove il preset lo dice: su un PC debole la
  * pipeline può esistere solo per l'antialiasing, senza bloom né SSAO.
@@ -76,6 +79,9 @@ export class PostPipeline {
   private readonly composer: EffectComposer;
   private readonly bloom: UnrealBloomPass | null;
   private readonly ssao: SSAOPass | null;
+  private readonly smaa: SMAAPass | null;
+  private readonly taa: TemporalAAPass | null;
+  private readonly output: OutputPass | OutputGradePass;
   private readonly sharpen: ShaderPass;
   private enabled = true;
   private ssaoEnabled = false;
@@ -94,20 +100,35 @@ export class PostPipeline {
     this.bloomStrength = bloomStrength;
     this.sharpenAmount = options.sharpen ?? 0.25;
 
+    // TAA: se il contesto non è WebGL2 o il pass non si costruisce, si torna
+    // al RenderPass classico senza rompere la partita.
+    let taa: TemporalAAPass | null = null;
+    if (options.taa === true && renderer.capabilities.isWebGL2) {
+      try {
+        taa = new TemporalAAPass(scene, camera);
+        this.composer.addPass(taa);
+      } catch (error) {
+        console.warn('TAA non disponibile: fallback su RenderPass', error);
+        taa = null;
+      }
+    }
+    this.taa = taa;
+    if (!taa) this.composer.addPass(new RenderPass(scene, camera));
+
     // MSAA sui target: è l'unico modo per avere antialiasing vero quando si
-    // disegna dentro il composer.
-    const maxSamples = Math.min(
-      options.samples ?? 0,
-      (renderer.getContext() as WebGL2RenderingContext).getParameter?.(
-        (renderer.getContext() as WebGL2RenderingContext).MAX_SAMPLES,
-      ) ?? 4,
-    );
+    // disegna dentro il composer. Con TAA non serve e costa banda.
+    const maxSamples = taa
+      ? 0
+      : Math.min(
+          options.samples ?? 0,
+          (renderer.getContext() as WebGL2RenderingContext).getParameter?.(
+            (renderer.getContext() as WebGL2RenderingContext).MAX_SAMPLES,
+          ) ?? 4,
+        );
     if (maxSamples > 0) {
       this.composer.renderTarget1.samples = maxSamples;
       this.composer.renderTarget2.samples = maxSamples;
     }
-
-    this.composer.addPass(new RenderPass(scene, camera));
 
     if (bloomStrength > 0) {
       // soglia alta: il cielo e il sole restano fuori dal bloom, che serve solo
@@ -130,12 +151,34 @@ export class PostPipeline {
       this.ssao = null;
     }
 
-    this.composer.addPass(new SMAAPass());
+    // Con TAA l'antialiasing è già temporale: SMAA sarebbe un pass in più.
+    if (taa) {
+      this.smaa = null;
+    } else {
+      this.smaa = new SMAAPass();
+      this.composer.addPass(this.smaa);
+    }
+
     this.sharpen = new ShaderPass(SharpenShader);
     this.sharpen.uniforms.uAmount!.value = this.sharpenAmount;
     this.sharpen.enabled = this.sharpenAmount > 0;
     this.composer.addPass(this.sharpen);
-    this.composer.addPass(new OutputPass());
+
+    let output: OutputPass | OutputGradePass;
+    if ((options.grade ?? 0) > 0) {
+      try {
+        const grade = new OutputGradePass();
+        grade.setGrade(options.grade ?? 0);
+        output = grade;
+      } catch (error) {
+        console.warn('LUT non disponibile: fallback su OutputPass', error);
+        output = new OutputPass();
+      }
+    } else {
+      output = new OutputPass();
+    }
+    this.output = output;
+    this.composer.addPass(output);
   }
 
   get isEnabled(): boolean {
@@ -161,11 +204,33 @@ export class PostPipeline {
     return this.ssao !== null;
   }
 
+  /** true se il TAA è attivo (o richiesto e costruito). */
+  get hasTAA(): boolean {
+    return this.taa !== null;
+  }
+
+  get hasGrade(): boolean {
+    return this.output instanceof OutputGradePass;
+  }
+
+  /** Intensità della LUT; 0 spegne il grade (fallback). */
+  setGrade(intensity: number): void {
+    if (this.output instanceof OutputGradePass) this.output.setGrade(intensity);
+  }
+
+  /** Sceglie i due look vicini all'ora corrente e la dissolvenza. */
+  setGradeAtHour(hour: number): void {
+    if (this.output instanceof OutputGradePass) this.output.setGradeAtHour(hour);
+  }
+
   /** Libera i render target: serve quando si ricostruisce la pipeline. */
   dispose(): void {
     this.composer.dispose();
     this.bloom?.dispose();
     this.ssao?.dispose();
+    this.smaa?.dispose();
+    this.taa?.dispose();
+    this.output.dispose();
   }
 
   setBloom(strength: number): void {
@@ -185,13 +250,19 @@ export class PostPipeline {
   setPixelRatio(ratio: number): void {
     this.composer.setPixelRatio(ratio);
     const size = this.renderer.getSize(new THREE.Vector2());
-    this.sharpen.uniforms.uTexel!.value.set(1 / Math.max(1, size.x * ratio), 1 / Math.max(1, size.y * ratio));
+    this.sharpen.uniforms.uTexel!.value.set(
+      1 / Math.max(1, size.x * ratio),
+      1 / Math.max(1, size.y * ratio),
+    );
   }
 
   setSize(width: number, height: number): void {
     this.composer.setSize(width, height);
     const pr = this.renderer.getPixelRatio();
-    this.sharpen.uniforms.uTexel!.value.set(1 / Math.max(1, width * pr), 1 / Math.max(1, height * pr));
+    this.sharpen.uniforms.uTexel!.value.set(
+      1 / Math.max(1, width * pr),
+      1 / Math.max(1, height * pr),
+    );
     const ssao = this.ssao;
     if (ssao) {
       ssao.width = Math.max(1, Math.floor(width * pr));

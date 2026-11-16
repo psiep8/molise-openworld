@@ -1,6 +1,7 @@
 import type { Heightfield } from './elevation';
 import type { RoadIndex, RoadSurfaceSample } from './osm';
 import { terrainMeshHeightAt } from './terrain-surface';
+import { insidePaved, type PavedArea } from '../world/paved';
 
 /**
  * Quota del piano calpestabile.
@@ -52,6 +53,12 @@ export class WorldGround implements GroundSampler {
   constructor(
     readonly heights: Heightfield,
     roads: RoadIndex | readonly RoadIndex[],
+    /**
+     * Superfici lastricate fuori dalla rete stradale (piazze e sagrati).
+     * L'array è vivo: le piazze vengono aggiunte durante la costruzione del
+     * mondo, dopo il terreno ma prima di erba e giocatore.
+     */
+    private readonly pavedAreas: readonly PavedArea[] = [],
   ) {
     this.roads = Array.isArray(roads) ? roads : [roads as RoadIndex];
   }
@@ -87,6 +94,18 @@ export class WorldGround implements GroundSampler {
         onRoad: best.kind === 'road' || best.kind === 'bridge' || best.kind === 'tunnel',
         paved: best.paved,
         surface: best.surface,
+      };
+    }
+    for (const area of this.pavedAreas) {
+      if (!insidePaved(x, z, [area])) continue;
+      const lift = area.lift ?? 0.05;
+      return {
+        y: terrain + lift,
+        lift,
+        kind: 'sidewalk',
+        onRoad: false,
+        paved: true,
+        surface: 'paved',
       };
     }
     return {

@@ -220,6 +220,13 @@ export function buildChurchPiazza(
   }
   return {
     group,
-    area: { x: center.x, z: center.z, yaw, halfW: halfW + 0.4, halfD: halfD + 0.2 },
+    area: {
+      x: center.x,
+      z: center.z,
+      yaw,
+      halfW: halfW + 0.4,
+      halfD: halfD + 0.2,
+      lift: 0.05,
+    },
   };
 }

@@ -3,7 +3,7 @@ import { COLORS } from '../config';
 import { pbr, waterNormals } from '../gfx/textures';
 import { registerScroll } from '../gfx/wind';
 import type { Heightfield } from '../geo/elevation';
-import { boundsOf, clamp, hashInt, mulberry32, wrapAngle, type Pt } from '../geo/geo';
+import { boundsOf, clamp, distanceToSegment2, hashInt, mulberry32, wrapAngle, type Pt } from '../geo/geo';
 import { CURB_HEIGHT, roadLift, type BuildingIndex, type OsmData, type Road, type RoadIndex } from '../geo/osm';
 import { createTerrainSurface, type TerrainSurface } from '../geo/terrain-surface';
 import type { CityKit } from './citykit';
@@ -229,6 +229,28 @@ const lerpPt = (a: Pt, b: Pt, wa: number, wb: number): Pt => ({
 });
 
 /**
+ * Buco massimo che il marciapiede può scavalcare senza interrompersi.
+ * In centro storico una via secondaria o un passo carrabile taglia il nastro
+ * per pochi metri: lasciarlo aperto produceva i lastroni separati da erba.
+ * Gli incroci larghi superano questa soglia e restano aperti.
+ */
+const SIDEWALK_GAP = 6;
+
+/** Viuzze che possono attraversare il marciapiede senza spezzarlo. */
+const MINOR_WALK_ROADS = new Set([
+  'service',
+  'track',
+  'path',
+  'footway',
+  'cycleway',
+  'bridleway',
+  'steps',
+  'pedestrian',
+  'construction',
+  'proposed',
+]);
+
+/**
  * Spinge una polilinea a pezzi, saltando i tratti in cui `blocked` è vero.
  * Serve ai marciapiedi: davanti agli incroci si interrompono invece di
  * attraversare l'altra strada con una striscia di cemento.
@@ -240,18 +262,34 @@ function pushRuns(
   lift: number,
   color: THREE.Color,
   heights: TerrainSurface,
-  blocked: (x: number, z: number) => boolean,
+  blocked: (x: number, z: number, tx?: number, tz?: number) => boolean,
   allowed: (index: number) => boolean = () => true,
+  maxGap = 0,
 ): void {
   let run: Pt[] = [];
+  let gap = 0;
   const flush = (): void => {
     if (run.length >= 2) pushRibbon(target, run, width, lift, color, heights, 1);
     run = [];
+    gap = 0;
   };
   for (let i = 0; i < line.length; i++) {
     const p = line[i];
-    if (!allowed(i) || blocked(p.x, p.z)) flush();
-    else run.push(p);
+    const before = line[Math.max(0, i - 1)]!;
+    const after = line[Math.min(line.length - 1, i + 1)]!;
+    const tx = after.x - before.x;
+    const tz = after.z - before.z;
+    const length = Math.hypot(tx, tz) || 1;
+    if (!allowed(i) || blocked(p.x, p.z, tx / length, tz / length)) {
+      if (run.length === 0) continue;
+      const prev = line[Math.max(0, i - 1)]!;
+      gap += Math.hypot(p.x - prev.x, p.z - prev.z);
+      if (gap <= maxGap) run.push(p);
+      else flush();
+      continue;
+    }
+    run.push(p);
+    gap = 0;
   }
   flush();
 }
@@ -644,21 +682,38 @@ function pushCurbWall(
   outward: number,
   color: THREE.Color,
   heights: TerrainSurface,
-  blocked: (x: number, z: number) => boolean,
+  blocked: (x: number, z: number, tx?: number, tz?: number) => boolean,
   allowed: (index: number) => boolean = () => true,
+  maxGap = 0,
 ): void {
   // come i nastri: si spezza sui tratti esclusi e si densifica per seguire il
   // terreno, altrimenti su un rettilineo lungo il cordolo sprofonda o svetta
   let run: Pt[] = [];
+  let gap = 0;
   const flush = (): void => {
     if (run.length >= 2) {
       emitCurbWall(target, roadRibbonStations(run), yBottom, yTop, outward, color, heights);
     }
     run = [];
+    gap = 0;
   };
   for (let i = 0; i < pts.length; i++) {
-    if (!allowed(i) || blocked(pts[i]!.x, pts[i]!.z)) flush();
-    else run.push(pts[i]!);
+    const p = pts[i]!;
+    const before = pts[Math.max(0, i - 1)]!;
+    const after = pts[Math.min(pts.length - 1, i + 1)]!;
+    const tx = after.x - before.x;
+    const tz = after.z - before.z;
+    const length = Math.hypot(tx, tz) || 1;
+    if (!allowed(i) || blocked(p.x, p.z, tx / length, tz / length)) {
+      if (run.length === 0) continue;
+      const prev = pts[Math.max(0, i - 1)]!;
+      gap += Math.hypot(p.x - prev.x, p.z - prev.z);
+      if (gap <= maxGap) run.push(p);
+      else flush();
+      continue;
+    }
+    run.push(p);
+    gap = 0;
   }
   flush();
 }
@@ -1719,8 +1774,33 @@ export function buildRoads(
     // centro è dentro l'altra strada lasciava sporgere mezzo marciapiede
     // nell'incrocio (le "lingue" chiare viste in paese). Si esclude la strada
     // corrente e ci si ferma un metro buono prima del ciglio dell'altra.
-    const blockedWalk = (x: number, z: number): boolean =>
-      roadIndex ? roadIndex.isOnRoad(x, z, walkWidth * 0.55 + 0.25, idx) : false;
+    // Non basta "c'è un'altra strada vicino": in centro storico le vie sono
+    // spezzate in way paralleli e le traverse sfiorano il ciglio. Qui conta
+    // solo una strada che attraversa davvero il nastro, non una parallela.
+    const blockedWalk = (x: number, z: number, tx = 0, tz = 0): boolean => {
+      if (!roadIndex) return false;
+      const tolerance = walkWidth * 0.55 + 0.25;
+      const walkLength = Math.hypot(tx, tz);
+      if (walkLength < 1e-3) return false;
+      let blocked = false;
+      roadIndex.forEachSegmentNear(x, z, 10 + tolerance, (segment) => {
+        if (blocked || segment.road === idx || segment.bridge) return;
+        const other = osm.roads[segment.road];
+        if (!other || MINOR_WALK_ROADS.has(other.type)) return;
+        const distance = distanceToSegment2(x, z, segment.ax, segment.az, segment.bx, segment.bz);
+        if (distance > segment.w + tolerance) return;
+        const dx = segment.bx - segment.ax;
+        const dz = segment.bz - segment.az;
+        const otherLength = Math.hypot(dx, dz);
+        if (otherLength < 1e-3) return;
+        // sin(angolo): sotto ~20° è una parallela o una corsia accostata, non
+        // un incrocio. Senza questo filtro Via San Rocco perdeva un lato intero.
+        const cross = Math.abs(tx * dz - tz * dx) / (walkLength * otherLength);
+        if (cross < 0.35) return;
+        blocked = true;
+      });
+      return blocked;
+    };
     // il cordolo parte dal bordo dell'asfalto e occupa 22 cm; il marciapiede
     // inizia dove finisce il cordolo, così nessuno dei due copre l'altro
     const curbWidth = ROAD_PROFILE.curbWidth;
@@ -1753,7 +1833,7 @@ export function buildRoads(
       // cordolo: fascia chiara in cima al rialzo. Si interrompe all'incrocio
       // (prima ci passava sopra, disegnando una striscia grigia di traverso).
       const curbLine = offsetPolyline(pts, side * (road.width / 2 + curbWidth / 2));
-      pushRuns(kerb, curbLine, curbWidth, curbTop, curbColor, surface, onJunction, inTown);
+      pushRuns(kerb, curbLine, curbWidth, curbTop, curbColor, surface, onJunction, inTown, SIDEWALK_GAP);
       // faccia verticale del cordolo, a filo dell'asfalto
       pushCurbWall(
         kerb,
@@ -1765,10 +1845,11 @@ export function buildRoads(
         surface,
         onJunction,
         inTown,
+        SIDEWALK_GAP,
       );
       // marciapiede accostato al cordolo, interrotto agli incroci veri
       const walkLine = offsetPolyline(pts, side * (road.width / 2 + curbWidth + walkWidth / 2));
-      pushRuns(walkway, walkLine, walkWidth, walkLift, pavementColor, surface, blockedWalk, inTown);
+      pushRuns(walkway, walkLine, walkWidth, walkLift, pavementColor, surface, blockedWalk, inTown, SIDEWALK_GAP);
       // bordo esterno del marciapiede: chiude il nastro sul lato verso il prato
       pushCurbWall(
         kerb,
@@ -1780,6 +1861,7 @@ export function buildRoads(
         surface,
         blockedWalk,
         inTown,
+        SIDEWALK_GAP,
       );
     }
 

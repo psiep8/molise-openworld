@@ -12,6 +12,14 @@ export interface QualityPreset {
   msaaSamples: number;
   postAA: boolean;
   sharpen: number;
+  /** TAA (high/ultra) */
+  taa: boolean;
+  /** ombre a cascata (high/ultra) */
+  csm: boolean;
+  csmCascades: number;
+  csmShadowMapSize: number;
+  /** intensità LUT 0…1 */
+  grade: number;
   shadowMapSize: number;
   shadows: boolean;
   post: boolean;
@@ -164,6 +172,21 @@ export function applyQualityOverrides(
       case 'ssao':
         next.ssao = on(rawValue);
         break;
+      case 'taa':
+        next.taa = on(rawValue);
+        break;
+      case 'csm':
+        next.csm = on(rawValue);
+        break;
+      case 'grade':
+        if (Number.isFinite(value)) next.grade = Math.max(0, Math.min(1, value));
+        break;
+      case 'csmCascades':
+        if (Number.isFinite(value)) next.csmCascades = Math.max(1, Math.min(4, Math.round(value)));
+        break;
+      case 'csmShadow':
+        if (Number.isFinite(value)) next.csmShadowMapSize = Math.max(256, Math.round(value));
+        break;
       case 'post':
         next.post = on(rawValue);
         break;
@@ -211,6 +234,11 @@ export interface GpuProfile {
 export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
   potato: {
     level: 'potato',
+    taa: false,
+    csm: false,
+    csmCascades: 2,
+    csmShadowMapSize: 1024,
+    grade: 0,
     label: 'Potato',
     hint: 'Hardware fragile: disattiva quasi tutto per mantenere il gioco giocabile',
     pixelRatio: 0.5,
@@ -254,6 +282,11 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
    */
   minimal: {
     level: 'minimal',
+    taa: false,
+    csm: false,
+    csmCascades: 2,
+    csmShadowMapSize: 1024,
+    grade: 0,
     label: 'Compatibilità',
     hint: 'Compatibilità estrema: massimo FPS (60 fps target) su qualsiasi GPU, anche 128 MB VRAM condivisa',
     pixelRatio: 0.75,
@@ -294,6 +327,11 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
   /** Low preset: portatili e GPU integrate recenti. */
   low: {
     level: 'low',
+    taa: false,
+    csm: false,
+    csmCascades: 2,
+    csmShadowMapSize: 1024,
+    grade: 0,
     label: 'Bassa',
     hint: 'Portatili e GPU integrate recenti: vegetazione minima, ombre leggere, nessun post-processing',
     pixelRatio: 0.75,
@@ -332,6 +370,11 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
   },
   medium: {
     level: 'medium',
+    taa: false,
+    csm: false,
+    csmCascades: 2,
+    csmShadowMapSize: 1024,
+    grade: 0.45,
     label: 'Media',
     hint: 'PC con GPU dedicata di fascia bassa o iGPU potenti',
     pixelRatio: 1,
@@ -370,6 +413,11 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
   },
   high: {
     level: 'high',
+    taa: true,
+    csm: true,
+    csmCascades: 2,
+    csmShadowMapSize: 1024,
+    grade: 0.62,
     label: 'Alta',
     hint: 'GPU dedicate recenti: bloom, SSAO, ombre degli alberi e mondo pieno',
     pixelRatio: 1.2,
@@ -408,6 +456,11 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
   },
   ultra: {
     level: 'ultra',
+    taa: true,
+    csm: true,
+    csmCascades: 3,
+    csmShadowMapSize: 2048,
+    grade: 0.72,
     label: 'Ultra',
     hint: 'Il massimo: ogni albero, ogni ciuffo, ombre 4K e post-processing completo',
     pixelRatio: 1.4,

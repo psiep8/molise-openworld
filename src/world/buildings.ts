@@ -21,6 +21,18 @@ const STONE_COLORS = [0xd9cdba, 0xcfc2ad, 0xe0d5c2, 0xc8bda9, 0xd4c9b6];
 const BRICK_COLORS = [0xd8bda4, 0xcdb198, 0xe0c6ae, 0xc6a98f];
 
 /**
+ * Palette dello stile OSM2World custom di Palata: intonaco caldo, telai scuri,
+ * coppi caldi. I dettagli (finestre, cornici, balconi) restano quelli 3D del
+ * generatore, che sono più ricchi della texture dipinta dello spike.
+ */
+const MOLISE_WALL_COLORS = [0xd8b184, 0xd0a97a, 0xe0bd95, 0xc9a170];
+const MOLISE_ROOF_COLORS = [0xe2b29b, 0xd9a58c, 0xecc4ae, 0xd59f86];
+const MOLISE_STONE = 0xc9b18a;
+const MOLISE_FRAME = 0x4a2f1e;
+const MOLISE_SHUTTER = 0x4a2f1e;
+const MOLISE_DOOR = 0x3a2316;
+
+/**
  * Famiglie di facciata. Il Molise vero alterna intonaco tinteggiato, pietra a
  * vista nel centro storico e qualche casa in mattoni: senza questa varietà due
  * case vicine sembrano lo stesso prefabbricato.
@@ -35,8 +47,13 @@ type FacadeFamily = 'plaster' | 'plaster2' | 'stone' | 'brick';
  */
 export type BuildingDetail = 'full' | 'simple';
 
+/** Palette delle facciate: `molise` è lo stile custom dello spike OSM2World. */
+export type BuildingPalette = 'default' | 'molise';
+
 export interface BuildingOptions {
   detail?: BuildingDetail;
+  /** `molise`: intonaco caldo e telai scuri, solo per gli edifici locali. */
+  palette?: BuildingPalette;
   /**
    * Indice stradale: serve a capire quale facciata guarda la strada. Senza,
    * il lato più lungo fa da facciata principale (vale per quasi tutte le case
@@ -497,8 +514,10 @@ function buildOne(
   detail: BuildingDetail = 'full',
   roads?: RoadIndex,
   sharedEdges?: readonly boolean[],
+  palette: BuildingPalette = 'default',
 ): BuildingParts {
   const simple = detail === 'simple';
+  const molise = palette === 'molise';
   // lati condivisi con la casa attaccata: lì non ci sono finestre, portone,
   // sporto di gronda né pluviali
   const party = sharedEdges && sharedEdges.length === b.points.length ? sharedEdges : null;
@@ -564,10 +583,21 @@ function buildOne(
     roof.translate(0, roofTop, 0);
   }
 
-  const family = facadeFamily(b.area, seed);
-  const palette = family === 'stone' ? STONE_COLORS : family === 'brick' ? BRICK_COLORS : WALL_COLORS;
-  const wallColor = new THREE.Color(palette[hashInt(seed, 3) % palette.length]);
-  const roofColor = new THREE.Color(ROOF_COLORS[hashInt(seed, 11) % ROOF_COLORS.length]);
+  const family = molise
+    ? hashInt(seed, 41) % 2 === 0
+      ? 'plaster'
+      : 'plaster2'
+    : facadeFamily(b.area, seed);
+  const wallPalette = molise
+    ? MOLISE_WALL_COLORS
+    : family === 'stone'
+      ? STONE_COLORS
+      : family === 'brick'
+        ? BRICK_COLORS
+        : WALL_COLORS;
+  const wallColor = new THREE.Color(wallPalette[hashInt(seed, 3) % wallPalette.length]);
+  const roofPalette = molise ? MOLISE_ROOF_COLORS : ROOF_COLORS;
+  const roofColor = new THREE.Color(roofPalette[hashInt(seed, 11) % roofPalette.length]);
   const shade = 0.92 + (hashInt(seed, 5) % 100) / 700;
   wallColor.multiplyScalar(shade);
   roofColor.multiplyScalar(shade);
@@ -597,7 +627,7 @@ function buildOne(
   // ---------------------------------------------------------------------------
   const trim: THREE.BufferGeometry[] = [];
   const glass: THREE.BufferGeometry[] = [];
-  const stone = new THREE.Color(0xe9e1cf).multiplyScalar(0.94 + (hashInt(seed, 7) % 60) / 500);
+  const stone = new THREE.Color(molise ? MOLISE_STONE : 0xe9e1cf).multiplyScalar(0.94 + (hashInt(seed, 7) % 60) / 500);
   const eaveY = topY + 0.04;
 
   // cornicione sotto la gronda: 24 cm di aggetto costante, quello che disegna
@@ -702,7 +732,7 @@ function buildOne(
         dx - edge.nx * 0.05,
         doorBottom + doorH / 2,
         dz - edge.nz * 0.05,
-        new THREE.Color(0x4a3323),
+        new THREE.Color(molise ? MOLISE_DOOR : 0x4a3323),
         edge.angle,
       ),
     );
@@ -757,9 +787,9 @@ function buildOne(
   const hasBalcony = !simple && b.area > 85 && ground.balconyY !== null && hashInt(seed, 37) % 3 < 2;
   if (b.area >= 20 && b.height >= 2.6 && b.points.length <= 14) {
     const shutters = hashInt(seed, 41) % 10 < 7
-      ? new THREE.Color([0x4c5d49, 0x5a4635, 0x67706e, 0x3f4a3d][hashInt(seed, 43) % 4]!)
+      ? new THREE.Color(molise ? MOLISE_SHUTTER : [0x4c5d49, 0x5a4635, 0x67706e, 0x3f4a3d][hashInt(seed, 43) % 4]!)
       : null;
-    const frame = stone.clone().multiplyScalar(1.02);
+    const frame = molise ? new THREE.Color(MOLISE_FRAME) : stone.clone().multiplyScalar(1.02);
     const floors = ground.stories;
     const floorH = ground.floorH;
     const winW = 0.95;
@@ -867,6 +897,7 @@ export function buildBuildings(
   options: BuildingOptions = {},
 ): { group: THREE.Group; count: number } {
   const detail = options.detail ?? 'full';
+  const palette = options.palette ?? 'default';
   const group = new THREE.Group();
   group.name = 'buildings';
   const walls: THREE.BufferGeometry[] = [];
@@ -891,7 +922,7 @@ export function buildBuildings(
     if (b.points.length < 3 || b.area < 6) return;
     const seed = i * 31 + Math.round(b.height * 10);
     try {
-      const out = buildOne(b, heights, seed, detail, options.roads, sharedEdges[i]);
+      const out = buildOne(b, heights, seed, detail, options.roads, sharedEdges[i], palette);
       walls.push(out.wall);
       wallsByFamily[out.family].push(out.wall);
       roofs.push(out.roof);

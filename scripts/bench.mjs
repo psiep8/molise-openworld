@@ -13,7 +13,7 @@
  */
 import { spawn } from 'node:child_process';
 import { mkdir, writeFile, rm } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { PNG } from 'pngjs';
@@ -21,6 +21,26 @@ import { PNG } from 'pngjs';
 const ROOT = path.resolve(import.meta.dirname, '..');
 const PORT = Number(process.env.BENCH_PORT ?? 9231);
 const IS_WSL = existsSync('/mnt/c/Windows');
+
+/** IP dell'host Windows visto dal WSL2 (default gateway della route). */
+function windowsHostIp() {
+  try {
+    const line = readFileSync('/proc/net/route', 'utf8')
+      .split('\n')
+      .slice(1)
+      .find((row) => row.trim());
+    if (!line) return '127.0.0.1';
+    const hex = line.trim().split(/\s+/)[2];
+    if (!hex || hex === '00000000') return '127.0.0.1';
+    return [6, 4, 2, 0].map((i) => parseInt(hex.slice(i, i + 2), 16)).join('.');
+  } catch {
+    return '127.0.0.1';
+  }
+}
+
+/** Il browser gira su Windows: dal WSL il suo loopback non è raggiungibile. */
+const CDP_HOST = process.env.BENCH_CDP_HOST ?? (IS_WSL ? windowsHostIp() : '127.0.0.1');
+const CDP_BASE = `http://${CDP_HOST}:${PORT}`;
 /**
  * Chromium installati sulla macchina. Brave ed Edge vanno benissimo: sono
  * Chromium e usano lo stesso CDP. Su WSL i percorsi Windows si raggiungono
@@ -40,11 +60,14 @@ const CHROME =
   process.env.CHROME_PATH ??
   BROWSER_CANDIDATES.find((p) => existsSync(p)) ??
   (process.platform === 'win32' ? 'chrome.exe' : 'google-chrome');
+// Profilo usa-e-getta: un profilo condiviso resta locked dai processi Brave
+// figli anche dopo il kill del padre, e il run successivo non riesce a pulirlo.
+const PROFILE_ID = `molise-bench-${process.pid}-${Date.now()}`;
 const PROFILE_WSL = IS_WSL
-  ? '/mnt/c/Users/peppa/AppData/Local/Temp/opencode/molise-bench-profile'
-  : path.join(os.tmpdir(), 'opencode', 'molise-bench-profile');
+  ? `/mnt/c/Users/peppa/AppData/Local/Temp/opencode/${PROFILE_ID}`
+  : path.join(os.tmpdir(), 'opencode', PROFILE_ID);
 const PROFILE_ARG = IS_WSL
-  ? 'C:/Users/peppa/AppData/Local/Temp/opencode/molise-bench-profile'
+  ? `C:/Users/peppa/AppData/Local/Temp/opencode/${PROFILE_ID}`
   : PROFILE_WSL;
 
 function arg(name, fallback) {
@@ -104,7 +127,7 @@ class CDP {
 async function waitForChrome() {
   for (let i = 0; i < 120; i++) {
     try {
-      const res = await fetch(`http://127.0.0.1:${PORT}/json/version`);
+      const res = await fetch(`${CDP_BASE}/json/version`, { signal: AbortSignal.timeout(1000) });
       if (res.ok) return res.json();
     } catch {
       /* non ancora pronto */
@@ -115,9 +138,18 @@ async function waitForChrome() {
 }
 
 async function newTarget(url) {
-  const res = await fetch(`http://127.0.0.1:${PORT}/json/new?${encodeURIComponent(url)}`, { method: 'PUT' });
+  const res = await fetch(`${CDP_BASE}/json/new?${encodeURIComponent(url)}`, {
+    method: 'PUT',
+    signal: AbortSignal.timeout(5000),
+  });
   if (!res.ok) throw new Error(`creazione target: HTTP ${res.status}`);
-  return res.json();
+  const target = await res.json();
+  // Chrome risponde con il proprio loopback: dal WSL va riscritto sull'host.
+  target.webSocketDebuggerUrl = String(target.webSocketDebuggerUrl).replace(
+    /^ws:\/\/(127\.0\.0\.1|localhost)/,
+    `ws://${CDP_HOST}`,
+  );
+  return target;
 }
 
 async function connect(target) {
@@ -162,6 +194,7 @@ async function main() {
   await mkdir(OUT, { recursive: true });
   await rm(PROFILE_WSL, { recursive: true, force: true });
   log(`browser: ${CHROME}`);
+  log(`CDP: ${CDP_BASE}`);
 
   const chrome = spawn(
     CHROME,
@@ -170,6 +203,7 @@ async function main() {
       // GPU vera: niente SwiftShader, niente --disable-gpu
       '--use-angle=d3d11',
       '--ignore-gpu-blocklist',
+      '--remote-debugging-address=0.0.0.0',
       '--enable-gpu',
       '--no-first-run',
       '--no-default-browser-check',

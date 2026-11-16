@@ -491,6 +491,9 @@ function processOsm(json) {
       const c = wayCoords(el);
       if (!c || c.length < 2) continue;
       const road = { t: tags.highway, n: tags.name, c };
+      // `area=yes` (piazze, slarghi) resta un way chiuso: il runtime lo
+      // distingue da una strada e lo riempie come superficie pedonale.
+      if (tagBool(tags.area) || tags.place === 'square') road.a = 1;
       const bridge = tagBool(tags.bridge) || tags.man_made === 'bridge';
       const tunnel = tagBool(tags.tunnel) || tags.covered === 'yes' || tags.man_made === 'tunnel';
       if (bridge) {

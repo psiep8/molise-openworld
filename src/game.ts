@@ -57,6 +57,7 @@ import {
   setSignGlow,
 } from './world/street-furniture';
 import { buildChurchPiazza } from './world/piazza';
+import { buildSquares } from './world/squares';
 import type { PavedArea } from './world/paved';
 import { ScatterVegetation } from './world/scatter';
 import { buildCityProps } from './world/city-props';
@@ -78,6 +79,7 @@ import { buildBridgeKit } from './world/bridge-kit';
 import { CarLibrary } from './world/car-library';
 import type { SurfaceWeather } from './sim/surfaces';
 import { DEFAULT_LIGHTING, DEFAULT_SKY, DEFAULT_SUN, createSky, type SkyRig } from './world/sky';
+import { CascadeShadows } from './gfx/csm';
 import { CloudLayer } from './world/clouds';
 import { Precipitation } from './world/precipitation';
 import { GroundMist } from './world/mist';
@@ -567,6 +569,8 @@ export class Game {
   private gpuName = '';
   // --- banco prova (`?bench=1`): pose fisse e misurazioni riproducibili ----
   private bench = false;
+  /** banco auto-reporting: misura le tre pose e invia il JSON al collector */
+  private benchAuto = false;
   /** sonda A/B del banco: forza `landcover` senza cambiare preset */
   private lcOverride: 'off' | 'base' | 'full' | null = null;
   private benchViewIndex = -1;
@@ -579,6 +583,8 @@ export class Game {
     tris: number[];
   } | null = null;
   private post?: PostPipeline;
+  private cascades: CascadeShadows | null = null;
+  private lastCascadesRefresh = 0;
   private renderScale = 1;
   private lastQualityCheck = 0;
   /**
@@ -756,6 +762,7 @@ export class Game {
   private readonly tmp1 = new THREE.Vector3();
   private readonly tmp2 = new THREE.Vector3();
   private readonly tmp3 = new THREE.Vector3();
+  private readonly abOverride: string | null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -770,10 +777,12 @@ export class Game {
     // degradazione adattiva, pose fisse. Non cambia il rendering.
     const params = new URLSearchParams(window.location.search);
     this.bench = params.get('bench') === '1';
+    this.benchAuto = this.bench && params.get('auto') === '1';
     // `?ab=chiave:valore,…`: override di una singola variabile per la matrice
     // A/B di Alta vs Ultra (vedi `docs/quality-ab.md`). Va letto prima del
     // renderer, perché pixelRatio/antialias si applicano alla creazione.
     const ab = params.get('ab');
+    this.abOverride = ab;
     if (ab) this.quality = applyQualityOverrides(this.quality, ab);
     const hourParam = params.get('hour');
     if (hourParam !== null) {
@@ -798,6 +807,19 @@ export class Game {
       powerPreference: 'high-performance',
     });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    // Se TAA/CSM/LUT non compilano, il banco deve dirlo invece di misurare
+    // semplicemente un frame nero. Il log del driver è più utile del solo
+    // "errore": su Adreno il messaggio dice quale define/uniform manca.
+    this.renderer.debug.onShaderError = (gl, program, vertexShader, fragmentShader) => {
+      const info = (shader: WebGLShader | null): string =>
+        shader ? (gl.getShaderInfoLog(shader) ?? '').trim().replace(/\s+/g, ' ') : '';
+      const details = [
+        info(vertexShader),
+        info(fragmentShader),
+        (gl.getProgramInfoLog(program) ?? '').trim().replace(/\s+/g, ' '),
+      ].filter(Boolean);
+      this.errors.push(`shader: ${details.join(' | ').slice(0, 700) || 'errore di compilazione o link'}`);
+    };
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     // 0,72: con l'esposizione precedente (0,88) le facciate chiare e l'asfalto
@@ -873,6 +895,7 @@ export class Game {
 
   async init(): Promise<void> {
     try {
+      if (this.benchAuto) void this.postBenchStatus('init');
       const base = `${import.meta.env.BASE_URL}geo/`;
       this.hud.setLoading(0.03, 'Leggo la mappa del Molise…');
       // il kit si carica in parallelo alla mappa: se i file mancano (licenza non
@@ -962,13 +985,18 @@ export class Game {
           enabled: this.quality.streamedWorld,
         });
       }
-      this.ground = new WorldGround(heights, this.roadIndexes);
+      this.ground = new WorldGround(heights, this.roadIndexes, this.pavedAreas);
       this.roadGraph = buildRoadGraph(osm.roads);
       this.ensureHome();
       this.populateVehicles();
       const streets = buildRoads(osm, heights, this.renderer, this.roadIndex, this.buildingIndex, this.kit);
       this.roadsGroup = streets.group;
       this.scene.add(this.roadsGroup);
+      // le piazze OSM sono superfici, non strade: vanno riempite e registrate
+      // prima della maschera antierba, così il centro non resta un prato.
+      const squares = buildSquares(osm, heights, this.kit);
+      this.scene.add(squares.group);
+      this.pavedAreas.push(...squares.paved);
       // il pool di luci puntiformi costa un ciclo di illuminazione per fragment:
       // due lampioni accesi bastano a leggere la notte, sette no su una iGPU
       this.streetLights = new StreetLights(
@@ -1146,11 +1174,16 @@ export class Game {
       this.scene.add(buildPowerLines(osm, heights, this.roadIndex, this.buildingIndex));
 
       this.hud.setLoading(0.5, 'Costruisco le case…');
+      // Stile OSM2World custom di Palata: palette calda sui dettagli 3D che il
+      // generatore ha già. `?facade=default` riporta allo stile classico.
+      const facadeStyle =
+        new URLSearchParams(window.location.search).get('facade') === 'default' ? 'default' : 'molise';
       await nextFrameOrTimeout();
       this.scene.add(
         buildBuildings(osm, heights, this.renderer, {
           detail: this.quality.buildingDetail,
           roads: this.roadIndex,
+          palette: facadeStyle,
         }).group,
       );
 
@@ -1217,6 +1250,7 @@ export class Game {
       this.hud.setLoading(0.72, 'Alzo il cielo…');
       await nextFrameOrTimeout();
       this.sky = createSky(this.scene);
+      this.syncCascades();
       this.clouds = new CloudLayer();
       this.scene.add(this.clouds.mesh);
       this.precipitation = new Precipitation(this.qualityLevel);
@@ -1370,7 +1404,19 @@ export class Game {
         document.getElementById('hud')?.classList.add('hidden');
         document.getElementById('attribution')?.classList.add('hidden');
         this.running = true;
-        void this.benchView(0);
+        // Solo banco: la pagina resta caricata e si cambia posa da fuori.
+        (window as unknown as { __moliseBenchView?: (index: number) => Promise<unknown> }).__moliseBenchView =
+          (index) => this.benchView(index);
+        (window as unknown as { __moliseBenchCam?: (h: number, pitch: number, yaw?: number) => void }).__moliseBenchCam =
+          (h, pitch, yaw) => {
+            const ground = this.ground.heightAt(this.camera.position.x, this.camera.position.z);
+            this.camera.position.y = ground + h;
+            this.camera.rotation.x = pitch;
+            if (Number.isFinite(yaw)) this.camera.rotation.y = yaw!;
+            this.camera.updateMatrixWorld();
+          };
+        if (this.benchAuto) void this.runAutoBench();
+        else void this.benchView(0);
         return;
       }
 
@@ -1389,6 +1435,7 @@ export class Game {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.errors.push(message);
+      if (this.benchAuto) void this.postBenchStatus('fatal', { message });
       this.hud.showFatal(`Impossibile caricare il mondo.\n\n${message}\n\nSe mancano i file geo: esegui "npm run geo".`);
     }
   }
@@ -3296,6 +3343,9 @@ export class Game {
         landcoverRadius: this.lcOverride === 'full' ? this.quality.landcoverRadius : 0,
       };
     }
+    // Gli override ?ab= devono sopravvivere ai cambi di preset: applyQuality
+    // riparte dal preset pulito e altrimenti li cancellerebbe.
+    if (this.abOverride) this.quality = applyQualityOverrides(this.quality, this.abOverride);
     saveQuality(level);
     this.renderScale = 1;
     // cambiare preset a mano azzera la degradazione automatica: l'utente ha
@@ -3312,8 +3362,13 @@ export class Game {
     this.setShadows(this.quality.shadows);
     this.applyRenderScale();
     this.sky?.setShadowMapSize(this.quality.shadowMapSize);
+    this.syncCascades();
     this.terrain?.setLandcoverPreset(this.quality.landcover, this.quality.landcoverRadius);
     this.streamedWorld?.setEnabled(this.quality.streamedWorld);
+    if (this.post && previous.taa !== this.quality.taa) {
+      this.post.dispose();
+      this.post = undefined;
+    }
     if (this.quality.post || this.quality.postAA) {
       // l'SSAO è un pass in più: se il preset lo chiede e la pipeline creata
       // prima non ce l'ha (si è passati da `media` a `alta` in gioco), va
@@ -3328,6 +3383,8 @@ export class Game {
       post.setBloom(this.quality.post ? this.quality.bloom : 0);
       post.setSSAO(this.quality.post && this.quality.ssao && !this.stereo);
       post.setSharpen(this.quality.sharpen);
+      post.setGrade(this.quality.grade);
+      post.setGradeAtHour((this.gameMinutes / 60) % 24);
     } else {
       this.post?.setEnabled(false);
       this.post?.setSSAO(false);
@@ -3338,8 +3395,14 @@ export class Game {
       this.terrain.update(focus.x, focus.z, this.viewRadius, true);
     }
     if (announce) {
-      const aa = this.quality.msaaSamples > 0 ? ` · MSAA ${this.quality.msaaSamples}x + SMAA` : '';
-      const fx = `${aa}${this.quality.post ? ` · bloom${this.quality.ssao ? ' + SSAO' : ''}` : ''}`;
+      const aa = this.quality.taa
+        ? ' · TAA'
+        : this.quality.msaaSamples > 0
+          ? ` · MSAA ${this.quality.msaaSamples}x + SMAA`
+          : '';
+      const fx = `${aa}${this.quality.post ? ` · bloom${this.quality.ssao ? ' + SSAO' : ''}` : ''}` +
+        `${this.quality.csm ? ` · CSM ${this.quality.csmCascades}` : ''}` +
+        `${this.quality.grade > 0 ? ' · LUT' : ''}`;
       // alberi e cespugli si ricostruiscono davvero a runtime: niente più
       // "al prossimo avvio"
       this.hud.toast(
@@ -3365,13 +3428,48 @@ export class Game {
    */
   private makePost(): PostPipeline {
     const post = new PostPipeline(this.renderer, this.scene, this.camera, this.quality.bloom, {
-      samples: this.quality.msaaSamples,
+      samples: this.quality.taa ? 0 : this.quality.msaaSamples,
       sharpen: this.quality.sharpen,
       ssao: this.quality.ssao,
+      taa: this.quality.taa,
+      grade: this.quality.grade,
     });
     post.setPixelRatio(Math.max(this.quality.renderScaleFloor, this.basePixelRatio() * this.renderScale));
     post.setSize(window.innerWidth, window.innerHeight);
+    post.setGradeAtHour((this.gameMinutes / 60) % 24);
     return post;
+  }
+
+  /**
+   * Crea/aggiorna le ombre a cascata. Se il preset non le chiede, il sole
+   * singolo torna a fare le ombre; se la creazione fallisce, si resta sul
+   * percorso classico senza interrompere il gioco.
+   */
+  private syncCascades(): void {
+    if (!this.sky) return;
+    if (this.quality.csm && !this.cascades) {
+      try {
+        this.cascades = new CascadeShadows(this.scene, this.camera, this.sky.sunLight, {
+          cascades: Math.max(2, this.quality.csmCascades),
+          shadowMapSize: this.quality.csmShadowMapSize,
+          maxFar: this.quality.csmCascades >= 3 ? 900 : 620,
+          lightFar: 1600,
+          lightMargin: 120,
+        });
+      } catch (error) {
+        console.warn("CSM non disponibile: restano le ombre singole", error);
+        this.cascades = null;
+      }
+    }
+    this.cascades?.setEnabled(this.quality.csm);
+    if (this.cascades?.isActive) {
+      this.sky.sunLight.visible = false;
+      this.sky.sunLight.castShadow = false;
+    } else {
+      // CSM spento: il sole singolo deve riprendere a proiettare, altrimenti
+      // dopo un high -> medium restano le ombre disattivate per sempre.
+      this.sky.setShadows(this.quality.shadows);
+    }
   }
 
   /** Crea la pipeline di post-processing alla prima richiesta. */
@@ -3388,11 +3486,19 @@ export class Game {
   private setShadows(enabled: boolean): void {
     if (this.renderer.shadowMap.enabled === enabled) {
       this.sky?.setShadows(enabled);
+      if (this.cascades?.isActive) {
+        this.sky.sunLight.visible = false;
+        this.sky.sunLight.castShadow = false;
+      }
       return;
     }
     this.renderer.shadowMap.enabled = enabled;
     this.renderer.shadowMap.needsUpdate = true;
     this.sky?.setShadows(enabled);
+    if (this.cascades?.isActive) {
+      this.sky.sunLight.visible = false;
+      this.sky.sunLight.castShadow = false;
+    }
     this.scene.traverse((object) => {
       const material = (object as THREE.Mesh).material;
       const list = Array.isArray(material) ? material : material ? [material] : [];
@@ -3735,6 +3841,7 @@ export class Game {
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.cascades?.updateFrustums();
     this.post?.setPixelRatio(Math.max(this.quality.renderScaleFloor, this.basePixelRatio() * this.renderScale));
     this.post?.setSize(w, h);
   };
@@ -4036,6 +4143,15 @@ export class Game {
         this.lastEnvironment = this.scene.environment;
         this.car.setEnvironment(this.scene.environment);
       }
+      if (this.cascades?.isActive) {
+        this.cascades.update(this.sky.sunDirection, this.sky.sunLight.color, this.sky.sunLight.intensity);
+        const now = performance.now();
+        if (now - this.lastCascadesRefresh > 1000) {
+          this.lastCascadesRefresh = now;
+          this.cascades.refresh();
+        }
+      }
+      this.post?.setGradeAtHour((this.gameMinutes / 60) % 24);
     }
     if (this.stereo) this.renderStereo();
     else if (this.post) this.post.render(dt);
@@ -4333,6 +4449,110 @@ export class Game {
       quality: this.qualityLevel,
       renderScale: this.renderScale,
     };
+  }
+
+  /**
+   * Banco auto-reporting: tre pose, misura e POST a /__bench.
+   * Non cambia il rendering; serve a misurare da un browser headless che non
+   * può essere pilotato via CDP (Windows→WSL) o a mano.
+   */
+  /** Stato del banco verso il collector: serve quando il CDP non è disponibile. */
+  private async postBenchStatus(stage: string, extra: Record<string, unknown> = {}): Promise<void> {
+    try {
+      await fetch('/__status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stage, at: performance.now(), ...extra }),
+      });
+    } catch {
+      // il banco resta silenzioso: non è un errore del gioco
+    }
+  }
+
+  private async runAutoBench(): Promise<void> {
+    await this.postBenchStatus('bench-start');
+    const params = new URLSearchParams(window.location.search);
+    const seconds = Math.max(3, Number(params.get('seconds') ?? 12) || 12);
+    const summary: {
+      generatedAt: string;
+      quality: QualityLevel;
+      gpu: string;
+      viewport: { width: number; height: number };
+      results: BenchResult[];
+      errors: string[];
+    } = {
+      generatedAt: new Date().toISOString(),
+      quality: this.qualityLevel,
+      gpu: this.gpuName,
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      results: [],
+      errors: this.errors,
+    };
+
+    for (let index = 0; index < BENCH_VIEWS.length; index++) {
+      await this.postBenchStatus('view', { index });
+      const info = await this.benchView(index);
+      if (!info) continue;
+      await this.postBenchStatus('view-ready', { index, id: info.id });
+      await this.waitForBenchReady();
+      await this.postBenchStatus('settled', { index, chunks: this.terrain?.loadedChunks ?? 0 });
+      this.benchStart(seconds);
+      await this.postBenchStatus('measuring', { index, seconds });
+      const result = await new Promise<BenchResult | null>((resolve) => {
+        const startedAt = performance.now();
+        const poll = (): void => {
+          const current = this.benchResult();
+          if (current) {
+            resolve(current);
+            return;
+          }
+          if (performance.now() - startedAt > (seconds + 25) * 1000) {
+            resolve(null);
+            return;
+          }
+          window.setTimeout(poll, 250);
+        };
+        poll();
+      });
+      if (result) {
+        summary.results.push(result);
+        await this.postBenchStatus('measured', { index, fps: result.fpsAvg });
+      } else {
+        await this.postBenchStatus('timeout', { index });
+      }
+    }
+
+    (window as unknown as { __moliseBench?: typeof summary }).__moliseBench = summary;
+    await this.postBenchStatus('done', { fps: summary.results.map((r) => r.fpsAvg) });
+    document.title = `BENCH DONE ${summary.results.map((r) => r.fpsAvg.toFixed(1)).join(' / ')}`;
+    try {
+      await fetch('/__bench', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(summary),
+      });
+    } catch {
+      // il risultato resta in window.__moliseBench per una lettura manuale
+    }
+  }
+
+  /** Aspetta che i chunk della posa siano stabili e la copertura locale cotta. */
+  private async waitForBenchReady(): Promise<void> {
+    let stable = 0;
+    let lastChunks = -1;
+    for (let i = 0; i < 240; i++) {
+      const chunks = this.terrain?.loadedChunks ?? 0;
+      const covered = this.terrain?.coveredChunks ?? 0;
+      const pending = this.terrain?.landcoverStats?.pending ?? this.landcover?.stats().pending ?? 0;
+      if (chunks > 0 && covered >= chunks && pending === 0 && chunks === lastChunks) {
+        stable++;
+      } else {
+        stable = 0;
+      }
+      lastChunks = chunks;
+      if (stable >= 6) return;
+      await new Promise((resolve) => window.setTimeout(resolve, 500));
+    }
   }
 
   private collectBenchFrame(perfDt: number): void {

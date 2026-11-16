@@ -56,6 +56,8 @@ interface RawOsm {
     ms?: number;
     wd?: number;
     r?: string;
+    /** area=yes / place=square: il way è una superficie, non una polilinea */
+    a?: 1;
   }[];
   buildings: { h: number; c: [number, number][] }[];
   areas: { k: string; c: [number, number][] }[];
@@ -194,8 +196,10 @@ export function markTownSidewalks(roads: Road[], buildings: BuildingIndex): void
     });
 
     // Un marciapiede non nasce e muore a ogni casa: si allarga di un punto e
-    // si chiudono le buche di uno o due punti, così il nastro resta continuo
-    // lungo la via del paese invece di spezzarsi in frammenti.
+    // si chiudono le buche brevi, così il nastro resta continuo lungo la via
+    // del paese invece di spezzarsi in frammenti. La chiusura si misura in
+    // metri, non in numero di punti: nei dati OSM il passo varia da 2 a 15 m
+    // e il vecchio limite di tre indici lasciava aperture di decine di metri.
     const spans = covered.slice();
     const spacing = (i: number): number =>
       i <= 0 || i >= road.points.length
@@ -212,10 +216,16 @@ export function markTownSidewalks(roads: Road[], buildings: BuildingIndex): void
       if (i > 0 && spacing(i) <= 18) spans[i - 1] = true;
       if (i + 1 < spans.length && spacing(i + 1) <= 18) spans[i + 1] = true;
     }
+    const distance: number[] = [0];
+    for (let i = 1; i < road.points.length; i++) {
+      distance.push(distance[i - 1]! + spacing(i));
+    }
     let last = -1;
     for (let i = 0; i < spans.length; i++) {
       if (spans[i]) {
-        if (last >= 0 && i - last <= 3) for (let j = last + 1; j < i; j++) spans[j] = true;
+        if (last >= 0 && distance[i]! - distance[last]! <= 35) {
+          for (let j = last + 1; j < i; j++) spans[j] = true;
+        }
         last = i;
       }
     }
@@ -254,6 +264,13 @@ export interface Area {
   bounds: Bounds;
 }
 
+/** Piazza mappata come way chiuso (`highway=residential` + `area=yes`). */
+export interface Square {
+  name: string;
+  points: Pt[];
+  bounds: Bounds;
+}
+
 export interface Waterway {
   type: string;
   points: Pt[];
@@ -272,6 +289,8 @@ export interface OsmData {
   roads: Road[];
   buildings: Building[];
   areas: Area[];
+  /** Piazze/poligoni pedonali: non sono strade, vanno riempiti come superfici. */
+  squares?: Square[];
   waterways: Waterway[];
 }
 
@@ -395,7 +414,30 @@ export async function loadOsm(base = './geo/'): Promise<OsmData> {
   const raw = (await res.json()) as RawOsm;
 
   const roads: Road[] = [];
+  const squares: Square[] = [];
   for (const r of raw.roads) {
+    const projected = project(r.c);
+    // I way `area=yes`/`place=square` di Overpass arrivano come highway con
+    // il ring chiuso. Se non li separiamo, `buildRoads` disegna un nastro
+    // d'asfalto lungo il perimetro e lascia l'erba dentro la piazza.
+    // Il nome è il ripiego per i dati già generati prima del campo `a`.
+    const closed =
+      projected.length >= 4 &&
+      Math.hypot(
+        projected[0]!.x - projected[projected.length - 1]!.x,
+        projected[0]!.z - projected[projected.length - 1]!.z,
+      ) < 1.5;
+    const namedSquare = /^piazza\b/i.test(r.n ?? '');
+    const squareArea = closed ? Math.abs(ringArea(projected)) : 0;
+    if ((r.a === 1 || (namedSquare && squareArea >= 60)) && closed) {
+      const points = projected.slice(0, -1);
+      squares.push({
+        name: r.n ?? 'Piazza',
+        points,
+        bounds: boundsOf(points),
+      });
+      continue;
+    }
     const surface = r.sf ?? (roadSurface(r.t) === 'asphalt' ? 'asphalt' : 'dirt');
     // Il tag `width` è più preciso della classe, ma un valore assurdo non deve
     // deformare la mappa: si accetta solo una forbice plausibile.
@@ -417,7 +459,7 @@ export async function loadOsm(base = './geo/'): Promise<OsmData> {
       maxspeed: r.ms,
       ref: r.r,
     };
-    for (const points of worldRuns(project(r.c))) {
+    for (const points of worldRuns(projected)) {
       roads.push({ ...base, points, bounds: boundsOf(points) });
     }
   }
@@ -495,6 +537,7 @@ export async function loadOsm(base = './geo/'): Promise<OsmData> {
     roads,
     buildings,
     areas,
+    squares,
     waterways,
   };
 }
